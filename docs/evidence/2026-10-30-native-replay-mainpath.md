@@ -1,0 +1,27 @@
+# 八ETF逐日原生分析窗口开发接收
+
+日期：2026-10-30。状态：401日真实开发主链已接收；最终边界、独立安装和审查由模块owner继续。需求来自模块B完整BT/RT按相同计算日比较，原QNA最新单基准窗口及已冻结制品保持。
+
+## 实现与原生能力
+
+新增逐日回放目录/API，按八证券累计因子JSON完全相同的连续日期分组，每组用原公开IRdmDtReader按组末日期读取raw/front，再按日裁切已读回值。各日重新推导basis与factor_revision，基准之后的事件不进入该日因子。复权OHLC由原Reader计算，Python只装配原值；source_revision、实际known_at及历史首次可见/修订unknown保持。辅助事实没有补造。
+
+首次沿IDataReader的主链发现纯历史分支使用缓存尾部count；指定旧etime仍取库存尾部，不适用于本次按历史截止随机读取。后继选择同DLL已有IRdmDtReader.readKlineSliceByCount，按etime定位；本次没有修改WT。原main001失败及完整收尾保留。
+
+## 真实结果与根核对
+
+main002覆盖2025-03-05至2026-10-28共同401日、13组、644808对逐日raw/analysis bars。六个首末、因子事件前后及组中间日用独立原IRdm Reader逐字段精确一致；所有401窗已实例化实际RR112 1.1.2的AnalysisWindow/AnalysisBar、FrozenHistory和CurrentHistoryView。可搬迁目录重读401窗值保持。外层153.359秒exit0、forced=false、原Job树归零、双EOF/reader join/句柄关闭完成。
+
+根另核交接13原件和目录全部84文件SHA一致，并从公开ReplayCatalog API抽取首日、第121日和末日：basis与独立factor_revision正确，分别8/968/3208条，基准当日八价格等于原价，历史时间资格保持unknown；API抽查exit0，新增来源查询0。
+
+固定交接为build/qmt-native-replay-001/MAINPATH-HANDOFF-001.json，SHA256 726220f7e9aab3bfda0e908ef4460782aa400670dae6a5b81c38ff62a3e76670；catalog为同根main002/catalog，MANIFEST SHA256 328978f0eee0d0ad1b65cab7ee5fd6073158efecab6af3d63ae580260325f6bf。最小调用见同名.md，根收据为ROOT-MAINPATH-INTAKE-001.json及ROOT-API-SMOKE-001.json。
+
+## 消费与未验范围
+
+该固定开发目录已交开发者1，供当前执行收口后完成400期BT/RT完整决策与目标比较；数据模块最终收尾并行。初期不足100日的预热继续由原核表达。数据目录可用不等于完整策略比较已完成，亦不提升为历史逐时点因果、真实账户接管或交易资格。原金额单位unknown且unused；实际接收时间是当前重建时间。旧QMT、活动采集及用户预览保持，真实QMT请求/委托/撤单/生产切换均0。
+
+## 最终模块接收
+
+开发主路径交接后，九项边界、ZIP独立消费及完整依赖身份核对均完成。根重新核最终DELIVERY的10份源码/文档与27份原件，37项全部相符；固定main002及84目录成员保持。最终独立full双轴开放P0–P3为0，报告SHA256 b762cba79e3c0b50ee956967d807b3fe28ff22cc0cb9092cb495c1d3b8190f20。独审复核401日、13组、644808配对、6独立Reader日期、85 ZIP成员及实际RR112的673 RECORD文件。最终接收见ROOT-ACCEPTANCE-001.json，最终DELIVERY SHA256 86f5d033fc3d081a1491976d4560ca59d4a7088fd0d77fa3261dcf36f919655e。
+
+外部SDK头文件未取得完整编译前清单，工具摘要为编译后观察，因此不授干净主机原生重编资格；原头224、库12与生成二进制已固定。该限制与已验数据/纯值读取及搬迁分列。最终数据模块完成，完整策略BT/RT比较继续由B消费，历史因果、辅助事实与交易资格保持原边界。

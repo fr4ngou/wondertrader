@@ -1,0 +1,31 @@
+# 正式安装App的真实09:00观察窗口
+
+类型：开发验收证据。状态：done（一次真实自然窗口、partial发布及正常同根恢复限定切片）。范围为[OBI6调度、OBI8受管进程及OBI7用户入口/验收](../specs/independent-market-observation.md)，完整独立观察和模块C保持in-progress。
+
+## 实际调用链
+
+同一已批准Appa17/010和SPA011在独立数据副本启动，实际08:49:37观察到受管调度ready，尚无当前到期窗口。原observation_service使用系统时钟，09:00:00.228262按北京时间自动认领2026-10-29T09:00:00+08:00，as_of为前一日2026-10-28，attempt1。测试驱动没有替换时钟、fetch或调用refresh，过程读取保持原实例身份。
+
+09:06:04.651125完成21路实际来源尝试和48指标新快照发布，status=partial：14路success、4路checked_disclosure、3路failed。货币网repo/irs为source_network_timeout，统一行情八指数为market_source_not_configured；旧数据和未知资格保留。调度触发、来源实际读取时间和数据有效日期分别记录。
+
+新快照7ea20817799ddb2e1ed829572b68a9b8c4d6b7c17c0bf0010ae812916ce3cd91，parent为9168087b0dcdf3789e88f853ac3a2deb58f2c719fa36bedd667b50be7cc2825f。54次请求（43HTTP/11SDK）、21捕获manifest和63实际捕获文件核SHA，合并去重为82对象。原来源快照目录保持不变。
+
+实际HTTP和生产SPA的1440/390质量页显示本次自动到期窗口和21路来源结果，pageerror/console error为0、全部GET，横向溢出0。两张截图已人工查看。随后原App shutdown_complete、读池0、HTTP join/监听关闭、观察进程closed且forced/pending=false，原ready/stop/closed同ID/pid/config，子监视线程已join。原native.run共1023.297秒后成功回收完整Job/tree/EOF/join。
+
+同一数据根再次启动实际新App/新观察进程，使用相同来源/service及独立新control根。跨多个轮询后，原快照/全部回执保持、当前窗口attempt仍1、新增attempt0；第二代也正常关闭。没有重新采集或替换原完成记录。
+
+## 固定身份与验真
+
+原件根为build/observation-natural-0900-001，SOURCE-SHA256-001固定277源，与上一轮provider011逐项同值；QA001固定6脚本，EVIDENCE001固定118原件，三个集合分别有镜像。IDENTITY-001重新核31发行4743带摘要RECORD、App wheel原始成员、18文件SPA包/实际成员、控制收据、捕获及当前快照。
+
+App wheel SHA7b6a51eaa266d48a887a1fdb38a0a2037e4d046127b65841c633c24645cc5c5e；SPA SHA025ebd950cd1f0b471b9804b5ff1c446688e89a24883460d0022f1b8584503ed。RESULT SHA f1ed54dc2b0909b7cd11227509b270b67a6dd9a979df5d077bc66e68e3613ef2，RECEIPT SHA54117032ac7c4920720ee83f3f91a49a04b9b0db6bb086d506920b37f34c7d7b，CLOSURE SHA0130815067a154fad42231bba6bbfff50252339a072f3f765052a0a9ce42252c。重启原件在restart-001与RESTART-OUTER-CLOSURE。
+
+run.py日志中的child_pid=null来自QA摘要读取不存在的host_pid键。真实PID58268由BEFORE-WINDOW.process.pid、CLOSURE.process.pid及原ready/closed明确绑定；IDENTITY-001逐项核对。保留原日志，不把null解释为没有子进程或关闭证明。
+
+两项独立审查按同身份代码复用及本次自然窗口证据增量核验，最终均complete、无新增P级。SPEC-REVIEW SHA03dee79f9769306ebd1e9384db21fbef5eca6edaf79929b83e89b02fab40e622，STANDARDS-REVIEW SHAc226bc80c55a7de06593204238b7c4d766d7a2afb7e5f221a712eefe93817818；两轴独立核277/6/118与安装/持久窗口/两代关闭。完整来源gap与跨日稳定性unknown单列。最终DELIVERY.json、HANDOFF和NEXT-CONTINUATION位于本根。
+
+所有实际主运行/身份/重启/freeze及独立审查已终态，原exec会话27578已exit0；本次无待观察实例，不得重采或重启以替代原件。
+
+## 资格边界
+
+本次证明一次真实09:00定时主链及完成后同根恢复去重。完整来源数值准入、A八指数、货币网安全连接、目录披露附件的保留范围和跨日长期运行继续。独立安装、全部策略、真实A/B M1及统一升级回退分别验收。未操作QMT界面、真实下撤单、发布或Git集成。

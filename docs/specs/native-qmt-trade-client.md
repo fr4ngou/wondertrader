@@ -1,0 +1,41 @@
+# 原生QMT交易客户端
+
+类型：功能规格。状态：accepted。范围：自有GuanhengCommon的v4读取、交易HTTP客户端及有限通信身份；标准Trader插件、WT应用确认与完整发行沿后续完整调用链验收。原协议以[QST](qmt-shm-trading.md)为唯一消息要求，原生接口采用WT标准ITraderApi/ITraderSpi。
+
+## 目标与归属
+
+原生客户端直接消费QST-R19/R20的认证Host，不连接券商终端HTTP，不调用Python或SDK。Host拥有原命令、源结果、原回报及关联；C++保存本次有限准备值和原身份，线程、SDK和账本职责保持各自owner。当前ManagedTrader额外签名/production_trusted/原子四查询前置退出目标运行链，标准适配器后续使用本客户端。
+
+## NQT-R1 共用codec与显式v4账户读取
+
+账户policy2.0、batch.v2和完整原profile/容量receipt的显式扩展要求，统一见[STQ-P2/P3](native-qmt-standard-trader.md)。旧policy1及默认V3保持原行为；实际实现与证明范围见[账户字段投影验证](../evidence/2026-10-24-qmt-account-projection.md)。
+
+QmtHostCodec.h/.cpp提取既有QmtBoundReadCore的协议纯函数，位于qmt_host_codec命名空间：text、string、field、keys、hex、uuid、encode、base64、unbase64、binding。原算法与限额保持；Core引用同一个实现，不复制新旧codec。binding签名为bool binding(const rapidjson::Value&,SourceSession* source=nullptr,const char* expected_version="1.0")，期望版本由受信调用者选择，拒绝从负载自选；1.0原默认保持。parse仍复用parse_bounded_qmt_json，身份与原结果的SHA仍用原BCrypt owner。
+
+QmtBoundProfile增加AccountV4；QmtHostAccountClient新增显式QmtAccountReadVersion{V3,V4}选择，现构造签名的最后一个参数默认V3。V4仅接受完整qmt.read-profile.v4/control2，至少含account.trade_detail；可组合market.full_tick、market.history_1m。账户、历史、行情子descriptor沿原唯一校验算法，v3拒v4，v4拒v3；三个B与receipt恢复均使用已选控制版本。四查询各自产生原一次性请求，不引入同水位证明。
+
+V3/V4共用账户terminal准入遵循[QAR-R4](qmt-shm-account-read.md#qar-r4-账户字段投影与唯一金融映射)：m_strMoneyType省略或精确空字符串表示来源未知，原DTO字节保持；非空字符串只接受CNY，null、bool、数值、空格、其他币种及大小写别名均拒绝。m_strAccountID存在时仍须精确匹配绑定账号；部署account_binding.currency=CNY保持独立受管声明。原生读取层不填补来源币种，source_currency的unknown/null/reason及WTS ABI声明仍由唯一AccountMapping负责。验收分别覆盖显式V3/control1和完整V4/control2的POST terminal及同receipt GET恢复，正例保留原data字节，非法来源拒绝但保留原终态供核查。
+
+公开纯校验接缝位于QmtBoundReadCore.h：QmtTradeReadDescriptor包含binding_sha256及max_commands、max_command_bytes、max_command_ttl_ms、max_call_result_bytes、max_events、max_event_bytes、max_total_event_bytes、max_event_page_bytes；值用足够宽的无符号整型。Status validate_qmt_trade_read_profile(const std::string& raw,std::size_t max_result_bytes,const QmtExpectedAccount&,QmtTradeReadDescriptor&)复用Core的显式v4准入。完整profile、control2、账户绑定/环境及QST贸易descriptor精确核实，联合帧/消息预算沿可知上下文核；失败不发布半成品。此接缝无HTTP、线程或SDK，供交易客户端复用；私有配置的trade_binding摘要由调用者另行核实。
+
+## NQT-R2 有界原生交易客户端
+
+QmtHostTradeClient创建线程独占，构造无网络；唯一BoundedSignedHttp拥有其请求与晚回调。prepare、create、submit_once、resume、lookup和events均消费调用方同一个SignedHttpDeadline，HTTP跳和本地编码不续期。drain_callbacks沿原owner确认；未排空继续保留对象和DLL。并发调用与SPI投递属于后续标准插件worker，本客户端不启动线程。
+
+prepare读取认证trade-status，精确验证R20快照、实际control2 B、原profile bytes/SHA、NQT-R1完整v4/账户、固定私有binding_id/binding_sha256及正常写配置。源状态按QST-R19合法计数重叠和字段/容量/前沿核实；断连/503不采用旧值。freeze的正常只读配置可prepare成功但禁止create写命令。来源变更使本次写准备失效；查询旧原结果保持原B，不重新标记为当前来源。
+
+create_insert接收WT已复制值：exchange/code、entrust_id/user_tag、buy、精确十进制limit_price、精确正整数quantity；只支持SSE/SZSE现金股票限价普通单。客户端自动生成通信UUID与不透明sdk_user_order_id，用户无需填写。命令字段严格沿QST共同契约，原canonical bytes和SHA先完整构造，随后一次性token发布。Host固定账户与binding来自同次可信配置，不由每单改变。
+
+create_cancel只接收本客户端通过认证lookup取得的原insert关联引用；原command_id、WT EntrustID/userTag、broker_order_id及关联来源保持，要求与当前源会话相符且association_error为空。引用不可公开构造/修改，不能用任意broker号冒充原委托。命令自动生成新通信UUID，原insert身份不改。lookup出口沿QST-R21，缺映射/缺回报/冲突明确返回不可用，不以最近委托猜测。
+
+准备值固定首次shared Windows GetTickCount64业务deadline_ms及原steady截止，取调用方剩余时间与Host max_command_ttl_ms的较小上限，不能增加原期限。submit_once消费一次性token，只POST一次；提交前失败保留确定未发送事实，POST可能送达及返回错误保留原命令为unknown。后续只GET同UUID；没有自动重POST、新UUID替换或404推断未执行。Host queued/dispatching、definitely_not_called、sdk_returned、unknown按原阶段表达，SDK正常返回不等于柜台接受。SignedHttpResult追加独立send_attempted与response_complete事实：唯一HTTP owner在调用WinHttpSendRequest之前设置send_attempted，完整EOF与Content-Length核对通过后才设置response_complete；旧delivery_unknown保留原读取语义，其false不能证明未发送。submit仅在HTTP owner明确send_attempted=false的返回上保留NotSent与实际运输错误；进入发送后的失败及无法确定边界的异常保留Unknown和原receipt。resume是原身份核查，其截止、owner或运输失败都保持Unknown，不能由本次GET失败宣称原命令NotSent。
+
+响应验证R20完整bound-trade记录：原body/hash/UUID/operation、三B关系、源结果stage与sdk_entered/signal/error组合、原结果SHA及元数据/整体bytes额度。保留实际原response bytes，原结果不从浮点重新编码替代。未知派发/存储等错误沿原ID核查；transport status与远端原事实分别保存。cancel已返回bool后发生后置时钟异常时，unknown/sdk_entered=true/error_code=sdk_exception允许保留原signal_sent bool；invalid_sdk_return仍要求signal_sent=null。完整收到的HTTP409关联引用按R21全文核验并保留原文及association_error，返回Conflict；截断或运输失败不能冒充完整409引用。
+
+events只读取R20已持久事件页，精确source=(B,source_session)、连续sequence、前沿、gap及页/单event容量；保留原page bytes及解析后有限元数据，不在本层进行资金/订单归约。空页成功必须满足after_seq==durable_through；after_seq<durable_through时首条事件须完整返回，放不下返回容量错误，客户端拒绝用空页代替未交付事件。该接口不发送源ACK或WT应用ACK，不能将已读页当WT已消费。后续标准插件消费完成和独立cursor另按明确协议接入。
+
+## 验收
+
+codec固定样本及v1/v2/v3原读取行为保持；v4实际账户四查询和正确/错误profile/control2、复制/篡改、容量及原D覆盖。交易客户端以真实签名Host/SQLite/Windows builtin-shm与SourceTradingService构成闭环，SDK使用独立计数替身；验证insert/cancel各一次、重复/响应丢失只取原ID、原WT/token/broker关联、旧来源、unknown、冲突、原截止、页背压与晚HTTP回调排空。构建使用现有原生入口与固定依赖；新增纯/集成测试加入原构建入口，输入与独审证据分层登记。
+
+标准Trader Factory、原TraderAdapter/执行单元的完整下撤单/SPI/重启恢复、安装包和真实券商验证继续作为完成条件；本规格的客户端通过不替代这些结果。

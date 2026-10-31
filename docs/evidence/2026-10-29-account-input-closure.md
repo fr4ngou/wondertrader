@@ -1,0 +1,31 @@
+# 账户构建指纹与普通安装依赖同源
+
+类型：开发验证。日期：2026-10-29。状态：来源准备组合及独立full/delta已完成，限定交付完成。要求：[ATI-R11](../specs/native-account-test-runtime.md)。
+
+## 根因与实现
+
+普通安装已按当前App依赖声明选包，账户profile的owned目录清单仍登记旧signals/v2/variants，缺少当前strategy-v1。两套名单会让安装内容与构建指纹脱节。
+
+config/account-scan-build.json改为显式选择installation_roles=[app,host]，删除重复的App、SDK及策略目录/元数据名单；原生、连接协议、QA及许可输入保持。account_scan.own_files复用普通安装器source_inputs，合并其全部原文件身份，在读取字节时核摘要，再沿原prepare_inputs双次核对和固定上游快照流程生成新身份。installation_extras可显式传递已声明能力。无roles的旧selection保持原文件/目录解释，冻结原件保持。
+
+## 实际主路径
+
+build/qmt-account-input-closure-001/main002实际调用当前profile的prepare_inputs：安装闭包245文件与owned快照412文件逐项对应，包含当前strategy-v1，排除退出范围的独立策略目录；上游仍取固定08b230dd05facf6d650d949bfe51054115a2ecb1。两份快照实际完整重核通过。input_sha256为71dc32ecc18a2e06160d8485f2b582d3c851b35bafd152f8ad97ccc4fc5eb86b，安装输入指纹48697bcff1aa674f3ac2111659f31bb8efda2b98bca026f64264efe4d8e168ab。
+
+外层373实际2.437秒exit0，forced=false、tree_zero/readers_joined/resources_closed及双EOF均成立。前一main001在补回归前已验证主路径，保持当时身份，不作为最终输入代替main002。
+
+## 回归与范围
+
+372按当前account_scan_build目录运行105项回归，8.703秒exit0、无强制且完整关闭。新增回归覆盖V1变更改变原指纹、未引用旧包退出、extra进入同一闭包、取字节期间来源变化拒绝、错误配置及旧selection兼容；既有源集合、快照、封装和普通安装纯回归继续通过。
+
+该结果证明源码准备及构建输入的一致性，不授新原生编译、完整账户场景、真实终端或生产资格。本轮未修改WT框架，真实SDK、连接、委托/撤单、Writer及现有实例操作均0。当前独立full审查按冻结REVIEW-SOURCE-001和main002源码进行，结果另行登记。
+
+## 来源路径修正后继
+
+原full报告保留于build/qmt-account-input-closure-001/REVIEW.json，Standards/Spec均为gap：source_inputs先resolve来源目录，可能丢失原声明alias的链接身份，导致冻结pyproject与捕获的实际目录不一致。原纯谓词模型实际复现拒绝缺失及冻结后重放失败；实际OS目录链接创建未能完成，OS资格保持unknown。
+
+修正位于唯一安装来源owner：在root、角色及选中source的词法路径resolve前逐级检查symlink/reparse，保存词法/规范路径并在实际选取时再次核验。安装器最终SHA为a603d1ddbd3d0087aa2ea59ea4a1c9c177b43768d8f5dbc6ff0857707c6c73ce；账户调用方继续复用该接口。新增caller模型覆盖原触发链，原失败候选保持。
+
+main003重新实际准备245安装输入及412 owned，两份固定快照完整重核通过；input_sha256为6d5d546eb396820652eeec71dd13f7165eade3c598becb8c80d7c74968cf8f6c，安装输入指纹285dc3bde1413d748434ce679579fc68fa2e354ab6e01ac0d045815912047fdf。外层376实际40.547秒exit0，375全111回归50.735秒exit0；均无强制且整树、EOF、join、资源关闭完整。独立delta按REVIEW-SOURCE-002及新冻结树复核，原full报告与模型不覆盖写入。
+
+最终REVIEW-DELTA-001.json SHA256为a06bc68e2b4d209fe94480d918d1a4e6346e5dac5bfa3c32455e190677da3af4：两轴complete，原P2关闭、代码遗留0。独立377的7项caller回归及新目录原失败断言通过，原full及失败模型摘要保持。实际OS链接仍unknown，普通安装器整体/新原生编译与全系统资格分别留在所属模块。DELIVERY-001.json固定最终六项源码/规格与快照、主路径及两份审查身份。原证据、数据和现有实例保持。

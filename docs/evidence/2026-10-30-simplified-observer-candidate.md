@@ -1,0 +1,39 @@
+# 精简观衡独立候选
+
+类型：模块C安装交付证据。状态：已封存限定只读主路候选；整个C继续in-progress。要求沿[ORP](../specs/observer-runtime-package.md)、[COP](../specs/guanheng-operator-platform.md)，已验展示范围沿[精简页面](2026-10-30-operator-scope-simplification.md)。
+
+## 固定组合
+
+复用已审查App a57原193输入、30分发普通安装，installation.json SHAeb0da64ca0ec68039017c040067f7f4e06135dee4ec78f1013d3cd2811d33b6c；新SPA为精简候选的18个文件、206实际构建输入。后端735件full、前端271件full两轴原报告均保持，源码没有新增修改。原App/WT、用户18126和其他运行实例保持。
+
+打包沿a55原ORP安装工具的固定字节，stage_artifacts从原a57安装复制预建App角色，不重新构建源码；安装工具和README原字节保持，另附候选范围说明。此包只安装独立只读App，随App的WT a11为纯报告读取依赖，V1 a7保持。运行侧WT12/Host15/Agent11继续独立；显式初始库存V1 a8的运行侧接线是单独合同，不混改本包的冻结依赖。
+
+## 安装与实际消费
+
+build/operator-scope-release-001/package-002/observer-a57-simplified-windows-x64.zip为55,815,120字节，SHAe5bcb18b5ea7247ccceb0034c8d8626bbf7462f22d8c7cfeedb5c8c57323937e；OBSERVER-RUNTIME.json SHAaf2b9f2e5b489974b988400c3ece807e7681480848deb6aa5250520556868f31。可信系统解压后与原67个清单文件及清单本身相同，原verify入口通过。
+
+两个全新根各安装30分发，原角色校验、pip check、隔离导入及RECORD核验通过。107 App与35 WT模块和18 SPA文件逐字匹配原普通安装/已验静态文件；两个收据均由原入口exit0返回。外层及所有内部作业沿原有限D、隐藏Job正常关闭，原件前后身份保持。PACKAGE-CLOSURE-002及package-002/RESULT保留实际结果。
+
+新offline-001普通解释器运行原guanheng_app公开CLI，读取已结束的九owner SDK原发布与原WT正式400期归档。实际HTTP取得原策略/持仓/时间/closed状态、账户四组、400净值点及末日净值/现金/实际持仓，原业务数据与已验精简页面样本相同。/dashboard服务字节与同包新SPA的index.html相同；该轮不重新操作浏览器，桌面/手机渲染资格复用完全相同模块及SPA的原实际见证。App正常exit0、未强制、树零、EOF/readers join/句柄回收和QA停止线程join均成立，原196余输入前后摘要相同；精确数目沿http-001/INPUTS清单。
+
+两根新a57及旧a55分别读取同一57项、54642行固定观察快照e4ea5f24bb15d579d8b145b1404221a51c874210afefba4b0dabe17222f43f69，逐系列全值摘要相同，网络尝试0，当前快照和stopped更新状态保持。a55本轮回退资格为此数据与读取合同兼容，活动WT连续运行、服务切换和整套升级回退另按统一系统验收。数据仍归外部观察根，不把已披露样本、较短区间或缺来源提升为完整市场资格。
+
+## 原失败与限定范围
+
+package-001在来源SPA清单使用Windows分隔符时被原路径保护拒绝，未运行安装；原目录和原失败保留。后继仅把QA清单表示规范化为相同相对路径的正斜杠形式，保留产品路径校验。两个消费驱动最初在启动Job前因QA文件http.py遮蔽标准库而失败；原字节改存非Python源文件，正式驱动read_http.py与-I方式消除命名遮蔽，没有改产品。
+
+候选已验当前事实与单报告主路；两份400期报告同时比较/错误后恢复仍有原5秒HTTP超时，新库存运行侧status/baseline及pin适配、持续系统M1、完整市场覆盖/T2108和真实来源继续分别待验。真实查询、下撤单和WT/QMT owner操作0；本项没有发布、切换18126或改变原采集。包装增量核对与原源码审查复用按最终交付记录绑定。
+
+## 回退说明修正与最终文档候选
+
+包装Standards001确认P3：沿用的a55包内README仍写a42回退资格，当前候选未验该运行回退。原Spec001、Standards001及package002两安装保留。责任层改用当前唯一observer-runtime.md通用回退说明，明确具体版本和范围按本次交付；旧a42表述退出最终包。
+
+最终package003与002的67个清单内容项只有README.md变化，App wheel、30分发、工具、18静态及候选说明逐字保持。新ZIP SHA35f6dc1cba5a56cb9e2bb0a9b28ed19b60b5e0da3e358981eb52d6c3c2186471，OBSERVER-RUNTIME清单SHA4981164d1ba2ebf2f722e8c0415b11888fed2dfcd635adf9d803f7ea0db1f8b1；最终可信解压、原verify、全新30包离线安装及RECORD通过，142模块和18SPA仍与原普通/精简静态逐字一致。新manifest实装一根，旧002两根只按相同软件/静态身份复用，分别登记。
+
+最终003新解释器再次实际运行原CLI/HTTP，5项当前事实及单400报告读取通过，全部原业务结果与既有精简页面一致；App正常关闭、原件保持。最终根另实际读57项54642行，零网络、完整系列摘要相同。PACKAGE-CLOSURE003、http002和OFFLINE-FINAL-READBACK分别保存原Job/D及正常资源闭合；本后继只修正操作说明与封存身份，旧两400 HTTP超时及新库存运行侧接线继续。
+
+## 封存交接
+
+包装Spec002/Standards002均关闭该P3，开放发现0；30份新材料及69制品、原57/69与既有1006输入按实际报告保持。Spec002 SHA18f343685c6ee3e554daf394fc351936402de5da54dd0016a2402cdf8a0515fb，Standards002 SHAe8de30b75d1cd8bf3e5e7824983c3432895ae1e9e7e55cd23145ef203940bea9。原源与页面full按精确身份复用，最终清单实装一根及旧两根软件复用分别登记。
+
+最终DELIVERY为build/operator-scope-release-001/DELIVERY-001.json，SHAadef6a064713f8178853b522a58bbe4cd839bf3698886a3cacd141df0ea3b9ea；固定集成接口INTEGRATION-HANDOFF-001.json SHAaf304643fc1a21ba8d8ab8245bae7c00e870d200551bbd28bc22065f4a7ac5b9。CURRENT同时绑定二者。接口提供原普通App安装、App wheel、原角色制品/manifest、精简SPA、最终ZIP及一根最终manifest安装的完整身份，供A独立集成。实际整体目标保持active；不把限定交接提升为两报告比较、持续系统或生产验收。

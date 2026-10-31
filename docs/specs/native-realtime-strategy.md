@@ -59,7 +59,7 @@ pool0仍有parser与ticker计时来源，桥锁或GIL不构成原引擎全局一
 
 ## NRT-R8 验收
 
-实际编译/ABI/同DLL Factory owner；错模块/旧状态/非空交易配置前置拒绝；跨线程/过期epoch/错误阶段/超界数组拒绝；slice复制及释放；同ctx d1与m1主线闭合/因果；原ticker触发共享算法与完整target回读；原RT pending/actual/T+1区分；异常、callback请求停止、阻塞回调保活、Reader pending/失败；正常stop析构/进程及Job回收、父死亡/单总期限、正式安装和用户链分别验收。实现与未验差额见[当前任务](../roadmap/NOW.md)，静态接缝调查见[审计原件](../../build/guanheng-workspace/native-realtime-seam-audit-001/REPORT.md)。
+实际编译/ABI/同DLL Factory owner；错模块/旧状态/非空交易配置前置拒绝；跨线程/过期epoch/错误阶段/超界数组拒绝；slice复制及释放；同ctx d1与m1主线闭合/因果；原ticker触发共享算法与完整target回读；原RT pending/actual/T+1区分；异常、callback请求停止、阻塞回调保活、Reader pending/失败；正常stop析构/进程及Job回收、父死亡/单总期限、正式安装和用户链分别验收。实现与未验差额见[当前任务](../roadmap/NOW.md)，静态接缝调查见审计原件（外部历史/待归仓路径：`../../build/guanheng-workspace/native-realtime-seam-audit-001/REPORT.md`）。
 
 ## NRT-R9 同账户固定策略集合的业务回调桥
 
@@ -347,6 +347,16 @@ C已交付guanheng-strategy-v1==0.1.0a8的显式PositionCycle合同：初始库�
 自动选择位于原guanheng.execution-deployment.v1的可选initial_inventory对象，包含schema=guanheng.initial-inventory-start.v1、state_root、account_observation={descriptor,sha256}、market={base_url,token_env,timeout_seconds,max_response_bytes}、max_age_seconds；仅限python_strategies=true。state_root为首次独占创建的新E盘准备根，保存基准和原输入摘要，不持有账本；原控制目录每代保存实际原生配置。已有完整准备材料在resume_clean中只读核同源模板/来源配置/摘要后复用，原金融目录和未决责任仍由原P23及clean协议准入。读取、准备、生成配置和启动共享原启动截止；账户单轮资源沿原ManagedAccountScan回收，原监督者继续拥有停止、Job和证明。省略此对象保持既有执行工厂。
 
 准备Scan一经准入也受首次停止截止约束，即使执行进程尚未启动。超期后续close继续核资源回收并保持停止超时；原截止内确认完整关闭后允许幂等成功。验收覆盖Scan在首次短close超期后才完成，以及原截止内正常完成的重复close。
+
+## NRT-R32 原命令待核查期间的执行连续性
+
+状态：accepted / implementation-in-progress。沿原query_first路径处理原命令结果暂不明确的情况，默认native路径保持。QMT passorder合法返回None表示SDK调用返回，不要求同步返回券商订单号；原完整token及后继O/成交关联继续识别原委托。
+
+自有Standard新增可选只读C入口`inspectStandardQmtAwaitingObservation(ITraderApi*)`：同owner返回1仅表示query_first的unknown等待且无hard_fault、关闭或独立入站/owner错误；返回0表示该等待资格不成立，负值表示调用错误。旧diagnostics/recovery布局保持。宿主从原同DLL可选解析该入口，缺能力沿原失败路径；有能力时单独的待核查保持账户查询、行情/目标队列及原订单定向撤单，原新insert仍由提交组及原通信准入保护。硬故障优先于等待，不靠首错文本推定健康。
+
+原命令的GET/审计沿原UUID及轮内原D继续，不重POST原insert。完整O及后继同来源P仍交原SPI和原Adapter，不自行计算持仓。原调用后来明确SdkReturned且该原组已通过终态O→后继P、原pending移交完成后，才可退役该组及仅由它形成的本地等待；Journal原unknown、源端unknown或硬故障未核清时继续保留等待/保护，不伪造成功或clean。原调用真正unknown的正向券商处置及正式活动单重启继续按实际实现验收，不从只读接口存在推定完成。
+
+验收R32-C1：合法None/无同步订单号，原token查单并由WT消费P/剩余O，原SDK一次。C2：运输未知后原UUID核实SdkReturned，终态O和P后实际后继目标只提交真实差额，原insert不重发；未查明继续等待。C3：原SDK真正unknown、活动单及后继硬故障分别保持身份和保护，定向撤单仍核真实原单。C4：正式CTA计算/数量阶段、原周期/账本、完整关闭和普通安装分别验真；新增WT框架行为0。
 
 ## NRT-R31 实时执行阶段按券商实际数量确认
 

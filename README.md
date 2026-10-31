@@ -1,3 +1,5 @@
+开发与维护入口：[项目规则](AGENTS.md) · [系统文档与任务路由](docs/README.md)。下方保留上游项目介绍。
+
 ![WonderTrader2.png](./images/logo_qcode_noad.jpg)
 <p align="center">
     <img src ="https://img.shields.io/badge/version-0.9.9-blueviolet.svg"/>

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "观衡量化交易系统",
+  "profile": "general",
+  "ui": false,
+  "release": true,
+  "generated_by": "repo-bootstrap",
+  "template_version": "0.2.1",
+  "documentation_paths": [
+    "AGENTS.md",
+    "docs/**/*.md"
+  ],
+  "documentation_entry": "docs/README.md"
+}

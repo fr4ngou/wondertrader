@@ -1,5 +1,7 @@
 # 独立观衡安装与更新
 
+观衡独立交付和更新，已完成的观衡版本可先行交给使用者，WT交易开发与恢复验收单独继续。联合候选用于兼容联调；观衡安装、启动和升级不启动WT/Host，也不要求WT同时升级。当前独立交付见[2026-10-31观衡a74交付记录](../releases/2026-10-31-observer-a74-independent.md)。
+
 类型：操作手册。适用范围：[独立观衡development制品](../specs/observer-runtime-package.md)，Windows x64。当前验收使用SDK替身；真实QMT及生产发布分别登记。
 
 接收交付记录中的ZIP、ZIP SHA256和OBSERVER-RUNTIME.json SHA256。先用Get-FileHash核ZIP，再用系统Expand-Archive解压至新目录。安装需要显式CPython 3.12 x64（含pip）和uv；离线wheel已随包提供。

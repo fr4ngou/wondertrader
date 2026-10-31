@@ -1,0 +1,67 @@
+# 固定E盘解释器的观衡完整入口
+
+类型：模块C独立安装及业务入口验收。状态：done，限定固定解释器/ASGI正常关闭、a71普通/ZIP主链及真实全5576原包的当前T2108消费；正常/空/错误恢复、个人连续性、独立关闭及两轴审查通过。a70故障说明后继保持独立交接。完整C、最终A/B系统及生产继续按原范围分别验收。
+
+## 输入与公开安装
+
+固定CPython3.12.13 x64的ANCHOR.json SHA256为bfec74dd8961f2c3261464ee55ca1057a0d985d196899836490e8422334de9e8，3320文件在安装前后逐项核对。两新venv的base_prefix/_base_executable实际指向该E盘目录，旧Codex缓存及运行实例保持。
+
+原a68 ZIP17b0b7254cc9dcb40912f318d8b9cc8dbc299e3b6a1c4292b51cdc55ef4c878b、30 wheel、161产品模块及18SPA保持。原observer-install.py verify/install分别完成新根安装和相同预建payload搬迁后的全新重装；该资格不表示直接移动venv。两根pip check、所有wheel非RECORD成员、原161模块/18SPA及11类实际import已核；RECORD由原公开角色安装器验证。
+
+账户/策略读取原封存B当前库存，属于SDK隔离输入；持仓、可卖、资金及原时间保持，缺委托/成交组继续说明未提供。双400报告沿原WT完成证明及模型限制。观察读取父a68原63项/54773行，真实3/5576样本和完整市场空值保持。本轮有本地历史HTTP读取，QMT/账户SDK及真实下撤单0。
+
+原生行情沿原FULL-SOURCE及Reader/DLL，在QA单独持有的隐藏Job中运行原只读服务；解释器使用新固定App环境。服务和App各有原进程owner，原控制/停止协议保持，现场QMT、旧采集及18126均未操作。
+
+## 已验证主链及原失败
+
+main-001完成同一App的账户/策略原字段、2000分钟线与原生服务直接OHLCV逐值、63项54773行、双400/800点及个人列表保存。CUA页4实核总览、策略名/简介/版本、分钟canvas与双净值曲线800个circle；1280/390文档宽1265/375。损坏QA报告后HTTP503，页面保留双曲线/原时间；恢复原件公开HTTP200，明确再次重读的网络200/2.780865秒清除错误。首次恢复动作的3秒UI等待超时，其原请求HTTP状态及确切原因缺少证据，按未知保留。
+
+main-001最后的QA断言把venv启动器49216与原服务实际子PID28092比较，整轮保持失败；App和历史服务实际均exit0/nonforced/tree0/双EOF/join/资源回收。main-002改为持有实际服务进程句柄，同产品完整HTTP主链26.266秒通过：App退出后原实际服务PID20040的同一内核句柄存活，原历史查询继续相同，随后服务由QA外层正常关闭。main-001的实际UI仅按相同安装/SPA/输入复用。
+
+empty-001重开原安装并绑定真正空报告目录：归档runs空、坏证明/未归档0；CUA页5显示空报告说明，无alert或曲线。个人三证券ID/版本/顺序/时间/文件字节、账户和策略保持，App正常关闭。
+
+relocated-main-001的新根完整HTTP及CUA页6已核同一账户/策略、缺失委托说明、个人列表、2000分钟canvas、已发布停止状态、观察画布及800报告点。首次短定位等待超时，后继DOM直接见两标题/800点且无alert，未重发该请求。随后正常停止未返回，原截止到达后由外层Job强制回收，整轮保持失败。只读py-spy栈显示MainThread在Proactor无限轮询，三个读取线程空闲，监听端口已关闭；关闭资格依旧失败，外层最终树/EOF/join/资源清理完整。原QA finally重复finish同一失败Child的问题保留，新驱动将已转交关闭的Child移出finally，独立历史服务仍由各自owner收尾。
+
+diagnostic-main-001使用同一原App及只读CLI任务观察，比较HTTP在原五秒返回503；diagnostic-main-002首次比较503、显式再读200，报告损坏503后恢复读取仍在原五秒503。两轮原失败保留，诊断App和服务均正常关闭。报告读取波动原因仍缺少完整证据，后继完整主链必须按原预算验收。
+
+## 关闭根因与统一实现
+
+原失败App的CONTROL.stderr记录Proactor连接丢失回调在socket.shutdown抛ConnectionResetError/WinError10054；固定CPython3.12.13原回调因此跳过后续socket.close和server._detach。两次白名单异步任务快照核得Uvicorn should_exit=true、业务连接及任务均0，asyncio.Server仍active_count=1/sockets=0；serve→shutdown→wait_for→_wait_tasks_to_complete→Server.wait_closed持续等待，App lifespan关闭尚未开始。快照只在已失败的QA进程中读取允许字段，未安装调试监听、修改任务或调用关闭方法；实际失败退出资格保持。
+
+App公开CLI沿ORP-R6使用Uvicorn公开loop入口直接选择asyncio:SelectorEventLoop，HTTP仍使用标准传输；原请求、线程和关闭预算保持，固定解释器/第三方包保持，WT及进程/管道owner保持。候选a71从固定a68构建，161产品模块中仅guanheng_app/__main__.py变化，原160保持；a70运行问题说明及根的新代定位候选分别由根后续组合。
+
+RESET-REGRESSION-CLOSURE-002通过：相同固定Python/Uvicorn的实际本机TCP，仅在现场原socket.shutdown边界注入10054。原Proactor返回server_wait_closed=false/active_count=1/描述符未关闭，新标准Selector返回wait_closed=true/active_count=0/描述符已关闭且无回调异常。失败样本的OS资源由测试finally显式回收，该回收未改server计数。该回归覆盖根因，实际普通/ZIP新根页面与正常关闭资格继续复验。
+
+原candidate-001的QA输出上限不足、candidate-002的双层loop工厂返回类而非实例均留失败记录；最终直接使用标准构造器，删除中间工厂。package-candidate-001因五个未改本地wheel的ZIP源时间变化拒绝，成员字节已核相同；后继构建保留固定源mtime，要求其余29 wheel完整SHA与原a68一致后再打包。以上失败均未覆盖或提升为合格安装制品。
+
+## 最终a71实际入口
+
+PREPARED-CANDIDATE-004以固定源mtime保留原五个本地wheel，候选唯一产品模块变化为公开CLI；160模块、其余29 wheel完整SHA及18 SPA与a68一致。公开ZIP为candidate-package-002/observer-a71-windows-x64.zip，SHA256 f735d7bf562e99e05209f58a4c3238a525d00758465a6e5b5a1152d8b737ae9a，manifest为9b134dd7c89388dbf2d40118815aee4fc6d1fdfac89084f21c39a8ebe8d09c05。受信PowerShell实际解压、公开verify/install及164.812秒全新离线安装通过，原a68 ZIP未改；原安装失败保留。
+
+candidate-ordinary-001实际普通安装App主链23.828秒通过；candidate-packaged-001从ZIP新装的另一根完成同一主链及实际CUA，整轮284.672秒通过（含人工页面验收等待）。两轮都核账户/策略原字段与时间、2000根原生分钟逐OHLCV、63指标54773行、原双400/800点、坏收据409、坏报告503及恢复200，个人ID/版本/顺序/原时间/文件字节保持。两轮各发24次实际HTTP客户端RST，后续health200；App均exit0/nonforced/tree0/双EOF/join/资源回收，CONTROL.stderr无ConnectionResetError。每轮持有原生历史实际服务的内核进程句柄，App退出后同一服务存活且2000行查询保持，随后由其独立QA owner正常关闭。没有启动WT或触发QMT/账户/交易查询。
+
+CUA新根页8核个人三证券、分钟canvas/2000文本、82,000资金/80,000可用、实际200/可卖0及原数据时间；策略目录保持名称/简介/版本。双报告2曲线800点，1280/390宽度下文档1265/375，无报告alert及console警告/错误。损坏QA报告后页面显示失败且保留800点及15:24:03原读取时间；恢复后的首次重读由CDP实核HTTP200/2.505966秒，错误清除、800点保持、读取时间更新15:26:06，无第二次点击。系统状态正确说明WT原发布已停止；观察有2画布，T2108显示真实3/5576样本、2只线上、66.6667%，完整市场值保持空，自动更新未启用按此QA配置展示。
+
+candidate-empty-001重开同一离线安装并绑定真正空报告目录，CUA页9显示“尚无已保存的回测报告。”，无alert/曲线/console错误。个人字节、账户与策略原值保持，App正常关闭。所有临时CUA页关闭，viewport已恢复；用户18126保持。
+
+IDENTITY-CANDIDATE-004及IDENTITY-PACKAGED-002分别核161模块、18 SPA、30发行、11类实际import、wheel所有非RECORD成员及固定base_prefix/_base_executable；公开安装器负责RECORD/pip check。更强的完整目录相等断言发现6个新增pyc并失败，原失败保持；ANCHOR-POSTFLIGHT-002核原3320文件全部SHA保持、原文件删除0，并逐个核6份缓存的魔数、原受信源码归属和code对象等于该源码的重新编译结果。结论为声明工具原件未变、额外字节码等价；目录严格相等为false，未移动/删除缓存、改权限或重封ANCHOR。新增缓存的具体创建进程未据文件时间单独归因。
+
+## 真实全5576原包后继
+
+根的实际接口build/root-market-daily-capture-001/INTERFACE-001.json SHA为bb4b78e9fc1418794216309e417c14180ef20a4b2e79b9a1614d79123c4e6227；原capture/manifest.json SHA为0dcfe215c7f0f0d860a67cf6e34543c0e710b7ce786eec7542bf8a5c5eeb04c5。接口绑定root actual008正常关闭原结果；本模块只消费文件，没有操作QMT或新发SDK请求。原schema及5576证券/508批次的原请求、binding/slot/结果字节均保留，none5576 observed，front_ratio5575 observed/1 invalid。固定股票池仍为2026-10-30沪深北5576。
+
+full-market-001因QA索引误把BINDING整份公开envelope的SHA当作内部binding身份而被原准入拒绝，旧快照完整保留。full-market-002使用原envelope声明并核其binding_sha256=canonical(binding)；未修改来源原件或产品逻辑。实际离线a71公开refresh在原600秒预算内310.906秒成功，外层341.047秒正常关闭。原数据头1f77d38f…不变，新独立头为658c1c0cd348cf6461c37a3663da037db5dc1073a68124c9bb9b40f93c48e73e，仍63项54773行，其他62分区逐字保持。原508 slot的SHA全部回指内容对象，输入原件前后SHA完整相同。
+
+独立JSON/base64/Fraction逐股复算与产品一致：合格5539、线上620、相等0、线下4919；缺失1（原invalid证券002605.SZ）、过期6、不足40期30，前复权不可用0。样本比例11.193356201480412%、覆盖99.33644189383071%、已确认市场占比下界11.119081779053085%；完整市场比例为空。统计使用原Jul1至Oct30的同一供应商前复权序列，6个过期项未推断为停牌，30个不足项未推断为新股。首次历史可知时间仍空，来源最晚接收时间保留2026-10-31T07:30:32.371302+00:00。
+
+candidate-full-001将该实际数据根接入同一最终ZIP安装的a71：全部63项HTTP/CSV逐字段与目录原值一致，T2108为21字段。CUA实际显示11.1934%、5539/5576、覆盖99.3364%、各缺项及完整市场待补说明，1280/390文档宽1265/375、有2画布。页面“导出当前CSV”的真实下载文件与已验证HTTP CSV逐字节相同。相同App中的资金82,000/可用80,000、实际持仓200/可卖0、个人三证券、原生2000分钟canvas和双报告800点均正确，console无警告/错误。账户仍是封存SDK库存，实际全市场行情资格没有提升其真实账户资格。
+
+同轮坏收据409、坏报告503/恢复200及24个HTTP RST通过，报告错误页面证据按相同a71/SPA/账户与报告输入精确复用candidate-packaged-001的首次200恢复。原实际历史服务在App正常退出后保持同一内核句柄并能查询相同2000行，随后独立正常关闭；个人字节、外部原件及实际driver/Child源前后摘要保持。所有临时页面关闭，viewport恢复，18126及生产保持。当前头仅授这一批真实输入消费，未来自然09窗口和每日新包选择继续另验。
+
+原preclose、停牌状态、volume单位、换手或同日流通股事实保持unknown，缺项未通过raw前收或amount推断；这些事实继续限制最新全市场TRIN/RANA/换手等后继计算，T2108当期同序列方法按上述实际覆盖独立成立。
+
+## 后续与范围
+
+ASGI完整独审568+161件、真实全池数据补审583件均通过，前后SHA完整一致，无开放P项。Spec完整报告SHA18c55ad7685b20a9db506f53a365dcb4d05587038862a05926fdadedeaebc5b6、Standards完整报告e25bba41be87589dfe1b7717bb6c6f3ed6924e17640ab666bcbfeef8c72c0d3d；数据Spec为d098b83166e0bb4a9e7179cb562bda869b093e1fbf7e36435dc88462e25c667f、Standards为a853bdd4bb2cdda98e6144371eabc6f5bcfffb565720a2d9998effe90cef8d57。补件冻结实际public CLI driver/Child/native/history正文，并用FINAL-INSTALL-ORDINARY/OFFLINE真实收据绑定消除旧a68模板定位资料的身份歧义。最终接口、合入说明及封存位于build/observer-fixed-anchor-001的FINAL-INTERFACE-001、INTEGRATION-HANDOFF-001、MERGE-INSTRUCTIONS-001、FINAL-SEAL-001及FINAL-CHECK-001。
+
+原诊断五秒报告503保留；本候选实际主链在原预算内通过，高负载读取时效按原有界失败/保旧协议处理，未授额外并发资格。Windows标准Selector最多512套接字，asyncio管道/子进程仍由独立WT负责。真实完整四查询、最新沪深北缺失字段、最终B/WRI/AWP/Source组合、根的新代定位及整套升级恢复由根继续，原a68和a70资格分别保持；完整C与生产尚未完成。
