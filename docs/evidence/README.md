@@ -1,5 +1,7 @@
 # 验证证据
 
+- [WT未知委托增量合入与独立整包](2026-11-01-wt-unknown-package-integration.md)：33份固定文件已合入，匹配的Host/WT九组件ZIP搬迁安装通过，干净主干来源核对通过；正式活动单跨进程恢复继续。
+
 - [未知委托核清后的WT执行连续性](2026-11-01-qmt-unknown-continuity.md)：同一全新Native与离线WT角色中，SDK异常及真正截断回复均按原ID核清、原WT O/P后实际1000→200，无App/额外单并正常关闭；正式活动单CTA冷恢复继续。
 
 - [未知委托恢复增量与双角色候选](2026-11-01-unknown-recovery-candidate-intake.md)：Root核两类1000→核清→200主链及24原件；新Host/Agent进入独立Host15/WT23普通安装，配套Native/审查及活动单跨进程恢复继续。
