@@ -1,0 +1,1158 @@
+{
+  "observations": [
+    {
+      "symbol": "159780.SZ",
+      "trade_date": "2024-01-02",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-02T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-02"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-02T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510050.SH",
+      "trade_date": "2024-01-02",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-02T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-02"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-02T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510300.SH",
+      "trade_date": "2024-01-02",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-02T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-02"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-02T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510500.SH",
+      "trade_date": "2024-01-02",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-02T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-02"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-02T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "512100.SH",
+      "trade_date": "2024-01-02",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-02T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-02"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-02T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "515080.SH",
+      "trade_date": "2024-01-02",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-02T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-02"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-02T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "588000.SH",
+      "trade_date": "2024-01-02",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-02T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-02"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-02T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "589680.SH",
+      "trade_date": "2024-01-02",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-02T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-02"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-02T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "159780.SZ",
+      "trade_date": "2024-01-03",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-03T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-03"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-03T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510050.SH",
+      "trade_date": "2024-01-03",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-03T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-03"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-03T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510300.SH",
+      "trade_date": "2024-01-03",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-03T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-03"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-03T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510500.SH",
+      "trade_date": "2024-01-03",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-03T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-03"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-03T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "512100.SH",
+      "trade_date": "2024-01-03",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-03T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-03"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-03T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "515080.SH",
+      "trade_date": "2024-01-03",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-03T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-03"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-03T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "588000.SH",
+      "trade_date": "2024-01-03",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-03T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-03"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-03T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "589680.SH",
+      "trade_date": "2024-01-03",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-03T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-03"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-03T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "159780.SZ",
+      "trade_date": "2024-01-04",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-04T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-04"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-04T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510050.SH",
+      "trade_date": "2024-01-04",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-04T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-04"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-04T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510300.SH",
+      "trade_date": "2024-01-04",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-04T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-04"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-04T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510500.SH",
+      "trade_date": "2024-01-04",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-04T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-04"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-04T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "512100.SH",
+      "trade_date": "2024-01-04",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-04T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-04"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-04T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "515080.SH",
+      "trade_date": "2024-01-04",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-04T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-04"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-04T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "588000.SH",
+      "trade_date": "2024-01-04",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-04T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-04"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-04T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "589680.SH",
+      "trade_date": "2024-01-04",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-04T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-04"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-04T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "159780.SZ",
+      "trade_date": "2024-01-05",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-05T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-05"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-05T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510050.SH",
+      "trade_date": "2024-01-05",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-05T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-05"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-05T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510300.SH",
+      "trade_date": "2024-01-05",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-05T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-05"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-05T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510500.SH",
+      "trade_date": "2024-01-05",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-05T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-05"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-05T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "512100.SH",
+      "trade_date": "2024-01-05",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-05T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-05"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-05T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "515080.SH",
+      "trade_date": "2024-01-05",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-05T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-05"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-05T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "588000.SH",
+      "trade_date": "2024-01-05",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-05T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-05"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-05T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "589680.SH",
+      "trade_date": "2024-01-05",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-05T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-05"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-05T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "159780.SZ",
+      "trade_date": "2024-01-08",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-08T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-08"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-08T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510050.SH",
+      "trade_date": "2024-01-08",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-08T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-08"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-08T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510300.SH",
+      "trade_date": "2024-01-08",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-08T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-08"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-08T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510500.SH",
+      "trade_date": "2024-01-08",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-08T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-08"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-08T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "512100.SH",
+      "trade_date": "2024-01-08",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-08T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-08"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-08T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "515080.SH",
+      "trade_date": "2024-01-08",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-08T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-08"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-08T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "588000.SH",
+      "trade_date": "2024-01-08",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-08T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-08"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-08T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "589680.SH",
+      "trade_date": "2024-01-08",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-08T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-08"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-08T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "159780.SZ",
+      "trade_date": "2024-01-09",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-09T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-09"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-09T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510050.SH",
+      "trade_date": "2024-01-09",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-09T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-09"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-09T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510300.SH",
+      "trade_date": "2024-01-09",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-09T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-09"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-09T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "510500.SH",
+      "trade_date": "2024-01-09",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-09T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-09"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-09T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "512100.SH",
+      "trade_date": "2024-01-09",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-09T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-09"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-09T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "515080.SH",
+      "trade_date": "2024-01-09",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-09T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-09"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-09T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "588000.SH",
+      "trade_date": "2024-01-09",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-09T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-09"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-09T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "symbol": "589680.SH",
+      "trade_date": "2024-01-09",
+      "open": 10.0,
+      "high": 11.0,
+      "low": 9.0,
+      "close": 10.0,
+      "volume": 100.0,
+      "amount": 1000.0,
+      "shares_delta_yi": 1,
+      "share_probability": 70,
+      "turnover_percentile": 10,
+      "margin_percentile": 10,
+      "auxiliary_available_at": "2024-01-09T07:00:00Z",
+      "auxiliary_source_dates": [
+        "2024-01-09"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day"
+      ],
+      "market_available_at": "2024-01-09T07:00:00Z",
+      "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "factor_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

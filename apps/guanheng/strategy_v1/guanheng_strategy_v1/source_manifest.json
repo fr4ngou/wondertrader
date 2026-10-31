@@ -1,0 +1,96 @@
+{
+  "source_revision": "6cf508a070392ff976b6b4d6b31b0e6219001e71",
+  "original_raw_crlf_sources": {
+    "features.py": {
+      "sha256": "83bf72c6fcbe8ab985d1f5f53c6a096c6d87932337592db3e92e3a297a132681",
+      "bytes": 5899
+    },
+    "signals.py": {
+      "sha256": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238",
+      "bytes": 39100
+    },
+    "models.py": {
+      "sha256": "f92c44a4903e9fe180785d59f23d631df70638d0514af7cf61250b6011710d5f",
+      "bytes": 5310
+    },
+    "allocation.py": {
+      "sha256": "4043db624e6e9a88262049ea0d08a1c1b58d3da0c6eacdad274422b101075f44",
+      "bytes": 6498
+    },
+    "configuration.py": {
+      "sha256": "f6b8cd5c529d532ec71a8e5289c8449e79ad946470a6c17153e621a38537a087",
+      "bytes": 9616
+    },
+    "runtime.py": {
+      "sha256": "2be8c3ee363d0f21377b24ac8f00dd785c2e18945bbdeae261c4ea12c3d213c1",
+      "bytes": 11207
+    },
+    "backtest_engine.py": {
+      "sha256": "31576293d4c3f01db002dd6e35bb905d0cacf62d6c1d3bca9cb75f3c40d8a3da",
+      "bytes": 36002
+    },
+    "definition.json": {
+      "sha256": "970d2086c3302f66e08796c81b4ac502b7cbd0a83e23c8ba83a8f67150939faa",
+      "bytes": 3039
+    }
+  },
+  "normalized_mathematical_sources": {
+    "features.py": {
+      "raw_sha256": "83bf72c6fcbe8ab985d1f5f53c6a096c6d87932337592db3e92e3a297a132681",
+      "raw_bytes": 5899,
+      "lf_sha256": "f49789eebbe6a18dfd245637fa4889b7eb08aae07d6041d41072b687f47b3bb3",
+      "lf_bytes": 5735,
+      "existing_manifest_sha256": "f49789eebbe6a18dfd245637fa4889b7eb08aae07d6041d41072b687f47b3bb3"
+    },
+    "signals.py": {
+      "raw_sha256": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238",
+      "raw_bytes": 39100,
+      "lf_sha256": "f9840695a443fbc9d598a6934e047a1dea0ed5f12f2076624ca1833779de0763",
+      "lf_bytes": 38169,
+      "existing_manifest_sha256": "f9840695a443fbc9d598a6934e047a1dea0ed5f12f2076624ca1833779de0763"
+    },
+    "allocation.py": {
+      "raw_sha256": "4043db624e6e9a88262049ea0d08a1c1b58d3da0c6eacdad274422b101075f44",
+      "raw_bytes": 6498,
+      "lf_sha256": "dabffa6af715dfe8f2f9324921f459409fe660a7b13d78d959be49d6773238df",
+      "lf_bytes": 6331,
+      "existing_manifest_sha256": "dabffa6af715dfe8f2f9324921f459409fe660a7b13d78d959be49d6773238df"
+    },
+    "models.py": {
+      "raw_sha256": "f92c44a4903e9fe180785d59f23d631df70638d0514af7cf61250b6011710d5f",
+      "raw_bytes": 5310,
+      "lf_sha256": "a9b9df2e803d72f465b0592779c8f6ec47c68934426528d1ba24f97face684af",
+      "lf_bytes": 5169,
+      "existing_manifest_sha256": "a9b9df2e803d72f465b0592779c8f6ec47c68934426528d1ba24f97face684af"
+    }
+  },
+  "source_use": "static only; never import old QMT",
+  "core": "guanheng-strategy-core==0.1.0a8",
+  "adaptations": [
+    "Single retained 1.1.2 entry; legacy pipeline archived outside runtime",
+    "Shared feature/signal/allocation mathematics; externally supplied native cycles and exit state",
+    "Pure current-visible reconstruction; no old ledger, worker, scheduler or broker dependency",
+    "Explicit historical final-basis model shares the strict current-view rule engine; actual receipt retained",
+    "Continued actual exits keep original economic event date; resolution creates current decision event",
+    "Explicit initial inventory inception; no imported old opening, trades or cycle state; restart retains inception"
+  ],
+  "owned_sources": {
+    "historical.py": "7ada722a06b0a8eaa3ae5a9281e5c92b6c7d1fc5668a535d1dc8b6dfe8368cad",
+    "latest.py": "6bfb1579bb3de29749ab38a60f8c8ad7405e70412e69761fbc29fcafa230239b",
+    "__init__.py": "c32bc60fbd9213a925862b62bad1f4cbf6ec9e8faccc5bb886cc596e1dd152d8"
+  },
+  "package_version": "0.1.0a8",
+  "dependencies": {
+    "guanheng-strategy-core": "0.1.0a8",
+    "tzdata": "2026.3"
+  },
+  "requires_dist": [
+    "guanheng-strategy-core==0.1.0a8",
+    "tzdata==2026.3"
+  ],
+  "algorithm_identity": "resonance-regime-v1@1.1.2/ledger-front-ratio-v1",
+  "actual_cycle_rule_sources": {
+    "ledger_engine.py": "f7dcbc5c8faeb36aaef2adaf3f774f1765128445dcb17924a81e2359ff8477d8",
+    "signals.py": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238"
+  }
+}

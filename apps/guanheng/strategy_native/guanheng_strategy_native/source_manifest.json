@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "package": "guanheng-strategy-native",
+  "version": "0.1.0a1",
+  "runtime": "Python >=3.12 standard library",
+  "runtime_dependencies": [],
+  "specifications": [
+    "NSQ-R1..R5",
+    "NSK-R1..R7"
+  ],
+  "implementation": "original bounded pure value module; old DB/legs/matching not copied",
+  "source_commit": "6cf508a070392ff976b6b4d6b31b0e6219001e71",
+  "static_semantic_sources": [
+    {
+      "path": "src/qmt_platform/services/portfolio/rebalance_planner.py",
+      "sha256": "04d14ceff12e85f9ce11c150e501d660ab4694b285caff0b723b4663a210957f",
+      "bytes": 27849
+    },
+    {
+      "path": "src/qmt_platform/services/strategy/portfolio_target_projection.py",
+      "sha256": "a5bc5aa041ab656443ba31aab1c02182013588c6b762a55a97f73676b0ae8b06",
+      "bytes": 6795
+    }
+  ],
+  "semantic_use": {
+    "rebalance_planner.py": "target_quantities_for_nav:143-165; build_sell_first_plan:182-316; freeze_buy_stage:418-627",
+    "portfolio_target_projection.py": "stable complete vector/generation/source allocation; daily observation separate"
+  },
+  "source_rights": "private development provenance only; redistribution permission not assessed",
+  "native_boundary": "fixed WT 08b230dd05facf6d650d949bfe51054115a2ecb1; no binding in this package"
+}

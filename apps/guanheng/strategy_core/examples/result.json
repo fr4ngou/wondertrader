@@ -1,0 +1,581 @@
+{
+  "kernel_version": "configured-resonance-kernel-1",
+  "strategy_id": "resonance-regime-v1",
+  "strategy_version": "1.2.0",
+  "config_sha256": "84267c163405860e5ebf1ce2e9c4a8ff73caf28a006648cde968871a8fa5df27",
+  "input_sha256": "a5f1e5f59f01f416a161135674885e6cbb42b4b481f6c4c7a18b2d0683324f85",
+  "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "factor_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "knowledge_cutoff": "2024-01-09T07:00:00Z",
+  "first_ready_date": "2024-01-03",
+  "last_closed_date": "2024-01-09",
+  "daily_frames": [
+    {
+      "trade_date": "2024-01-02",
+      "decisions": [],
+      "auxiliary_qualified": true
+    },
+    {
+      "trade_date": "2024-01-03",
+      "decisions": [
+        {
+          "symbol": "510300.SH",
+          "trade_date": "2024-01-03",
+          "action": "BUY",
+          "strength": 0.3333333333333333,
+          "path": "opportunity_resonance",
+          "reason": "opportunity resonance adds one of three tranches",
+          "confidence": 0.6,
+          "evidence_refs": [
+            "synthetic:constant-closed-day",
+            "resonance-lights:3:0"
+          ]
+        }
+      ],
+      "auxiliary_qualified": true
+    },
+    {
+      "trade_date": "2024-01-04",
+      "decisions": [
+        {
+          "symbol": "510300.SH",
+          "trade_date": "2024-01-04",
+          "action": "BUY",
+          "strength": 0.6666666666666666,
+          "path": "opportunity_resonance",
+          "reason": "opportunity resonance adds one of three tranches",
+          "confidence": 0.6,
+          "evidence_refs": [
+            "synthetic:constant-closed-day",
+            "resonance-lights:3:0"
+          ]
+        }
+      ],
+      "auxiliary_qualified": true
+    },
+    {
+      "trade_date": "2024-01-05",
+      "decisions": [
+        {
+          "symbol": "510300.SH",
+          "trade_date": "2024-01-05",
+          "action": "BUY",
+          "strength": 1.0,
+          "path": "opportunity_resonance",
+          "reason": "opportunity resonance adds one of three tranches",
+          "confidence": 0.6,
+          "evidence_refs": [
+            "synthetic:constant-closed-day",
+            "resonance-lights:3:0"
+          ]
+        }
+      ],
+      "auxiliary_qualified": true
+    },
+    {
+      "trade_date": "2024-01-08",
+      "decisions": [],
+      "auxiliary_qualified": true
+    },
+    {
+      "trade_date": "2024-01-09",
+      "decisions": [],
+      "auxiliary_qualified": true
+    }
+  ],
+  "allocation_events": [
+    {
+      "trade_date": "2024-01-03",
+      "target_weights": [
+        [
+          "159780.SZ",
+          0.0
+        ],
+        [
+          "510050.SH",
+          0.0
+        ],
+        [
+          "510300.SH",
+          0.04740740740740741
+        ],
+        [
+          "510500.SH",
+          0.0
+        ],
+        [
+          "512100.SH",
+          0.0
+        ],
+        [
+          "515080.SH",
+          0.0
+        ],
+        [
+          "588000.SH",
+          0.0
+        ],
+        [
+          "589680.SH",
+          0.0
+        ]
+      ],
+      "decision_paths": [
+        "510300.SH:BUY:opportunity_resonance"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day",
+        "resonance-lights:3:0"
+      ]
+    },
+    {
+      "trade_date": "2024-01-04",
+      "target_weights": [
+        [
+          "159780.SZ",
+          0.0
+        ],
+        [
+          "510050.SH",
+          0.0
+        ],
+        [
+          "510300.SH",
+          0.09481481481481482
+        ],
+        [
+          "510500.SH",
+          0.0
+        ],
+        [
+          "512100.SH",
+          0.0
+        ],
+        [
+          "515080.SH",
+          0.0
+        ],
+        [
+          "588000.SH",
+          0.0
+        ],
+        [
+          "589680.SH",
+          0.0
+        ]
+      ],
+      "decision_paths": [
+        "510300.SH:BUY:opportunity_resonance"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day",
+        "resonance-lights:3:0"
+      ]
+    },
+    {
+      "trade_date": "2024-01-05",
+      "target_weights": [
+        [
+          "159780.SZ",
+          0.0
+        ],
+        [
+          "510050.SH",
+          0.0
+        ],
+        [
+          "510300.SH",
+          0.14222222222222222
+        ],
+        [
+          "510500.SH",
+          0.0
+        ],
+        [
+          "512100.SH",
+          0.0
+        ],
+        [
+          "515080.SH",
+          0.0
+        ],
+        [
+          "588000.SH",
+          0.0
+        ],
+        [
+          "589680.SH",
+          0.0
+        ]
+      ],
+      "decision_paths": [
+        "510300.SH:BUY:opportunity_resonance"
+      ],
+      "evidence_refs": [
+        "synthetic:constant-closed-day",
+        "resonance-lights:3:0"
+      ]
+    }
+  ],
+  "current_targets": [
+    {
+      "role": "csi300",
+      "signal_symbol": "510300.SH",
+      "execution_symbol": "510300.SH",
+      "target_weight": 0.14222222222222222,
+      "source_allocation_date": "2024-01-05"
+    },
+    {
+      "role": "dividend",
+      "signal_symbol": "515080.SH",
+      "execution_symbol": "515080.SH",
+      "target_weight": 0.0,
+      "source_allocation_date": "2024-01-05"
+    },
+    {
+      "role": "kc50",
+      "signal_symbol": "588000.SH",
+      "execution_symbol": "588000.SH",
+      "target_weight": 0.0,
+      "source_allocation_date": "2024-01-05"
+    },
+    {
+      "role": "kc_composite",
+      "signal_symbol": "589680.SH",
+      "execution_symbol": "589000.SH",
+      "target_weight": 0.0,
+      "source_allocation_date": "2024-01-05"
+    },
+    {
+      "role": "sc50",
+      "signal_symbol": "159780.SZ",
+      "execution_symbol": "159780.SZ",
+      "target_weight": 0.0,
+      "source_allocation_date": "2024-01-05"
+    },
+    {
+      "role": "sh50",
+      "signal_symbol": "510050.SH",
+      "execution_symbol": "510050.SH",
+      "target_weight": 0.0,
+      "source_allocation_date": "2024-01-05"
+    },
+    {
+      "role": "zz1000",
+      "signal_symbol": "512100.SH",
+      "execution_symbol": "512100.SH",
+      "target_weight": 0.0,
+      "source_allocation_date": "2024-01-05"
+    },
+    {
+      "role": "zz500",
+      "signal_symbol": "510500.SH",
+      "execution_symbol": "510500.SH",
+      "target_weight": 0.0,
+      "source_allocation_date": "2024-01-05"
+    }
+  ],
+  "latest_features": [
+    {
+      "observation": {
+        "symbol": "159780.SZ",
+        "trade_date": "2024-01-09",
+        "open": 10.0,
+        "high": 11.0,
+        "low": 9.0,
+        "close": 10.0,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "shares_delta_yi": 1,
+        "share_probability": 70,
+        "turnover_percentile": 10,
+        "margin_percentile": 10,
+        "auxiliary_available_at": "2024-01-09T07:00:00Z",
+        "auxiliary_source_dates": [
+          "2024-01-09"
+        ],
+        "evidence_refs": [
+          "synthetic:constant-closed-day"
+        ],
+        "market_available_at": "2024-01-09T07:00:00Z",
+        "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "change_pct": 0.0,
+      "price_position": 50.0,
+      "volume_ratio": 1.0,
+      "trade_direction": "NEUTRAL",
+      "regime_score": 0.0,
+      "regime_label": "range"
+    },
+    {
+      "observation": {
+        "symbol": "510050.SH",
+        "trade_date": "2024-01-09",
+        "open": 10.0,
+        "high": 11.0,
+        "low": 9.0,
+        "close": 10.0,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "shares_delta_yi": 1,
+        "share_probability": 70,
+        "turnover_percentile": 10,
+        "margin_percentile": 10,
+        "auxiliary_available_at": "2024-01-09T07:00:00Z",
+        "auxiliary_source_dates": [
+          "2024-01-09"
+        ],
+        "evidence_refs": [
+          "synthetic:constant-closed-day"
+        ],
+        "market_available_at": "2024-01-09T07:00:00Z",
+        "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "change_pct": 0.0,
+      "price_position": 50.0,
+      "volume_ratio": 1.0,
+      "trade_direction": "NEUTRAL",
+      "regime_score": 0.0,
+      "regime_label": "range"
+    },
+    {
+      "observation": {
+        "symbol": "510300.SH",
+        "trade_date": "2024-01-09",
+        "open": 10.0,
+        "high": 11.0,
+        "low": 9.0,
+        "close": 10.0,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "shares_delta_yi": 1,
+        "share_probability": 70,
+        "turnover_percentile": 10,
+        "margin_percentile": 10,
+        "auxiliary_available_at": "2024-01-09T07:00:00Z",
+        "auxiliary_source_dates": [
+          "2024-01-09"
+        ],
+        "evidence_refs": [
+          "synthetic:constant-closed-day"
+        ],
+        "market_available_at": "2024-01-09T07:00:00Z",
+        "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "change_pct": 0.0,
+      "price_position": 50.0,
+      "volume_ratio": 1.0,
+      "trade_direction": "NEUTRAL",
+      "regime_score": 0.0,
+      "regime_label": "range"
+    },
+    {
+      "observation": {
+        "symbol": "510500.SH",
+        "trade_date": "2024-01-09",
+        "open": 10.0,
+        "high": 11.0,
+        "low": 9.0,
+        "close": 10.0,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "shares_delta_yi": 1,
+        "share_probability": 70,
+        "turnover_percentile": 10,
+        "margin_percentile": 10,
+        "auxiliary_available_at": "2024-01-09T07:00:00Z",
+        "auxiliary_source_dates": [
+          "2024-01-09"
+        ],
+        "evidence_refs": [
+          "synthetic:constant-closed-day"
+        ],
+        "market_available_at": "2024-01-09T07:00:00Z",
+        "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "change_pct": 0.0,
+      "price_position": 50.0,
+      "volume_ratio": 1.0,
+      "trade_direction": "NEUTRAL",
+      "regime_score": 0.0,
+      "regime_label": "range"
+    },
+    {
+      "observation": {
+        "symbol": "512100.SH",
+        "trade_date": "2024-01-09",
+        "open": 10.0,
+        "high": 11.0,
+        "low": 9.0,
+        "close": 10.0,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "shares_delta_yi": 1,
+        "share_probability": 70,
+        "turnover_percentile": 10,
+        "margin_percentile": 10,
+        "auxiliary_available_at": "2024-01-09T07:00:00Z",
+        "auxiliary_source_dates": [
+          "2024-01-09"
+        ],
+        "evidence_refs": [
+          "synthetic:constant-closed-day"
+        ],
+        "market_available_at": "2024-01-09T07:00:00Z",
+        "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "change_pct": 0.0,
+      "price_position": 50.0,
+      "volume_ratio": 1.0,
+      "trade_direction": "NEUTRAL",
+      "regime_score": 0.0,
+      "regime_label": "range"
+    },
+    {
+      "observation": {
+        "symbol": "515080.SH",
+        "trade_date": "2024-01-09",
+        "open": 10.0,
+        "high": 11.0,
+        "low": 9.0,
+        "close": 10.0,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "shares_delta_yi": 1,
+        "share_probability": 70,
+        "turnover_percentile": 10,
+        "margin_percentile": 10,
+        "auxiliary_available_at": "2024-01-09T07:00:00Z",
+        "auxiliary_source_dates": [
+          "2024-01-09"
+        ],
+        "evidence_refs": [
+          "synthetic:constant-closed-day"
+        ],
+        "market_available_at": "2024-01-09T07:00:00Z",
+        "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "change_pct": 0.0,
+      "price_position": 50.0,
+      "volume_ratio": 1.0,
+      "trade_direction": "NEUTRAL",
+      "regime_score": 0.0,
+      "regime_label": "range"
+    },
+    {
+      "observation": {
+        "symbol": "588000.SH",
+        "trade_date": "2024-01-09",
+        "open": 10.0,
+        "high": 11.0,
+        "low": 9.0,
+        "close": 10.0,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "shares_delta_yi": 1,
+        "share_probability": 70,
+        "turnover_percentile": 10,
+        "margin_percentile": 10,
+        "auxiliary_available_at": "2024-01-09T07:00:00Z",
+        "auxiliary_source_dates": [
+          "2024-01-09"
+        ],
+        "evidence_refs": [
+          "synthetic:constant-closed-day"
+        ],
+        "market_available_at": "2024-01-09T07:00:00Z",
+        "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "change_pct": 0.0,
+      "price_position": 50.0,
+      "volume_ratio": 1.0,
+      "trade_direction": "NEUTRAL",
+      "regime_score": 0.0,
+      "regime_label": "range"
+    },
+    {
+      "observation": {
+        "symbol": "589680.SH",
+        "trade_date": "2024-01-09",
+        "open": 10.0,
+        "high": 11.0,
+        "low": 9.0,
+        "close": 10.0,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "shares_delta_yi": 1,
+        "share_probability": 70,
+        "turnover_percentile": 10,
+        "margin_percentile": 10,
+        "auxiliary_available_at": "2024-01-09T07:00:00Z",
+        "auxiliary_source_dates": [
+          "2024-01-09"
+        ],
+        "evidence_refs": [
+          "synthetic:constant-closed-day"
+        ],
+        "market_available_at": "2024-01-09T07:00:00Z",
+        "market_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "auxiliary_source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "change_pct": 0.0,
+      "price_position": 50.0,
+      "volume_ratio": 1.0,
+      "trade_direction": "NEUTRAL",
+      "regime_score": 0.0,
+      "regime_label": "range"
+    }
+  ],
+  "signal_states": [
+    {
+      "role": "csi300",
+      "symbol": "510300.SH",
+      "state_json": "{\"level\":3}"
+    },
+    {
+      "role": "dividend",
+      "symbol": "515080.SH",
+      "state_json": "{\"distribution_count\":0,\"hold_days\":0,\"position\":false,\"sell_threshold\":2,\"waiting_reversal\":false}"
+    },
+    {
+      "role": "kc50",
+      "symbol": "588000.SH",
+      "state_json": "{\"hold_days\":0,\"peak\":0.0,\"position\":false}"
+    },
+    {
+      "role": "kc_composite",
+      "symbol": "589680.SH",
+      "state_json": "{\"cluster_low\":null,\"hold_days\":0,\"position\":false,\"waiting_cluster\":false}"
+    },
+    {
+      "role": "sc50",
+      "symbol": "159780.SZ",
+      "state_json": "{\"cluster_low\":null,\"hold_days\":0,\"peak\":0.0,\"position\":false,\"waiting_cluster\":false}"
+    },
+    {
+      "role": "sh50",
+      "symbol": "510050.SH",
+      "state_json": "{\"cluster_low\":null,\"hold_days\":0,\"peak\":0.0,\"position\":false,\"waiting_cluster\":false}"
+    },
+    {
+      "role": "zz1000",
+      "symbol": "512100.SH",
+      "state_json": "{\"distribution_count\":0,\"hold_days\":0,\"position\":false,\"sell_threshold\":2,\"waiting_cluster\":false,\"watch_high\":0.0,\"watch_mode\":false}"
+    },
+    {
+      "role": "zz500",
+      "symbol": "510500.SH",
+      "state_json": "{\"cluster_low\":null,\"distribution_count\":0,\"hold_days\":0,\"position\":false,\"sell_threshold\":2,\"top_watch\":0,\"waiting_cluster\":false}"
+    }
+  ],
+  "auxiliary_gaps": [],
+  "qualified": true,
+  "qualification_reasons": []
+}
