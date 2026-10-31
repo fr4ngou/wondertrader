@@ -1,6 +1,6 @@
 # WT独立运行操作
 
-类型：运行手册。状态：独立安装、正式1.1.2首次库存接管、正常调仓与限定未知委托连续性已有SDK替身资格；带活动委托的简化恢复仍在开发，真实启用及生产切换分别验收。当前候选身份沿[整包接收](../evidence/2026-11-01-wt-unknown-package-integration.md)及[首次接管](../evidence/2026-11-01-wt-first-inventory-intake.md)。适用范围：独立WT发行环境。职责及配置唯一正文见[WRI](../specs/independent-wt-runtime.md)。
+类型：运行手册。状态：独立安装、正式1.1.2首次库存接管、正常调仓、限定未知委托连续性及自有挂单撤清后重算的简版恢复已有SDK替身资格；最终真实QMT来源及生产启用分别验收。当前候选及使用位置见[WT独立交付](../releases/2026-11-01-wt-independent-candidate.md)，业务依据见[完整安装接收](../evidence/2026-11-01-wt-simple-recovery-installed.md)。适用范围：独立WT发行环境。职责及配置唯一正文见[WRI](../specs/independent-wt-runtime.md)。
 
 ## 安装和启动
 
