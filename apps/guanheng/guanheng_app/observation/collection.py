@@ -63,21 +63,16 @@ def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=N
 
 def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancelled,fetcher_factory,market_client_factory):
     limits=config['budget']
-    finalization=CollectionBudget(deadline,cancelled=cancelled)
+    # 编码/校验在原D前结束，为同一目录事务或失败回执保留收束时间。
+    # 收束仍服从调用者原D；短预算按比例保留，最长5秒。
+    closing_reserve=min(5.0,CollectionBudget(deadline,cancelled=cancelled).remaining()/20)
+    work_deadline=deadline-closing_reserve
+    finalization=CollectionBudget(work_deadline,cancelled=cancelled)
     # 外部来源可耗尽采集阶段；原总D内保留五分之一（至多60秒）完成存证和事务发布。
     reserve=min(60.0,finalization.remaining()/5)
-    budget=CollectionBudget(deadline-reserve,limits['max_requests'],limits['max_bytes'],limits['response_bytes'],cancelled=cancelled)
+    budget=CollectionBudget(work_deadline-reserve,limits['max_requests'],limits['max_bytes'],limits['response_bytes'],cancelled=cancelled)
     reader=ObservationReader(reader.repository,BoundedContentStore(reader.objects,finalization))
-    previous,manifest=reader.snapshot();candidate=copy.deepcopy(manifest)
-    candidate['usage']=dict(USAGE)
-    definitions={key:copy.deepcopy(value['definition']) for key,value in manifest['datasets'].items()}
-    datasets={key:[dict(row) for row in reader.rows(value['partition'])] for key,value in manifest['datasets'].items()}
-    prepare_definitions(definitions,datasets,config['sources'])
-    financial_models.prepare_definitions(definitions,datasets,config['sources'])
-    executive_models.prepare_definitions(definitions,datasets,config['sources'])
-    t2108_models.prepare_definitions(definitions,datasets,config['sources'])
-    tables={key:[dict(row) for row in reader.rows(value)] for key,value in manifest.get('source_tables',{}).items()}
-    table_parents=copy.deepcopy(manifest.get('source_table_parents',{}));receipts=[];successes=0
+    previous=reader.repository.current();receipts=[];successes=0
     selected={s['id'] for s in config['sources']} if source_ids is None else set(source_ids)
     if not selected or selected-{s['id'] for s in config['sources']}:
         raise ObservationError('invalid_source_selection','观察采集来源未登记',422)
@@ -85,6 +80,19 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         previous_snapshot=previous,current_snapshot=previous,sources=receipts,status='failed')
     if window_key:run.update(window_key=window_key,window_complete=False)
     if attempt:run.update(started_at=attempt['started_at'],attempt_number=attempt['attempt_number'])
+    try:
+        _,manifest=reader.snapshot(previous);candidate=copy.deepcopy(manifest)
+        candidate['usage']=dict(USAGE)
+        definitions={key:copy.deepcopy(value['definition']) for key,value in manifest['datasets'].items()}
+        datasets={key:[dict(row) for row in reader.rows(value['partition'])] for key,value in manifest['datasets'].items()}
+        prepare_definitions(definitions,datasets,config['sources'])
+        financial_models.prepare_definitions(definitions,datasets,config['sources'])
+        executive_models.prepare_definitions(definitions,datasets,config['sources'])
+        t2108_models.prepare_definitions(definitions,datasets,config['sources'])
+        tables={key:[dict(row) for row in reader.rows(value)] for key,value in manifest.get('source_tables',{}).items()}
+        table_parents=copy.deepcopy(manifest.get('source_table_parents',{}))
+    except Exception as exc:
+        return _failed_run(reader,run,exc,deadline,cancelled)
     for source in config['sources']:
         if source['id'] not in selected:continue
         receipt=dict(source_id=source['id'],started_at=_now());fetch=None
@@ -194,21 +202,27 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         register_standard_assets(reader.objects,candidate)
         candidate['computation_identity']=computation_identity()
         candidate['source_configuration_sha256']=digest(encode(config));candidate['published_at']=run['completed_at'];candidate['parent_snapshot']=previous
-        validate_manifest(reader,candidate,deadline);finalization.remaining()
+        validate_manifest(reader,candidate,work_deadline);finalization.remaining()
         run['completed_at']=candidate['published_at']=_now()
         run.update(status='partial' if any(r['status']=='failed' for r in receipts) else 'success',current_snapshot=digest(encode(candidate)))
         if window_key:run['window_complete']=True
         reader.repository.publish(candidate,previous,receipt=run,deadline=deadline,cancelled=cancelled)
     except Exception as exc:
-        if isinstance(exc,ObservationError) and exc.code=='publication_outcome_unknown':
-            run.update(status='publication_unknown',candidate_snapshot=run['current_snapshot'],current_snapshot=None,
-                completed_at=_now(),error_code=exc.code)
-            if window_key:run['window_complete']=None
-            return run
-        run.update(status='failed',current_snapshot=None if isinstance(exc,ObservationError) and exc.code=='publication_conflict' else previous,completed_at=_now(),
-            error_code=exc.code if isinstance(exc,(ObservationError,SourceFailure)) else 'publication_failed')
-        if window_key:run['window_complete']=False
-        _record_run(reader,run,deadline,cancelled)
+        return _failed_run(reader,run,exc,deadline,cancelled)
+    return run
+
+
+def _failed_run(reader,run,exc,deadline,cancelled):
+    """准备读取与最终采用共用失败收束；未知提交继续保留原候选身份。"""
+    if isinstance(exc,ObservationError) and exc.code=='publication_outcome_unknown':
+        run.update(status='publication_unknown',candidate_snapshot=run['current_snapshot'],current_snapshot=None,
+            completed_at=_now(),error_code=exc.code)
+        if run.get('window_key'):run['window_complete']=None
+        return run
+    run.update(status='failed',current_snapshot=None if isinstance(exc,ObservationError) and exc.code=='publication_conflict' else run['previous_snapshot'],
+        completed_at=_now(),error_code=exc.code if isinstance(exc,(ObservationError,SourceFailure)) else 'publication_failed')
+    if run.get('window_key'):run['window_complete']=False
+    _record_run(reader,run,deadline,cancelled)
     return run
 
 
