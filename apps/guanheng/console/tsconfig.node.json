@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+    "tsBuildInfoFile": "node_modules/.cache/typescript/tsconfig.node.tsbuildinfo",
+    "skipLibCheck": true,
+    "types": ["node"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["vite.config.ts", "generated-storage.ts", "src/observation/deploymentBase.ts"]
+}

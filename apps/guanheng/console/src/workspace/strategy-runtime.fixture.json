@@ -1,0 +1,97 @@
+{
+  "schema_version": "guanheng.strategy-runtime.v1",
+  "read_only": true,
+  "observed_at": "2026-10-29T11:38:13Z",
+  "state": "available",
+  "strategy": {
+    "display_name": "共振市场状态 ETF 策略",
+    "strategy_version": "1.1.2",
+    "status": "selling",
+    "status_label": "正在调整卖出目标",
+    "decision_at": "2026-10-29T11:38:12.579237+00:00",
+    "broker_observed_at": "2026-10-29T11:38:12.578000+00:00",
+    "broker_position_qualified": false,
+    "positions": [
+      {
+        "symbol": "159780.SZ",
+        "target_weight": 0.0,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": 0,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "510050.SH",
+        "target_weight": 0.0,
+        "theoretical_quantity": 200,
+        "theoretical_sellable": 200,
+        "pending_target": null,
+        "stage_target": 0,
+        "broker_quantity": 200,
+        "broker_sellable": 200
+      },
+      {
+        "symbol": "510300.SH",
+        "target_weight": 0.2,
+        "theoretical_quantity": 200,
+        "theoretical_sellable": 200,
+        "pending_target": null,
+        "stage_target": 200,
+        "broker_quantity": 200,
+        "broker_sellable": 200
+      },
+      {
+        "symbol": "510500.SH",
+        "target_weight": 0.0,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": 0,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "512100.SH",
+        "target_weight": 0.0,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": 0,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "515080.SH",
+        "target_weight": 0.0,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": 0,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "588000.SH",
+        "target_weight": 0.0,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": 0,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "589000.SH",
+        "target_weight": 0.0,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": 0,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      }
+    ]
+  }
+}

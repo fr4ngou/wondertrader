@@ -1,0 +1,25 @@
+{
+  "schema_version": "1",
+  "default_datasets": {
+    "bond": "bond.erp_rank756",
+    "pb": "pb_shsz_daily",
+    "systemc": "system_c.weekly.pressure",
+    "crossmarket": "crossmarket.hk_a",
+    "spread": "spread_sw",
+    "pcr": "pcr_510050",
+    "valuation": "valuation_marketcap_gdp_observed",
+    "liquidity": "liquidity_shibor",
+    "swap": "swap.mid_history",
+    "cffex": "cffex_if",
+    "a50": "sgx_a50_daily",
+    "northbound": "northbound_turnover",
+    "margin": "leverage_margin",
+    "institutions": "holdings_bank"
+  },
+  "main_board_datasets": {
+    "systemc": ["system_c.weekly.pressure"]
+  },
+  "display_names": {
+    "system_c.weekly.pressure": "恒科价量压力"
+  }
+}

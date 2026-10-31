@@ -1,0 +1,206 @@
+{
+  "schema_version": "1.0",
+  "scan_id": "00000000-0000-4000-8000-000000000001",
+  "status": "complete",
+  "read_only": true,
+  "aggregate_only": true,
+  "trade_date": {
+    "availability": "unknown",
+    "value": null,
+    "reason": "来源未提供该字段"
+  },
+  "close": {
+    "status": "complete",
+    "closed": true,
+    "joined": true,
+    "worker_live": false,
+    "queued": 0,
+    "exit_code": 0,
+    "error_code": "ok"
+  },
+  "groups": {
+    "position": {
+      "datatype": "position",
+      "status": "complete",
+      "rows": [
+        {
+          "identity": {
+            "m_strInstrumentID": "600000",
+            "m_strExchangeID": "SH"
+          },
+          "fields": {
+            "quantity": {
+              "availability": "present",
+              "value": 700,
+              "reason": null
+            },
+            "sellable": {
+              "availability": "present",
+              "value": 420,
+              "reason": null
+            },
+            "yesterday": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "frozen": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "onroad": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "average_price": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "open_price": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "position_profit": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "float_profit": {
+              "availability": "invalid",
+              "value": null,
+              "reason": "来源字段类型或数值无效"
+            },
+            "market_value": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            }
+          }
+        }
+      ],
+      "source": {
+        "kind": "qmt_http",
+        "account_label": "****3456",
+        "agent_id": "synthetic-agent",
+        "environment": "simulation",
+        "session_id": "synthetic-session",
+        "generation": 1
+      },
+      "execution_started_at": "2026-10-22T03:00:00Z",
+      "execution_finished_at": "2026-10-22T03:00:01Z",
+      "request_id": "synthetic-position",
+      "result_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "reason": null
+    },
+    "order": {
+      "datatype": "order",
+      "status": "complete",
+      "rows": [],
+      "source": {
+        "kind": "qmt_http",
+        "account_label": "****3456",
+        "agent_id": "synthetic-agent",
+        "environment": "simulation",
+        "session_id": "synthetic-session",
+        "generation": 1
+      },
+      "execution_started_at": "2026-10-22T03:00:01Z",
+      "execution_finished_at": "2026-10-22T03:00:02Z",
+      "request_id": "synthetic-order",
+      "result_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "reason": null
+    },
+    "deal": {
+      "datatype": "deal",
+      "status": "complete",
+      "rows": [],
+      "source": {
+        "kind": "qmt_http",
+        "account_label": "****3456",
+        "agent_id": "synthetic-agent",
+        "environment": "simulation",
+        "session_id": "synthetic-session",
+        "generation": 1
+      },
+      "execution_started_at": "2026-10-22T03:00:02Z",
+      "execution_finished_at": "2026-10-22T03:00:03Z",
+      "request_id": "synthetic-deal",
+      "result_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "reason": null
+    },
+    "account": {
+      "datatype": "account",
+      "status": "complete",
+      "rows": [
+        {
+          "identity": {},
+          "fields": {
+            "total_asset": {
+              "availability": "present",
+              "value": 123456.789,
+              "reason": null
+            },
+            "available": {
+              "availability": "present",
+              "value": 32100.12,
+              "reason": null
+            },
+            "previous_balance": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "commission": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "frozen_cash": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "frozen_margin": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "frozen_commission": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "position_profit": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            },
+            "float_profit": {
+              "availability": "unknown",
+              "value": null,
+              "reason": "来源未提供该字段"
+            }
+          }
+        }
+      ],
+      "source": {
+        "kind": "qmt_http",
+        "account_label": "****3456",
+        "agent_id": "synthetic-agent",
+        "environment": "simulation",
+        "session_id": "synthetic-session",
+        "generation": 1
+      },
+      "execution_started_at": "2026-10-22T03:00:03Z",
+      "execution_finished_at": "2026-10-22T03:00:04Z",
+      "request_id": "synthetic-account",
+      "result_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "reason": null
+    }
+  },
+  "reason": "本轮四类账户数据已完整读取，各批时间独立，仅供只读查看"
+}

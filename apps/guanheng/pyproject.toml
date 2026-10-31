@@ -1,0 +1,43 @@
+[build-system]
+requires = ["flit_core==3.12.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "guanheng-app"
+version = "0.1.0a74+scalar.1"
+description = "Independently managed Guanheng business application on WonderTrader"
+requires-python = ">=3.12"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = [
+  "fastapi==0.139.2",
+  "pydantic==2.13.4",
+  "uvicorn==0.51.0",
+  "tzdata==2026.3",
+  "pyarrow==26.0.0",
+  "guanheng-market-client==0.15.0",
+  "guanheng-strategy-core==0.1.0a8",
+  "guanheng-strategy-native==0.1.0a1+read2",
+  "guanheng-strategy-v1==0.1.0a7",
+  "guanheng-wt-runtime==0.1.0a11+read4",
+]
+
+[project.scripts]
+guanheng-console = "guanheng_app.__main__:main"
+guanheng-observation = "guanheng_app.observation_supervisor:main"
+
+[project.optional-dependencies]
+observation-collection = ["httpx==0.28.1", "httpcore==1.0.9", "baostock==0.9.4", "pandas==3.0.6", "numpy==2.5.4", "python-dateutil==2.9.0.post0", "six==1.17.0", "pypdf==6.14.2"]
+
+[dependency-groups]
+dev = ["pytest==8.4.2", "httpx==0.28.1", "ruff==0.15.22"]
+
+[tool.flit.module]
+name = "guanheng_app"
+
+[tool.uv.sources]
+guanheng-market-client = { path = "../../integrations" }
+guanheng-strategy-core = { path = "../../packages/observer-read-side/strategy_core" }
+guanheng-strategy-native = { path = "../../packages/observer-read-side/strategy_native" }
+
+guanheng-strategy-v1 = { path = "../../packages/observer-read-side/strategy_v1" }
+guanheng-wt-runtime = { path = "../../packages/observer-read-side/wt_runtime" }

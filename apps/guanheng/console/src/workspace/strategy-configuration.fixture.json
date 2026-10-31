@@ -1,0 +1,108 @@
+{
+  "schema": "guanheng.strategy-configuration-workspace.v1",
+  "owner_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "available": true,
+  "editable": true,
+  "reason": null,
+  "catalog": [
+    {
+      "strategy_id": "resonance-regime-v1",
+      "strategy_version": "1.2.0",
+      "label": "共振策略 V1 · configured 1.2.0",
+      "example_kind": "synthetic",
+      "example": {
+        "config_revision": "synthetic-config-1",
+        "symbol_roles": [
+          [
+            "csi300",
+            "510300.SH"
+          ],
+          [
+            "dividend",
+            "515080.SH"
+          ],
+          [
+            "kc50",
+            "588000.SH"
+          ],
+          [
+            "kc_composite",
+            "589680.SH"
+          ],
+          [
+            "sc50",
+            "159780.SZ"
+          ],
+          [
+            "sh50",
+            "510050.SH"
+          ],
+          [
+            "zz1000",
+            "512100.SH"
+          ],
+          [
+            "zz500",
+            "510500.SH"
+          ]
+        ],
+        "execution_symbols": [
+          [
+            "csi300",
+            "510300.SH"
+          ],
+          [
+            "dividend",
+            "515080.SH"
+          ],
+          [
+            "kc50",
+            "588000.SH"
+          ],
+          [
+            "kc_composite",
+            "589000.SH"
+          ],
+          [
+            "sc50",
+            "159780.SZ"
+          ],
+          [
+            "sh50",
+            "510050.SH"
+          ],
+          [
+            "zz1000",
+            "512100.SH"
+          ],
+          [
+            "zz500",
+            "510500.SH"
+          ]
+        ],
+        "benchmark_role": "csi300",
+        "valid_from": "2024-01-01T07:00:00Z",
+        "valid_until": "2024-01-10T07:00:00Z",
+        "minimum_history_days": 2,
+        "regime_ma_period": 2,
+        "position_window": 2,
+        "volume_window": 2,
+        "budget_weight": 0.8,
+        "symbol_cap_weight": 0.25,
+        "max_weight_change": 0.25,
+        "strategy_id": "resonance-regime-v1",
+        "strategy_version": "1.2.0",
+        "observation_version": "resonance-daily-closed-v3",
+        "warmup_policy": "regime-available-v1"
+      }
+    }
+  ],
+  "store": {
+    "schema": "guanheng.strategy-configuration-state.v1",
+    "store_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "revision": 0,
+    "versions": []
+  },
+  "max_versions": 32,
+  "runtime_effect": false
+}

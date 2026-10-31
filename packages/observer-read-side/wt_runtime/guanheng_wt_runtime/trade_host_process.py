@@ -1,0 +1,104 @@
+"""默认disabled的交易通信产品进程适配；父端只读安全身份，不导入Host。"""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+import threading
+import time
+from .managed_local_process import (ManagedLocalProcess, _require, _sha, _path, _inspect, _read, _json)
+from .qmt_host_process import HostProcessConfig
+
+_FIELDS = {'schema', 'pythonw', 'pythonw_sha256', 'pair_directory', 'pair_manifest_sha256',
+    'installed_agent', 'control_root', 'startup_seconds', 'stop_seconds', 'max_output_bytes'}
+_IDENTITY = {'schema', 'control_id', 'pid', 'pair_manifest_sha256', 'pair_config_sha256'}
+
+
+@dataclass(frozen=True)
+class TradeHostProcessConfig(HostProcessConfig):
+    """只含路径、SHA和预算；复用原部署值验证，空配置不启动。"""
+    @classmethod
+    def from_path(cls, path, expected_sha256=None):
+        if path is None or path == '':
+            _require(expected_sha256 in (None, ''))
+            return None
+        raw = _read(_path(path), 65536)
+        _require(hashlib.sha256(raw).hexdigest() == _sha(expected_sha256))
+        value = _json(raw)
+        _require(set(value) == _FIELDS and value.pop('schema') == 'qmt.trade-host-process.v1')
+        return cls(**value)
+
+
+class TradeHostProcess(ManagedLocalProcess):
+    """原隐藏Job和资源owner；ready只授监听，数据/来源资格由认证查询给出。"""
+    _status_schema = 'qmt.trade-host-process-status.v1'
+    _stop_schema = 'qmt.trade-host-stop.v1'
+    _thread_name = 'trade-host-process'
+
+    def __init__(self, config=None, *, job_factory=None, thread_factory=threading.Thread, clock=time.monotonic):
+        _require(config is None or type(config) is TradeHostProcessConfig)
+        super().__init__(config, job_factory=job_factory, thread_factory=thread_factory, clock=clock)
+        self._pair_config_sha = None
+
+    def _command(self):
+        cfg = self.config
+        return (cfg.pythonw, '-I', '-B', '-m', 'guanheng_qmt_shm.trade_cli', 'run',
+            '--directory', cfg.pair_directory, '--installed-agent', cfg.installed_agent,
+            '--control-directory', str(self._directory), '--control-id', self._control_id)
+
+    def _validate_inputs(self, deadline):
+        cfg = self.config
+        for path in (cfg.pair_directory, cfg.installed_agent, cfg.control_root):
+            _inspect(Path(path), directory=True)
+        self._verify_file(Path(cfg.pythonw), cfg.pythonw_sha256, 67108864, deadline)
+        raw = _read(Path(cfg.pair_directory)/'manifest.json', 2097152, clock=self._clock, deadline=deadline)
+        _require(hashlib.sha256(raw).hexdigest() == cfg.pair_manifest_sha256)
+        value = _json(raw)
+        source_runtime = value.get('source_runtime')
+        pair_schema = value.get('schema_version')
+        if pair_schema in ('qmt.trade-product-pair.v2', 'qmt.trade-product-pair.v3'):
+            _require(type(source_runtime) is dict and set(source_runtime) == {'schema_version', 'mode'}
+                and source_runtime['schema_version'] == 'qmt.source-runtime.v1'
+                and source_runtime['mode'] in ('thread', 'strategy_tick'))
+            if pair_schema == 'qmt.trade-product-pair.v3':
+                # v3 显式携带分析连接；父端核公开身份，完整私有配对仍由原 Host 验证。
+                analysis = value.get('analysis_read')
+                _require(source_runtime['mode'] == 'strategy_tick'
+                    and type(analysis) is dict and set(analysis) == {'profile', 'settings_sha256'})
+                _sha(analysis['settings_sha256'])
+                profile = analysis['profile']
+                _require(type(profile) is dict and profile.get('read_profile_version') == 'qmt.read-profile.v7'
+                    and profile.get('read_operations') == ['market.divid_factors', 'market.market_data'])
+        else:
+            _require(value.get('schema_version') == 'qmt.trade-product-pair.v1' and 'source_runtime' not in value)
+        _require(pair_schema in ('qmt.trade-product-pair.v1', 'qmt.trade-product-pair.v2', 'qmt.trade-product-pair.v3')
+            and value.get('qualified_in_qmt') is False and value.get('order_ready') is False
+            and value.get('strategy_name') == 'GH_WT_MEMORY_VERIFY'
+            and _path(value.get('agent_package')) == Path(cfg.installed_agent)
+            and _path(value.get('host_python')) == Path(cfg.pythonw)
+            and value.get('host_python_sha256') == cfg.pythonw_sha256)
+        self._pair_config_sha = _sha(value['config_sha256'])
+        _require(not self._directory.exists())
+        self._check(deadline)
+
+    def _receipt(self, name, deadline):
+        _inspect(self._directory, directory=True)
+        value = _json(_read(self._directory/name, 4096, clock=self._clock, deadline=deadline))
+        ready = name == 'ready.json'
+        fields = _IDENTITY | ({'listen_host', 'listen_port'} if ready else
+            {'status', 'runtime_closed', 'monitor_joined', 'error_code'})
+        _require(set(value) == fields and value['schema'] ==
+            ('qmt.trade-host-ready.v1' if ready else 'qmt.trade-host-closed.v1')
+            and value['control_id'] == self._control_id and type(value['pid']) is int and 0 < value['pid'] < 2**32
+            and value['pair_manifest_sha256'] == self.config.pair_manifest_sha256
+            and value['pair_config_sha256'] == self._pair_config_sha)
+        if ready:
+            _require(type(value['listen_host']) is str and 0 < len(value['listen_host']) <= 255
+                and type(value['listen_port']) is int and 1024 <= value['listen_port'] <= 65535)
+        else:
+            _require(value['pid'] == self._host_pid and value['status'] == 'stopped'
+                and value['runtime_closed'] is True and value['monitor_joined'] is True and value['error_code'] is None)
+        return value
+
+
+def create_process(descriptor_path, expected_sha256):
+    """WT固定工厂接缝；构造只核部署身份，start才取得进程与Job。"""
+    return TradeHostProcess(TradeHostProcessConfig.from_path(descriptor_path, expected_sha256))

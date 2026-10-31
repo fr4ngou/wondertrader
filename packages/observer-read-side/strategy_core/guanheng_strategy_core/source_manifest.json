@@ -1,0 +1,126 @@
+{
+  "upstream_revision": "6cf508a070392ff976b6b4d6b31b0e6219001e71",
+  "algorithm_identity": "shared Resonance mathematics; seven original actual-cycle boundary branches restored",
+  "scope": "pure business kernel, no native engine/scheduler/ledger/approval/execution",
+  "source_license": "Private repository-owned source; existing ownership retained, no new license grant",
+  "algorithm_sources": [
+    {
+      "source_repository": "old QMT read-only fixed Git object",
+      "source_revision": "6cf508a070392ff976b6b4d6b31b0e6219001e71",
+      "source_path": "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/features.py",
+      "source_sha256": "f49789eebbe6a18dfd245637fa4889b7eb08aae07d6041d41072b687f47b3bb3",
+      "destination": "features.py",
+      "adaptations": "local domain imports; stable shared positive mean with finite ordinary sum preserving original operation order; scaled fallback only on intermediate overflow; validate derived ratio/change/EMA before clamps; a4 shared subnormal precision admission on arithmetic consumers, normal grouping/thresholds preserved; a5 optional explicit cooperative check through input-growing loops, original math/order/state rules preserved",
+      "migrated_sha256": "6594cc2e656b918ad9fb3c71a09caae1c7a5eebcd36affd01e7e16b951eadc48"
+    },
+    {
+      "source_repository": "old QMT read-only fixed Git object",
+      "source_revision": "6cf508a070392ff976b6b4d6b31b0e6219001e71",
+      "source_path": "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/signals.py",
+      "source_sha256": "f9840695a443fbc9d598a6934e047a1dea0ed5f12f2076624ca1833779de0763",
+      "destination": "signals.py",
+      "adaptations": "Original 1.1.2 boundary_override branches restored; default model path and bounded checks retained",
+      "migrated_sha256": "d33fdee1aca65f963bc5aee024a1516643afe82fae8bff06eb89b0f2dad87b61"
+    },
+    {
+      "source_repository": "old QMT read-only fixed Git object",
+      "source_revision": "6cf508a070392ff976b6b4d6b31b0e6219001e71",
+      "source_path": "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/allocation.py",
+      "source_sha256": "dabffa6af715dfe8f2f9324921f459409fe660a7b13d78d959be49d6773238df",
+      "destination": "allocation.py",
+      "adaptations": "local domain imports; boundary validation owned by new public kernel; a4 shared subnormal precision admission on arithmetic consumers, normal grouping/thresholds preserved; a5 optional explicit cooperative check through input-growing loops, original math/order/state rules preserved",
+      "migrated_sha256": "926cf0b02a3bfa542316c902b9bc2c5aba676c89e8f261edfb9e25a2c2b969d6"
+    },
+    {
+      "source_repository": "old QMT read-only fixed Git object",
+      "source_revision": "6cf508a070392ff976b6b4d6b31b0e6219001e71",
+      "source_path": "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/models.py",
+      "source_sha256": "a9b9df2e803d72f465b0592779c8f6ec47c68934426528d1ba24f97face684af",
+      "destination": "models.py",
+      "adaptations": "local domain imports; boundary validation owned by new public kernel; a5 optional explicit cooperative check through input-growing loops, original math/order/state rules preserved",
+      "migrated_sha256": "7c529812b05f56897e4002d3f9dd594cbe60c2494cdc5a497f3915ff22f81ab9"
+    }
+  ],
+  "additional_semantics": [
+    {
+      "source_path": "src/qmt_platform/services/strategy/configured_resonance_runtime.py",
+      "symbols": [
+        "configured_allocation_events",
+        "build_configured_shadow_intents"
+      ],
+      "adaptation": "new immutable domain DTO, full prefix/first-ready/all-target semantics; no old intent contract"
+    },
+    {
+      "source_path": "src/qmt_platform/services/strategy/configured_universe.py",
+      "symbols": [
+        "bind_configured_resonance"
+      ],
+      "adaptation": "role/windows/budget/cap binding, pure computation subset; execution sessions belong to later execution authorization"
+    },
+    {
+      "source_path": "src/qmt_platform/common/contracts.py",
+      "symbols": [
+        "StrategyUniverseBinding"
+      ],
+      "adaptation": "distinct role securities and identical signal/execution role sets, no global contract copy"
+    }
+  ],
+  "regression_sources": [
+    "test_features.py",
+    "test_signals.py",
+    "test_symbol_signals.py",
+    "test_allocation.py"
+  ],
+  "new_files": [
+    "contracts.py",
+    "kernel.py",
+    "numerics.py",
+    "__init__.py",
+    "computation.py"
+  ],
+  "validation_additions": "Inherited a3 F1 immutable metadata/total text8Mi and shared UTC admission; a4 shared bounded Fraction representability for original-window subnormal means and derived ratio/product/add/subtract, including underflow and minimum-normal rounding boundary; exact subnormal values remain supported; ordinary normal operation ordering and thresholds unchanged; price/volume MA, EMA, stops, configured unit and allocation consumers covered; no arbitrary market bounds; a5 single explicit cooperative check from kernel monotonic deadline through growing validation/feature/EMA/eight-role signal/allocation/result/encoding loops; exact Fraction sums and JSON blocks check every32; incremental canonical output admission; standalone helpers default check=None preserve original semantics; bounded nonpreemptive primitives documented, no realtime promise or larger time budget; a6 public validate_configuration delegates to unchanged _config for configuration-only admission; current-time/data/runtime admission remains separate",
+  "package_version": "0.1.0a8+read2",
+  "owned_source_sha256": {
+    "allocation.py": "926cf0b02a3bfa542316c902b9bc2c5aba676c89e8f261edfb9e25a2c2b969d6",
+    "computation.py": "b32246c28d336c1f1cbae8cb369dd0c294bd6b3bc85ae620e155a1177a2287b5",
+    "contracts.py": "a8fbfc4ed0a924b195fe0145370f56185d0d402593c12c9df5df6c464338beb5",
+    "dependency_identity.py": "500f734450346bd2ad55e49861964e8404d94ca683e5832602eb28160b1cf8c9",
+    "features.py": "6594cc2e656b918ad9fb3c71a09caae1c7a5eebcd36affd01e7e16b951eadc48",
+    "historical_model.py": "af8a9132945894438c57214c6ce8346cd59876dbec7879d53b74792a07e933a9",
+    "kernel.py": "088680fa9fd0738586ce1c573d4e071a6977f6d1eefb8265c4a2a95ebbb04012",
+    "models.py": "7c529812b05f56897e4002d3f9dd594cbe60c2494cdc5a497f3915ff22f81ab9",
+    "numerics.py": "55b5a9745ecb468c1aead2c782696de7f8b382bcf395d45c6935ab63bfee052c",
+    "signals.py": "d33fdee1aca65f963bc5aee024a1516643afe82fae8bff06eb89b0f2dad87b61",
+    "__init__.py": "f553cf0f411415b903c5bcc45baa673f7bc814e61d4c3ee3491c338a59476bcb"
+  },
+  "historical_model_extension": {
+    "package_version": "0.1.0a7",
+    "entry": "evaluate_historical_model",
+    "report_schema": "nsb-historical-report-v1",
+    "strict_algorithm_and_wire": "unchanged when model absent",
+    "qualification": "explicit EOD assumptions; no RT or broker authority"
+  },
+  "dependencies": {
+    "tzdata": "2026.3"
+  },
+  "owned_sources": {
+    "allocation.py": "926cf0b02a3bfa542316c902b9bc2c5aba676c89e8f261edfb9e25a2c2b969d6",
+    "computation.py": "b32246c28d336c1f1cbae8cb369dd0c294bd6b3bc85ae620e155a1177a2287b5",
+    "contracts.py": "a8fbfc4ed0a924b195fe0145370f56185d0d402593c12c9df5df6c464338beb5",
+    "dependency_identity.py": "500f734450346bd2ad55e49861964e8404d94ca683e5832602eb28160b1cf8c9",
+    "features.py": "6594cc2e656b918ad9fb3c71a09caae1c7a5eebcd36affd01e7e16b951eadc48",
+    "historical_model.py": "af8a9132945894438c57214c6ce8346cd59876dbec7879d53b74792a07e933a9",
+    "kernel.py": "088680fa9fd0738586ce1c573d4e071a6977f6d1eefb8265c4a2a95ebbb04012",
+    "models.py": "7c529812b05f56897e4002d3f9dd594cbe60c2494cdc5a497f3915ff22f81ab9",
+    "numerics.py": "55b5a9745ecb468c1aead2c782696de7f8b382bcf395d45c6935ab63bfee052c",
+    "signals.py": "d33fdee1aca65f963bc5aee024a1516643afe82fae8bff06eb89b0f2dad87b61",
+    "__init__.py": "f553cf0f411415b903c5bcc45baa673f7bc814e61d4c3ee3491c338a59476bcb"
+  },
+  "requires_dist": [
+    "tzdata==2026.3; sys_platform == 'win32'"
+  ],
+  "readonly_encoding_optimization": {
+    "baseline_package_version": "0.1.0a8",
+    "change": "json_value exact builtin JSON scalars return after original check; domain and math unchanged"
+  }
+}

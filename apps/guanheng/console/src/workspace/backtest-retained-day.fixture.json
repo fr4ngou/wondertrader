@@ -1,0 +1,580 @@
+{
+  "request_id": "f12b1c8346234a7a9846876ffaa93250",
+  "index": 123,
+  "report_sha256": "7cb40a2c33da87cf0772ca7027f9a9f96c068a18d280a1662a1c62b2aa8890ac",
+  "record": {
+    "capture": {
+      "basis": {
+        "cash_cny": "98779.08",
+        "cash_source": "same-capture:NAV-minus-complete-actual-raw-market-value",
+        "fee_reserve_cny": "20",
+        "fee_source": "synthetic-whole-buy-fee-reserve",
+        "input_sha256": "52822411df092eb0b6ec840bc4939b7958bc5b0557ea9c61d20ee737c6c00c52",
+        "native_nav_verified": true,
+        "native_observation_id": "adbc81e89a5f296fd995cde70d605ab7f7bf75197034c207a5205f968c5a1872",
+        "native_pnl_cny": "6779.08",
+        "nav_cny": "126779.08",
+        "nav_source": "original-CtaMocker:flat-single-context-cash-long-absolute-setter-v1:genesis+flag0",
+        "observed_at": "2024-06-24T15:00:00+08:00",
+        "prices": [
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "100",
+            "source": "synthetic-raw-cash-etf-source",
+            "symbol": "159780.SZ",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "88",
+            "source": "synthetic-raw-cash-etf-source",
+            "symbol": "510050.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "140",
+            "source": "synthetic-raw-cash-etf-source",
+            "symbol": "510300.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "100",
+            "source": "synthetic-raw-cash-etf-source",
+            "symbol": "510500.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "100",
+            "source": "synthetic-raw-cash-etf-source",
+            "symbol": "512100.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "100",
+            "source": "synthetic-raw-cash-etf-source",
+            "symbol": "515080.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "100",
+            "source": "synthetic-raw-cash-etf-source",
+            "symbol": "588000.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "100",
+            "source": "synthetic-raw-cash-etf-source",
+            "symbol": "589000.SH",
+            "unit": "CNY/share"
+          }
+        ]
+      },
+      "funds": {
+        "dynamic": 8000.0,
+        "fees": 20.92,
+        "net": 6779.08,
+        "realized": -1200.0
+      },
+      "minute": 1500,
+      "observation": {
+        "native_observation_id": "adbc81e89a5f296fd995cde70d605ab7f7bf75197034c207a5205f968c5a1872",
+        "observed_at": "2024-06-24T15:00:00+08:00",
+        "positions": [
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "159780.SZ"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "510050.SH"
+          },
+          {
+            "actual": 200,
+            "pending_target": null,
+            "sellable": 200,
+            "symbol": "510300.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "510500.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "512100.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "515080.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "588000.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "589000.SH"
+          }
+        ],
+        "source": "original-CtaMocker:flat-single-context-cash-long-absolute-setter-v1",
+        "verified": true
+      },
+      "positions": [
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SZSE.ETF.159780",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.510050",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 202405221500,
+          "last_entry": 202405231500,
+          "symbol": "SSE.ETF.510300",
+          "total": 200.0,
+          "valid": 200.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.510500",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.512100",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.515080",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.588000",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.589000",
+          "total": 0.0,
+          "valid": 0.0
+        }
+      ],
+      "prices": [
+        [
+          "SZSE.ETF.159780",
+          100.0
+        ],
+        [
+          "SSE.ETF.510050",
+          88.0
+        ],
+        [
+          "SSE.ETF.510300",
+          140.0
+        ],
+        [
+          "SSE.ETF.510500",
+          100.0
+        ],
+        [
+          "SSE.ETF.512100",
+          100.0
+        ],
+        [
+          "SSE.ETF.515080",
+          100.0
+        ],
+        [
+          "SSE.ETF.588000",
+          100.0
+        ],
+        [
+          "SSE.ETF.589000",
+          100.0
+        ]
+      ],
+      "projection": [
+        [
+          "SSE.ETF.510050",
+          0.0
+        ],
+        [
+          "SSE.ETF.510300",
+          200.0
+        ]
+      ],
+      "sequence": 124,
+      "session_id": "bdcfc5cc1e71b231fc7a1d4b4d044bf59168b78892039f2006fbe8b3b0fda54f",
+      "trading_date": 20240624
+    },
+    "minute": 1500,
+    "outcome": {
+      "reason": "frozen_buy_actual_confirmed",
+      "state": {
+        "basis": {
+          "cash_cny": "98779.07999999999993",
+          "cash_source": "same-capture:NAV-minus-complete-actual-raw-market-value",
+          "fee_reserve_cny": "20",
+          "fee_source": "synthetic-whole-buy-fee-reserve",
+          "input_sha256": "03158e3c46fa270effd4304a69337235497bcfb4b154c53f8b3f68d345912841",
+          "native_nav_verified": true,
+          "native_observation_id": "8980d1ff183bb1748a710f03511d99aa7ea47707ef2b77f3e1dfa22bb013d79f",
+          "native_pnl_cny": "-220.92000000000007",
+          "nav_cny": "119779.07999999999993",
+          "nav_source": "original-CtaMocker:flat-single-context-cash-long-absolute-setter-v1:genesis+flag0",
+          "observed_at": "2024-06-13T15:00:00+08:00",
+          "prices": [
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "100",
+              "source": "synthetic-raw-cash-etf-source",
+              "symbol": "159780.SZ",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "88",
+              "source": "synthetic-raw-cash-etf-source",
+              "symbol": "510050.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "105",
+              "source": "synthetic-raw-cash-etf-source",
+              "symbol": "510300.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "100",
+              "source": "synthetic-raw-cash-etf-source",
+              "symbol": "510500.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "100",
+              "source": "synthetic-raw-cash-etf-source",
+              "symbol": "512100.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "100",
+              "source": "synthetic-raw-cash-etf-source",
+              "symbol": "515080.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "100",
+              "source": "synthetic-raw-cash-etf-source",
+              "symbol": "588000.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "100",
+              "source": "synthetic-raw-cash-etf-source",
+              "symbol": "589000.SH",
+              "unit": "CNY/share"
+            }
+          ]
+        },
+        "phase": "converged",
+        "policy": {
+          "capital_source": "synthetic-explicit-strategy-capital",
+          "currency": "CNY",
+          "initial_capital_cny": "120000",
+          "lot": 100,
+          "multiplier": 1,
+          "policy_id": "cash-etf-generation-sell-postsell-v1",
+          "profile_id": "cash-etf-cny-share-m1-l100-v1",
+          "quantity_unit": "share"
+        },
+        "sequence": 2,
+        "starts": [
+          {
+            "shares": 0,
+            "symbol": "159780.SZ"
+          },
+          {
+            "shares": 0,
+            "symbol": "510050.SH"
+          },
+          {
+            "shares": 200,
+            "symbol": "510300.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "510500.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "512100.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "515080.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "588000.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "589000.SH"
+          }
+        ],
+        "target": {
+          "algorithm_id": "resonance-regime-v1@1.1.2/ledger-front-ratio-v1",
+          "allocation_date": "2024-06-12",
+          "config_id": "ee2774b2bde9f505391f1f239c807fe0a792ee25e86b24257f0a819a1a7bc212",
+          "execution_policy_id": "cash-etf-generation-sell-postsell-v1",
+          "strategy_id": "resonance-regime-v1",
+          "universe": [
+            "159780.SZ",
+            "510050.SH",
+            "510300.SH",
+            "510500.SH",
+            "512100.SH",
+            "515080.SH",
+            "588000.SH",
+            "589000.SH"
+          ],
+          "weights": [
+            {
+              "symbol": "159780.SZ",
+              "weight": "0"
+            },
+            {
+              "symbol": "510050.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "510300.SH",
+              "weight": "0.2"
+            },
+            {
+              "symbol": "510500.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "512100.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "515080.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "588000.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "589000.SH",
+              "weight": "0"
+            }
+          ]
+        },
+        "targets": [
+          {
+            "shares": 0,
+            "symbol": "159780.SZ"
+          },
+          {
+            "shares": 0,
+            "symbol": "510050.SH"
+          },
+          {
+            "shares": 200,
+            "symbol": "510300.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "510500.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "512100.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "515080.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "588000.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "589000.SH"
+          }
+        ],
+        "version": 1
+      },
+      "status": "converged",
+      "submit_targets": []
+    },
+    "previous_status": null,
+    "readback": [],
+    "reason": "frozen_buy_actual_confirmed",
+    "status": "converged",
+    "trading_date": 20240624,
+    "submit_vector": []
+  },
+  "evaluation_summary": {
+    "analysis_source_kind": "synthetic-model",
+    "budget_fraction": 0.8,
+    "configuration_sha256": "ee2774b2bde9f505391f1f239c807fe0a792ee25e86b24257f0a819a1a7bc212",
+    "current_view": {
+      "amount_usage": "unused",
+      "dataset_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "historical_first_available": "unknown",
+      "history_basis": "current-visible-reconstruction",
+      "received_at": "2024-06-25T07:00:00Z",
+      "revision_history": "unknown",
+      "source_amount_unit": "unknown"
+    },
+    "decision_cutoff": "2024-06-24T07:00:00Z",
+    "execution_qualified": false,
+    "exit_paths": {
+      "510050.SH": "sh50_trailing_exit"
+    },
+    "full_result_sha256": "91d123fb6a10de4cc90074eb8762817a96c2916b37d9e5a717ef34ae232c7e1a",
+    "historical_model": {
+      "adjustment_basis": "final-batch-front-ratio",
+      "availability_basis": "assumed-at-Asia/Shanghai:15:00",
+      "basis_date": "2024-06-24",
+      "dataset_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "factor_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "historical_first_available": "unknown",
+      "received_at": "2024-06-25T07:00:00Z",
+      "revision_history": "unknown",
+      "schema": "guanheng.retained-historical-model.v1",
+      "scope": "historical-backtest-only"
+    },
+    "holding_days": {},
+    "input_sha256": "52822411df092eb0b6ec840bc4939b7958bc5b0557ea9c61d20ee737c6c00c52",
+    "model_states": {
+      "159780.SZ": {
+        "cluster_low": null,
+        "hold_days": 0,
+        "peak": 0.0,
+        "position": false,
+        "waiting_cluster": false
+      },
+      "510050.SH": {
+        "cluster_low": null,
+        "hold_days": 15,
+        "peak": 94.0,
+        "position": false,
+        "waiting_cluster": false
+      },
+      "510300.SH": {
+        "level": 3
+      },
+      "510500.SH": {
+        "cluster_low": null,
+        "distribution_count": 0,
+        "hold_days": 0,
+        "position": false,
+        "sell_threshold": 2,
+        "top_watch": 0,
+        "waiting_cluster": false
+      },
+      "512100.SH": {
+        "distribution_count": 0,
+        "hold_days": 0,
+        "position": false,
+        "sell_threshold": 2,
+        "waiting_cluster": false,
+        "watch_high": 0.0,
+        "watch_mode": false
+      },
+      "515080.SH": {
+        "distribution_count": 0,
+        "hold_days": 0,
+        "position": false,
+        "sell_threshold": 2,
+        "waiting_reversal": false
+      },
+      "588000.SH": {
+        "hold_days": 0,
+        "peak": 0.0,
+        "position": false
+      },
+      "589000.SH": {
+        "cluster_low": null,
+        "hold_days": 0,
+        "position": false,
+        "waiting_cluster": false
+      }
+    },
+    "next_exits": [
+      {
+        "cycle_id": "44e016b7082e9bb2e7d73708b23f429753f3d9a3e92c4d02cf4684c3c1cb2f5b",
+        "path": "sh50_trailing_exit",
+        "symbol": "510050.SH",
+        "trade_date": "2024-06-12"
+      }
+    ],
+    "reference_prices": {},
+    "schema": "guanheng.retained-replay-decision.v1",
+    "source_allocation_date": "2024-06-12",
+    "source_qualified": false,
+    "strategy_id": "resonance-regime-v1",
+    "strategy_version": "1.1.2",
+    "targets": {
+      "159780.SZ": 0.0,
+      "510050.SH": 0.0,
+      "510300.SH": 0.2,
+      "510500.SH": 0.0,
+      "512100.SH": 0.0,
+      "515080.SH": 0.0,
+      "588000.SH": 0.0,
+      "589000.SH": 0.0
+    }
+  },
+  "scope": "isolated-raw-BT; real-source/RT/broker/production-unqualified",
+  "report_schema": "guanheng.retained-replay-report.v1"
+}

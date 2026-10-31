@@ -1,0 +1,845 @@
+{
+  "record": {
+    "trading_date": 20261028,
+    "minute": 1500,
+    "status": "converged",
+    "reason": "frozen_buy_actual_confirmed",
+    "capture": {
+      "basis": {
+        "cash_cny": "722930.49999999998",
+        "cash_source": "same-capture:NAV-minus-complete-actual-raw-market-value",
+        "fee_reserve_cny": "0",
+        "fee_source": "zero-fee-model-research-only",
+        "input_sha256": "2d1dbdd2e792477ffb4824b1ec0d4da7047cfbc7dcd02556a7114cb0be86e7be",
+        "native_nav_verified": true,
+        "native_observation_id": "c4b7f7d0bba0eaef0e2fe1eecc8cf8cfed3cbea892e6871c35e42d68033cdfd0",
+        "native_pnl_cny": "61003.99999999998",
+        "nav_cny": "1061003.99999999998",
+        "nav_source": "original-CtaMocker:flat-single-context-cash-long-absolute-setter-v1:genesis+flag0",
+        "observed_at": "2026-10-28T15:00:00+08:00",
+        "prices": [
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "0.801",
+            "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+            "symbol": "159780.SZ",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "2.866",
+            "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+            "symbol": "510050.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "4.152",
+            "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+            "symbol": "510300.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "6.672",
+            "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+            "symbol": "510500.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "2.675",
+            "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+            "symbol": "512100.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "1.554",
+            "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+            "symbol": "515080.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "1.354",
+            "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+            "symbol": "588000.SH",
+            "unit": "CNY/share"
+          },
+          {
+            "adjustment": "raw",
+            "raw_cny_per_share": "1.259",
+            "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+            "symbol": "589000.SH",
+            "unit": "CNY/share"
+          }
+        ]
+      },
+      "funds": {
+        "dynamic": 60595.99999999998,
+        "fees": 0.0,
+        "net": 61003.99999999998,
+        "realized": 407.9999999999992
+      },
+      "minute": 1500,
+      "observation": {
+        "native_observation_id": "c4b7f7d0bba0eaef0e2fe1eecc8cf8cfed3cbea892e6871c35e42d68033cdfd0",
+        "observed_at": "2026-10-28T15:00:00+08:00",
+        "positions": [
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "159780.SZ"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "510050.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "510300.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "510500.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "512100.SH"
+          },
+          {
+            "actual": 94000,
+            "pending_target": null,
+            "sellable": 94000,
+            "symbol": "515080.SH"
+          },
+          {
+            "actual": 0,
+            "pending_target": null,
+            "sellable": 0,
+            "symbol": "588000.SH"
+          },
+          {
+            "actual": 152500,
+            "pending_target": null,
+            "sellable": 152500,
+            "symbol": "589000.SH"
+          }
+        ],
+        "source": "original-CtaMocker:flat-single-context-cash-long-absolute-setter-v1",
+        "verified": true
+      },
+      "positions": [
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SZSE.ETF.159780",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.510050",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.510300",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.510500",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.512100",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 202504081500,
+          "last_entry": 202504081500,
+          "symbol": "SSE.ETF.515080",
+          "total": 94000.0,
+          "valid": 94000.0
+        },
+        {
+          "first_entry": 0,
+          "last_entry": 0,
+          "symbol": "SSE.ETF.588000",
+          "total": 0.0,
+          "valid": 0.0
+        },
+        {
+          "first_entry": 202506191500,
+          "last_entry": 202506191500,
+          "symbol": "SSE.ETF.589000",
+          "total": 152500.0,
+          "valid": 152500.0
+        }
+      ],
+      "prices": [
+        [
+          "SZSE.ETF.159780",
+          0.801
+        ],
+        [
+          "SSE.ETF.510050",
+          2.866
+        ],
+        [
+          "SSE.ETF.510300",
+          4.152
+        ],
+        [
+          "SSE.ETF.510500",
+          6.672
+        ],
+        [
+          "SSE.ETF.512100",
+          2.675
+        ],
+        [
+          "SSE.ETF.515080",
+          1.554
+        ],
+        [
+          "SSE.ETF.588000",
+          1.354
+        ],
+        [
+          "SSE.ETF.589000",
+          1.259
+        ]
+      ],
+      "projection": [
+        [
+          "SSE.ETF.515080",
+          94000.0
+        ],
+        [
+          "SSE.ETF.589000",
+          152500.0
+        ]
+      ],
+      "sequence": 399,
+      "session_id": "028f82592dd6a0a577b00d63c5a1897d1f5c4d4ad6e281b4b61f55639dd497ef",
+      "trading_date": 20261028
+    },
+    "outcome": {
+      "reason": "frozen_buy_actual_confirmed",
+      "state": {
+        "basis": {
+          "cash_cny": "865517.999999999985",
+          "cash_source": "same-capture:NAV-minus-complete-actual-raw-market-value",
+          "fee_reserve_cny": "0",
+          "fee_source": "zero-fee-model-research-only",
+          "input_sha256": "a81a4e52a955762255635eea5d6f9763466d274d9e38551fb08ee7c065fec0ce",
+          "native_nav_verified": true,
+          "native_observation_id": "f291563827050ed7de75dc142d36763fb72211efdab907329b2be988f3765a67",
+          "native_pnl_cny": "8115.999999999985",
+          "nav_cny": "1008115.999999999985",
+          "nav_source": "original-CtaMocker:flat-single-context-cash-long-absolute-setter-v1:genesis+flag0",
+          "observed_at": "2025-06-18T15:00:00+08:00",
+          "prices": [
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "0.538",
+              "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+              "symbol": "159780.SZ",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "2.75",
+              "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+              "symbol": "510050.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "3.904",
+              "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+              "symbol": "510300.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "5.776",
+              "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+              "symbol": "510500.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "2.467",
+              "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+              "symbol": "512100.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "1.517",
+              "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+              "symbol": "515080.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "1.018",
+              "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+              "symbol": "588000.SH",
+              "unit": "CNY/share"
+            },
+            {
+              "adjustment": "raw",
+              "raw_cny_per_share": "0.94",
+              "source": "E:\\workspace\\wondertrader\\build\\historical-eod-model-001\\main-002\\DATASET.json",
+              "symbol": "589000.SH",
+              "unit": "CNY/share"
+            }
+          ]
+        },
+        "phase": "converged",
+        "policy": {
+          "capital_source": "explicit-isolated-research-capital",
+          "currency": "CNY",
+          "initial_capital_cny": "1000000",
+          "lot": 100,
+          "multiplier": 1,
+          "policy_id": "cash-etf-generation-sell-postsell-v1",
+          "profile_id": "cash-etf-cny-share-m1-l100-v1",
+          "quantity_unit": "share"
+        },
+        "sequence": 2,
+        "starts": [
+          {
+            "shares": 0,
+            "symbol": "159780.SZ"
+          },
+          {
+            "shares": 0,
+            "symbol": "510050.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "510300.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "510500.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "512100.SH"
+          },
+          {
+            "shares": 94000,
+            "symbol": "515080.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "588000.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "589000.SH"
+          }
+        ],
+        "target": {
+          "algorithm_id": "configured-resonance-kernel-1:1.2.0",
+          "allocation_date": "2025-06-17",
+          "config_id": "f174ddeec34cdf2e8fbc0abb8e1ab55c9cbf402745713ef37c0b17ccc84e02bf",
+          "execution_policy_id": "cash-etf-generation-sell-postsell-v1",
+          "strategy_id": "resonance-regime-v1",
+          "universe": [
+            "159780.SZ",
+            "510050.SH",
+            "510300.SH",
+            "510500.SH",
+            "512100.SH",
+            "515080.SH",
+            "588000.SH",
+            "589000.SH"
+          ],
+          "weights": [
+            {
+              "symbol": "159780.SZ",
+              "weight": "0"
+            },
+            {
+              "symbol": "510050.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "510300.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "510500.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "512100.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "515080.SH",
+              "weight": "0.14146935048426398"
+            },
+            {
+              "symbol": "588000.SH",
+              "weight": "0"
+            },
+            {
+              "symbol": "589000.SH",
+              "weight": "0.1422560038983138"
+            }
+          ]
+        },
+        "targets": [
+          {
+            "shares": 0,
+            "symbol": "159780.SZ"
+          },
+          {
+            "shares": 0,
+            "symbol": "510050.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "510300.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "510500.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "512100.SH"
+          },
+          {
+            "shares": 94000,
+            "symbol": "515080.SH"
+          },
+          {
+            "shares": 0,
+            "symbol": "588000.SH"
+          },
+          {
+            "shares": 152500,
+            "symbol": "589000.SH"
+          }
+        ],
+        "version": 1
+      },
+      "status": "converged",
+      "submit_targets": []
+    },
+    "previous_status": null,
+    "readback": [],
+    "submit_vector": []
+  },
+  "evaluation_summary": {
+    "config_sha256": "f174ddeec34cdf2e8fbc0abb8e1ab55c9cbf402745713ef37c0b17ccc84e02bf",
+    "current_targets": [
+      {
+        "execution_symbol": "510300.SH",
+        "role": "csi300",
+        "signal_symbol": "510300.SH",
+        "source_allocation_date": "2025-06-17",
+        "target_weight": 0.0
+      },
+      {
+        "execution_symbol": "515080.SH",
+        "role": "dividend",
+        "signal_symbol": "515080.SH",
+        "source_allocation_date": "2025-06-17",
+        "target_weight": 0.14146935048426398
+      },
+      {
+        "execution_symbol": "588000.SH",
+        "role": "kc50",
+        "signal_symbol": "588000.SH",
+        "source_allocation_date": "2025-06-17",
+        "target_weight": 0.0
+      },
+      {
+        "execution_symbol": "589000.SH",
+        "role": "kc_composite",
+        "signal_symbol": "589680.SH",
+        "source_allocation_date": "2025-06-17",
+        "target_weight": 0.1422560038983138
+      },
+      {
+        "execution_symbol": "159780.SZ",
+        "role": "sc50",
+        "signal_symbol": "159780.SZ",
+        "source_allocation_date": "2025-06-17",
+        "target_weight": 0.0
+      },
+      {
+        "execution_symbol": "510050.SH",
+        "role": "sh50",
+        "signal_symbol": "510050.SH",
+        "source_allocation_date": "2025-06-17",
+        "target_weight": 0.0
+      },
+      {
+        "execution_symbol": "512100.SH",
+        "role": "zz1000",
+        "signal_symbol": "512100.SH",
+        "source_allocation_date": "2025-06-17",
+        "target_weight": 0.0
+      },
+      {
+        "execution_symbol": "510500.SH",
+        "role": "zz500",
+        "signal_symbol": "510500.SH",
+        "source_allocation_date": "2025-06-17",
+        "target_weight": 0.0
+      }
+    ],
+    "factor_revision": "8ba0fe68e1cd5626b303d838cb3daa8279181c45cd28344fe5cefe1b730913ab",
+    "first_ready_date": "2025-03-06",
+    "historical_model": {
+      "amount_interpretation": "assumed-CNY",
+      "availability_basis": "assumed-at-model-close",
+      "dataset_sha256": "8b6a68069d9711a8348f0ec6b38f3ba3a2b885e09c2f4b158c28df0d3be6c883",
+      "historical_first_available": "unknown",
+      "model_close": "Asia/Shanghai:15:00",
+      "received_at": "2026-10-28T17:23:25.163000Z",
+      "revision_history": "unknown",
+      "schema": "guanheng.historical-eod-model.v1",
+      "source_amount_unit": "unknown"
+    },
+    "input_sha256": "2d1dbdd2e792477ffb4824b1ec0d4da7047cfbc7dcd02556a7114cb0be86e7be",
+    "kernel_version": "configured-resonance-kernel-1",
+    "knowledge_cutoff": "2026-10-28T07:00:00Z",
+    "last_closed_date": "2026-10-28",
+    "latest_features": [
+      {
+        "change_pct": 3.3548387096774324,
+        "observation": {
+          "amount": 92492802.0,
+          "auxiliary_available_at": null,
+          "auxiliary_source_dates": [],
+          "auxiliary_source_sha256": null,
+          "close": 0.801,
+          "evidence_refs": [
+            "qmt-batch-119:159780.SZ",
+            "prepared-data-delivery-127"
+          ],
+          "high": 0.808,
+          "low": 0.782,
+          "margin_percentile": null,
+          "market_available_at": null,
+          "market_source_sha256": "24a593625fd62d3b2fc659e897eb5a2aa0fb0fa7ee176d0fa85f763faa7800d0",
+          "open": 0.786,
+          "share_probability": null,
+          "shares_delta_yi": null,
+          "symbol": "159780.SZ",
+          "trade_date": "2026-10-28",
+          "turnover_percentile": null,
+          "volume": 116217800.0
+        },
+        "price_position": 63.636363636363804,
+        "regime_label": "range",
+        "regime_score": -0.010843156386809287,
+        "trade_direction": "NEUTRAL",
+        "volume_ratio": 0.980233026937941
+      },
+      {
+        "change_pct": 0.13976240391335715,
+        "observation": {
+          "amount": 2479840390.0,
+          "auxiliary_available_at": null,
+          "auxiliary_source_dates": [],
+          "auxiliary_source_sha256": null,
+          "close": 2.866,
+          "evidence_refs": [
+            "qmt-batch-119:510050.SH",
+            "prepared-data-delivery-127"
+          ],
+          "high": 2.896,
+          "low": 2.854,
+          "margin_percentile": null,
+          "market_available_at": null,
+          "market_source_sha256": "187f49700073c960dabf3349c4bb569843cec0a0430a6d939b3e231630d89859",
+          "open": 2.896,
+          "share_probability": null,
+          "shares_delta_yi": null,
+          "symbol": "510050.SH",
+          "trade_date": "2026-10-28",
+          "turnover_percentile": null,
+          "volume": 865108100.0
+        },
+        "price_position": 28.57142857142872,
+        "regime_label": "range",
+        "regime_score": -0.010843156386809287,
+        "trade_direction": "NEUTRAL",
+        "volume_ratio": 1.1374783782847404
+      },
+      {
+        "change_pct": 0.7033713315546919,
+        "observation": {
+          "amount": 4558577920.0,
+          "auxiliary_available_at": null,
+          "auxiliary_source_dates": [],
+          "auxiliary_source_sha256": null,
+          "close": 4.152,
+          "evidence_refs": [
+            "qmt-batch-119:510300.SH",
+            "prepared-data-delivery-127"
+          ],
+          "high": 4.166,
+          "low": 4.132,
+          "margin_percentile": null,
+          "market_available_at": null,
+          "market_source_sha256": "c0b99c4ffe1d3e37ad80e9aedb5a0d22a9f374c2849eb3ad6f8b679fdab5c473",
+          "open": 4.155,
+          "share_probability": null,
+          "shares_delta_yi": null,
+          "symbol": "510300.SH",
+          "trade_date": "2026-10-28",
+          "turnover_percentile": null,
+          "volume": 1098623700.0
+        },
+        "price_position": 42.02898550724628,
+        "regime_label": "range",
+        "regime_score": -0.010843156386809287,
+        "trade_direction": "NEUTRAL",
+        "volume_ratio": 0.877981469364514
+      },
+      {
+        "change_pct": 2.065167508031207,
+        "observation": {
+          "amount": 4042157708.0,
+          "auxiliary_available_at": null,
+          "auxiliary_source_dates": [],
+          "auxiliary_source_sha256": null,
+          "close": 6.672,
+          "evidence_refs": [
+            "qmt-batch-119:510500.SH",
+            "prepared-data-delivery-127"
+          ],
+          "high": 6.742,
+          "low": 6.572,
+          "margin_percentile": null,
+          "market_available_at": null,
+          "market_source_sha256": "b9f084b37b4fc62e2a390f0b75b816b0dbe408b634dd8dc214f24dc48d2e8efc",
+          "open": 6.602,
+          "share_probability": null,
+          "shares_delta_yi": null,
+          "symbol": "510500.SH",
+          "trade_date": "2026-10-28",
+          "turnover_percentile": null,
+          "volume": 606765400.0
+        },
+        "price_position": 46.075085324231985,
+        "regime_label": "range",
+        "regime_score": -0.010843156386809287,
+        "trade_direction": "NEUTRAL",
+        "volume_ratio": 0.980938825567556
+      },
+      {
+        "change_pct": 2.4119448698315393,
+        "observation": {
+          "amount": 4824013101.0,
+          "auxiliary_available_at": null,
+          "auxiliary_source_dates": [],
+          "auxiliary_source_sha256": null,
+          "close": 2.675,
+          "evidence_refs": [
+            "qmt-batch-119:512100.SH",
+            "prepared-data-delivery-127"
+          ],
+          "high": 2.704,
+          "low": 2.623,
+          "margin_percentile": null,
+          "market_available_at": null,
+          "market_source_sha256": "9a2a2ce944edb6ecd05b1c98f734f8afd14638f788cd91bb313a1c6e88b1615d",
+          "open": 2.635,
+          "share_probability": null,
+          "shares_delta_yi": null,
+          "symbol": "512100.SH",
+          "trade_date": "2026-10-28",
+          "turnover_percentile": null,
+          "volume": 1809787300.0
+        },
+        "price_position": 50.39999999999978,
+        "regime_label": "range",
+        "regime_score": -0.010843156386809287,
+        "trade_direction": "NEUTRAL",
+        "volume_ratio": 1.1185242965231315
+      },
+      {
+        "change_pct": -0.25673940949936247,
+        "observation": {
+          "amount": 284023945.0,
+          "auxiliary_available_at": null,
+          "auxiliary_source_dates": [],
+          "auxiliary_source_sha256": null,
+          "close": 1.554,
+          "evidence_refs": [
+            "qmt-batch-119:515080.SH",
+            "prepared-data-delivery-127"
+          ],
+          "high": 1.563,
+          "low": 1.543,
+          "margin_percentile": null,
+          "market_available_at": null,
+          "market_source_sha256": "6aaad37738acbde78a23c23666b45d495189d3efe92095d22281e52e504cc89b",
+          "open": 1.557,
+          "share_probability": null,
+          "shares_delta_yi": null,
+          "symbol": "515080.SH",
+          "trade_date": "2026-10-28",
+          "turnover_percentile": null,
+          "volume": 182929600.0
+        },
+        "price_position": 60.869565217391596,
+        "regime_label": "range",
+        "regime_score": -0.010843156386809287,
+        "trade_direction": "NEUTRAL",
+        "volume_ratio": 0.864168463380114
+      },
+      {
+        "change_pct": 2.575757575757587,
+        "observation": {
+          "amount": 9295722766.0,
+          "auxiliary_available_at": null,
+          "auxiliary_source_dates": [],
+          "auxiliary_source_sha256": null,
+          "close": 1.354,
+          "evidence_refs": [
+            "qmt-batch-119:588000.SH",
+            "prepared-data-delivery-127"
+          ],
+          "high": 1.37,
+          "low": 1.329,
+          "margin_percentile": null,
+          "market_available_at": null,
+          "market_source_sha256": "b8c3e7bd9d7fe975f979f518b2b8e843a6de9449f0c7f4ac4bed16b0d1208adb",
+          "open": 1.344,
+          "share_probability": null,
+          "shares_delta_yi": null,
+          "symbol": "588000.SH",
+          "trade_date": "2026-10-28",
+          "turnover_percentile": null,
+          "volume": 6893445300.0
+        },
+        "price_position": 41.6666666666668,
+        "regime_label": "range",
+        "regime_score": -0.010843156386809287,
+        "trade_direction": "NEUTRAL",
+        "volume_ratio": 1.0237758930772358
+      },
+      {
+        "change_pct": 3.305084745762721,
+        "observation": {
+          "amount": 166628243.0,
+          "auxiliary_available_at": null,
+          "auxiliary_source_dates": [],
+          "auxiliary_source_sha256": null,
+          "close": 1.219,
+          "evidence_refs": [
+            "qmt-batch-119:589680.SH",
+            "prepared-data-delivery-127"
+          ],
+          "high": 1.234,
+          "low": 1.192,
+          "margin_percentile": null,
+          "market_available_at": null,
+          "market_source_sha256": "10c139c105f2e6e12ab9ed793548855be951058a7ffb99b14f60b55388bc8603",
+          "open": 1.195,
+          "share_probability": null,
+          "shares_delta_yi": null,
+          "symbol": "589680.SH",
+          "trade_date": "2026-10-28",
+          "turnover_percentile": null,
+          "volume": 137177300.0
+        },
+        "price_position": 58.208955223880665,
+        "regime_label": "range",
+        "regime_score": -0.010843156386809287,
+        "trade_direction": "NEUTRAL",
+        "volume_ratio": 0.9472955484933989
+      }
+    ],
+    "qualification_reasons": [
+      "辅助事实缺失，保留灰灯及对应分支行为，输出待资格核实",
+      "事后最终日线的日末回测假设；金额按CNY假设，历史首次可知和修订未知，未取得实时或交易资格"
+    ],
+    "qualified": false,
+    "signal_states": [
+      {
+        "role": "csi300",
+        "state_json": "{\"level\":0}",
+        "symbol": "510300.SH"
+      },
+      {
+        "role": "dividend",
+        "state_json": "{\"distribution_count\":0,\"hold_days\":378,\"position\":true,\"sell_threshold\":3,\"waiting_reversal\":false}",
+        "symbol": "515080.SH"
+      },
+      {
+        "role": "kc50",
+        "state_json": "{\"hold_days\":0,\"peak\":0.0,\"position\":false}",
+        "symbol": "588000.SH"
+      },
+      {
+        "role": "kc_composite",
+        "state_json": "{\"cluster_low\":0.832,\"hold_days\":331,\"position\":true,\"waiting_cluster\":true}",
+        "symbol": "589680.SH"
+      },
+      {
+        "role": "sc50",
+        "state_json": "{\"cluster_low\":null,\"hold_days\":0,\"peak\":0.0,\"position\":false,\"waiting_cluster\":false}",
+        "symbol": "159780.SZ"
+      },
+      {
+        "role": "sh50",
+        "state_json": "{\"cluster_low\":null,\"hold_days\":0,\"peak\":0.0,\"position\":false,\"waiting_cluster\":false}",
+        "symbol": "510050.SH"
+      },
+      {
+        "role": "zz1000",
+        "state_json": "{\"distribution_count\":0,\"hold_days\":0,\"position\":false,\"sell_threshold\":2,\"waiting_cluster\":false,\"watch_high\":0.0,\"watch_mode\":false}",
+        "symbol": "512100.SH"
+      },
+      {
+        "role": "zz500",
+        "state_json": "{\"cluster_low\":null,\"distribution_count\":0,\"hold_days\":0,\"position\":false,\"sell_threshold\":2,\"top_watch\":0,\"waiting_cluster\":false}",
+        "symbol": "510500.SH"
+      }
+    ],
+    "source_revision": "8b6a68069d9711a8348f0ec6b38f3ba3a2b885e09c2f4b158c28df0d3be6c883",
+    "strategy_id": "resonance-regime-v1",
+    "strategy_version": "1.2.0"
+  },
+  "report_schema": "nsb-historical-report-v1",
+  "request_id": "11111111111111111111111111111111",
+  "index": 399,
+  "report_sha256": "0b18b0ef92c1c5ba03c2f53cbe4f307cefde2b8b970fa884443097be74f506f2",
+  "scope": "isolated-raw-BT"
+}

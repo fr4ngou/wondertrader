@@ -1,0 +1,321 @@
+{
+  "left": {
+    "schema": "nbw-performance-v1",
+    "run_id": "3a848eec470446fdacc36f44732822b0",
+    "request_id": "9fa66342ba3a44cbb4171ace57e36f94",
+    "receipt_sha256": "79e6e8f72c991f38b3186df12d6dc334ce75636969b6f2267c35888e12bb84e8",
+    "request_sha256": "05f828f56f86b69944787e339aec807f4a47efe7679453abe42d4973b727ff70",
+    "report_sha256": "a0432ca1bc130248a0c13d0d426626bd3484929149603dc453a5286e06f5c8db",
+    "installation_sha256": "979b5b93169c05d2316af279c0db549ba389eb3ffc049c6cda4c86bf0074019a",
+    "session_sha256": "8554d79ff286b8df0cf5347a5ddc6308b8b8d1d6730d88810632d46b9d27e48d",
+    "session_id": "841935d9a192a0ac1cd385cfa93da267d8ebf138e157d5ad78d29b745c9586fe",
+    "report_schema": "nsb-report-v2",
+    "configuration": {
+      "end": 202401091500,
+      "label": "隔离安装归档验证 configured",
+      "max_seconds": 30,
+      "name": "archiveconfigured",
+      "session_sha256": "8554d79ff286b8df0cf5347a5ddc6308b8b8d1d6730d88810632d46b9d27e48d",
+      "start": 202401030930
+    },
+    "strategy": {
+      "id": "resonance-regime-v1",
+      "version": "1.2.0",
+      "algorithm_id": null
+    },
+    "input": {
+      "history_sha256": "a5f1e5f59f01f416a161135674885e6cbb42b4b481f6c4c7a18b2d0683324f85",
+      "market_manifest_source": "synthetic-only:configured-native-001",
+      "capital_source": "synthetic-explicit-capital:no-external-flows",
+      "fee_reserve_cny": "0",
+      "fee_source": "synthetic-zero-fee-explicit",
+      "policy_sha256": "0e51e704c0165972d39ef2cea93f09bd9996c507f6f0f07da5924a3f4038b760",
+      "configuration_sha256": "84267c163405860e5ebf1ce2e9c4a8ff73caf28a006648cde968871a8fa5df27"
+    },
+    "metrics": {
+      "initial_capital_cny": "100000",
+      "last_nav_cny": "100000",
+      "total_return_pct": 0.0,
+      "observed_max_drawdown_pct": 0.0,
+      "native_cumulative_fees_cny": "0"
+    },
+    "observations": {
+      "total": 5,
+      "available": 4,
+      "missing": 1,
+      "last_trading_date": 20240109
+    },
+    "points": [
+      [
+        20240103,
+        null
+      ],
+      [
+        20240104,
+        "100000"
+      ],
+      [
+        20240105,
+        "100000"
+      ],
+      [
+        20240108,
+        "100000"
+      ],
+      [
+        20240109,
+        "100000"
+      ]
+    ],
+    "scope": "synthetic-or-admitted-raw-BT-only; RT/real-source/HTTP/broker/production-unqualified"
+  },
+  "right": {
+    "schema": "nbw-performance-v1",
+    "run_id": "0646a41485d3436d967e1ad41e690ba0",
+    "request_id": "7f389cffc33345efb5e5cef2d032ce54",
+    "receipt_sha256": "5e933374c9b7903f594703a1fb129a9fe9e4545a819f65a8f6b98abb745898d1",
+    "request_sha256": "d9d738af071d8bf975bedf02b10656053ce39c395258328db5bb4d0971998e99",
+    "report_sha256": "3935b6606e86e354a17cd72aa0a5c2a9172341d3de4abc7f7de041c3dc221b74",
+    "installation_sha256": "a8599be638cce336af9459aeeed8bbc0473cf7cacf26a9344ba4f4ff482ac75b",
+    "session_sha256": "aa91a1eb5e224496856fc73f0736c5f43bd1f4d6f68621cec27d45e0fe541144",
+    "session_id": "aa9610fe7267bd5400d0ff70c72523e9634e9b52d2253392932badf33920d091",
+    "report_schema": "nsb-v2-report-v1",
+    "configuration": {
+      "end": 202403281500,
+      "label": "新发行profile隔离V2合成回测",
+      "max_seconds": 90,
+      "name": "archiveroles",
+      "session_sha256": "aa91a1eb5e224496856fc73f0736c5f43bd1f4d6f68621cec27d45e0fe541144",
+      "start": 202403250930
+    },
+    "strategy": {
+      "id": "resonance-regime-v2",
+      "version": "0.1.0",
+      "algorithm_id": "resonance-regime-v2@0.1.0/no-cycle/native-cash-etf-replay-v1"
+    },
+    "input": {
+      "history_sha256": "87971c0e44ae800f8a0554f57b9d76ed754d58deb0eeb063e5c815d4417837df",
+      "market_manifest_source": "synthetic-frozen-market",
+      "capital_source": "synthetic-explicit-capital",
+      "fee_reserve_cny": "17.25",
+      "fee_source": "synthetic-explicit-fee",
+      "policy_sha256": "59d1505e87e8f4ed2292019b6094683b48fa5d5c0172d2611732d54166e18550",
+      "configuration_sha256": "01895d006c507b52ae26fa52f2208964e4c0768e4c854ab2a3780d034cf0a7df"
+    },
+    "metrics": {
+      "initial_capital_cny": "120987.31",
+      "last_nav_cny": "124587.31",
+      "total_return_pct": 2.975518672164874,
+      "observed_max_drawdown_pct": 0.0,
+      "native_cumulative_fees_cny": "0"
+    },
+    "observations": {
+      "total": 4,
+      "available": 4,
+      "missing": 0,
+      "last_trading_date": 20240328
+    },
+    "points": [
+      [
+        20240325,
+        "120987.31"
+      ],
+      [
+        20240326,
+        "120987.31"
+      ],
+      [
+        20240327,
+        "122787.31"
+      ],
+      [
+        20240328,
+        "124587.31"
+      ]
+    ],
+    "scope": "synthetic-or-admitted-raw-BT-only; RT/real-source/HTTP/broker/production-unqualified"
+  },
+  "comparison": {
+    "schema": "nbw-comparison-v1",
+    "left": {
+      "schema": "nbw-performance-v1",
+      "run_id": "3a848eec470446fdacc36f44732822b0",
+      "request_id": "9fa66342ba3a44cbb4171ace57e36f94",
+      "receipt_sha256": "79e6e8f72c991f38b3186df12d6dc334ce75636969b6f2267c35888e12bb84e8",
+      "request_sha256": "05f828f56f86b69944787e339aec807f4a47efe7679453abe42d4973b727ff70",
+      "report_sha256": "a0432ca1bc130248a0c13d0d426626bd3484929149603dc453a5286e06f5c8db",
+      "installation_sha256": "979b5b93169c05d2316af279c0db549ba389eb3ffc049c6cda4c86bf0074019a",
+      "session_sha256": "8554d79ff286b8df0cf5347a5ddc6308b8b8d1d6730d88810632d46b9d27e48d",
+      "session_id": "841935d9a192a0ac1cd385cfa93da267d8ebf138e157d5ad78d29b745c9586fe",
+      "report_schema": "nsb-report-v2",
+      "configuration": {
+        "end": 202401091500,
+        "label": "隔离安装归档验证 configured",
+        "max_seconds": 30,
+        "name": "archiveconfigured",
+        "session_sha256": "8554d79ff286b8df0cf5347a5ddc6308b8b8d1d6730d88810632d46b9d27e48d",
+        "start": 202401030930
+      },
+      "strategy": {
+        "id": "resonance-regime-v1",
+        "version": "1.2.0",
+        "algorithm_id": null
+      },
+      "input": {
+        "history_sha256": "a5f1e5f59f01f416a161135674885e6cbb42b4b481f6c4c7a18b2d0683324f85",
+        "market_manifest_source": "synthetic-only:configured-native-001",
+        "capital_source": "synthetic-explicit-capital:no-external-flows",
+        "fee_reserve_cny": "0",
+        "fee_source": "synthetic-zero-fee-explicit",
+        "policy_sha256": "0e51e704c0165972d39ef2cea93f09bd9996c507f6f0f07da5924a3f4038b760",
+        "configuration_sha256": "84267c163405860e5ebf1ce2e9c4a8ff73caf28a006648cde968871a8fa5df27"
+      },
+      "metrics": {
+        "initial_capital_cny": "100000",
+        "last_nav_cny": "100000",
+        "total_return_pct": 0.0,
+        "observed_max_drawdown_pct": 0.0,
+        "native_cumulative_fees_cny": "0"
+      },
+      "observations": {
+        "total": 5,
+        "available": 4,
+        "missing": 1,
+        "last_trading_date": 20240109
+      },
+      "points": [
+        [
+          20240103,
+          null
+        ],
+        [
+          20240104,
+          "100000"
+        ],
+        [
+          20240105,
+          "100000"
+        ],
+        [
+          20240108,
+          "100000"
+        ],
+        [
+          20240109,
+          "100000"
+        ]
+      ],
+      "scope": "synthetic-or-admitted-raw-BT-only; RT/real-source/HTTP/broker/production-unqualified"
+    },
+    "right": {
+      "schema": "nbw-performance-v1",
+      "run_id": "0646a41485d3436d967e1ad41e690ba0",
+      "request_id": "7f389cffc33345efb5e5cef2d032ce54",
+      "receipt_sha256": "5e933374c9b7903f594703a1fb129a9fe9e4545a819f65a8f6b98abb745898d1",
+      "request_sha256": "d9d738af071d8bf975bedf02b10656053ce39c395258328db5bb4d0971998e99",
+      "report_sha256": "3935b6606e86e354a17cd72aa0a5c2a9172341d3de4abc7f7de041c3dc221b74",
+      "installation_sha256": "a8599be638cce336af9459aeeed8bbc0473cf7cacf26a9344ba4f4ff482ac75b",
+      "session_sha256": "aa91a1eb5e224496856fc73f0736c5f43bd1f4d6f68621cec27d45e0fe541144",
+      "session_id": "aa9610fe7267bd5400d0ff70c72523e9634e9b52d2253392932badf33920d091",
+      "report_schema": "nsb-v2-report-v1",
+      "configuration": {
+        "end": 202403281500,
+        "label": "新发行profile隔离V2合成回测",
+        "max_seconds": 90,
+        "name": "archiveroles",
+        "session_sha256": "aa91a1eb5e224496856fc73f0736c5f43bd1f4d6f68621cec27d45e0fe541144",
+        "start": 202403250930
+      },
+      "strategy": {
+        "id": "resonance-regime-v2",
+        "version": "0.1.0",
+        "algorithm_id": "resonance-regime-v2@0.1.0/no-cycle/native-cash-etf-replay-v1"
+      },
+      "input": {
+        "history_sha256": "87971c0e44ae800f8a0554f57b9d76ed754d58deb0eeb063e5c815d4417837df",
+        "market_manifest_source": "synthetic-frozen-market",
+        "capital_source": "synthetic-explicit-capital",
+        "fee_reserve_cny": "17.25",
+        "fee_source": "synthetic-explicit-fee",
+        "policy_sha256": "59d1505e87e8f4ed2292019b6094683b48fa5d5c0172d2611732d54166e18550",
+        "configuration_sha256": "01895d006c507b52ae26fa52f2208964e4c0768e4c854ab2a3780d034cf0a7df"
+      },
+      "metrics": {
+        "initial_capital_cny": "120987.31",
+        "last_nav_cny": "124587.31",
+        "total_return_pct": 2.975518672164874,
+        "observed_max_drawdown_pct": 0.0,
+        "native_cumulative_fees_cny": "0"
+      },
+      "observations": {
+        "total": 4,
+        "available": 4,
+        "missing": 0,
+        "last_trading_date": 20240328
+      },
+      "points": [
+        [
+          20240325,
+          "120987.31"
+        ],
+        [
+          20240326,
+          "120987.31"
+        ],
+        [
+          20240327,
+          "122787.31"
+        ],
+        [
+          20240328,
+          "124587.31"
+        ]
+      ],
+      "scope": "synthetic-or-admitted-raw-BT-only; RT/real-source/HTTP/broker/production-unqualified"
+    },
+    "differences": [
+      "window",
+      "initial_capital",
+      "input",
+      "strategy",
+      "configuration",
+      "model",
+      "fees"
+    ],
+    "scope": "isolated-raw-BT; real-source/RT/broker/production-unqualified"
+  },
+  "left_entry": {
+    "run_id": "3a848eec470446fdacc36f44732822b0",
+    "owner_id": "bf06f2ba7b154e02b877bb7fb0f6b020",
+    "request_id": "9fa66342ba3a44cbb4171ace57e36f94",
+    "record_count": 5,
+    "report_sha256": "a0432ca1bc130248a0c13d0d426626bd3484929149603dc453a5286e06f5c8db",
+    "configuration": {
+      "end": 202401091500,
+      "label": "隔离安装归档验证 configured",
+      "max_seconds": 30,
+      "name": "archiveconfigured",
+      "session_sha256": "8554d79ff286b8df0cf5347a5ddc6308b8b8d1d6730d88810632d46b9d27e48d",
+      "start": 202401030930
+    },
+    "scope": "isolated-raw-BT; real-source/RT/broker/production-unqualified",
+    "receipt_sha256": "79e6e8f72c991f38b3186df12d6dc334ce75636969b6f2267c35888e12bb84e8"
+  },
+  "right_entry": {
+    "run_id": "0646a41485d3436d967e1ad41e690ba0",
+    "owner_id": "7467935863094229a1fe4d2c34228e67",
+    "request_id": "7f389cffc33345efb5e5cef2d032ce54",
+    "record_count": 4,
+    "report_sha256": "3935b6606e86e354a17cd72aa0a5c2a9172341d3de4abc7f7de041c3dc221b74",
+    "configuration": {
+      "end": 202403281500,
+      "label": "新发行profile隔离V2合成回测",
+      "max_seconds": 90,
+      "name": "archiveroles",
+      "session_sha256": "aa91a1eb5e224496856fc73f0736c5f43bd1f4d6f68621cec27d45e0fe541144",
+      "start": 202403250930
+    },
+    "scope": "isolated-raw-BT; real-source/RT/broker/production-unqualified",
+    "receipt_sha256": "5e933374c9b7903f594703a1fb129a9fe9e4545a819f65a8f6b98abb745898d1"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "guanheng.v2-package-profiles.v1",
+  "current_profile": "core-a6-signals-a3-v2-a2",
+  "profiles": [
+    {
+      "profile_id": "core-a5-signals-a2-v2-a1",
+      "core_version": "0.1.0a5",
+      "core_wheel_sha256": "5397695ccf208cac7c3e8fcd2a44ee36ce613a3ee59f7423201fa2d51ff6886c",
+      "signal_version": "0.1.0a2",
+      "v2_version": "0.1.0a1",
+      "variants_version": "0.1.0a3",
+      "tzdata_version": "2026.3"
+    },
+    {
+      "profile_id": "core-a6-signals-a3-v2-a2",
+      "core_version": "0.1.0a6",
+      "core_wheel_sha256": "012d2d2fb456159781028ef01f12cf6a78d3b40aded02af40a824bf3f9c30312",
+      "signal_version": "0.1.0a3",
+      "v2_version": "0.1.0a2",
+      "variants_version": "0.1.0a3",
+      "tzdata_version": "2026.3"
+    }
+  ]
+}
