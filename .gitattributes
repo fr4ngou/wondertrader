@@ -9,6 +9,7 @@ apps/** -text
 connectors/** -text
 packages/** -text
 integrations/** -text
+compat/** -text
 config/** -text
 scripts/** -text
 tests/** -text

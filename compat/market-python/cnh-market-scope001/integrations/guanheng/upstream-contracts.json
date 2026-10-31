@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "purpose": "Read-only external dependency registration; no upstream implementation, credentials or production qualification is redistributed.",
+  "business_core": {
+    "commit": "7d349d37677983d2d8cc6e07c88a2e3dba540776",
+    "strategy": "resonance-regime-v1",
+    "strategy_version": "1.0.0",
+    "source_sha256": {
+      "src/qmt_platform/common/contracts.py": "9b91b25fb5f751beee44cfaf146f00b7b1678488893da79f91682fdf3de22b34",
+      "src/qmt_platform/common/contract_kernel.py": "3967d6a95ff156a12d44de3c9be4ff58125ec483e35e1a8852d7be556e6367c6",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/__init__.py": "959d848a8c9bf653acafe3b662c731fd565d42acc616f948b117c318f377da12",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/models.py": "f92c44a4903e9fe180785d59f23d631df70638d0514af7cf61250b6011710d5f",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/features.py": "83bf72c6fcbe8ab985d1f5f53c6a096c6d87932337592db3e92e3a297a132681",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/signals.py": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/strategy.py": "ee8becd0749a34c28f3230c598e97c3515858dd7f353364eb9de00e96f689c77",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/allocation.py": "4043db624e6e9a88262049ea0d08a1c1b58d3da0c6eacdad274422b101075f44"
+    },
+    "license": "Retained in original controlled QMT repository; not redistributed",
+    "packaging": "pending-decision; explicit source root and matching external dependencies required",
+    "qualification": "DevelopmentVerified"
+  },
+  "broker_dependency": {
+    "observed_commit": "9b42f9f606e5d87f0945f67e1191d24e50ae9356",
+    "snapshot": "committed-development-contracts",
+    "types_path": "src/qmt_platform/common/broker_contracts.py",
+    "source_sha256": {
+      "src/qmt_platform/common/broker_contracts.py": "095a5f1367756d7dd3e434529291865583d1d82cd80cfa6a5de08a7891b0edd1",
+      "src/qmt_platform/services/bridge/broker_client.py": "8cc9b692efe23091203f80392a12915316aa6214cdc3e53e69b299d770344508",
+      "qmt_agent/broker/read_operations.py": "68e4563309864cfe10a28e0ac2db6530c1f2f6baa5fbc9c4457857cb884aeb20"
+    },
+    "contract_sha256": {
+      "docs/contracts/broker-client-v1.md": "a29554da8e375766939b4ade34ae8aeada708db9bfec40bb47f431b193e8df9c",
+      "docs/contracts/broker-host-read-ipc.md": "3c7188c7869d26b2cf30e6a5f98bde0791705e66cd58553f8585aaa10ccaf04a",
+      "docs/contracts/broker-state-event-stream.md": "d1d41b49505f0881f2394cc0f88bb0aa320c231c50a37943ee44840fbbb587ff",
+      "docs/contracts/broker-command-journal-permits.md": "625015ed47faf08c5a78b8bbc9aa41ad4a616111abaf119e4bdc8cfc9c49246d",
+      "docs/contracts/broker-local-transport-adapters.md": "951a19d2e90c8dd2356b4c251cd0e9c9ce91de1addd6b34bc4baef8cda209482"
+    },
+    "protocol_sha256": {
+      "src/qmt_platform/common/local_transport_protocol.json": "5ae393289e3dc0a7eb13c3612a4bc321dc9002e5c314b930f9691453d6789bd2"
+    },
+    "host_open": [
+      "read operations",
+      "optional state/events/sync"
+    ],
+    "host_unavailable": [
+      "command.submit",
+      "command.progress",
+      "subscription writes",
+      "downloads",
+      "history universe activation"
+    ],
+    "qualification": "development only; actual terminal and production separately qualified",
+    "read_operation_ids": [
+      "account.ipo_data",
+      "account.new_purchase_limit",
+      "account.trade_detail",
+      "context.barpos",
+      "context.benchmark",
+      "context.capital",
+      "context.dividend_type",
+      "context.do_back_test",
+      "context.market",
+      "context.period",
+      "context.stockcode",
+      "context.time_tick_size",
+      "context.universe",
+      "market.bar_timetag",
+      "market.bvol",
+      "market.date_location",
+      "market.divid_factors",
+      "market.etf_info",
+      "market.etf_iopv",
+      "market.ext_data",
+      "market.ext_data_rank",
+      "market.factor_data",
+      "market.factor_rank",
+      "market.factor_value",
+      "market.financial_data",
+      "market.full_tick",
+      "market.his_index_data",
+      "market.his_st_data",
+      "market.history_data",
+      "market.industry",
+      "market.industry_name",
+      "market.instrument_detail",
+      "market.is_last_bar",
+      "market.is_new_bar",
+      "market.is_sector_stock",
+      "market.is_suspended_stock",
+      "market.is_typed_stock",
+      "market.last_volume",
+      "market.local_data",
+      "market.longhubang",
+      "market.market_data",
+      "market.market_data_ex",
+      "market.open_date",
+      "market.risk_free_rate",
+      "market.sector",
+      "market.stock_list_in_sector",
+      "market.stock_name",
+      "market.svol",
+      "market.tick_timetag",
+      "market.timetag_to_datetime",
+      "market.top10_share_holder",
+      "market.total_share",
+      "market.trading_dates",
+      "market.turnover_rate",
+      "market.weight_in_index",
+      "orders.can_cancel",
+      "orders.last_order_id",
+      "orders.value_by_order_id",
+      "subscription.list"
+    ]
+  },
+  "in_progress_control_rpc": {
+    "snapshot": "uncommitted observation; excluded from runtime dependency",
+    "base_commit": "9b42f9f606e5d87f0945f67e1191d24e50ae9356",
+    "spec": "docs/specs/broker-native-control-rpc.md",
+    "contract": "docs/contracts/broker-native-control-rpc.md",
+    "observed_sha256": {
+      "docs/specs/broker-native-control-rpc.md": "8b3ea01dbffcd0f2aba5bd3bbbbfa2a094dc4150f879e28e3f7fabfa9027f608",
+      "docs/contracts/broker-native-control-rpc.md": "a6c007496a94f6c2ed1f5450f70483314cca4b133c863cd513f8b7f0c0835d63"
+    },
+    "scope": [
+      "asynchronous read and observation control",
+      "host.binding.read"
+    ],
+    "unavailable": [
+      "command RPC",
+      "cancel RPC",
+      "native complete bootstrap",
+      "legacy Journal migration",
+      "production qualification"
+    ]
+  },
+  "native_abi": {
+    "WTSBarStruct_bytes": 88,
+    "pack": 8,
+    "time": "(YYYYMMDD-19900000)*10000+HHMM; Asia/Shanghai right minute",
+    "source_files_sha256": {
+      "src/Includes/WTSStruct.h": "5d63380fcdb3a80af70eba994e091e8260d857e892179cad09e01f30a5237f54",
+      "src/WtDtHelper/WtDtHelper.h": "074a202a522e713bb10f4413c7a253571c3b1390d79d8a6aabce6d40366d2d35",
+      "src/WtDataStorage/DataDefine.h": "c46ec7820ced9a17cf28b3c9b18b2047c71083b185633892243761716b71b979"
+    },
+    "binary": "runtime owner supplies explicit GuanhengNativeBarFile library SHA-256 and colocated original WtDtHelper dependency",
+    "required_export": "GuanhengNativeBarFile ABI v1: gh_native_bar_file_version/layout/read; upstream read_dsb_bars remains unchanged",
+    "stored_units": "canonical shares/yuan; source conversion factors in sidecar are provenance only"
+  },
+  "retained_services": {
+    "source_sha256": {
+      "src/qmt_platform/services/portfolio/risk.py": "4fb963097902b76151248c039da19baa8d7a677aac3602cb77b0637bcfc75180",
+      "src/qmt_platform/services/portfolio/multi_strategy_approval.py": "fbac6b0984db9894daf84d8e3f6dc2d4e72f45b019fe9ad5762a4f3c9d85ed83",
+      "src/qmt_platform/services/portfolio/multi_strategy_coordination.py": "c9e51f8458e4c2050528f862fef5ab1e3dad901f030864b5c55648661d82d1dc",
+      "src/qmt_platform/services/portfolio/multi_strategy_risk.py": "14bb7134fbf6e183fdd74a27286ad6f7dbbba7f01e03250f03bbae0566b4348e",
+      "src/qmt_platform/services/bridge/multi_strategy_command.py": "8a0e540c8105f0678a586b09175f5e53456a509cfb391beb5915b490dcc75132",
+      "src/qmt_platform/services/bridge/store.py": "3e0e391fcf2c5e3a310abefcf97c8e661f9bc779edd711c07aadb877ea30fcb1",
+      "src/qmt_platform/common/security.py": "b75c2256dfe0fbc920fdb3cefd210d4b5ab21b9b5bf1b2d201fbcab9ad945cc1",
+      "src/qmt_platform/services/market_data/analysis_window.py": "38407229819cfed8e2560f8ece9473c0e4e5672994bedc307a46a17eef666cca",
+      "src/qmt_platform/services/bridge/bar_ingestion.py": "610fad245d7129ff3bfa0295d3cfe8d4cd14a10597582d8076968d5b11aed316",
+      "src/qmt_platform/common/strategy_state.py": "5aebf426cd7c59fed17c2caa4a16a7aa623e84ffc0582cbf46fd8071d9bbb878"
+    },
+    "scope": "External original risk/approval/Bridge construction/signing/store interfaces, chart and analysis DTOs; no service, database, credential or business-rule redistribution",
+    "qualification": "DevelopmentVerified; actual business service and UI routing remain separate"
+  },
+  "external_test_fixtures": {
+    "source_sha256": {
+      "tests/phase42/test_multi_strategy_approval.py": "a1114c8c8468cbd0efc8ad8dd307ff17822a3ee0c15135a03d08a5c1c1cac3ba",
+      "tests/phase38/test_native_analysis_window.py": "b0907cf435f385e4587a7d27a1afb1ba43779a75462f4ce0c37458b212c29a53",
+      "tests/phase38/fixtures/qmt_etf_split_analysis.json": "96fc1787074cc401c3f0fca2abc481f6bcb9faa7cbcaf5af832d281af6ab1a8f"
+    },
+    "scope": "read-only external synthetic test factories, not a runtime dependency"
+  },
+  "retained_consumers": {
+    "source_sha256": {
+      "src/qmt_platform/services/console/app.py": "6a82d65a087bfa70fe402fa9b5f44a9f53f0ccbf37a6bb545396ef72c3217cb4",
+      "src/qmt_platform/services/console/market_projection.py": "e067efcbabcf7b41299fdf22aded256952976715b095bddf31faf3c98aa5f6fe",
+      "src/qmt_platform/services/console/optional_reads.py": "229c0d5bcb5911d2e29c1a79330f12273f4f0262c6882c1fdb733d518f358cdc"
+    },
+    "scope": "Original Console callable in isolated contract tests; no startup, browser, production routing or service installation"
+  },
+  "retained_minute_consumers": {
+    "observed_commit": "8764004089c2e0c358522fbeb12ed820d741f223",
+    "source_sha256": {
+      "src/qmt_platform/__init__.py": "63cbc3c2a74739bd78ed2571dd46ab35e9fdf63503e3b8ad201593d872df29c5",
+      "src/qmt_platform/common/__init__.py": "0cfc6b6da32ffbec861fce0d053fc0fe8c7d1cc76f12969d095cc9093f2080a2",
+      "src/qmt_platform/common/asyncio_threads.py": "175b833e6a87a15c9ffade591d666dbe59ddad43a815b78c0072dc8fa5c504cf",
+      "src/qmt_platform/common/auth.py": "f4303797c41c646a395a90ce9202a33b7dd4611b90b8396a7fa2b84a1c75ae6f",
+      "src/qmt_platform/common/capital_observation_amounts.py": "44aa84ddae6ac9381ab1f36150ad1b3c38f3b4df107b3b90b36bfece7d2b5f56",
+      "src/qmt_platform/common/config_transitions.py": "3353eafaee1ae2b78ce105c19e2dc7623e39471b7e1dce7d856a00544fbaa0c2",
+      "src/qmt_platform/common/configuration_readability.py": "403e64760bcfa670c0d0caa20d6a25b8131278414d7a0be491d362595da29f5e",
+      "src/qmt_platform/common/consumer.py": "439d4bf4e4f0e8ee2caaa85bb54d50875af77dc7e7e78a2bd2f57f4207043a38",
+      "src/qmt_platform/common/contract_kernel.py": "3967d6a95ff156a12d44de3c9be4ff58125ec483e35e1a8852d7be556e6367c6",
+      "src/qmt_platform/common/contracts.py": "9b91b25fb5f751beee44cfaf146f00b7b1678488893da79f91682fdf3de22b34",
+      "src/qmt_platform/common/event_bus.py": "75ed75b5743e7053072d4ff70d77b22ce00a870dad1787ce60ec5bc03ad4fb98",
+      "src/qmt_platform/common/fact_store.py": "3ce422021c0a7ad21942b1458568398d6ed6e7c7434c0c0b76bec49b6a2f08d7",
+      "src/qmt_platform/common/market_timing.py": "bfe05ccc22f9c8892e46009abeb6f67c62b2e6e36797a63370db766e737256de",
+      "src/qmt_platform/common/native_trade_time.py": "3f7d2c7646e84b8e815ff01c0752ea99525693568ca2852f6415a846ac36b5b8",
+      "src/qmt_platform/common/news_revision_contract.py": "e3d21158440bdb6a36e13fbcbd8d579936a74710c10c308e798308c9bbe81024",
+      "src/qmt_platform/common/operational_logging.py": "2e55c750ae90467cd0c9f258d9046c9c8320c56f691dffe6e5ba89dd0e57544a",
+      "src/qmt_platform/common/postgres_pool.py": "f0558423a97b0cdd5dd8523ce410ccd8c47b33ad66afbcfe025464c5a445886c",
+      "src/qmt_platform/common/price_guard_policy.py": "5debb0dc64721dc4cf25bb5136684b3fe9dbe1bcf12c5b46880ae27132db45f3",
+      "src/qmt_platform/common/privacy.py": "fcfa06a6799abb57f452791c1c47f3d2b46d70f9191919ed181b32a7aea7f07b",
+      "src/qmt_platform/common/replenishment.py": "c60262df96b4ba9f633ad076606f74b042b8b65c60fff0276546d450991fcff8",
+      "src/qmt_platform/common/replenishment_acceptance.py": "cdc86e4163c32425102d5b1fcfcc1216361e72fd29d0c96a765000401bd36132",
+      "src/qmt_platform/common/resonance_recovery_audit.py": "1c7acc4c32f5e8e7352be5dbb31352cf6217d509d60bfc8e7dcec6784d1cdc92",
+      "src/qmt_platform/common/service.py": "06548b7a8e797270018c5829d2c0d257028565b049ec5a24eab41c9e7540e78a",
+      "src/qmt_platform/common/settings.py": "4076a5a944db0d018a2c01d648f6acc91adb539395b756b000b2005f6e01830d",
+      "src/qmt_platform/common/source_acquisition.py": "0220ec28bdcda29b219b2e220225a0725422dd8acf2a56ff06585ccac9502901",
+      "src/qmt_platform/common/source_acquisition_runtime.py": "bc9e42b9f3d56e1cba7a4de006e92cbfdd0abdd3bb76c53036b012be08f53281",
+      "src/qmt_platform/common/source_acquisition_store.py": "ea05934ef0e66dd426fa0e1d2e490c3efde8b94cf55d6f13143f48a1c759a667",
+      "src/qmt_platform/common/source_content.py": "e450445d4b0b7d05689be17a797d333d006def15b6d6f2f807894787b41cc63e",
+      "src/qmt_platform/common/source_content_policy.py": "b7b19b729daec56452a5c35d0ee4bb6aab6d0a0a6c4a540366a3ec01f0863885",
+      "src/qmt_platform/common/source_owner_receipts.py": "069c9098de890de3451fb319c7a2f44d01b767b72905c056d465e8af8e9d4e06",
+      "src/qmt_platform/common/source_owner_runtime.py": "1ff1ca55c73276a171c900f8dc954463bf44f2f431356e7784c2f481425713de",
+      "src/qmt_platform/common/source_qualification.py": "9427317ab311752cef87d9da97f095635f838a1578abe81647967db9b3d6c02f",
+      "src/qmt_platform/common/source_qualification_assurance.py": "f31531829120cee981015bab555945306e5fee048c8a2cc564df6a6cecbaae54",
+      "src/qmt_platform/common/source_read_authority.py": "920a878b211009f19da4c021c7abbba5549400045d4ab645251b4c57972b5cbd",
+      "src/qmt_platform/common/source_request_identity.py": "9f5bd9c4dd9ee371834d141752a7f0f6cf1e778eec5ed8d26ce5ace7bf21e86a",
+      "src/qmt_platform/common/strategy_state.py": "5aebf426cd7c59fed17c2caa4a16a7aa623e84ffc0582cbf46fd8071d9bbb878",
+      "src/qmt_platform/services/__init__.py": "bf296df4071de0ef3cf3056dbe4efc5d8337670ce737d7715206f2dff2f578d5",
+      "src/qmt_platform/services/market_data/__init__.py": "22e88093d722a24be396e8e87f67c3faf1218c7269585b80886b5240eb667f74",
+      "src/qmt_platform/services/market_data/analysis_repository.py": "22efa987e67ff95ed27b4b71aa11b72e50eb144f851f38ff8473b220e6b9a3a3",
+      "src/qmt_platform/services/market_data/analysis_window.py": "38407229819cfed8e2560f8ece9473c0e4e5672994bedc307a46a17eef666cca",
+      "src/qmt_platform/services/market_data/app.py": "9e4e8da96ab7b473ec29d76ad145a4954a464b8aa2c22a98bc886cc2c65df880",
+      "src/qmt_platform/services/market_data/archive.py": "5566b402219969cb1f5746a1ea4bac25a5b5924fb4f390dce6ce14fb5946f79f",
+      "src/qmt_platform/services/market_data/corporate_actions.py": "d0be68129c419327646b76c7eb6191dee4596630cbb377d198186f5a59e727fc",
+      "src/qmt_platform/services/market_data/features.py": "5d41b20c9c5d53ef3cf69e1855d43211a7b63f9e0c3b3cdc9296b37154a9902d",
+      "src/qmt_platform/services/market_data/history_repair.py": "7386602240c4f60640576281fab63b3db2befea8f6d54b20b9937725d65f43ab",
+      "src/qmt_platform/services/market_data/imports.py": "ca6247432cfeb8a6feb9b442e719134f2bbee6f16b04a71dd395fc94843394ec",
+      "src/qmt_platform/services/market_data/resonance_daily.py": "0bc434c7e14c29a8069aed5ee03fd8bc70cd6c7c01c2936d888b97ca7b1c9a6e",
+      "src/qmt_platform/services/market_data/subject_profiles.py": "7267f39d2af1f2f0b9bcff1846fb2d581d67dc84f4d8f87270e5ac1a423fe75a",
+      "src/qmt_platform/services/strategy/__init__.py": "8f56568769ec63c731ab85c4cb0add808a854ebad335face4e0aef7e9e2eecec",
+      "src/qmt_platform/services/strategy/strategies/__init__.py": "1b199b54f127be5867b43804a2feac2472d513418b12dc8c892efa16986f7ef4",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/__init__.py": "959d848a8c9bf653acafe3b662c731fd565d42acc616f948b117c318f377da12",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/allocation.py": "4043db624e6e9a88262049ea0d08a1c1b58d3da0c6eacdad274422b101075f44",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/features.py": "83bf72c6fcbe8ab985d1f5f53c6a096c6d87932337592db3e92e3a297a132681",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/models.py": "f92c44a4903e9fe180785d59f23d631df70638d0514af7cf61250b6011710d5f",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/signals.py": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238",
+      "src/qmt_platform/services/strategy/strategies/resonance_regime_v1/strategy.py": "ee8becd0749a34c28f3230c598e97c3515858dd7f353364eb9de00e96f689c77"
+    },
+    "entrypoint": "qmt_platform.services.market_data.app._consume_bar_with_context",
+    "scope": "Exact imported development consumer module closure, verified before and after synchronous consumption; no lifespan or production configuration",
+    "license": "Retained in controlled original repository; not redistributed",
+    "qualification": "DevelopmentVerified"
+  }
+}

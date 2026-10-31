@@ -1,0 +1,18 @@
+[build-system]
+requires = ["flit_core==3.12.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "guanheng-qmt-shm-host"
+version = "0.1.0a4"
+description = "Private independent QMT SHM host"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = ["guanheng-qmt-shm-agent==0.1.0a3", "pydantic==2.12.5", "fastapi==0.139.2", "starlette==1.9.0", "uvicorn==0.51.0"]
+
+[project.scripts]
+guanheng-qmt-shm = "guanheng_qmt_shm.__main__:main"
+
+[tool.flit.module]
+name = "guanheng_qmt_shm"
