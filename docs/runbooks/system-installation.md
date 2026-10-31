@@ -47,6 +47,8 @@ python -B <新解压根>/tools/scripts/system-runtime.py resolve --root <新安�
 
 独立WT候选采用v2输入，原安装可选择`wt`或`host,wt`，`static`写为`null`，观衡服务另行安装。`resolve`只返回所选角色：单角色候选使用`roles.wt`；双角色候选还包含`roles.host`。WT从`roles.wt`公开模块入口和独立实例配置启动，观衡通过WT公开只读接口连接。v2无静态资源时`spa=null`。原v1及app/host候选继续可读取，其历史包中的App托管表述由[ADR-0016](../architecture/adr/0016-independent-wt-runtime-and-observer.md)取代。
 
+历史子服务沿自身部署描述选择解释器：完整双角色安装使用Host角色的`pythonw.exe`承载历史组件，由WT的`SourceMarketProcess`管理启停。历史组件使用的`integrations`命名空间与WT AnalysisCore的同名普通包分别位于所属运行环境；组件源码、SDK、Reader及Helper路径沿同一安装的公开解析结果绑定，更新时保留这一解释器和组件配对。
+
 单WT角色承担Host运行环境时，其精确依赖须明确包含Host及Agent发行，配置绑定该环境的解释器和Agent目录。模块导入、配对生成和实际来源连接分别核验；安装成功只证明发行文件与环境身份。选择独立Host角色时使用该角色自己的公开解释器，两种组合的Host生命周期均归WT管理。
 
 resolve验证候选、角色安装收据及RECORD所绑定文件，再返回所选角色解释器与模块参数、可选SPA目录、原行情公开入口和显式附加组件入口。启动观衡时可将非空SPA路径传入其`--static-directory`参数；WT拥有Host、历史、采集和执行进程，独立负责关闭流程，安装器只准备文件/环境。
