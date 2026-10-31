@@ -14,6 +14,20 @@ ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r"\[[^\]\n]*\]\((<[^>]+>|[^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 
+def start_document(path: Path, *, full: bool, current: bool) -> str:
+    """默认输出导航与最近三条状态；完整历史由显式入口按需读取。"""
+    text = path.read_text(encoding="utf-8-sig")
+    if full:
+        return text
+    paragraphs = re.split(r"\n\s*\n", text.strip())
+    selected = "\n\n".join(paragraphs[:4]) if current else text
+    # 输出预算约束开发入口的上下文，原文和完整读取入口保持可用。
+    preview = selected[:6000]
+    if preview.strip() != text.strip():
+        preview += "\n\n[摘要输出；详细正文按路径读取，或执行 scripts/project.py start --full。]"
+    return preview
+
+
 def check(root: Path, *, include_skills: bool = True) -> list[str]:
     root = root.resolve()
     errors = []
@@ -67,7 +81,8 @@ def check(root: Path, *, include_skills: bool = True) -> list[str]:
 def main(root: Path = ROOT) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("start")
+    start = commands.add_parser("start")
+    start.add_argument("--full", action="store_true", help="显式读取完整导航及当前工作历史")
     commands.add_parser("check")
     skills = commands.add_parser("skills").add_subparsers(dest="action", required=True)
     skills.add_parser("migrate")
@@ -76,7 +91,8 @@ def main(root: Path = ROOT) -> int:
     try:
         if args.command == "start":
             for relative in ("docs/README.md", "docs/roadmap/NOW.md"):
-                print(f"\n[{relative}]\n{(root / relative).read_text(encoding='utf-8-sig')}")
+                text = start_document(root / relative, full=args.full, current=relative.endswith("NOW.md"))
+                print(f"\n[{relative}]\n{text}")
             return 0
         if args.command == "skills":
             result = migrate(root) if args.action == "migrate" else record(root, args.sources)

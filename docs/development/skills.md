@@ -7,3 +7,5 @@
 新增项目技能先核实来源、许可证、维护所有者及适用范围。local 由项目维护，upstream 固定仓库、完整提交、原路径及改动说明；通过 `python -B scripts/project.py skills record --sources <来源文件>` 登记，再执行 `check`。登记摘要只证明文件一致性，来源可信性需实际调查。
 
 本工具根据 [project.json](../../config/project.json) 确定文档检查范围，支持 `start`、`check` 和技能清单维护。保留维护工具的[许可](../../scripts/project_support/LICENSE)，本地适配的源码和验证记录随版本管理。
+
+`python -B scripts/project.py start`默认输出文档导航及NOW最近三条状态，每页正文至多6000字符，并明确提示省略正文。按任务沿显示的路径读取相关章节；追溯需要完整入口输出时使用`start --full`。摘要仅控制入口输出量，原文、历史和`check`的完整文档检查范围保持。
