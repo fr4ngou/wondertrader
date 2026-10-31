@@ -12,6 +12,7 @@ from .stock_universe import shsz_listings, listed_codes
 from .storage import digest, encode
 from .executive_models import rows_for_metrics
 from .financial_source import REPORT as COMPANY_REPORT
+from .security_identity import company_id as _company, security_code as _security, canonical as _canonical_security, report_rows, security_type
 
 REPORT = 'RPT_EXECUTIVE_HOLD_DETAILS'
 COLUMNS = ('SECURITY_CODE,DERIVE_SECURITY_CODE,CHANGE_DATE,CHANGE_SHARES,CHANGE_AMOUNT,CHANGE_REASON,'
@@ -69,20 +70,6 @@ def _project(value):
     return result
 
 
-def _company(value):
-    _need(type(value) is str and re.fullmatch(r'[A-Za-z0-9_-]{1,40}', value), 'company_identity')
-    return value
-
-
-def _security(row, field, *, filing=False):
-    code = row.get(field)
-    # 财务全集含尚未上市的字母申报编号；事件证券必须为数值股票代码。
-    pattern = r'[A-Z0-9]{6}\.(SH|SZ|BJ)' if filing else r'\d{6}\.(SH|SZ|BJ)'
-    _need(type(code) is str and re.fullmatch(pattern, code), 'security_identity')
-    _need(row.get('SECURITY_CODE') == code[:6], 'security_identity')
-    return code[-2:].lower()+'.'+code[:6]
-
-
 def _role(value):
     if type(value) is not str or not value or len(value) > 200:
         return None
@@ -90,11 +77,6 @@ def _role(value):
     if roles & EXECUTIVE_ROLES:
         return True
     return False if roles <= OTHER_ROLES else None
-
-
-def _canonical_security(code, aliases):
-    # 只在原两处证券字段通过_security后连接规范身份；交易时点原代码留在原件。
-    return 'bj.'+aliases.get(code[3:], code[3:]) if code.startswith('bj.') else code
 
 
 def aggregate_changes(rows, listings, company_rows, periods, start, end, *, check=lambda: None, aliases=None):
@@ -109,20 +91,11 @@ def aggregate_changes(rows, listings, company_rows, periods, start, end, *, chec
     _need(0 <= (last-first).days < 366 and len(rows) <= 8000 and len(company_rows) <= 40000, 'capacity')
     _need(1 <= len(periods) <= 5, 'identity_report_period')
     aliases = aliases or {}
-    companies, types, seen, canonical_seen = {}, {}, set(), set()
-    for row in company_rows:
-        check()
-        period = _day(row.get('REPORT_DATE'))
-        _need(period in periods, 'identity_report_period')
-        code = _security(row, 'SECUCODE', filing=True)
-        _need((code, period) not in seen, 'identity_duplicate')
-        seen.add((code, period))
-        code = _canonical_security(code, aliases)
-        _need((code, period) not in canonical_seen, 'identity_duplicate')
-        canonical_seen.add((code, period))
+    companies, types = {}, {}
+    for code, _period, row in report_rows(company_rows,periods,aliases,check=check):
         company = _company(row.get('ORG_CODE'))
-        kind = row.get('SECURITY_TYPE_CODE')
-        _need(kind in ('058001001', '058001008'), 'security_type')
+        kind = security_type(row)
+        _need(kind is not None, 'security_type')
         if code in companies:
             _need(companies[code] == company and types[code] == kind, 'identity_company_conflict')
         companies[code] = company

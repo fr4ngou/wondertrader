@@ -64,7 +64,7 @@ def serve(configuration,expected_sha256,directory,control_id,*,now=lambda:dateti
         value=load_service_configuration(configuration,expected_sha256)
         config=load_configuration(value['sources_file'],value['sources_sha256'])
         importlib.import_module('httpx')
-        if any(s['kind']=='baostock' for s in config['sources']):importlib.import_module('baostock')
+        if any(s['kind'] in ('baostock','ashare_public') for s in config['sources']):importlib.import_module('baostock')
         reader=build_reader(value['root'])
         # control_root由维护人员提供受保护父目录，新实例继承同一ACL；正文不含凭据。
         _inspect(directory.parent,directory=True);directory.mkdir();created=True

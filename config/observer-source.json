@@ -78,6 +78,8 @@
       "apps/guanheng/console/src/observation/DataAssets.test.tsx",
       "apps/guanheng/console/src/observation/DataAssets.tsx",
       "apps/guanheng/console/src/observation/FailureRecovery.test.tsx",
+      "apps/guanheng/console/src/observation/FieldCoverage.test.tsx",
+      "apps/guanheng/console/src/observation/FieldCoverage.tsx",
       "apps/guanheng/console/src/observation/ObservationChart.tsx",
       "apps/guanheng/console/src/observation/ObservationDownload.test.tsx",
       "apps/guanheng/console/src/observation/ObservationDownload.tsx",

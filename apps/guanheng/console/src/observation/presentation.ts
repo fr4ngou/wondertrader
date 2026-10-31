@@ -62,6 +62,10 @@ const frequencies: Record<string, string> = { daily: '日度', weekly: '周度',
 export const frequencyLabel = (frequency: string) => frequencies[frequency] || frequency
 export function failureLabel(code?:string) {
   if (!code) return '检查记录已保存；实际末期见来源覆盖'
+  if (code === 'ashare_current_feed_has_different_date') return '公开行情已切换交易日，所需日期原件尚缺；继续提供原版本'
+  if (code === 'ashare_capture_retry_pending') return '日终原件等待下一次计划重试；当前继续提供原版本'
+  if (code === 'ashare_capture_retries_exhausted') return '今日原件捕获已达重试上限，下一自然日继续核验；当前提供原版本'
+  if (code === 'ashare_archive_missing') return '所需历史日期的原件尚缺，完整口径重算等待补齐'
   if (code === 'ashare_source_date') return '尚未取得所需交易日的全市场原件，继续提供原版本'
   if (code === 'ashare_source_not_closed') return '全市场日线尚未确认收盘，本批暂未接纳'
   if (code === 'ashare_source_status_unqualified') return '来源出现待核的证券交易状态，继续保留原版本'

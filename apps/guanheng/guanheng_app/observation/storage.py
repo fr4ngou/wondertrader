@@ -308,6 +308,38 @@ class SnapshotRepository:
         with self.connect() as db:
             return [json.loads(row[0]) for row in db.execute('SELECT receipt FROM runs ORDER BY id DESC LIMIT 100')]
 
+    def source_receipts(self, operation, source_id, day, *, deadline, cancelled=None,
+                        status=None, part=None, policy=None, attempt_date=None):
+        """原runs中的定日原件与尝试；先按事实身份筛选，再限制返回条数。"""
+        predicates=["json_extract(CAST(receipt AS TEXT),'$.operation')=?",
+                    "json_extract(CAST(receipt AS TEXT),'$.source_id')=?",
+                    "json_extract(CAST(receipt AS TEXT),'$.date')=?"]
+        arguments=[operation,source_id,day]
+        for field,value in (('status',status),('part',part),('policy_sha256',policy),('attempt_date',attempt_date)):
+            if value is not None:
+                predicates.append("json_extract(CAST(receipt AS TEXT),'$."+field+"')=?")
+                arguments.append(value)
+        with self.connect(deadline=deadline,cancelled=cancelled) as db:
+            rows=db.execute('SELECT receipt FROM runs WHERE '+' AND '.join(predicates)+
+                ' ORDER BY id DESC LIMIT 32',arguments).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def source_archives(self,operation,source_id,start,end,*,deadline,cancelled=None,policy):
+        """按交易日取最后成功原件锚；查询原runs，不以展示页100条上限截断历史。"""
+        with self.connect(deadline=deadline,cancelled=cancelled) as db:
+            rows=db.execute('''SELECT receipt FROM runs WHERE id IN (
+                SELECT max(id) FROM runs WHERE
+                json_extract(CAST(receipt AS TEXT),'$.operation')=? AND
+                json_extract(CAST(receipt AS TEXT),'$.source_id')=? AND
+                json_extract(CAST(receipt AS TEXT),'$.status')='success' AND
+                json_extract(CAST(receipt AS TEXT),'$.policy_sha256')=? AND
+                json_extract(CAST(receipt AS TEXT),'$.date') BETWEEN ? AND ?
+                GROUP BY json_extract(CAST(receipt AS TEXT),'$.date'))
+                ORDER BY id LIMIT 20001''',(operation,source_id,policy,start,end)).fetchall()
+        if len(rows)>20000:
+            raise ObservationError('source_archive_capacity','日终原件历史超过单次读取容量',503)
+        return [json.loads(row[0]) for row in rows]
+
     def scheduler_status(self):
         try:
             try:
@@ -357,7 +389,7 @@ class SnapshotRepository:
         if type(status) is not dict or set(status)!=fields:raise ValueError('scheduler fields')
         enabled=status['enabled'];maximum=status['heartbeat_max_age_seconds'];schedule=status['schedule']
         if (type(enabled) is not bool or status['state']!=('running' if enabled else 'stopped')
-                or status['phase'] not in (('waiting','collecting') if enabled else ('stopped',))
+                or status['phase'] not in (('waiting','collecting','archiving') if enabled else ('stopped',))
                 or type(maximum) not in (int,float) or not 0<maximum<=660
                 or schedule!={'timezone':'Asia/Shanghai','times':['09:00']} or status['error_code'] is not None
                 or type(status['last_heartbeat']) is not str or len(status['last_heartbeat'])>64):

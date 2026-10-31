@@ -1,5 +1,7 @@
 #- [QMT Host通信记录的持久I/O](qmt-host-durable-io.md)：DIO，同一owner连接、原事务与FULL持久确认，原截止及未知身份保持；完整调仓验收继续。
 
+- [观衡持续公开A股来源](observer-public-ashare-producer.md)：沪深北行情事实、覆盖说明、原服务采集归档及市场观察指标。
+
  功能规格
 
 - [来源三包永久源码与构建](source-package-builds.md)：Host/Agent/Core 边界、永久成员映射、可重复 Flit 构建及隔离 SDK 验收。

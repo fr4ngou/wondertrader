@@ -66,6 +66,11 @@ def stock_day(fields, rows, universe, day, *, scope='shsz', check=lambda: None):
         if code in seen:
             raise ValueError('duplicate stock day')
         seen.add(code)
+        qualification = row.get('qualification', 'qualified')
+        if qualification != 'qualified':
+            if scope != 'ashare' or qualification not in ('identity_unverified', 'state_unverified'):
+                raise ValueError('invalid stock qualification')
+            continue
         if row['tradestatus'] not in ('0', '1'):
             raise ValueError('invalid stock trading status')
         close, prior, volume, turn = (_number(row[key]) for key in ('close', 'preclose', 'volume', 'turn'))

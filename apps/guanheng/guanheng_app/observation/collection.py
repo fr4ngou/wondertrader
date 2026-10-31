@@ -24,6 +24,7 @@ from .financial_source import annual_reports
 from .executive_source import executive_changes
 from .t2108_source import history as t2108_history
 from .ashare_source import history as ashare_history
+from .ashare_public import history as public_ashare_history
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,financial_annual=annual_reports,
@@ -102,6 +103,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             if source['kind']=='wondertrader':
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=market_history(fetch,source,start,end,market_client_factory)
+            elif source['kind']=='ashare_public':
+                updates=public_ashare_history(reader,fetch,source,start,end,
+                    retry_seconds=config['retry_seconds'],max_attempts=config['max_window_attempts'])
             else:updates=PARSERS[source['kind']](fetch,source,start,end)
             allowed=set(source.get('tables',[]))|set(source.get('datasets',[]))
             if set(updates)-allowed:raise SourceFailure('unregistered_source_output')

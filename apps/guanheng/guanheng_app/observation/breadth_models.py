@@ -34,6 +34,18 @@ ASHARE_METRICS = {key.replace('.shsz', '.ashare'): {**value,
     'label': value['label'].replace('沪深A股', '沪深北普通A股') +
         (' · 沪深北普通A股' if key == 'turnover.gt5.shsz' else '')}
     for key, value in SHSZ_METRICS.items()}
+COVERAGE_FIELDS = {
+    'known_market_count':'已核普通A股数量', 'reported_count':'已取得行情数量',
+    'missing_quote_count':'行情尚缺数量', 'identity_unverified_count':'股票池资格待核数量',
+    'state_unverified_count':'交易状态待核数量', 'missing_float_count':'可用非限售股本尚缺数量',
+    'special_reference_count':'首日或新增交易参考价数量',
+    'halted_with_trades_count':'停牌标志且当日有成交数量', 'missing_price_count':'涨跌比较价尚缺数量',
+}
+for item in ASHARE_METRICS.values():
+    item['keys']=tuple(dict.fromkeys((*item['keys'],*COVERAGE_FIELDS)))
+ASHARE_METRICS['turnover.gt5.ashare'].update(label='换手率超过5% · 沪深北A股',primary='turnover_gt5_pct',
+    formula='完整占比=100×换手率严格大于5%的股票数/当日股票池数量；全部股票阈值资格已确认时提供。',
+    reading='大于5%计入，等于5%不计入。主图显示完整市场占比；分类尚缺时主值留空，缺口说明单列已确认下界。')
 METRICS.update(ASHARE_METRICS)
 
 LABELS = {
@@ -54,16 +66,25 @@ def definition(metric):
     """明确沪深范围、原股数量及部分覆盖，页面仅展示中文业务字段。"""
     if metric in ASHARE_METRICS:
         result = definition(metric.replace('.ashare', '.shsz'))
-        result.update(id=metric, label=ASHARE_METRICS[metric]['label'], definition_version=metric+'/1',
+        result.update(id=metric, label=ASHARE_METRICS[metric]['label'], definition_version=metric+'/2',
             source='BaoStock沪深日线与北交所公开行情、证券表同日原件',
             source_url='https://www.bse.cn/nq/quotation.html',
             universe_id='ashare-ordinary-listed-day', universe_table='source.ashare_day_universe')
-        result['field_schema']['market_count']['label']='沪深北普通A股股票池数量'
+        result['field_schema']['market_count']['label']='股票池数量（含待核候选）'
+        for key,label in COVERAGE_FIELDS.items():
+            result['field_schema'][key]=dict(label=label,unit='只',data_type='integer')
+        if metric=='turnover.gt5.ashare':
+            result['primary_field']='turnover_gt5_pct'
+            item=ASHARE_METRICS[metric]
+            result.update(formula=item['formula'],reading=item['reading'])
+            result['how_to_read']['purpose']=item['reading']
+            result['lines'][0].update(key='turnover_gt5_pct',name='完整市场占比',formula=item['formula'],reading=item['reading'])
         result['limitations'] = ['范围为定日普通A股股票池，覆盖沪、深、北三所；沪深历史单独保留。',
-            '沪深使用同日来源参考前收盘与原始股数；北交所换手=成交股数×100/流通股数。',
+            '沪深使用同日来源参考价与原始股数；北交所换手=成交股数×100/非限售股本。',
             '当前数据为同日收盘统计；来源读取时间与首次公布时间分别记录，历史首次公布时间仍待核。',
-            '北交所仅接纳已核正常状态和同日闭市原件；未核状态、缺页或日期冲突使整批保旧。',
-            *result['limitations'][3:]]
+            '首日或新增交易沿来源参考价；有成交的停牌标志证券仍计入当日统计。未知状态及资格单列，完整市场比例保持未知。',
+            '沪深沿来源交易状态及流通股换手字段；北交所已核状态且明确停牌、当日无成交时单列停牌。',
+            '缺失数值保持空值。换手阈值分类尚缺时完整市场占比留空，已确认下界在缺口说明中单列。']
         return result
     item = METRICS[metric]
     schema = dict(date=dict(label='观察日', unit='日期'),
@@ -102,7 +123,20 @@ def admit_definition(metric, previous, prior, incoming):
         return current
     old_version = previous.get('definition_version')
     if old_version == current['definition_version']:
-        return copy.deepcopy(previous)
+        admitted=copy.deepcopy(previous)
+        if metric in ASHARE_METRICS:
+            # 同方法的展示勘误沿定义owner更新；业务字段、历史和计算版本保持。
+            for field in ('formula','reading','limitations','how_to_read'):
+                admitted[field]=copy.deepcopy(current[field])
+            descriptions={line['key']:line for line in current['lines']}
+            for line in admitted['lines']:
+                if line['key'] in descriptions:
+                    for field in ('formula','reading'):
+                        line[field]=descriptions[line['key']][field]
+        return admitted
+    if (metric in ASHARE_METRICS and old_version==metric+'/1' and current['definition_version']==metric+'/2'
+            and {row['date'] for row in prior}<={row['date'] for row in incoming}):
+        return {**copy.deepcopy(previous), **current}
     if (metric == 'turnover.gt5.shsz' and old_version == metric+'/1'
             and current['definition_version'] == metric+'/2'
             and {row['date'] for row in prior} <= {row['date'] for row in incoming}):
@@ -122,7 +156,7 @@ def universe_row(day, codes, basic_sha256):
 
 
 def prepare_definitions(definitions, datasets, sources):
-    requested={metric for source in sources if source['kind'] in ('baostock','ashare_snapshot')
+    requested={metric for source in sources if source['kind'] in ('baostock','ashare_snapshot','ashare_public')
                for metric in source.get('datasets',[]) if metric in METRICS}
     for metric in sorted(requested):
         if metric not in definitions:

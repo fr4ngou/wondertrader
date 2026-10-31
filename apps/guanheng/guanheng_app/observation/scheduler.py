@@ -5,6 +5,9 @@ from .collection import refresh
 from .schedule_policy import due_windows,window_as_of
 from .source_fetch import SourceFailure
 from .contracts import ObservationError
+from .ashare_public import capture_due
+
+CONTROL_BUDGET_ERRORS={'collection_stopped','collection_timeout','observation_stopped','observation_timeout'}
 
 
 def tick(reader,config,now,*,deadline,cancelled=None,fetcher_factory=None,market_client_factory=None):
@@ -16,7 +19,7 @@ def tick(reader,config,now,*,deadline,cancelled=None,fetcher_factory=None,market
         if fetcher_factory is not None:arguments['fetcher_factory']=fetcher_factory
         try:result=refresh(reader,config,**arguments)
         except (SourceFailure,ObservationError) as exc:
-            if exc.code in ('collection_stopped','collection_timeout','observation_stopped','observation_timeout'):break
+            if exc.code in CONTROL_BUDGET_ERRORS:break
             raise
         results.append(result)
     return dict(status='checked',windows=sum(r.get('status') in ('success','partial') for r in results),results=results)
@@ -49,6 +52,14 @@ def _run(reader,config,stop,lease,now,clock,fetcher_factory,market_client_factor
             observed=now();observe('collecting')
             tick(reader,config,observed,deadline=clock()+config['budget']['seconds'],cancelled=stop.is_set,
                 fetcher_factory=fetcher_factory,market_client_factory=market_client_factory)
+            if stop.is_set():break
+            if any(source['kind']=='ashare_public' for source in config['sources']):
+                observe('archiving')
+                arguments=dict(deadline=clock()+config['budget']['seconds'],cancelled=stop.is_set)
+                if fetcher_factory is not None:arguments['fetcher_factory']=fetcher_factory
+                try:capture_due(reader,config,now(),**arguments)
+                except (SourceFailure,ObservationError) as error:
+                    if error.code not in CONTROL_BUDGET_ERRORS:raise
             if stop.is_set():break
             observe('waiting')
             stop.wait(config['schedule']['poll_seconds'])

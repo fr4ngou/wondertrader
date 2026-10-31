@@ -111,8 +111,8 @@ class Fetcher:
     def close(self):
         self.client.close()
 
-    def get(self, url, params=None, referer=None):
-        return self._read('GET', url, params=params, referer=referer)
+    def get(self, url, params=None, referer=None, *, session_handoff=False):
+        return self._read('GET', url, params=params, referer=referer,session_handoff=session_handoff)
 
     def post_readonly(self, url, form, *, referer=None, session_handoff=False):
         """仅供已核只读查询适配器；公开表单归档，Cookie仅由原client内存持有。
@@ -129,6 +129,7 @@ class Fetcher:
 
     def _read(self, method, url, *, params=None, form=None, referer=None, session_handoff=False):
         import httpx
+        if type(session_handoff) is not bool:raise SourceFailure('source_public_session_invalid')
         parts = urlsplit(url)
         host = parts.hostname
         if (parts.scheme not in ('http','https') or host not in self.allowed_hosts
@@ -172,7 +173,8 @@ class Fetcher:
                     request_remaining()
                     if response.status_code in (401,403):
                         raise SourceFailure('source_permission_denied')
-                    if (session_handoff and not attempt and response.status_code==307
+                    if (session_handoff and not attempt
+                            and (response.status_code==307 or method=='GET' and response.status_code==302)
                             and response.headers.get('location')==str(response.request.url)
                             and bool(response.cookies)):
                         continue
