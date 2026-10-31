@@ -354,9 +354,15 @@ C已交付guanheng-strategy-v1==0.1.0a8的显式PositionCycle合同：初始库�
 
 自有Standard新增可选只读C入口`inspectStandardQmtAwaitingObservation(ITraderApi*)`：同owner返回1仅表示query_first的unknown等待且无hard_fault、关闭或独立入站/owner错误；返回0表示该等待资格不成立，负值表示调用错误。旧diagnostics/recovery布局保持。宿主从原同DLL可选解析该入口，缺能力沿原失败路径；有能力时单独的待核查保持账户查询、行情/目标队列及原订单定向撤单，原新insert仍由提交组及原通信准入保护。硬故障优先于等待，不靠首错文本推定健康。
 
-原命令的GET/审计沿原UUID及轮内原D继续，不重POST原insert。完整O及后继同来源P仍交原SPI和原Adapter，不自行计算持仓。原调用后来明确SdkReturned且该原组已通过终态O→后继P、原pending移交完成后，才可退役该组及仅由它形成的本地等待；Journal原unknown、源端unknown或硬故障未核清时继续保留等待/保护，不伪造成功或clean。原调用真正unknown的正向券商处置及正式活动单重启继续按实际实现验收，不从只读接口存在推定完成。
+原命令的GET/审计沿原UUID及轮内原D继续，不重POST原insert。首次写回复进入待核查后立即安排原ID只读审计，单请求request_ms继续约束该请求，后继未核清审计仍按原有限间隔推进。完整O及后继同来源P仍交原SPI和原Adapter，不自行计算持仓。原调用后来明确SdkReturned，或按下述独立证据核清券商终态，且该原组已通过终态O→后继P、原pending移交完成后，才可退役该组及仅由它形成的本地等待；Journal或源端尚有未核清责任、硬故障时继续保留等待/保护，不伪造成功或clean。正式活动单重启继续按实际实现验收，不从只读接口存在推定完成。
 
-验收R32-C1：合法None/无同步订单号，原token查单并由WT消费P/剩余O，原SDK一次。C2：运输未知后原UUID核实SdkReturned，终态O和P后实际后继目标只提交真实差额，原insert不重发；未查明继续等待。C3：原SDK真正unknown、活动单及后继硬故障分别保持身份和保护，定向撤单仍核真实原单。C4：正式CTA计算/数量阶段、原周期/账本、完整关闭和普通安装分别验真；新增WT框架行为0。
+Common私有friend接缝有两个调用时点：审计期在原查询reference已存在后重核当前Host/Source独立终态资格，此时Standard仍保留原提交组和新insert的fence；全部旧组经原WT O→P退役后，在新insert之前再次重核当前准入。两阶段分别消除客户端已核清的本地锁存并保留Standard实际应用责任。该入口不对外公开，不接受人工“已确认”布尔值，不清硬故障/关闭。服务端仍未知时返回SubmissionUnknown；重核发生HTTP/运输/截止失败时恢复保护并保留实际Status，意外异常锁存固定硬错，不将读取故障伪装成订单未知。普通Common消费者和默认native路径保留原语义。query_first遇到Unknown先保留收据并交还原worker，后继只读审计继续原身份；原Queued/Dispatching沿原D等待。
+
+SDK实际进入后异常的原结果继续保留unknown。自有接入层允许独立核清该原insert的券商处置：原账户ORDER完整查询须以完整token唯一匹配原账户、证券、方向、原数量、限价及有效券商订单号，并明确为终态。Source原线程仅据自身实际查询解除该命令造成的等待，Host仅据原Journal已保存且重新验证的查询证据解除对应等待；其他unknown、硬故障、关闭与事件缺口继续独立阻写。查询空表、活动/部分成交订单、字段缺失/冲突均不授此资格。原SDK阶段/原文/截止保持，原insert仍禁止重发；不新增金融账本或数据库。
+
+Standard仍按原UUIDGET及原ORDER查询核查，在原Host与Source均确认当前准入后，单独记录该原命令的券商终态已核清，保留SDK阶段unknown；随后完整O和后继同源P交原WT，才退休原组、允许实际后继差额。自有观察只决定通信责任是否核清，持仓、成本与绩效仍由WT拥有。未知cancel保持原定向核查及保护，不能用本项insert证据清除。
+
+验收R32-C1：合法None/无同步订单号，原token查单并由WT消费P/剩余O，原SDK一次。C2：运输未知后原UUID核实SdkReturned，终态O和P后实际后继目标只提交真实差额，原insert不重发；未查明继续等待。C3：原SDK真正unknown的insert在实际终态ORDER核清、原WT应用O/P后实际继续；缺记录、活动/部分成交、冲突及后继硬故障分别保留身份和保护，定向撤单仍核真实原单。C4：正式CTA计算/数量阶段、原周期/账本、完整关闭和普通安装分别验真；新增WT框架行为0。
 
 ## NRT-R31 实时执行阶段按券商实际数量确认
 

@@ -25,6 +25,8 @@ EXPORT_FLAG int closeStandardQmtSubmissions(wtp::ITraderApi* api)
 {try{auto p=StandardQmtTrader::lookup(api);return p?p->close_submissions():guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
 EXPORT_FLAG int inspectStandardQmtRecovery(wtp::ITraderApi* api,guanheng::StandardQmtRecoveryV1* out)
 {try{auto p=StandardQmtTrader::lookup(api);return p&&out?p->recovery(*out):guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
+EXPORT_FLAG int inspectStandardQmtAwaitingObservation(wtp::ITraderApi* api)
+{try{auto p=StandardQmtTrader::lookup(api);return p?p->awaiting_observation():guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
 EXPORT_FLAG int beginStandardQmtSubmission(wtp::ITraderApi* api,const guanheng::SubmissionKeyV1* key,
  guanheng::SubmissionTokenV1* token,guanheng::SubmissionViewV1* out) noexcept
 {try{auto p=StandardQmtTrader::lookup(api);return p&&key&&token&&out?p->begin_submission(*key,*token,*out):static_cast<int>(guanheng::SubmissionDecision::Invalid);}

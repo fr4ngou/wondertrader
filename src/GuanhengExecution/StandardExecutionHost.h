@@ -18,6 +18,7 @@ struct StandardPluginFunctions {
     SubmissionFunctions submission;
     decltype(&closeStandardQmtSubmissions) close_submissions=nullptr;
     decltype(&inspectStandardQmtRecovery) recovery=nullptr;
+    decltype(&inspectStandardQmtAwaitingObservation) awaiting_observation=nullptr;
 };
 enum class ExecutionHostPhase : std::uint8_t { New, Connecting, Ready, Degraded, Stopping, Closed };
 enum class ExecutionHostFault : std::uint8_t { None, InvalidConfiguration, Initialize, Plugin, Queue, Close, WrongOwner, Reentrant };

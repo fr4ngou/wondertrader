@@ -11,7 +11,7 @@ from time import monotonic
 
 from .trading_contract import (
     TradingKernelError, validate_trade_binding, validate_trade_command, command_digest,
-    _MAX_INTEGER, _fail, _fraction, _result)
+    _MAX_INTEGER, _fail, _fraction, _result, terminal_insert_observed)
 
 
 _MISSING = object()
@@ -52,6 +52,7 @@ class TradingKernel(object):
         self._hard_fault = None
         self._executing = False
         self._commands = {}
+        self._observed_unknown = set()
 
     def request_close(self):
         """只停止新写；不清索引、不发撤单、不丢失在途调用所有权。"""
@@ -59,6 +60,24 @@ class TradingKernel(object):
 
     def fence_unknown(self):
         self._unknown_fenced = True
+
+    def observe_order_query(self, commands, rows):
+        """原线程消费已核完整ORDER；保留原结果及去重身份，只退役已证明的insert等待。"""
+        if get_ident() != self._owner or self._executing:
+            _fail('wrong_thread')
+        changed = False
+        for command in commands:
+            identity = command['command_id']
+            old = self._commands.get(identity)
+            if (old is not None and old[0] == command_digest(command)
+                    and old[1]['stage'] == 'unknown' and identity not in self._observed_unknown
+                    and terminal_insert_observed(command, rows)):
+                self._observed_unknown.add(identity)
+                changed = True
+        if changed:
+            self._unknown_fenced = any(value[1]['stage'] == 'unknown'
+                and identity not in self._observed_unknown for identity, value in self._commands.items())
+        return self._unknown_fenced
 
     def request_fault(self, code):
         # 首个硬错独占此槽；先前unknown不遮蔽后继时钟/交接故障。

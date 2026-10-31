@@ -202,7 +202,7 @@ class AccountQueryAdapter(object):
     可选金融字段的合法JSON类型原样保留，财务意义与invalid判定归唯一C++ mapper。
     """
     def __init__(self, read_trade_detail, limits, max_result_bytes,
-                 clock=time.monotonic, utc_now=_utc_now, *, projection_version=1):
+                 clock=time.monotonic, utc_now=_utc_now, *, projection_version=1, observe_result=None):
         if type(projection_version) is not int or projection_version not in (1, 2):
             _fail('invalid_request')
         self._projection_version = projection_version
@@ -211,6 +211,9 @@ class AccountQueryAdapter(object):
         if not callable(read_trade_detail) or not callable(clock) or not callable(utc_now):
             _fail('invalid_request')
         self._reader = read_trade_detail
+        if observe_result is not None and not callable(observe_result):
+            _fail('invalid_request')
+        self._observe_result = observe_result
         self._clock, self._utc_now = clock, utc_now
         self._owner = threading.get_ident()
 
@@ -406,4 +409,7 @@ class AccountQueryAdapter(object):
         data['completeness']['row_count'] = count
         self._encode(data, deadline)
         self._check(deadline)
+        if self._observe_result is not None:
+            self._observe_result(data)
+            self._check(deadline)
         return data

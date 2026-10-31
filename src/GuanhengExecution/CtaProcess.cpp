@@ -436,6 +436,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         functions.find=plugin.get<decltype(functions.find)>("findStandardQmtTrader");
         functions.pump=plugin.get<decltype(functions.pump)>("pumpStandardQmtTrader");
         functions.inspect=plugin.get<decltype(functions.inspect)>("inspectStandardQmtTrader");
+        functions.awaiting_observation=reinterpret_cast<decltype(functions.awaiting_observation)>(
+            GetProcAddress(plugin.module,"inspectStandardQmtAwaitingObservation"));
         functions.stop=plugin.get<decltype(functions.stop)>("stopStandardQmtTrader");
         functions.destroy=plugin.get<decltype(functions.destroy)>("deleteTrader");
         functions.submission={plugin.get<guanheng::BeginSubmissionFn>("beginStandardQmtSubmission"),

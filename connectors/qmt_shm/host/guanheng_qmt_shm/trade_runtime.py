@@ -168,7 +168,24 @@ class HostTradingRuntime(HostReadRuntime):
                 raise ProtocolError('invalid trade hard fault observation')
             if self._trade_hard_fault is None:
                 self._trade_hard_fault = hard['code']
-        self._trade_unknown = self._trade_unknown is True or facts['unknown_fenced']
+        source = None if self._source_status_bytes is None else decode(self._source_status_bytes)
+        self._trade_unknown = (self._trade_unknown is True or facts['unknown_fenced'] or source is not None
+            and source.get('unknown_fenced', False))
+        if source is not None and source.get('hard_fault') is not None:
+            self._trade_hard_fault = self._trade_hard_fault or source['hard_fault']['code']
+
+    def _refresh_admission_locked(self, deadline):
+        # 原HTTP D内直接重核Journal证明；外部观察的false不能独自清掉已知等待。
+        facts = self.journal.trade_admission(deadline=deadline)
+        self._observe_admission_locked(facts)
+        source = None if self._source_status_bytes is None else decode(self._source_status_bytes)
+        if (self._trade_unknown is True and not facts['unknown_fenced']
+                and self._trade_hard_fault is None and not self.admission_stopped
+                and source is not None and source['schema_version'] == SOURCE_STATUS_V2
+                and not source['unknown_fenced'] and not source['closing']
+                and not source['events']['closed'] and source['gap'] is None
+                and self.journal.has_observed_unknown_trade(deadline=deadline)):
+            self._trade_unknown = False
 
     @property
     def accepting_commands(self):
@@ -224,8 +241,6 @@ class HostTradingRuntime(HostReadRuntime):
             self._source_status_bytes = canonical(checked)
             self._stream_checked = True
             self._observe_admission_locked(facts)
-            if checked['schema_version'] == SOURCE_STATUS_V2:
-                self._observe_admission_locked({key: checked[key] for key in ('unknown_fenced','hard_fault')})
             if checked['gap'] is not None or receipt is not None and receipt['gap'] is not None:
                 self._trade_problem = self._trade_problem or 'source_gap'
                 self._trade_hard_fault = self._trade_hard_fault or 'source_gap'
@@ -240,7 +255,7 @@ class HostTradingRuntime(HostReadRuntime):
                 return
             self._acquire(deadline)
             try:
-                self._trade_unknown = True
+                self._refresh_admission_locked(deadline)
             finally:
                 self._binding_lock.release()
 
@@ -282,7 +297,7 @@ class HostTradingRuntime(HostReadRuntime):
             public.update(max_event_page_bytes=self.event_storage['max_page_bytes'],
                 max_http_trade_response_bytes=4*((limits['max_command_bytes']+2)//3)
                     + limits['max_call_result_bytes'] + MAX_METADATA_BYTES)
-            self._observe_admission_locked(self.journal.trade_admission(deadline=deadline))
+            self._refresh_admission_locked(deadline)
             value = {'schema_version': 'qmt.trade-host-status.v2',
                 'binding': None if current is None else decode(current),
                 'binding_sha256': None if current is None else digest(current),

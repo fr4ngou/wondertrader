@@ -12,7 +12,7 @@ Standard 使用原唯一 worker、Pending、队列、TaskCredit、generation 和
 
 私有 cancel reference 只在 worker 本轮栈内；首次 lookup 后可 resume_cancel。跨轮只保存已验实际 QmtTradeReceipt，使用现 public resume(receipt,D) 重新完整准入后 GET 原 UUID。公开 receipt 不转换成私有句柄或 prepared token，不授 POST。
 
-unknown insert 继续持有原 receipt/fence，当前一般恢复后重开 insert 的解除契约保持未闭合。实施不新增人工资格、不改 WT 框架、不切生产 Factory，不授权真实 SDK/账户动作或生产发布。Common HTTP/解析临时对象与宿主逻辑 payload 分层，本文不声明 RSS 上界。
+unknown insert继续持有原receipt及SDK结果；后继[NRT-R32](native-realtime-strategy.md#nrt-r32-原命令待核查期间的执行连续性)定义独立券商终态核清及原WT应用后退休等待。其余unknown、活动单和取消责任沿本文保留。实施不新增人工资格、不改WT框架、不切生产Factory，不授权真实SDK/账户动作或生产发布。Common HTTP/解析临时对象与宿主逻辑payload分层，本文不声明RSS上界。
 
 源码入口：TradeClient.cpp/h 指 [QmtHostTradeClient.cpp](../../src/GuanhengCommon/QmtHostTradeClient.cpp) / [头文件](../../src/GuanhengCommon/QmtHostTradeClient.h)；Standard.cpp 指 [StandardQmtTrader.cpp](../../src/TraderQMT/StandardQmtTrader.cpp)；BoundReadCore.cpp 指 [QmtBoundReadCore.cpp](../../src/GuanhengCommon/QmtBoundReadCore.cpp)；HostCodec.cpp 指 [QmtHostCodec.cpp](../../src/GuanhengCommon/QmtHostCodec.cpp)；HistoryClient.h 指 [QmtHostHistoryClient.h](../../src/GuanhengCommon/QmtHostHistoryClient.h)；HTTP.cpp 指 [BoundedSignedHttp.cpp](../../src/GuanhengCommon/BoundedSignedHttp.cpp)。行号辅助定位，行为与字段须按当前源码验证。
 
@@ -82,9 +82,11 @@ enum class AuditDiagnostic { None, RetryTransport, Deadline, Capacity,
 struct TradeObservation {
     QmtTradePhase phase = QmtTradePhase::Unknown;
     bool has_record = false;
+    bool broker_terminal = false; // 仅query_first原insert，沿NRT-R32独立核清；SDK阶段保持unknown
     bool terminal() const noexcept {
         return has_record && (phase == QmtTradePhase::SdkReturned
-            || phase == QmtTradePhase::DefinitelyNotCalled);
+            || phase == QmtTradePhase::DefinitelyNotCalled
+            || (phase == QmtTradePhase::Unknown && broker_terminal));
     }
 };
 struct CancelObservation {
@@ -134,7 +136,7 @@ struct AuditSummary {
 // Audit Completion.status.reason为空；精确未受理事实唯一编码在role，删除own_cancel_not_admitted。
 ~~~
 
-has_record/phase 与其对应 receipt 构成一个观察组；terminal()由这两项派生，消除可分离的 terminal 缓存。own 的 receipt 是 Pending/Input 已冻结的原字节，Summary 只带无分配的观察元数据，由 key/generation/inflight ticket 关联；actual 把 receipt 与观察元数据封装在同一个值中。OrderObservation 的 receipt/state 同组；TargetLookupState::Actual 当且仅当 actual 非空，NoCancel/NotObserved 的 actual 必为空。
+has_record/phase及独立broker_terminal证据与其对应receipt构成一个观察组；terminal()据原SDK阶段或NRT-R32已核券商处置派生。broker_terminal仅在原insert、原查询reference及Common私有当前Host/Source重核成功后设置；actual取消观察保持false，SDK阶段不改写。own的receipt是Pending/Input已冻结的原字节，Summary只带无分配的观察元数据，由key/generation/inflight ticket关联；actual把receipt与观察元数据封装在同一个值中。OrderObservation的receipt/state同组；TargetLookupState::Actual当且仅当actual非空，NoCancel/NotObserved的actual必为空。
 
 原子性固定如下：
 
@@ -216,7 +218,7 @@ A、U、L、Lc 计入返回边界对象；Common 中的 HTTP reply/parser/DOM/co
 
 ## UC-CPP-R6 分阶段 live-set 与预留公式
 
-所有旧Pending基础P0=36+bytes(receipt)继续计费；扩展ΔP=bytes(target_insert)+bytes(order.receipt)+bytes(actual.receipt)。新的role、TargetLookupState、TradeObservation.has_record及派生terminal()均为有限标量，不新增字符串/槽。取消写在POST前保存target_insert并取得该ΔP。
+所有旧Pending基础P0=36+bytes(receipt)继续计费；扩展ΔP=bytes(target_insert)+bytes(order.receipt)+bytes(actual.receipt)。新的role、TargetLookupState、TradeObservation.has_record/broker_terminal及派生terminal()均为有限标量，不新增字符串/槽。取消写在POST前保存target_insert并取得该ΔP。
 
 本轮输入T=36+bytes(receipt)+bytes(target_insert)+bytes(order.receipt)+bytes(actual.receipt)，36是Task.pending_key；worker独立Input不再复制key。Σ=Ra+Rt，对应Summary中order/actual两份receipt；Summary.own仅元数据，原immutable receipt由key/generation/ticket绑定，不加一份Rt。精确未受理角色/空B/NoCancel与多槽合并不同read保留均不增加单槽字符串字段；不同read保留两槽时，原A/B的P0/ΔP分别继续存在，单审计链只复制本次选中一槽的T。目的B仅锁内比较，不复制另一套B快照到worker。
 
@@ -290,8 +292,8 @@ bool checked_b64(size_t n, size_t& out) {
 | 版本 | Host/Source两个版本分别漂移、降级；同B/session仍拒绝；Hostv2/Sourcev1普通能力保持、unknown cancel拒绝；profile冻结独立；不能用audit_source代替版本 |
 | 原inflight/晚完成 | 原写POST前ticket已安装，所有写完成分支核ticket才清；晚Audit在通用deadline/fail前记账Started/U；stop/detach阶段间0新I/O，实际drain/join前不释放借用 |
 | 预算边界 | K=1024/Q=65536，Rt=9216/Ra=73728；双proof O、lookup双原文、Prep+Apre、Rc+U；need恰好成功、need-1延期、checked溢出0网络；多槽合并两槽旧charge+单链均计费 |
-| 业务边界 | 同UUID同body/目标本轮单GET、异文硬错；unknown B不被C覆盖；insert unknown保原receipt/fence；审计金融SPI/queries/inserts/cancels增量0 |
+| 业务边界 | 同UUID同body/目标本轮单GET、异文硬错；unknown B不被C覆盖；insert未满足NRT-R32独立终态及原WT应用时保留fence，原命令身份/原文/SDK unknown结果始终保留于原Journal；审计金融SPI/queries/inserts/cancels增量0 |
 
 实施验证按[验证规范](../development/verification.md)，逐项证明产品源码、异常出口、对象销毁和真实调用链。当前契约动态未验；上述故障场景、预算实现、Common/Standard 组合与原 Adapter 隔离全链必须取得独立证据，设计审查不替代动态通过。
 
-Standard缺少Q/N/J可信公开快照时，使用原硬限Q=65536/N=2097152/J=1048576，K/S从可信profile validator取得或使用各自硬限。真实SDK token/ORDER可用性、跨日broker定位、状态时延、一般insert解除与生产交接仍需相应契约和证据。
+Standard缺少Q/N/J可信公开快照时，使用原硬限Q=65536/N=2097152/J=1048576，K/S从可信profile validator取得或使用各自硬限。真实SDK token/ORDER可用性、跨日broker定位、状态时延与生产交接仍需相应契约和证据；限定insert核清后的执行连续性沿NRT-R32，验收分别绑定实际来源和制品。

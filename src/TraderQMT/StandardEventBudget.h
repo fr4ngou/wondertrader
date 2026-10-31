@@ -18,6 +18,7 @@ static_assert(sizeof(rapidjson::Document)==96&&sizeof(rapidjson::Value)==16,"sta
 // 当前查询结果包含快照消费标志；账户DTO为384B，原票据仍为136B。
 // 内存银行继续按下文sizeof计量，所有自有消费者须同批重编。
 static_assert(sizeof(QmtAccountResult)==384&&sizeof(QmtBoundReceipt)==136,"standard account DTO bank ABI");
+static_assert(sizeof(QmtHttpConfig)==120,"standard HTTP configuration bank ABI");
 static_assert(sizeof(QmtTradeOrderReference)==632&&sizeof(QmtTradeReadDescriptor)==96,"standard trade DTO bank ABI");
 static_assert(sizeof(bootstrap::AccountRowInspection)==736,"standard inspection bank ABI");
 // 私有纯checked算术。只在events_enabled域使用；所有尺寸为逻辑有效载荷，非arena/RSS。
@@ -264,7 +265,9 @@ inline Status instance(const Inputs& in,const Layout& layout,InstanceBanks& out)
  const auto slot_trade=a.sum({65848,16,5061,928,a.text(in.http),33});
  // 回调length_text[32]、declared wchar[32]等固定局部另保128份；65536 buffer已在Exchange中。
  next.http_slots=a.add(a.mul(64,a.add(slot_account,slot_trade)),a.mul(128,32+64+sizeof(unsigned long)));
- next.clients=a.sum({8,8,608,8,744,8,384,8,744,
+ // 当前x64 Release实测：账户Impl616、两份HTTP Impl各752、交易Core392。
+ // HTTP配置新增批量字段及本轮交易首硬错指针均计入；外层unique_ptr对象另计。
+ next.clients=a.sum({8,8,616,8,752,8,392,8,752,
   a.mul(2,2049+129+4097),a.mul(2,64),129+65,
   4097+4097+129+a.text(r),64+4+4,4097+4097+129+65+37});
  std::size_t mapper=0,pair=0,cache_view=0;

@@ -210,7 +210,9 @@ int StandardExecutionHost::pump(std::uint32_t max_events, std::size_t max_comman
     try {
         const int events = x.functions.pump(x.api, max_events);
         if (events < 0 || !x.observe()) { x.fail(ExecutionHostFault::Plugin); return StandardQmtFailure; }
-        if (x.last_plugin.writes_blocked || x.last_plugin.stop_requested) {
+        const bool awaiting = x.last_plugin.writes_blocked && !x.last_plugin.stop_requested
+            && x.functions.awaiting_observation && x.functions.awaiting_observation(x.api) == 1;
+        if ((x.last_plugin.writes_blocked && !awaiting) || x.last_plugin.stop_requested) {
             x.fail(ExecutionHostFault::Plugin); return events;
         }
         auto bridge = command();

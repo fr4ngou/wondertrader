@@ -32,7 +32,8 @@ class RestrictedTradingAgent(RestrictedReadAgent):
         self.trade = self._make_trade_service(context, admitted, passorder=passorder, cancel=cancel,
             clock=clock, monotonic=self._trade_mono,
             session_id=session_id)
-        self._initialize(context, admitted, trade_detail_query)
+        self._initialize(context, admitted, trade_detail_query,
+                         account_observer=self.trade.observe_account_result)
 
     def _make_trade_service(self, context, admitted, **kwargs):
         """默认单代独占业务服务；显式长期owner子类可借用其唯一服务。"""

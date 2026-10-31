@@ -5,6 +5,7 @@
 原命令一致，不证明柜台受理；Host 自有中断原因放在 Journal 外层元数据。
 """
 import hashlib
+import math
 import re
 from uuid import UUID
 
@@ -23,6 +24,45 @@ _INSERT_KEYS = _COMMON_KEYS | frozenset(('symbol', 'side', 'order_type',
 _CANCEL_KEYS = _COMMON_KEYS | frozenset(('original_command_id', 'broker_order_id'))
 _SYMBOL = re.compile(r'[0-9]{6}\.(SH|SZ)\Z')
 _DECIMAL = re.compile(r'[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z')
+
+
+def terminal_insert_observed(command, rows):
+    """核原insert的唯一完整ORDER终态；仅通信责任证明，不计算持仓或改SDK结果。
+
+    调用方先验证账户完整查询与来源。缺字段、重复token和任何冲突保持未知，
+    原限价按实际传入SDK的double比较；布尔值不作为数量或价格。
+    """
+    if command.get('operation') != 'order.insert' or type(rows) is not list:
+        return False
+    matched = [row for row in rows if type(row) is dict
+               and row.get('m_strRemark') == command['sdk_user_order_id']]
+    if len(matched) != 1:
+        return False
+    row = matched[0]
+    symbol, exchange = command['symbol'].split('.')
+    broker = row.get('m_strOrderSysID')
+    if (row.get('m_strAccountID') != command['account_id']
+            or row.get('m_strInstrumentID') != symbol or row.get('m_strExchangeID') != exchange
+            or type(broker) is not str or not 1 <= len(broker) <= 63
+            or any(not 33 <= ord(c) < 127 for c in broker)):
+        return False
+    for key in ('m_nOffsetFlag', 'm_nVolumeTotalOriginal', 'm_nVolumeTraded',
+                'm_nVolumeTotal', 'm_nOrderStatus'):
+        if type(row.get(key)) is not int:
+            return False
+    qty, filled, left = (row['m_nVolumeTotalOriginal'], row['m_nVolumeTraded'], row['m_nVolumeTotal'])
+    state, price = row['m_nOrderStatus'], row.get('m_dLimitPrice')
+    if (row['m_nOffsetFlag'] != (48 if command['side'] == 'buy' else 49)
+            or qty != command['quantity'] or not 0 <= filled <= qty or not 0 <= left <= qty
+            or filled + left > qty or state not in (53, 54, 56, 57)
+            or state == 56 and (filled != qty or left != 0)
+            or state == 57 and filled != 0
+            or type(price) not in (int, float)):
+        return False
+    try:
+        return math.isfinite(price) and price > 0 and price == float(command['limit_price'])
+    except (OverflowError, ValueError):
+        return False
 
 
 class TradingKernelError(ValueError):

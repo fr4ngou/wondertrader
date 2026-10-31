@@ -472,10 +472,11 @@ public:
     std::size_t read_result_capacity = 0, request_capacity = 0, event_page_capacity = 0;
     bool ready = false, accepting = false, accepting_cancel = false;
     bool unknown_fenced = false, faulted = false, closed = false, versions_pinned = false;
+    const char* fault_reason = nullptr; // fault调用点均传本翻译单元固定字符串，保留首个硬错。
     StatusVersion host_version = StatusVersion::V1, source_version = StatusVersion::V1;
 
     Status fault(ErrorCode code, const char* reason)
-    { faulted = true; accepting = accepting_cancel = false; return fail(code, reason); }
+    { if(!faulted)fault_reason=reason;faulted = true; accepting = accepting_cancel = false; return fail(code, reason); }
     bool admitted(TradeOperation operation) const
     { return !faulted && !closed && (operation == TradeOperation::Insert ? accepting : accepting_cancel); }
 
@@ -1114,7 +1115,15 @@ public:
     }
 };
 
+#if defined(_WIN64) && defined(_MSC_VER) && !defined(_DEBUG)
+static_assert(sizeof(QmtTradeClientCore)==392, "requalify StandardEventBudget resident trade core on layout changes");
+#endif
 static_assert(std::is_nothrow_move_constructible<QmtTradeCancelLookupResult>::value, "publish complete cancel reference without allocation");
+#if defined(_WIN32) && defined(GH_QMT_HTTP_DRAIN_TESTING)
+// 专用Common测试制品核当前cohort实际布局；产品没有此导出。
+extern "C" __declspec(dllexport) std::size_t gh_qmt_trade_test_core_size() noexcept
+{ return sizeof(QmtTradeClientCore); }
+#endif
 static_assert(std::is_nothrow_move_constructible<QmtTradeResult>::value, "retain original trade receipt on uncertain delivery");
 static_assert(std::is_nothrow_move_constructible<QmtTradeEventPage>::value, "publish complete event page without allocation");
 static_assert(std::is_nothrow_move_assignable<QmtTradeEventReadContext>::value, "publish complete event context without allocation");
@@ -1122,6 +1131,25 @@ QmtHostTradeClient::QmtHostTradeClient(QmtHttpConfig config, QmtExpectedTrade ex
     : core_(new QmtTradeClientCore(std::move(config), std::move(expected))) {}
 QmtHostTradeClient::~QmtHostTradeClient() = default;
 Status QmtHostTradeClient::prepare(SignedHttpDeadline& deadline) { return core_->prepare(deadline); }
+Status QmtHostTradeClient::reconcile_observation(SignedHttpDeadline& deadline)
+{
+    const auto checked=core_->check(deadline);
+    if(!checked.ok())return checked;
+    const bool previous=core_->unknown_fenced;
+    core_->unknown_fenced=false;core_->accepting=core_->accepting_cancel=false;
+    try {
+        const auto status=core_->refresh(deadline);
+        if(status.ok()&&!core_->faulted&&!core_->closed&&!core_->unknown_fenced&&core_->accepting)return {};
+        core_->unknown_fenced=previous||core_->unknown_fenced;core_->accepting=false;
+        if(!status.ok())return status;
+        if(core_->faulted)return fail(ErrorCode::Conflict,core_->fault_reason?core_->fault_reason:"qmt_trade_observation_hard_fault");
+        if(core_->closed)return fail(ErrorCode::Unavailable,"qmt_trade_observation_closed");
+        return fail(ErrorCode::SubmissionUnknown,"qmt_trade_observation_still_unresolved");
+    } catch (...) {
+        core_->unknown_fenced=previous||core_->unknown_fenced;core_->accepting=core_->accepting_cancel=false;
+        return core_->fault(ErrorCode::IoError,"qmt_trade_observation_refresh_failed");
+    }
+}
 Status QmtHostTradeClient::prepare_event_read_context(SignedHttpDeadline& deadline, QmtTradeEventReadContext& out)
 { return prepare_event_read_context(deadline, out, nullptr, nullptr); }
 Status QmtHostTradeClient::prepare_event_read_context(SignedHttpDeadline& deadline, QmtTradeEventReadContext& out,

@@ -4,7 +4,7 @@
 broker 证明保留；lookup 不授业务终态、WT 应用或跨会话撤单资格。
 """
 from guanheng_qmt_shm_agent.protocol import canonical, decode
-from guanheng_qmt_shm_agent.trading_contract import _text
+from guanheng_qmt_shm_agent.trading_contract import _text, terminal_insert_observed
 from guanheng_qmt_shm_agent.read_capabilities import validate_read_result_projection, validate_read_request
 from .bound import digest, MAX_METADATA_BYTES
 from .journal import JournalConflict
@@ -351,6 +351,23 @@ class TradeOrderLinks:
 
     def _validated_proofs(self, db, link, original):
         return self._proof(db, link, original), self._query_proof(db, link, original)[0]
+
+    def resolves_unknown(self, db, record):
+        """仅用原Journal的完整ORDER终态解除原insert等待；结果unknown及原bytes保持。"""
+        command = decode(record['body'])
+        if command['operation'] != 'order.insert' or record['dispatch_binding'] is None:
+            return False
+        link = self._link(db, command['command_id'])
+        if link['association_error'] is not None:
+            return False
+        observation, error = self._query_proof(db, link, command)
+        if observation is None or error is not None:
+            return False
+        saved = db.execute('SELECT result FROM read_operations WHERE request_id=?',
+                           (observation['request_id'],)).fetchone()
+        # _query_proof在同一原事务已核实际bytes、完整列表、账户/原行和摘要。
+        result = decode(bytes(saved[0]))
+        return terminal_insert_observed(command, result['data']['rows'])
 
     def validate_cancel(self, db, command, current_source=None):
         record, original = self._insert(db, command['original_command_id'])

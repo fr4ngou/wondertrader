@@ -28,7 +28,7 @@ class RestrictedReadAgent(object):
         admitted = validate_read_configuration(trusted_bootstrap)
         self._initialize(context, admitted, trade_detail_query)
 
-    def _initialize(self, context, admitted, trade_detail_query):
+    def _initialize(self, context, admitted, trade_detail_query, *, account_observer=None):
         """显式子类复用已准入布局及读owner；公开只读构造仍只接受旧配置。"""
         value, profile = admitted.value, admitted.profile
         self.route, self.budget = admitted.route, admitted.budget
@@ -46,7 +46,8 @@ class RestrictedReadAgent(object):
                 raise ValueError('account read requires its explicit read-only callable')
             descriptor = operation_descriptor(profile, ACCOUNT, max_result_bytes=max_result)
             account_adapter = AccountQueryAdapter(trade_detail_query, descriptor['limits'], max_result,
-                projection_version=account_projection_version(descriptor['policy_version']))
+                projection_version=account_projection_version(descriptor['policy_version']),
+                observe_result=account_observer)
         # 仅显式 v7 连接注册日线与因子；既有行情、账户和交易连接保持原路径。
         from .analysis_reads import DAILY, FACTORS, DailyHistoryAdapter, DividFactorsAdapter
         for operation, adapter in ((DAILY, DailyHistoryAdapter), (FACTORS, DividFactorsAdapter)):

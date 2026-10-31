@@ -60,6 +60,8 @@ class SourceTradingService(object):
         if not callable(self._clock) or not callable(self._mono):
             _fail('invalid_configuration')
         self._binding = admitted.trade_binding
+        account_limits = admitted.profile['operation_profiles']['account.trade_detail']['limits']
+        self._account_binding = dict(account_limits['account_binding'], origin='trusted_bootstrap_argument')
         self._descriptor = admitted.profile['trade_profile']
         self._limits = self._descriptor['limits']
         self._queue_limit = admitted.value['max_pending']
@@ -119,6 +121,29 @@ class SourceTradingService(object):
 
     def _on_gap(self, unused):
         self._stop_writes('event_gap')
+
+    def observe_account_result(self, data):
+        """实际账户适配器在原线程完成完整投影后调用；不创建查询或修改原SDK结果。"""
+        if get_ident() != self._owner:
+            _fail('wrong_thread')
+        if (type(data) is not dict or data.get('schema_version') != 'qmt.account-batch.v2'
+                or data.get('query') != {'account_type': 'stock', 'datatype': 'order',
+                                         'scope': 'account', 'strategy_name': None}):
+            return
+        rows = data.get('rows')
+        complete = data.get('completeness')
+        if (data.get('account_binding') != self._account_binding
+                or type(rows) is not list or type(complete) is not dict
+                or set(complete) != {'complete', 'truncated', 'row_count', 'coverage'}
+                or complete['complete'] is not True or complete['truncated'] is not False
+                or type(complete['row_count']) is not int or complete['row_count'] != len(rows)
+                or complete['coverage'] != 'sdk_returned_list'):
+            return
+        with self._lock:
+            if self._executing or not self._unknown_fenced:
+                return
+            self._unknown_fenced = self._kernel.observe_order_query(
+                [item['command'] for item in self._entries.values() if item['state'] == 'completed'], rows)
 
     def _reserve_sdk_call(self, operation):
         """Kernel预检之后的唯一SDK票据准入；锁序service→event，锁内无外部调用。"""

@@ -294,8 +294,24 @@ class HostTradingJournal(BoundReadJournal):
             self._fail_trade('order_association_conflict')
         if self._trade_failed and self._trade_hard_fault is None:
             self._fail_trade('journal_unavailable')
-        return {'unknown_fenced': db.execute(
-            "SELECT 1 FROM trade_commands WHERE state='unknown' LIMIT 1").fetchone() is not None,
+        unresolved = False
+        cursor = db.execute('SELECT ' + ','.join(_COLUMNS) + " FROM trade_commands WHERE state='unknown'")
+        for unused in range(self.max_trade_commands + 1):
+            row = cursor.fetchone()
+            if row is None:
+                break
+            try:
+                resolved = self._order_links.resolves_unknown(db, self._record(row))
+            except JournalConflict:
+                # 原证明校验已锁存硬错，状态查询继续报告保护事实。
+                resolved = False
+            if not resolved:
+                unresolved = True
+                break
+        else:
+            self._fail_trade('trade_record_invalid')
+            raise JournalConflict('unknown trade count exceeds retained capacity')
+        return {'unknown_fenced': unresolved,
             'hard_fault': None if self._trade_hard_fault is None else {'code': self._trade_hard_fault}}
 
     def _admission_open(self, db, operation='order.insert', cancel_admission=False):
@@ -606,9 +622,16 @@ class HostTradingJournal(BoundReadJournal):
             return self._record(self._select(db, cid))
 
     def trade_admission(self, *, deadline):
-        """原事务内分别读取未知与硬故障；读取不清除任一事实。"""
+        """原事务内分别读取尚待核查的责任与硬故障；原命令结果保持。"""
         with self._trade_transaction(deadline) as db:
             return self._admission_facts(db)
+
+    def has_observed_unknown_trade(self, *, deadline):
+        """原unknown记录仍存在且全部获ORDER终态证明，才授本地等待退役依据。"""
+        with self._trade_transaction(deadline) as db:
+            present = db.execute("SELECT 1 FROM trade_commands WHERE state='unknown' LIMIT 1").fetchone()
+            facts = self._admission_facts(db)
+            return present is not None and not facts['unknown_fenced'] and facts['hard_fault'] is None
 
     def has_unknown_trade(self, *, deadline):
         """旧接口保留共用阻写意义；新调度使用独立trade_admission事实。"""

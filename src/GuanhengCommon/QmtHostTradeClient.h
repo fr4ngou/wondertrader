@@ -261,6 +261,10 @@ public:
         QmtTradeEventReadFailure*, const QmtAccountControl*);
     Status drain_callbacks(std::uint32_t milliseconds) noexcept;
 private:
+    // 仅Standard原提交owner调用：审计期核独立券商终态资格，全部原组O→P退休后在新insert前再核。
+    // 前一阶段Standard仍保原提交fence；本方法不对外提供清未知入口，不清硬故障或关闭。
+    friend class StandardQmtTrader;
+    Status reconcile_observation(SignedHttpDeadline&);
     std::unique_ptr<QmtTradeClientCore> core_;
 };
 }

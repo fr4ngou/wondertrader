@@ -53,6 +53,8 @@ public:
  int stop();int diagnostics(StandardQmtDiagnostics&) const;
  // 同owner单向关闭新增insert/cancel；保持既有收据、查询和事件处理，0=已关闭。
  int close_submissions();int recovery(StandardQmtRecoveryV1&) const;
+ // 1=仅query_first等待原单观察且无硬错，0=不属该等待，负值=调用失败。
+ int awaiting_observation() const;
  int begin_submission(const SubmissionKeyV1&,SubmissionTokenV1&,SubmissionViewV1&);
  int end_submission(const SubmissionTokenV1&,SubmissionOutcome,SubmissionViewV1&);
  int inspect_submission(const SubmissionKeyV1&,SubmissionViewV1&) const;
@@ -84,6 +86,7 @@ GH_QMT_STANDARD_EXPORT int stopStandardQmtTrader(wtp::ITraderApi*);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtTrader(wtp::ITraderApi*,guanheng::StandardQmtDiagnostics*);
 GH_QMT_STANDARD_EXPORT int closeStandardQmtSubmissions(wtp::ITraderApi*);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtRecovery(wtp::ITraderApi*,guanheng::StandardQmtRecoveryV1*);
+GH_QMT_STANDARD_EXPORT int inspectStandardQmtAwaitingObservation(wtp::ITraderApi*);
 // 同owner同步许可；无STL跨DLL、无解除责任接口；异常只返回固定Fault。
 GH_QMT_STANDARD_EXPORT int beginStandardQmtSubmission(wtp::ITraderApi*,const guanheng::SubmissionKeyV1*,guanheng::SubmissionTokenV1*,guanheng::SubmissionViewV1*) noexcept;
 GH_QMT_STANDARD_EXPORT int endStandardQmtSubmission(wtp::ITraderApi*,const guanheng::SubmissionTokenV1*,std::uint32_t,guanheng::SubmissionViewV1*) noexcept;

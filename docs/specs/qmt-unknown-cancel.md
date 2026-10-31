@@ -16,11 +16,11 @@
 
 | 事实 | 所有者 | 锁存/解除 |
 | --- | --- | --- |
-| unknown_fenced | Journal 原未知记录；Agent 当前实例未知调用；Standard 当前实例未知提交 | 现实例锁存，查询不得清除。Journal 原 unknown 不改写。重建时由实际原记录重新观察 |
+| unknown_fenced | Journal 原未知记录；Agent 当前实例未知调用；Standard 当前实例未知提交 | 表示尚待核清的责任。原unknown结果不改写；insert的独立券商终态及WT应用核清按[NRT-R32](native-realtime-strategy.md#nrt-r32-原命令待核查期间的执行连续性)，其余等待继续保留 |
 | hard_fault | 各 owner 的时钟、身份、持久/交接、回调效果、实际事件缺口等失败 | 锁存。unknown 先发生后仍须记住后来的硬故障；无 API 清除 |
 | closing/closed | 原生命周期 owner | 沿原 stop/drain/join；取消不得绕过 |
 
-当前unknown fence仍会持续关闭新insert，重启后Journal原unknown仍存在；本切片不含一般恢复后重开insert的解除路径。正式交易发行前必须另以真实业务/通信证据完成解除或明确处置契约，保留原调用unknown事实；删除记录、伪sdk_returned和新增人工资格均不能充当恢复。该缺口属于适配层恢复设计，WT原生订单能力保持。
+本切片继续拥有定向取消。后继[NRT-R32](native-realtime-strategy.md#nrt-r32-原命令待核查期间的执行连续性)拥有insert核清后的执行连续性，原SDK结果unknown及原UUID/body继续保留；Source实际完整ORDER、Host原Journal完整查询证明及Standard原WT应用分别核验。普通读取成功、定向cancel返回、删除记录、伪sdk_returned和人工“已确认”均不授恢复。活动单/未知cancel保持原核查责任，正式发行与真实交易另验。
 
 `writes_blocked`、`write_admission`、`accepting_commands` 继续表达整体新写关闭，不得因目标取消而恢复 true。实现以一个内部 operation 判定替代各层重复布尔特判：
 
@@ -43,7 +43,7 @@
 
 | 字段 | 类型与定义 |
 | --- | --- |
-| unknown_fenced | bool；本源实例已确认调用未知的锁存事实 |
+| unknown_fenced | bool；本源实例尚待核清的未知调用责任，原结果与退役条件沿NRT-R32 |
 | hard_fault | null 或 `{code: ASCII非空字符串1..128}`；第一个硬故障安全码。硬故障存在本身独立锁存；先前 unknown 不占本槽 |
 | cancel_admission | bool；当前源可以接受进一步核验的 cancel，尚未预留容量，亦不证明任何具体订单身份 |
 
@@ -59,7 +59,7 @@ v2 的顶层 gap 只复制 event ring 的真实 gap；hard_fault 不再借用 ga
 
 `source_status` 接受精确 v1 或 v2。Host v2+Source v1 时：普通正常路径沿旧语义；cancel_admission 只能等于允许旧取消的整体 accepting_commands，unknown 不能旁路。Host v2+Source v2 时：结合当前 B/session、connected/stream_checked、配置、Journal 独立硬故障、真实 gap、关闭和源 cancel_admission 计算；具体目标 proof 在提交/claim 原锁与事务中再核。Host hard_fault 与原 failure 诊断分别保有，原 failure 可继续给首错说明，准入不能仅看它。
 
-Journal `has_unknown_trade()` 原接口可为旧调用保留；新调度必须取得独立 `{unknown_fenced, hard_fault}`，禁止把 `_trade_failed`/association_error 又折回同一个 unknown bool。前者来自真实 unknown 行；后者来自原交易提交/时钟/存储故障、关联冲突及 UC-R3 的存量并发冲突。Control `trade.stream` 在同一原域任务 D 下返回这两个事实与原 receipt；所有有限槽及实际源 ACK 顺序保持。
+Journal `has_unknown_trade()` 原接口可为旧调用保留；新调度必须取得独立 `{unknown_fenced, hard_fault}`，禁止把 `_trade_failed`/association_error 又折回同一个 unknown bool。前者来自真实unknown行及NRT-R32已保存的原终态查询证明；后者来自原交易提交/时钟/存储故障、关联冲突及 UC-R3 的存量并发冲突。Host仅在原D内直接重核Journal有已证明的原unknown记录、Source v2当前无待核清责任及独立硬条件成立后退休本地等待；旧v1或外部观察false均不能清除。Control `trade.stream` 在同一原域任务 D 下返回这两个事实与原 receipt；所有有限槽及实际源 ACK 顺序保持。
 
 ### Common 协商
 
@@ -168,8 +168,8 @@ Pending、AuditInput、AuditSummary的准确字段、角色与观察组，以及
 3. ORDER真实经过Host/Agent→原BoundReadJournal.finish_bound→TradeOrderLinks。成功后只lookup原token/WT身份并核原command，不执行mapper、不投onRspOrders、不改变identities金融/WT状态；实际取消仍由真实已有WT订单的orderAction发起。
 4. 自己未决A与独立实际B观察分开。精确cancel_pending先持久锁存UnadmittedTargetLookup，并在通用错误/晚deadline前提交；无B/读取失败保A原槽和原receipt/read/charge，后继只读目标；合法null或B终态不伪改A阶段。只有目标/read责任完结才退役。A/B有不同Started ORDER read时保两槽、各原ID和charge，待矩阵条件满足再合并；目的在途或合并准备失败不丢receipt。
 5. 同UUID须核原body/SHA/目标/B/profile/容量，同文合并观察且每轮最多一次GET，异文硬错；未知B继续原ID GET，不被较新C覆盖。源换代沿原插件/worker生命周期恢复，不在活实例偷偷换B。新实例正常查询可恢复真实订单，不假装持有全部旧pending。
-6. 后继每轮可用新有界只读D，全阶段共用该轮D，原写/查询业务D保持；轮间至少隔request_ms，轮转pending。单次运输不可用保unknown/原receipt，可证明硬错锁停；容量不足延期并由真实队列/charge变化唤醒，不忙等。
-7. owner/worker沿原TaskCredit、generation、锁外I/O、完成值持有和drain。receipt/phase/has_record/read state与未受理角色整组构造/提交；复制失败保完整旧组或完整新组。stop/detach后不新I/O，晚Summary仍先保存新ORDER身份/Started及角色责任，所有持有对象销毁/移交后才归还charge。unknown insert即使得到proof仍保原receipt/fence。
+6. 后继每轮可用新有界只读D，全阶段共用该轮D，原写/查询业务D保持；query_first首次待核查沿NRT-R32立即安排，后继轮间至少隔request_ms，轮转pending。单次运输不可用保unknown/原receipt，可证明硬错锁停；容量不足延期并由真实队列/charge变化唤醒，不忙等。
+7. owner/worker沿原TaskCredit、generation、锁外I/O、完成值持有和drain。receipt/phase/has_record/read state与未受理角色整组构造/提交；复制失败保完整旧组或完整新组。stop/detach后不新I/O，晚Summary仍先保存新ORDER身份/Started及角色责任，所有持有对象销毁/移交后才归还charge。unknown insert在未满足NRT-R32独立终态及原WT应用时保留fence；原命令身份/原文/SDK unknown结果始终保留于原Journal。
 
 无已完成 ORDER proof 时，既有 orderAction 的 create_cancel/Host 当前 proof 检查仍拒绝，不自动等待到原取消 D 以后再发送。后继自动读不会自动重试该取消请求。
 
