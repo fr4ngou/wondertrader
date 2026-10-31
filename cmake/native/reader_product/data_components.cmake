@@ -1,0 +1,61 @@
+# Each owned variant has private headers. Common versions are never interposed.
+set(data_root "${GH_DATA_COMPONENT_ROOT}")
+function(data_target target kind variant)
+  set(files)
+  foreach(file IN LISTS ARGN)
+    list(APPEND files "${data_root}/${variant}/${file}")
+  endforeach()
+  if(kind STREQUAL "EXE")
+    add_executable(${target} ${files})
+  else()
+    add_library(${target} ${kind} ${files})
+  endif()
+  target_include_directories(${target} PRIVATE "${data_root}/${variant}/src")
+  target_link_libraries(${target} PRIVATE WTSTools WTSUtils nqp_host_dependencies winhttp bcrypt)
+  set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/data"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/data")
+endfunction()
+set(common)
+foreach(name BoundedSignedHttp QmtReadTransport QmtHostReadClient QmtHostCodec QmtHostTradeClient
+    QmtBoundReadCore QmtHostHistoryClient QmtHostAccountClient)
+  list(APPEND common "src/GuanhengCommon/${name}.cpp")
+endforeach()
+data_target(DataReadOnlyTrader SHARED account006 ${common}
+  src/GuanhengQmtBootstrap/ReadOnlyTrader.cpp src/GuanhengQmtBootstrap/HttpMapping.cpp
+  src/GuanhengQmtBootstrap/AccountMapping.cpp src/GuanhengQmtBootstrap/ShmAccountMapping.cpp
+  src/TraderQMTReadOnly/Factory.cpp)
+target_compile_definitions(DataReadOnlyTrader PRIVATE NQB_BUILD_DLL)
+set_target_properties(DataReadOnlyTrader PROPERTIES OUTPUT_NAME TraderQMTReadOnly)
+data_target(GuanhengAccountScan EXE account006 src/GuanhengAccountScan/main.cpp)
+target_link_libraries(GuanhengAccountScan PRIVATE WtCore)
+data_target(GuanhengQmtHistory EXE account006 src/GuanhengHistory/QmtHistoryMain.cpp ${common})
+data_target(GuanhengQmtBulkHistory EXE account006 src/GuanhengHistory/QmtBulkHistoryMain.cpp ${common})
+data_target(ParserQMTHostV6 SHARED parser_v6 ${common}
+  src/GuanhengData/MarketParser.cpp src/GuanhengData/QmtPollingParser.cpp
+  src/GuanhengData/QmtHostEndpoint.cpp src/GuanhengData/QmtHttpEndpoint.cpp
+  src/GuanhengData/QmtHttpClient.cpp src/GuanhengData/QmtTickMapping.cpp src/ParserQMTHostV6/Factory.cpp)
+set_target_properties(ParserQMTHostV6 PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+data_target(GuanhengNativeBarFile SHARED collection004
+  src/GuanhengData/NativeBarFile.cpp src/GuanhengNativeBarFile/Exports.cpp)
+target_link_libraries(GuanhengNativeBarFile PRIVATE WtDtHelper)
+add_subdirectory("${GH_FIXED_UPSTREAM_ROOT}/src/WtDtCore" "upstream/WtDtCore")
+target_link_libraries(WtDtCore WTSTools WTSUtils nqp_host_dependencies)
+set_target_properties(WtDtCore PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+data_target(GuanhengDataKitSession SHARED collection004 src/GuanhengDataKit/Session.cpp src/GuanhengData/QmtTickMapping.cpp
+  src/GuanhengCommon/BoundedSignedHttp.cpp src/GuanhengCommon/QmtReadTransport.cpp)
+target_link_libraries(GuanhengDataKitSession PRIVATE WtDtCore)
+data_target(WtAdjustmentProbe EXE analysis001 tests/integration/qmt_native_adjustment/probe.cpp)
+function(add_selected_quotes)
+  set(WT_ROOT "${data_root}/quotes_hpr3")
+  include("${GH_FIXED_OWN_ROOT}/cmake/native/qmt_shm_quotes.cmake")
+  target_include_directories(GuanhengShmQuotes PRIVATE "${WT_ROOT}/src")
+endfunction()
+add_selected_quotes()
+install(TARGETS GuanhengAccountScan RUNTIME DESTINATION components/native_account/app)
+install(TARGETS DataReadOnlyTrader RUNTIME DESTINATION components/native_account/app/traders)
+install(TARGETS GuanhengQmtHistory GuanhengQmtBulkHistory RUNTIME DESTINATION components/native_qmt_history/app)
+install(TARGETS WtAdjustmentProbe WtDtHelper RUNTIME DESTINATION components/native_analysis/app)
+install(TARGETS WtDataStorageNrc RUNTIME DESTINATION components/native_analysis/app)
+install(TARGETS GuanhengNativeBarFile WtDtHelper GuanhengShmQuotes RUNTIME DESTINATION components/native_bar_file/app)
+install(TARGETS GuanhengDataKitSession WtDataStorage WtDataStorageLifecycle WtDtHelper RUNTIME DESTINATION components/collection/app)
+install(TARGETS ParserQMTHostV6 RUNTIME DESTINATION components/parser_v6/app)

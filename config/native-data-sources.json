@@ -1,0 +1,595 @@
+{
+  "schema": "guanheng.native-data-sources.v1",
+  "commit": "08b230dd05facf6d650d949bfe51054115a2ecb1",
+  "extra_upstream_roots": [
+    "src/WtDtCore"
+  ],
+  "variants": {
+    "account006": {
+      "files": {
+        "src/GuanhengHistory/QmtBulkHistoryMain.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengHistory/QmtBulkHistoryMain.cpp",
+          "sha256": "80840a115b3ced32f2e6334e8ed1bb2e94e6a4b1d5d42ae3751bd4748465103b"
+        },
+        "src/GuanhengCommon/QmtHostCodec.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostCodec.h",
+          "sha256": "50c0f34dcd231c93c16685e41eda143fb392e8b2ee2d1b68ab7fb28e548f6248"
+        },
+        "src/GuanhengCommon/ProviderTypes.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/ProviderTypes.h",
+          "sha256": "7c9d8c514344ed9b9464cb269ab38b23f6bc15b530ac861036b5d40b73246e7f"
+        },
+        "src/GuanhengHistory/QmtHistoryFiles.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengHistory/QmtHistoryFiles.h",
+          "sha256": "341e388ea78e6f81e5a5bba5fd384a10d9c69f1a775e2e2db8d3041f73208a5a"
+        },
+        "src/GuanhengCommon/QmtHostHistoryClient.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostHistoryClient.h",
+          "sha256": "96f7fc3a4cc3f80f8f6fd129d627ff420bdd1287b100191d64fb9776cbecd1ce"
+        },
+        "src/GuanhengCommon/QmtHostReadClient.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostReadClient.h",
+          "sha256": "b774bb4daac4216354b2e302b81aad2b50f70b49322f6870857af64705fcd0ab"
+        },
+        "src/GuanhengCommon/QmtReadTransport.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtReadTransport.h",
+          "sha256": "f07541aea9e9d2478988df29e14815e7878e6f3e6ec5779dc5a179ad33dcb929"
+        },
+        "src/GuanhengCommon/BoundedSignedHttp.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/BoundedSignedHttp.h",
+          "sha256": "9b6ed2ffc120d810ae00985de9fc329450368bbb139139969f73665bf76c666f"
+        },
+        "src/GuanhengHistory/QmtHistoryMain.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengHistory/QmtHistoryMain.cpp",
+          "sha256": "4d4a123ae1af2e7868b6a8c12ad467e06d3501335e978c56627f9eedb5bd39f4"
+        },
+        "src/GuanhengAccountScan/main.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengAccountScan/main.cpp",
+          "sha256": "10f8f55ed689b9b1ef47b6a3cf2654722ec30a6069679d0b5a3ae3118297d340"
+        },
+        "src/GuanhengQmtBootstrap/ReadOnlyTrader.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/ReadOnlyTrader.h",
+          "sha256": "2b694c491a9c190f1e7c023d8129346ece70bdee13d657ff54c62844113d602c"
+        },
+        "src/TraderQMTReadOnly/Factory.cpp": {
+          "source": "config/native-data-variants/account006/src/TraderQMTReadOnly/Factory.cpp",
+          "sha256": "55373eb2b91d52f4df85bd43e8f988cd026f2e7fd8e1cca77a396961948ad516"
+        },
+        "src/GuanhengQmtBootstrap/ShmAccountMapping.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/ShmAccountMapping.cpp",
+          "sha256": "c91837449b568af26b57aba631570f4d54e39a0022ccc546028be99680ae98fe"
+        },
+        "src/GuanhengCommon/QmtAccountFields.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtAccountFields.h",
+          "sha256": "2f98a90257bca4edf4b6bb9231c445773991c0ce33c351c60232ad0f4c947a8c"
+        },
+        "src/GuanhengCommon/QmtBoundReadCore.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtBoundReadCore.h",
+          "sha256": "0f4150d91c3eb7e3d3dd86de03041b49df6b516c8863a425afcefb196e48f20b"
+        },
+        "src/GuanhengCommon/QmtHostAccountClient.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostAccountClient.h",
+          "sha256": "9178f67ea0404091f27fd0c0baeb868dcfca6e15471e76f873560de7892f4e11"
+        },
+        "src/GuanhengQmtBootstrap/JsonBoundary.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/JsonBoundary.h",
+          "sha256": "28d2296692f0e7fdbb1201f9b47ff6547c055609dc8023e7c282d590d8cf3b09"
+        },
+        "src/GuanhengQmtBootstrap/ShmAccountMapping.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/ShmAccountMapping.h",
+          "sha256": "ec5d2cfb4e8019e9dcd62acc62e0da05a72d9a49330a1c0b0aaf2706ffb089c6"
+        },
+        "src/GuanhengQmtBootstrap/AccountMapping.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/AccountMapping.h",
+          "sha256": "c568e0d0254f942d9eb6db4e049c7ea3d43c2eb8afd525435f4c04fc1d3b7ce8"
+        },
+        "src/GuanhengQmtBootstrap/AccountMapping.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/AccountMapping.cpp",
+          "sha256": "ec246d1f5fbfbb1bbfe080fc51c420b016dd4a5014ef5be17c34adcae5456b58"
+        },
+        "src/GuanhengQmtBootstrap/HttpMapping.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/HttpMapping.cpp",
+          "sha256": "121cc975e0443b062813adf4ff9f72401a077ab5a15085864cc693d067715513"
+        },
+        "src/GuanhengQmtBootstrap/ViewSchemaV2.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/ViewSchemaV2.h",
+          "sha256": "14a22e19bbe5dc39aff77e936696e5779a88e6bd3fb5d016ef59a5df3bcad667"
+        },
+        "src/GuanhengQmtBootstrap/HttpMapping.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/HttpMapping.h",
+          "sha256": "d3279e2c8ea28581290a01c2f904c1a5baaa1d514d30fd379f8e9a62e6615ca0"
+        },
+        "src/GuanhengQmtBootstrap/ReadOnlyTrader.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengQmtBootstrap/ReadOnlyTrader.cpp",
+          "sha256": "c30848d903680201c819415b3c13d75ac7524c7c562c5417f7ea659d25c3ccd8"
+        },
+        "src/GuanhengCommon/QmtHostAccountClient.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostAccountClient.cpp",
+          "sha256": "2e32873fac092d50a771603395a4ecdb2569680d5064969840024061bfb131d9"
+        },
+        "src/GuanhengCommon/QmtHostHistoryClient.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostHistoryClient.cpp",
+          "sha256": "fce490d21628c25391f1ecaa0ddbff054f8781f983db69389b45881411a4c89d"
+        },
+        "src/GuanhengCommon/QmtBoundReadCore.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtBoundReadCore.cpp",
+          "sha256": "8521643d8166e723f900c3e99d26a52ee39d7f586dc3d5037cde3976ac582ce6"
+        },
+        "src/GuanhengCommon/QmtHostTradeClient.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostTradeClient.cpp",
+          "sha256": "68a4f3d40afbf628d34b2d35ec9f8ea0fbae384f7d58d7be3ce223c88ff81e0e"
+        },
+        "src/GuanhengCommon/QmtHostTradeClient.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostTradeClient.h",
+          "sha256": "fdeac876f60a425d29093a1aa460fd11cd8f4873af7b7c7d4b6fd9bfdf13ded0"
+        },
+        "src/GuanhengCommon/QmtHostCodec.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostCodec.cpp",
+          "sha256": "ff11d2e1d8058a3ebc8e3eb3ee2129659a04c1c487980375f1db90e98493ae39"
+        },
+        "src/GuanhengCommon/QmtHostReadClient.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtHostReadClient.cpp",
+          "sha256": "caf97db01fe35a6776982238a57d35a0fcf828d15f049ce73b5de9dff03a0c1f"
+        },
+        "src/GuanhengCommon/QmtReadTransport.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/QmtReadTransport.cpp",
+          "sha256": "d69d26f0e127307ee10f23779729ff4aebef699ee99d2e82d45cb0cd2a9e1bfd"
+        },
+        "src/GuanhengCommon/BoundedSignedHttp.cpp": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/BoundedSignedHttp.cpp",
+          "sha256": "b58c51d7f95692ebc4e1aea452b4ae64e682f2e2466f3864588163d1d8053326"
+        },
+        "src/GuanhengCommon/WinHttpSessionDrain.h": {
+          "source": "config/native-data-variants/account006/src/GuanhengCommon/WinHttpSessionDrain.h",
+          "sha256": "31767424d4926f028ecdfdce41a6a5bc691b9dc615e9d7fb854f49006d62f565"
+        }
+      },
+      "translation_units": [
+        "src/GuanhengCommon/BoundedSignedHttp.cpp",
+        "src/GuanhengCommon/QmtReadTransport.cpp",
+        "src/GuanhengCommon/QmtHostReadClient.cpp",
+        "src/GuanhengCommon/QmtHostCodec.cpp",
+        "src/GuanhengCommon/QmtHostTradeClient.cpp",
+        "src/GuanhengCommon/QmtBoundReadCore.cpp",
+        "src/GuanhengCommon/QmtHostHistoryClient.cpp",
+        "src/GuanhengCommon/QmtHostAccountClient.cpp",
+        "src/GuanhengQmtBootstrap/ReadOnlyTrader.cpp",
+        "src/GuanhengQmtBootstrap/HttpMapping.cpp",
+        "src/GuanhengQmtBootstrap/AccountMapping.cpp",
+        "src/GuanhengQmtBootstrap/ShmAccountMapping.cpp",
+        "src/TraderQMTReadOnly/Factory.cpp",
+        "src/GuanhengAccountScan/main.cpp",
+        "src/GuanhengHistory/QmtHistoryMain.cpp",
+        "src/GuanhengHistory/QmtBulkHistoryMain.cpp"
+      ]
+    },
+    "parser_v6": {
+      "files": {
+        "src/ParserQMTHostV6/Factory.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/ParserQMTHostV6/Factory.cpp",
+          "sha256": "37213c03c6505d98ebe574b6a99f77f7b81f76592e7e6fa64b1289c1d200aa63"
+        },
+        "src/GuanhengData/QmtHostEndpoint.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtHostEndpoint.h",
+          "sha256": "1d29cd8acb20f26076893f84454c54242c3e62e6f7ea2c13e6197e159584e5a3"
+        },
+        "src/GuanhengCommon/QmtHostReadClient.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostReadClient.h",
+          "sha256": "5555cdd1b553ae05c00beae5e5c18b4bf752f1848eb02b950df85ac755d72bf4"
+        },
+        "src/GuanhengCommon/QmtReadTransport.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtReadTransport.h",
+          "sha256": "f07541aea9e9d2478988df29e14815e7878e6f3e6ec5779dc5a179ad33dcb929"
+        },
+        "src/GuanhengCommon/ProviderTypes.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/ProviderTypes.h",
+          "sha256": "7c9d8c514344ed9b9464cb269ab38b23f6bc15b530ac861036b5d40b73246e7f"
+        },
+        "src/GuanhengCommon/BoundedSignedHttp.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/BoundedSignedHttp.h",
+          "sha256": "9b6ed2ffc120d810ae00985de9fc329450368bbb139139969f73665bf76c666f"
+        },
+        "src/GuanhengData/QmtHttpEndpoint.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtHttpEndpoint.h",
+          "sha256": "e4ce6725065aac9f22017c0a76fc309b5c2f88c580fd5f9c29c783d59036809b"
+        },
+        "src/GuanhengData/QmtHttpClient.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtHttpClient.h",
+          "sha256": "fb8685eb6d44c45aa5f12a9356784536b2bf40b7c86ade5dca36649d8125a16c"
+        },
+        "src/GuanhengData/MarketParser.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/MarketParser.h",
+          "sha256": "373c8519c3d69c993c92b68e6e09f9299aa7b51e91dd2eb9e0eaa2f2c4751bb2"
+        },
+        "src/GuanhengData/History.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/History.h",
+          "sha256": "f324c35d8916e6179acdbc49aebd63b16dc68954fcec553f9ffd6690fbc2f7d9"
+        },
+        "src/GuanhengData/QmtPollingParser.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtPollingParser.h",
+          "sha256": "bde39a221bdbcf883da1ebd1eaff648d150d1039e5ca05be5811301ba00279a5"
+        },
+        "src/GuanhengData/QmtTickMapping.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtTickMapping.cpp",
+          "sha256": "0cd9f58f72261e93b952db6e5c20a44ab5a22c43538f5a88bcd8cf06043ec025"
+        },
+        "src/GuanhengData/QmtTickMapping.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtTickMapping.h",
+          "sha256": "9d33fb94b6bf8350590c2df874a1a0b139227b0035e9f82bcdf944486611ff68"
+        },
+        "src/GuanhengData/QmtHttpClient.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtHttpClient.cpp",
+          "sha256": "e1a59a8fb2db1b86906ee82b0b2ecd1607a488bf79ca1355f513418f7b90b4ae"
+        },
+        "src/GuanhengData/QmtHttpEndpoint.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtHttpEndpoint.cpp",
+          "sha256": "787f205129a3e26d41912eb0ef8d525e327a9ba96cf0f1b58c74747a9b96c38e"
+        },
+        "src/GuanhengData/QmtHostEndpoint.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtHostEndpoint.cpp",
+          "sha256": "026d2bb5bafd1b6f7ad7114d2a6668561501591c6ad001b4ff9925a96bda24b8"
+        },
+        "src/GuanhengData/QmtPollingParser.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/QmtPollingParser.cpp",
+          "sha256": "d987e9d08f9f717ce5c93a314d1c7be416aed59a82016e6ed487be833a2bfa48"
+        },
+        "src/GuanhengData/MarketParser.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengData/MarketParser.cpp",
+          "sha256": "92bf1a5909494863cb026c63391184b1c8757729acf44aa673f844372c8711db"
+        },
+        "src/GuanhengCommon/QmtHostAccountClient.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostAccountClient.cpp",
+          "sha256": "2e32873fac092d50a771603395a4ecdb2569680d5064969840024061bfb131d9"
+        },
+        "src/GuanhengCommon/QmtBoundReadCore.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtBoundReadCore.h",
+          "sha256": "0f4150d91c3eb7e3d3dd86de03041b49df6b516c8863a425afcefb196e48f20b"
+        },
+        "src/GuanhengCommon/QmtHostAccountClient.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostAccountClient.h",
+          "sha256": "9178f67ea0404091f27fd0c0baeb868dcfca6e15471e76f873560de7892f4e11"
+        },
+        "src/GuanhengCommon/QmtHostHistoryClient.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostHistoryClient.h",
+          "sha256": "96f7fc3a4cc3f80f8f6fd129d627ff420bdd1287b100191d64fb9776cbecd1ce"
+        },
+        "src/GuanhengCommon/QmtHostHistoryClient.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostHistoryClient.cpp",
+          "sha256": "fce490d21628c25391f1ecaa0ddbff054f8781f983db69389b45881411a4c89d"
+        },
+        "src/GuanhengCommon/QmtBoundReadCore.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtBoundReadCore.cpp",
+          "sha256": "6bd42a6dbe1be18e7fe077fa61a8fb40ba98e6ada0fa33c7d8a5795bfcc69c1f"
+        },
+        "src/GuanhengCommon/QmtHostCodec.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostCodec.h",
+          "sha256": "50c0f34dcd231c93c16685e41eda143fb392e8b2ee2d1b68ab7fb28e548f6248"
+        },
+        "src/GuanhengCommon/QmtAccountFields.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtAccountFields.h",
+          "sha256": "2f98a90257bca4edf4b6bb9231c445773991c0ce33c351c60232ad0f4c947a8c"
+        },
+        "src/GuanhengCommon/QmtHostTradeClient.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostTradeClient.cpp",
+          "sha256": "f4cf2cacda08cd69be44b97f178c416b288a1fe132e67c6d289d5f0fc41c7ee5"
+        },
+        "src/GuanhengCommon/QmtHostTradeClient.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostTradeClient.h",
+          "sha256": "fdeac876f60a425d29093a1aa460fd11cd8f4873af7b7c7d4b6fd9bfdf13ded0"
+        },
+        "src/GuanhengCommon/QmtHostCodec.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostCodec.cpp",
+          "sha256": "ff11d2e1d8058a3ebc8e3eb3ee2129659a04c1c487980375f1db90e98493ae39"
+        },
+        "src/GuanhengCommon/QmtHostReadClient.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtHostReadClient.cpp",
+          "sha256": "caf97db01fe35a6776982238a57d35a0fcf828d15f049ce73b5de9dff03a0c1f"
+        },
+        "src/GuanhengCommon/QmtReadTransport.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/QmtReadTransport.cpp",
+          "sha256": "d69d26f0e127307ee10f23779729ff4aebef699ee99d2e82d45cb0cd2a9e1bfd"
+        },
+        "src/GuanhengCommon/BoundedSignedHttp.cpp": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/BoundedSignedHttp.cpp",
+          "sha256": "4f52d046274fbc6c544a86af70784c5ed37598989f4fa0b38703479097d461c2"
+        },
+        "src/GuanhengCommon/WinHttpSessionDrain.h": {
+          "source": "config/native-data-variants/parser_v6/src/GuanhengCommon/WinHttpSessionDrain.h",
+          "sha256": "31767424d4926f028ecdfdce41a6a5bc691b9dc615e9d7fb854f49006d62f565"
+        }
+      },
+      "translation_units": [
+        "src/GuanhengCommon/BoundedSignedHttp.cpp",
+        "src/GuanhengCommon/QmtReadTransport.cpp",
+        "src/GuanhengCommon/QmtHostReadClient.cpp",
+        "src/GuanhengCommon/QmtHostCodec.cpp",
+        "src/GuanhengCommon/QmtHostTradeClient.cpp",
+        "src/GuanhengCommon/QmtBoundReadCore.cpp",
+        "src/GuanhengCommon/QmtHostHistoryClient.cpp",
+        "src/GuanhengCommon/QmtHostAccountClient.cpp",
+        "src/GuanhengData/MarketParser.cpp",
+        "src/GuanhengData/QmtPollingParser.cpp",
+        "src/GuanhengData/QmtHostEndpoint.cpp",
+        "src/GuanhengData/QmtHttpEndpoint.cpp",
+        "src/GuanhengData/QmtHttpClient.cpp",
+        "src/GuanhengData/QmtTickMapping.cpp",
+        "src/ParserQMTHostV6/Factory.cpp"
+      ]
+    },
+    "collection004": {
+      "files": {
+        "src/GuanhengNativeBarFile/Exports.cpp": {
+          "source": "config/native-data-variants/collection004/src/GuanhengNativeBarFile/Exports.cpp",
+          "sha256": "94f96d9c8f6c7bc9577de7a6c6926363a251b5ed13319ec2a910e354316adca1"
+        },
+        "src/GuanhengData/NativeBarFile.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengData/NativeBarFile.h",
+          "sha256": "7b8d8bfd58513ea6190bba2c0db40f1afb7c9190c2fffc5ed1c919b4b9df40f3"
+        },
+        "src/GuanhengData/NativeBarFile.cpp": {
+          "source": "config/native-data-variants/collection004/src/GuanhengData/NativeBarFile.cpp",
+          "sha256": "cac717713fb4bf267f91c8557267f684aad5565674995549c5ce2f855cfa7c98"
+        },
+        "src/GuanhengData/QmtTickMapping.cpp": {
+          "source": "config/native-data-variants/collection004/src/GuanhengData/QmtTickMapping.cpp",
+          "sha256": "0cd9f58f72261e93b952db6e5c20a44ab5a22c43538f5a88bcd8cf06043ec025"
+        },
+        "src/GuanhengCommon/BoundedSignedHttp.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengCommon/BoundedSignedHttp.h",
+          "sha256": "9b6ed2ffc120d810ae00985de9fc329450368bbb139139969f73665bf76c666f"
+        },
+        "src/GuanhengCommon/ProviderTypes.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengCommon/ProviderTypes.h",
+          "sha256": "7c9d8c514344ed9b9464cb269ab38b23f6bc15b530ac861036b5d40b73246e7f"
+        },
+        "src/GuanhengData/QmtTickMapping.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengData/QmtTickMapping.h",
+          "sha256": "9d33fb94b6bf8350590c2df874a1a0b139227b0035e9f82bcdf944486611ff68"
+        },
+        "src/GuanhengData/QmtHttpEndpoint.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengData/QmtHttpEndpoint.h",
+          "sha256": "e4ce6725065aac9f22017c0a76fc309b5c2f88c580fd5f9c29c783d59036809b"
+        },
+        "src/GuanhengData/QmtHttpClient.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengData/QmtHttpClient.h",
+          "sha256": "fb8685eb6d44c45aa5f12a9356784536b2bf40b7c86ade5dca36649d8125a16c"
+        },
+        "src/GuanhengCommon/QmtReadTransport.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengCommon/QmtReadTransport.h",
+          "sha256": "f07541aea9e9d2478988df29e14815e7878e6f3e6ec5779dc5a179ad33dcb929"
+        },
+        "src/GuanhengData/MarketParser.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengData/MarketParser.h",
+          "sha256": "373c8519c3d69c993c92b68e6e09f9299aa7b51e91dd2eb9e0eaa2f2c4751bb2"
+        },
+        "src/GuanhengData/History.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengData/History.h",
+          "sha256": "f324c35d8916e6179acdbc49aebd63b16dc68954fcec553f9ffd6690fbc2f7d9"
+        },
+        "src/GuanhengDataKit/Session.cpp": {
+          "source": "config/native-data-variants/collection004/src/GuanhengDataKit/Session.cpp",
+          "sha256": "3faf23a8e162105b57ca8d8d50d29720801a9c078342873390ccb4a9e87623be"
+        },
+        "src/GuanhengDataKit/Session.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengDataKit/Session.h",
+          "sha256": "24ab1e41b8bd50c774343db285757b7ea357f2dc72e46c5b025f8295b06835d2"
+        },
+        "src/GuanhengCommon/QmtReadTransport.cpp": {
+          "source": "config/native-data-variants/collection004/src/GuanhengCommon/QmtReadTransport.cpp",
+          "sha256": "d69d26f0e127307ee10f23779729ff4aebef699ee99d2e82d45cb0cd2a9e1bfd"
+        },
+        "src/GuanhengCommon/BoundedSignedHttp.cpp": {
+          "source": "config/native-data-variants/collection004/src/GuanhengCommon/BoundedSignedHttp.cpp",
+          "sha256": "4f52d046274fbc6c544a86af70784c5ed37598989f4fa0b38703479097d461c2"
+        },
+        "src/GuanhengCommon/WinHttpSessionDrain.h": {
+          "source": "config/native-data-variants/collection004/src/GuanhengCommon/WinHttpSessionDrain.h",
+          "sha256": "31767424d4926f028ecdfdce41a6a5bc691b9dc615e9d7fb854f49006d62f565"
+        }
+      },
+      "translation_units": [
+        "src/GuanhengDataKit/Session.cpp",
+        "src/GuanhengData/QmtTickMapping.cpp",
+        "src/GuanhengData/NativeBarFile.cpp",
+        "src/GuanhengNativeBarFile/Exports.cpp",
+        "src/GuanhengCommon/BoundedSignedHttp.cpp",
+        "src/GuanhengCommon/QmtReadTransport.cpp"
+      ]
+    },
+    "analysis001": {
+      "files": {
+        "tests/integration/qmt_native_adjustment/probe.cpp": {
+          "source": "config/native-data-variants/analysis001/tests/integration/qmt_native_adjustment/probe.cpp",
+          "sha256": "1c734488dea791ff9c27bb92fc86196115bb1c95c365dca46546bf64302276cb"
+        }
+      },
+      "translation_units": [
+        "tests/integration/qmt_native_adjustment/probe.cpp"
+      ]
+    },
+    "quotes_hpr3": {
+      "files": {
+        "src/GuanhengCommon/BoundedSignedHttp.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/BoundedSignedHttp.cpp",
+          "sha256": "b58c51d7f95692ebc4e1aea452b4ae64e682f2e2466f3864588163d1d8053326"
+        },
+        "src/GuanhengCommon/BoundedSignedHttp.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/BoundedSignedHttp.h",
+          "sha256": "9b6ed2ffc120d810ae00985de9fc329450368bbb139139969f73665bf76c666f"
+        },
+        "src/GuanhengCommon/ProviderTypes.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/ProviderTypes.h",
+          "sha256": "7c9d8c514344ed9b9464cb269ab38b23f6bc15b530ac861036b5d40b73246e7f"
+        },
+        "src/GuanhengCommon/QmtAccountFields.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtAccountFields.h",
+          "sha256": "2f98a90257bca4edf4b6bb9231c445773991c0ce33c351c60232ad0f4c947a8c"
+        },
+        "src/GuanhengCommon/QmtBoundReadCore.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtBoundReadCore.cpp",
+          "sha256": "f7fe2ea85c959d2ec16470c63d3663b1bcb409e45c36ea175e6b8e376dba7bce"
+        },
+        "src/GuanhengCommon/QmtBoundReadCore.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtBoundReadCore.h",
+          "sha256": "9a272728b53adf2f1cbdab4d6b6f6d07c0e3780507fb469b33b30fc11bf10eeb"
+        },
+        "src/GuanhengCommon/QmtHostAccountClient.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostAccountClient.cpp",
+          "sha256": "2e32873fac092d50a771603395a4ecdb2569680d5064969840024061bfb131d9"
+        },
+        "src/GuanhengCommon/QmtHostAccountClient.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostAccountClient.h",
+          "sha256": "9178f67ea0404091f27fd0c0baeb868dcfca6e15471e76f873560de7892f4e11"
+        },
+        "src/GuanhengCommon/QmtHostCodec.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostCodec.cpp",
+          "sha256": "ff11d2e1d8058a3ebc8e3eb3ee2129659a04c1c487980375f1db90e98493ae39"
+        },
+        "src/GuanhengCommon/QmtHostCodec.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostCodec.h",
+          "sha256": "50c0f34dcd231c93c16685e41eda143fb392e8b2ee2d1b68ab7fb28e548f6248"
+        },
+        "src/GuanhengCommon/QmtHostHistoryClient.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostHistoryClient.cpp",
+          "sha256": "fce490d21628c25391f1ecaa0ddbff054f8781f983db69389b45881411a4c89d"
+        },
+        "src/GuanhengCommon/QmtHostHistoryClient.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostHistoryClient.h",
+          "sha256": "96f7fc3a4cc3f80f8f6fd129d627ff420bdd1287b100191d64fb9776cbecd1ce"
+        },
+        "src/GuanhengCommon/QmtHostReadClient.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostReadClient.cpp",
+          "sha256": "21953eb6546056192ccfb3b8ab2de9f1c95fed57b4bc73fce28b38deda58e31a"
+        },
+        "src/GuanhengCommon/QmtHostReadClient.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostReadClient.h",
+          "sha256": "1f652cd03a2656c5785c4add90df5a5d6d976dbe1e2889ac70ff4d5fc795568d"
+        },
+        "src/GuanhengCommon/QmtHostTradeClient.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostTradeClient.cpp",
+          "sha256": "68a4f3d40afbf628d34b2d35ec9f8ea0fbae384f7d58d7be3ce223c88ff81e0e"
+        },
+        "src/GuanhengCommon/QmtHostTradeClient.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtHostTradeClient.h",
+          "sha256": "fdeac876f60a425d29093a1aa460fd11cd8f4873af7b7c7d4b6fd9bfdf13ded0"
+        },
+        "src/GuanhengCommon/QmtReadTransport.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtReadTransport.cpp",
+          "sha256": "d69d26f0e127307ee10f23779729ff4aebef699ee99d2e82d45cb0cd2a9e1bfd"
+        },
+        "src/GuanhengCommon/QmtReadTransport.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/QmtReadTransport.h",
+          "sha256": "f07541aea9e9d2478988df29e14815e7878e6f3e6ec5779dc5a179ad33dcb929"
+        },
+        "src/GuanhengCommon/WinHttpSessionDrain.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengCommon/WinHttpSessionDrain.h",
+          "sha256": "31767424d4926f028ecdfdce41a6a5bc691b9dc615e9d7fb854f49006d62f565"
+        },
+        "src/GuanhengData/History.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/History.cpp",
+          "sha256": "45fdcb37aeb064652189e8f651dbdfb1197e547067e248b1e71646a47e6179b1"
+        },
+        "src/GuanhengData/History.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/History.h",
+          "sha256": "f324c35d8916e6179acdbc49aebd63b16dc68954fcec553f9ffd6690fbc2f7d9"
+        },
+        "src/GuanhengData/MarketParser.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/MarketParser.cpp",
+          "sha256": "92bf1a5909494863cb026c63391184b1c8757729acf44aa673f844372c8711db"
+        },
+        "src/GuanhengData/MarketParser.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/MarketParser.h",
+          "sha256": "373c8519c3d69c993c92b68e6e09f9299aa7b51e91dd2eb9e0eaa2f2c4751bb2"
+        },
+        "src/GuanhengData/MinutePipeline.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/MinutePipeline.cpp",
+          "sha256": "681057072a3619d364e2975d760be68a217cd6ced3e0298b245ff044f7c559bd"
+        },
+        "src/GuanhengData/MinutePipeline.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/MinutePipeline.h",
+          "sha256": "ba6d0459767cb69e9fc9e65b4b7633b63be2e932c0241e693d1c1e992e315b9e"
+        },
+        "src/GuanhengData/NativeBarFile.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/NativeBarFile.cpp",
+          "sha256": "cac717713fb4bf267f91c8557267f684aad5565674995549c5ce2f855cfa7c98"
+        },
+        "src/GuanhengData/NativeBarFile.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/NativeBarFile.h",
+          "sha256": "7b8d8bfd58513ea6190bba2c0db40f1afb7c9190c2fffc5ed1c919b4b9df40f3"
+        },
+        "src/GuanhengData/NativeHistoryReader.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/NativeHistoryReader.cpp",
+          "sha256": "c6892463eb5990b248b614979cb29a6b6aa488a524c2af480454d67e4dc8902d"
+        },
+        "src/GuanhengData/NativeHistoryReader.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/NativeHistoryReader.h",
+          "sha256": "9375fe0ac8f72d82e591fc993dcfc8f9448d7518bd1f3e11ae356bdce8e7b140"
+        },
+        "src/GuanhengData/QmtHostEndpoint.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtHostEndpoint.cpp",
+          "sha256": "026d2bb5bafd1b6f7ad7114d2a6668561501591c6ad001b4ff9925a96bda24b8"
+        },
+        "src/GuanhengData/QmtHostEndpoint.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtHostEndpoint.h",
+          "sha256": "1d29cd8acb20f26076893f84454c54242c3e62e6f7ea2c13e6197e159584e5a3"
+        },
+        "src/GuanhengData/QmtHttpClient.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtHttpClient.cpp",
+          "sha256": "e1a59a8fb2db1b86906ee82b0b2ecd1607a488bf79ca1355f513418f7b90b4ae"
+        },
+        "src/GuanhengData/QmtHttpClient.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtHttpClient.h",
+          "sha256": "fb8685eb6d44c45aa5f12a9356784536b2bf40b7c86ade5dca36649d8125a16c"
+        },
+        "src/GuanhengData/QmtHttpEndpoint.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtHttpEndpoint.cpp",
+          "sha256": "787f205129a3e26d41912eb0ef8d525e327a9ba96cf0f1b58c74747a9b96c38e"
+        },
+        "src/GuanhengData/QmtHttpEndpoint.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtHttpEndpoint.h",
+          "sha256": "e4ce6725065aac9f22017c0a76fc309b5c2f88c580fd5f9c29c783d59036809b"
+        },
+        "src/GuanhengData/QmtPollingParser.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtPollingParser.cpp",
+          "sha256": "d987e9d08f9f717ce5c93a314d1c7be416aed59a82016e6ed487be833a2bfa48"
+        },
+        "src/GuanhengData/QmtPollingParser.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtPollingParser.h",
+          "sha256": "bde39a221bdbcf883da1ebd1eaff648d150d1039e5ca05be5811301ba00279a5"
+        },
+        "src/GuanhengData/QmtTickMapping.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtTickMapping.cpp",
+          "sha256": "0cd9f58f72261e93b952db6e5c20a44ab5a22c43538f5a88bcd8cf06043ec025"
+        },
+        "src/GuanhengData/QmtTickMapping.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/QmtTickMapping.h",
+          "sha256": "9d33fb94b6bf8350590c2df874a1a0b139227b0035e9f82bcdf944486611ff68"
+        },
+        "src/GuanhengData/ReaderHttpClient.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/ReaderHttpClient.cpp",
+          "sha256": "483bbaf52f8f4475063ce3699f5f10109de47c806adf8f35d313a4760004a589"
+        },
+        "src/GuanhengData/ReaderHttpClient.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/ReaderHttpClient.h",
+          "sha256": "d8f8c7b5f1961e3dbcd15093a3a3e0a67cf7c72dd8afb40b91396ae2afa82016"
+        },
+        "src/GuanhengData/StrategyReader.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/StrategyReader.cpp",
+          "sha256": "208abc5d498c6251ea3886d9b36c60de82f1ef4a09ec91a56bf7e29dc8c6e30c"
+        },
+        "src/GuanhengData/StrategyReader.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengData/StrategyReader.h",
+          "sha256": "703654c78a900399cdc743f12f79cf3fb8c933c6eca5c13d57a6612dc36fd47a"
+        },
+        "src/GuanhengRuntime/ShmQuotesBridge.cpp": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengRuntime/ShmQuotesBridge.cpp",
+          "sha256": "fb873f8e05b53ffad45f87514abd799a66cb7bc46316d1290b6583c31c73614f"
+        },
+        "src/GuanhengRuntime/MarketBridge.h": {
+          "source": "config/native-data-variants/quotes_hpr3/src/GuanhengRuntime/MarketBridge.h",
+          "sha256": "f276065e24a186ef4ab66150b7797c9f49bd04af9fb9d185104ce3ccb87f8005"
+        }
+      }
+    }
+  }
+}

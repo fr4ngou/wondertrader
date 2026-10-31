@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "profile": "sdk-independent",
+  "dependencies": [
+    {
+      "name": "boost",
+      "version": "1.85.0",
+      "url": "https://github.com/boostorg/boost/releases/download/boost-1.85.0/boost-1.85.0-cmake.tar.xz",
+      "archive": "boost-1.85.0-cmake.tar.xz",
+      "sha256": "0a9cc56ceae46986f5f4d43fe0311d90cf6d2fa9028258a95cab49ffdacf92ad",
+      "license": "BSL-1.0",
+      "license_file": "LICENSE_1_0.txt",
+      "source_files_sha256": "84dc725608e23110c286006e8a1ae4236a8215ff5703dfba3d2a1de5d342744f"
+    },
+    {
+      "name": "spdlog",
+      "version": "1.9.2",
+      "commit": "eb3220622e73a4889eee355ffa37972b3cac3df5",
+      "url": "https://codeload.github.com/gabime/spdlog/tar.gz/eb3220622e73a4889eee355ffa37972b3cac3df5",
+      "archive": "spdlog-1.9.2.tar.gz",
+      "sha256": "c60cd3742d24c3f8014618ea7e54c7fa3d5fb3886cfd59281101e6f5058dfcc5",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "source_files_sha256": "b465451e8cbf74a71a08173ac22cb20426bab1e9afc1d14ed4ed9f74195ec816"
+    },
+    {
+      "name": "rapidjson",
+      "version": "1.1.0",
+      "commit": "f54b0e47a08782a6131cc3d60f94d038fa6e0a51",
+      "url": "https://codeload.github.com/Tencent/rapidjson/tar.gz/refs/tags/v1.1.0",
+      "archive": "rapidjson-1.1.0.tar.gz",
+      "sha256": "bf7ced29704a1e696fbccf2a2b4ea068e7774fa37f6d7dd4039d0787f8bed98e",
+      "license": "MIT",
+      "license_file": "license.txt",
+      "source_files_sha256": "2110d82b558fcebe63c2b35bac7ed3b707dcbcc7fe9dcaf1f03e0ffb7c78ff8f"
+    }
+  ]
+}

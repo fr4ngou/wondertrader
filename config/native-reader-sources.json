@@ -1,0 +1,201 @@
+{
+  "schema": "guanheng.native-reader-sources.v1",
+  "commit": "08b230dd05facf6d650d949bfe51054115a2ecb1",
+  "upstream_roots": [
+    "src/Includes",
+    "src/Share",
+    "src/FasterLibs",
+    "src/Common",
+    "src/WTSUtils",
+    "src/WTSTools",
+    "src/WtCore",
+    "src/WtDataStorage",
+    "src/WtDtHelper",
+    "src/WtRunner",
+    "src/WtExeFact",
+    "LICENSE"
+  ],
+  "runtime_overlays": [
+    {
+      "target": "src/WtCore/CtaStrategyMgr.h",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/CtaStrategyMgr.h",
+      "sha256": "67e11e666cbdd1dd3d0d04ef057693fb883a51b775976d20b9d92ce782bba24f",
+      "baseline_sha256": "b8d4d996753d8b6ef96d56d5a89902996d82bb8892c1cfd4a05c9aa7df8c384d"
+    },
+    {
+      "target": "src/WtCore/ParserAdapter.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/ParserAdapter.cpp",
+      "sha256": "ed55fb4a3d1a5de3c0fc2f379f5a598157274fd40a4d6c444697503fe3978887",
+      "baseline_sha256": "ee784b3d9bdff479fd86a494c88acf44045331ae42827a14e0563f8a5ffe00bb"
+    },
+    {
+      "target": "src/WtCore/ParserAdapter.h",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/ParserAdapter.h",
+      "sha256": "09e035367d304f30f9574b2be97880675dec7c853dfe5df345109a1e19e72528",
+      "baseline_sha256": "d296cc519d7bae117e342c7938bcf4e71f4dcf566bc20ae1e85d7f8f7a1a96cd"
+    },
+    {
+      "target": "src/WtCore/TraderAdapter.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/TraderAdapter.cpp",
+      "sha256": "77ac3b76b31a1d394cd1baba695362ee8e994eb866903dff09fcfd3665f9baa6",
+      "baseline_sha256": "effa4d8c26767b7c99c1887eb53f3d0edb19babf01575af1ca85f77becba54cf"
+    },
+    {
+      "target": "src/WtCore/TraderAdapter.h",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/TraderAdapter.h",
+      "sha256": "52279d3ae1d1a3f012b389867c224d55c071dc8f40bf27d71ac83ccb018acc4a",
+      "baseline_sha256": "1a86b502ba1c673fb02ae7dd5e14d005fe6e86876dd0f26031f18c26ddac8cb7"
+    },
+    {
+      "target": "src/WtCore/WtCtaEngine.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/WtCtaEngine.cpp",
+      "sha256": "073b815a45cb09b20abcb8ece2c36564d9fdc0f81316b739dd3a0db5cea37862",
+      "baseline_sha256": "76d587c31c2735f470dfab7823df60562418835263fc9a0dbd87cab8e4086b4e"
+    },
+    {
+      "target": "src/WtCore/WtCtaEngine.h",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/WtCtaEngine.h",
+      "sha256": "582efa60c97ca8f82d97d57c005592946e6684447071e5463725b777e5791eb0",
+      "baseline_sha256": "c951f6080161a53243edb3a50ecdc65b814e3e16224a81fdf25f006c6de0dfac"
+    },
+    {
+      "target": "src/WtCore/WtCtaTicker.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/WtCtaTicker.cpp",
+      "sha256": "b40a9d0ca0c1f07527181f600f7b5d8f0f59e66a2c42e23176b564fd516e83ea",
+      "baseline_sha256": "fee43b18f01221f9bf1939f42107447215d7568acc0e04d0e93865be36a53fd0"
+    },
+    {
+      "target": "src/WtCore/WtCtaTicker.h",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/WtCtaTicker.h",
+      "sha256": "d236ebb208112fe3dfb54337e60b8d29f7dce6b8b11e8940256880780aa6278e",
+      "baseline_sha256": "2f9539db7a3ce1023425237f714fbcfb04f9587e7afeef52647738c39ceb67b5"
+    },
+    {
+      "target": "src/WtCore/WtDtMgr.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/WtDtMgr.cpp",
+      "sha256": "22eebc428e70cf6e7448ef1757a5a98ec094da211e5e6fab713b3318ebbaeaa8",
+      "baseline_sha256": "1a97d7d37888fadc4c2c106d5baeedea668d37802317bec2d433c56401a38588"
+    },
+    {
+      "target": "src/WtCore/WtDtMgr.h",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/WtDtMgr.h",
+      "sha256": "8c79437599dea868e6c88988912f1d8d12b3456ee4e55e866658eb0ef844b387",
+      "baseline_sha256": "75159737299c6415e156f757b601c5021943d9583a64f8f7448d5b2e132c0b3a"
+    },
+    {
+      "target": "src/WtCore/WtEngine.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/WtEngine.cpp",
+      "sha256": "c768bf27e2a9192f24eb604087362e5100b5256cc8d4fcc0af5ccacd91df2a48",
+      "baseline_sha256": "fcf2d9e5d39e4b115f027d961cc2180e11b204a6ab3ab6ce7c605e8f107c4266"
+    },
+    {
+      "target": "src/WtCore/WtEngine.h",
+      "source": "config/native-reader-overlays/runtime/src/WtCore/WtEngine.h",
+      "sha256": "14e17616f8744f091d2c0166bbc5b58a5acf1e3dbe5555c691c0566024ee3703",
+      "baseline_sha256": "8b7d61c0aa05064794872cdc9cbdee76bb10864ffdc4ed45a479bc5d7e272a2b"
+    },
+    {
+      "target": "src/WtExeFact/WtExeFact.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtExeFact/WtExeFact.cpp",
+      "sha256": "5e5a3bd5b56fc17c2bcd7f577217253bc1d66ad46984198976d31723b4674294",
+      "baseline_sha256": "afbae1d39c6afc6d9c3f1104b1516244d3f79e1edef13e9cd3ab07b5c1a0c294"
+    },
+    {
+      "target": "src/WtExeFact/WtStockMinImpactExeUnit.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.cpp",
+      "sha256": "e92f69bff2cff4d5b2376ea88b46533e638a5f5b0e2a99a06a2be759c33ad0a6",
+      "baseline_sha256": "b55e8b4191b6dc0414a45d3ad1e78040b508042534b519ca250506c83df83d22"
+    },
+    {
+      "target": "src/WtExeFact/WtStockMinImpactExeUnit.h",
+      "source": "config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.h",
+      "sha256": "1b57a0c0680701010c60c00ef495c0ad89c72fefcc0d9f67533986dda623f3fd",
+      "baseline_sha256": "ae699656cc721b6c1d9cb821c4392ab5d0711b53f70a4af759cb6f61ef2f391a"
+    },
+    {
+      "target": "src/WtRunner/main.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtRunner/main.cpp",
+      "sha256": "1c31b51fa7032d95cc9b18ef381978ddb8c4fb02018a1f1139941e59106edbc8",
+      "baseline_sha256": "5500fa9a69465d9455cefa2ec4b62a1cd653a485cf7fb7f63b3b1b5f707f501b"
+    },
+    {
+      "target": "src/WtRunner/WtRunner.cpp",
+      "source": "config/native-reader-overlays/runtime/src/WtRunner/WtRunner.cpp",
+      "sha256": "a204ac4b0eba33517366970275b1733feb772968e81d9d5684d8912dca4c53ee",
+      "baseline_sha256": "516a516874210b241127d11f9287a57ea1094103cd862bc53155f2fb445b59d6"
+    },
+    {
+      "target": "src/WtRunner/WtRunner.h",
+      "source": "config/native-reader-overlays/runtime/src/WtRunner/WtRunner.h",
+      "sha256": "8a799c1d3b19658c198c40b4a26873d22f4a851b009edc2020e5c7989178a1fa",
+      "baseline_sha256": "d20799f8bc9a95523b2e08654443d70d541623270605f1d53cfebbab31092122"
+    }
+  ],
+  "nrc": {
+    "target": "src/WtDataStorage/WtRdmDtReader.cpp",
+    "source": "config/native-reader-overlays/nrc/src/WtDataStorage/WtRdmDtReader.cpp",
+    "sha256": "d3de2222e76082acd3c114831bcb2b1b30b7b11da405bed73e7d2cb96d880af5"
+  },
+  "wlc": {
+    "source": "integrations/wondertrader_lifecycle/writer-lifecycle.patch",
+    "sha256": "e4a6301b1b6713987862ab792735738117f210d6bd7bfba8b5ebb2f2978aa64c"
+  },
+  "owned_sources": {
+    "src/ReaderGuanhengRealtime/Factory.cpp": "2a41830d304c354846dd62cbb1cd53ee28067015407391da9dd81847fecbc165",
+    "src/ReaderGuanhengRealtime/PublishedDaily.h": "4729a8c6c9fbde8bacf4f9dceae11b0433637958db65f12287c47cab2fef533c",
+    "src/GuanhengData/StrategyReader.cpp": "208abc5d498c6251ea3886d9b36c60de82f1ef4a09ec91a56bf7e29dc8c6e30c",
+    "src/GuanhengData/StrategyReader.h": "703654c78a900399cdc743f12f79cf3fb8c933c6eca5c13d57a6612dc36fd47a",
+    "src/GuanhengData/ReaderHttpClient.cpp": "483bbaf52f8f4475063ce3699f5f10109de47c806adf8f35d313a4760004a589",
+    "src/GuanhengData/ReaderHttpClient.h": "d8f8c7b5f1961e3dbcd15093a3a3e0a67cf7c72dd8afb40b91396ae2afa82016",
+    "src/GuanhengCommon/WinHttpSessionDrain.h": "31767424d4926f028ecdfdce41a6a5bc691b9dc615e9d7fb854f49006d62f565",
+    "src/GuanhengCommon/ProviderTypes.h": "7c9d8c514344ed9b9464cb269ab38b23f6bc15b530ac861036b5d40b73246e7f"
+  },
+  "approval_documents": [
+    {
+      "path": "docs/maintenance/upstream-overrides.md",
+      "sha256": "4049d723ab3df4f458b51f8b659af972b7a499386f5d756d0c1f42068bccb153"
+    },
+    {
+      "path": "docs/migration/current-approval.md",
+      "sha256": "dff39d5cfe64b22bec1aa894b9e4d869a4ef16d3be24ced1ae6359acfb6b3db3"
+    },
+    {
+      "path": "docs/specs/native-cta-shutdown.md",
+      "sha256": "19769cd291c2bc2672149813b863cb26829c649dcda99a0fc90ce72c4b37b736"
+    },
+    {
+      "path": "docs/migration/native-order-query-sync-proposal.md",
+      "sha256": "9f034f2fd64ad21fd87c6d62f881aceb117118d91b6c6cd9c7e3f735d6af740b"
+    },
+    {
+      "path": "docs/migration/native-stock-metadata-ownership-proposal.md",
+      "sha256": "4028c9a5fd3157995f72dfdc657744be92a562bb7018fb46a0315d498dd98021"
+    }
+  ],
+  "preparation": {
+    "upstream_sha256": "2e3356256bd88a9974dbba8edcc2a73175748f8eb6f9f3e438dff02e92741341",
+    "readers_sha256": "e7c0905946db7751f06b0b55c398599565dd8838a3256748ada7fee27835a641"
+  },
+  "license_materials": [
+    {
+      "source": "config/native-reader-licenses/zstd-1.4.4-BSD.txt",
+      "sha256": "2c1a7fa704df8f3a606f6fc010b8b5aaebf403f3aeec339a12048f1ba7331a0b",
+      "url": "https://raw.githubusercontent.com/facebook/zstd/v1.4.4/LICENSE"
+    },
+    {
+      "source": "config/native-reader-licenses/lmdb-0.9.29-OpenLDAP.txt",
+      "sha256": "310fe25c858a9515fc8c8d7d1f24a67c9496f84a91e0a0e41ea9975b1371e569",
+      "url": "https://raw.githubusercontent.com/LMDB/lmdb/LMDB_0.9.29/libraries/liblmdb/LICENSE"
+    },
+    {
+      "source": "config/native-reader-licenses/yaml-cpp-MIT.txt",
+      "sha256": "aa6fcc27be034e41e21dd832f9175bfe694a48491d9e14ff0fa278e19ad14f1b",
+      "url": "https://raw.githubusercontent.com/jbeder/yaml-cpp/yaml-cpp-0.6.3/LICENSE"
+    },
+    {
+      "source": "config/native-reader-licenses/UPSTREAM-SOURCE-NOTICES.txt",
+      "sha256": "0f5fc7154a96ffdd95aed6e0a1162a750e1c0c28ed6c0c2631e366ea5aef07ba",
+      "origin": "Exact leading source bytes; complete inputs remain identified by fixed Git blob manifests."
+    }
+  ]
+}
