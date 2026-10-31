@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "module": "TraderQMTReadOnly",
+  "source": "qmt_http",
+  "savedata": false,
+  "adapter_id": "readonly-example",
+  "instance_id": "readonly-example",
+  "expected_account": "SYNTHETIC-EXAMPLE",
+  "environment": "simulation",
+  "currency": "CNY",
+  "profile": "cny_cash_shsz_v1",
+  "base_url": "http://127.0.0.1:18010",
+  "key_id_env": "QMT_READONLY_KEY_ID",
+  "hmac_secret_env": "QMT_READONLY_HMAC_SECRET",
+  "request_ms": 1500,
+  "round_ms": 8000,
+  "close_ms": 3000,
+  "timeout_ms": 1000,
+  "max_rows": 128,
+  "max_response_bytes": 2097152
+}

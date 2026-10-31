@@ -1,0 +1,2118 @@
+--- a/src/WtCore/CtaStrategyMgr.h
++++ b/src/WtCore/CtaStrategyMgr.h
+@@ -47,6 +47,9 @@
+ public:
+ 	bool loadFactories(const char* path);
+ 
++	// 所有回调排空后释放策略；此时其上下文、基础数据及工厂仍须存活。
++	void release() { _strategies.clear(); }
++
+ 	CtaStrategyPtr createStrategy(const char* name, const char* id);
+ 	CtaStrategyPtr createStrategy(const char* factname, const char* unitname, const char* id);
+ 
+--- a/src/WtCore/ParserAdapter.cpp
++++ b/src/WtCore/ParserAdapter.cpp
+@@ -22,6 +22,7 @@
+ #include "../Includes/IHotMgr.h"
+ 
+ #include "../WTSTools/WTSLogger.h"
++#include <chrono>
+ 
+ USING_NS_WTP;
+ 
+@@ -30,8 +31,14 @@
+ ParserAdapter::ParserAdapter()
+ 	: _parser_api(NULL)
+ 	, _remover(NULL)
++	, _stopper(NULL)
++	, _module(NULL)
++	, _stop_requested(false)
++	, _stop_confirmed(false)
+ 	, _stopped(false)
++	, _check_time(false)
+ 	, _bd_mgr(NULL)
++	, _hot_mgr(NULL)
+ 	, _stub(NULL)
+ 	, _cfg(NULL)
+ {
+@@ -40,11 +47,13 @@
+ 
+ ParserAdapter::~ParserAdapter()
+ {
++	// 活实例由显式停止/释放路径管理，析构不在未知生产者线程上隐式join。
++	if (_parser_api == NULL && _cfg) _cfg->release();
+ }
+ 
+ bool ParserAdapter::initExt(const char* id, IParserApi* api, IParserStub* stub, IBaseDataMgr* bgMgr, IHotMgr* hotMgr/* = NULL*/)
+ {
+-	if (api == NULL)
++	if (api == NULL || _parser_api != NULL || _stop_requested)
+ 		return false;
+ 
+ 	_parser_api = api;
+@@ -76,16 +85,19 @@
+ 		else
+ 		{
+ 			WTSLogger::log_dyn("parser", _id.c_str(), LL_ERROR, "[{}] Parser initializing failed: api initializing failed...", _id.c_str());
++			return false;
+ 		}
+ 	}
+ 
+ 	return true;
+ }
+ 
+-bool ParserAdapter::init(const char* id, WTSVariant* cfg, IParserStub* stub, IBaseDataMgr* bgMgr, IHotMgr* hotMgr/* = NULL*/)
+-{
+-	if (cfg == NULL)
++bool ParserAdapter::init(const char* id, WTSVariant* cfg, IParserStub* stub, IBaseDataMgr* bgMgr, IHotMgr* hotMgr/* = NULL*/, bool require_stop/* = false*/)
++{
++	if (cfg == NULL || _parser_api != NULL || _stop_requested)
+ 		return false;
++	try
++	{
+ 
+ 	_stub = stub;
+ 	_bd_mgr = bgMgr;
+@@ -123,6 +135,14 @@
+ 		{
+ 			WTSLogger::log_dyn("parser", _id.c_str(), LL_INFO, "[{}] Parser module {} loaded", _id.c_str(), dllpath.c_str());
+ 		}
++		_module = hInst;
++		_remover = (FuncDeleteParser)DLLHelper::get_symbol(hInst, "deleteParser");
++		_stopper = (FuncStopParser)DLLHelper::get_symbol(hInst, "stopParser");
++		if (require_stop && (!_remover || !_stopper))
++		{
++			WTSLogger::error("Parser {} has no managed stop/delete exports", _id.c_str());
++			return false;
++		}
+ 
+ 		FuncCreateParser pFuncCreateParser = (FuncCreateParser)DLLHelper::get_symbol(hInst, "createParser");
+ 		if (NULL == pFuncCreateParser)
+@@ -138,7 +158,6 @@
+ 			return false;
+ 		}
+ 
+-		_remover = (FuncDeleteParser)DLLHelper::get_symbol(hInst, "deleteParser");
+ 	}
+ 	
+ 
+@@ -244,6 +263,7 @@
+ 		else
+ 		{
+ 			WTSLogger::log_dyn("parser", _id.c_str(), LL_ERROR, "[{}] Parser initializing failed: api initializing failed...", _id.c_str());
++			return false;
+ 		}
+ 	}
+ 	else
+@@ -254,29 +274,57 @@
+ 	WTSLogger::log_dyn("parser", _id.c_str(), LL_INFO, "[{}] Parser initialzied, check_time: {}", _id.c_str(), _check_time);
+ 
+ 	return true;
++	}
++	catch (...) { return false; }
+ }
+ 
+ void ParserAdapter::release()
+ {
++	if (_stop_requested && !_stop_confirmed) return;
+ 	_stopped = true;
+ 	if (_parser_api)
+ 	{
+ 		_parser_api->release();
+ 	}
+ 
+-	if (_remover)
+-		_remover(_parser_api);
+-	else
+-		delete _parser_api;
+-}
+-
+-bool ParserAdapter::run()
+-{
+-	if (_parser_api == NULL)
++	if (_parser_api)
++	{
++		if (_remover) _remover(_parser_api);
++		else delete _parser_api;
++		_parser_api = NULL;
++	}
++	if (_cfg) { _cfg->release(); _cfg = NULL; }
++}
++
++bool ParserAdapter::supports_stop() const
++{
++	return _parser_api != NULL && _stopper != NULL && _remover != NULL;
++}
++
++bool ParserAdapter::stop(uint32_t timeout_ms)
++{
++	if (_parser_api == NULL || _stop_confirmed) return true;
++	if (!supports_stop()) return false;
++	_stop_requested = true;
++	try
++	{
++		if (!_stopper(_parser_api, timeout_ms)) return false;
++	}
++	catch (...) { return false; }
++	_stop_confirmed = true;
++	// 排空确认前继续允许最后已接纳的SPI；原子标志也覆盖旧release路径。
++	_stopped.store(true);
++	return true;
++}
++
++bool ParserAdapter::run(bool require_connect_success)
++{
++	if (_parser_api == NULL || _stop_requested || _stopped.load())
+ 		return false;
+ 
+-	_parser_api->connect();
+-	return true;
++	// 默认保留上游调用受理语义；受管启动显式检查连接结果。
++	const bool connected = _parser_api->connect();
++	return !require_connect_success || connected;
+ }
+ 
+ //合理毫秒数时间差
+@@ -422,6 +470,9 @@
+ //ParserAdapterMgr
+ void ParserAdapterMgr::release()
+ {
++	if (_stop_requested && !_stop_confirmed) return;
++	for (const auto& item : _adapters)
++		if (item.second->_stop_requested && !item.second->_stop_confirmed) return;
+ 	for (auto it = _adapters.begin(); it != _adapters.end(); it++)
+ 	{
+ 		it->second->release();
+@@ -430,9 +481,32 @@
+ 	_adapters.clear();
+ }
+ 
++bool ParserAdapterMgr::supports_stop() const
++{
++	for (const auto& item : _adapters)
++		if (!item.second->supports_stop()) return false;
++	return true;
++}
++
++bool ParserAdapterMgr::stop(uint32_t timeout_ms)
++{
++	if (_stop_confirmed) return true;
++	_stop_requested = true;
++	const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
++	bool complete = true;
++	for (const auto& item : _adapters)
++	{
++		const auto now = std::chrono::steady_clock::now();
++		const auto remaining = now < deadline ? std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count() : 0;
++		if (!item.second->stop(static_cast<uint32_t>(remaining))) complete = false;
++	}
++	_stop_confirmed = complete;
++	return complete;
++}
++
+ bool ParserAdapterMgr::addAdapter(const char* id, ParserAdapterPtr& adapter)
+ {
+-	if (adapter == NULL || strlen(id) == 0)
++	if (adapter == NULL || strlen(id) == 0 || _stop_requested)
+ 		return false;
+ 
+ 	auto it = _adapters.find(id);
+@@ -459,12 +533,15 @@
+ 	return ParserAdapterPtr();
+ }
+ 
+-void ParserAdapterMgr::run()
+-{
++bool ParserAdapterMgr::run(bool require_connect_success)
++{
++	if (_stop_requested) return false;
++	bool started = true;
+ 	for (auto it = _adapters.begin(); it != _adapters.end(); it++)
+ 	{
+-		it->second->run();
++		if (!it->second->run(require_connect_success)) started = false;
+ 	}
+ 
+ 	WTSLogger::info("{} parsers started", _adapters.size());
+-}
+\ No newline at end of file
++	return started;
++}
+--- a/src/WtCore/ParserAdapter.h
++++ b/src/WtCore/ParserAdapter.h
+@@ -9,10 +9,12 @@
+  */
+ #pragma once
+ #include <memory>
++#include <atomic>
+ #include <boost/core/noncopyable.hpp>
+ 
+ #include "../Includes/FasterDefs.h"
+ #include "../Includes/IParserApi.h"
++#include "../Share/DLLHelper.hpp"
+ 
+ 
+ NS_WTP_BEGIN
+@@ -37,13 +39,17 @@
+ 	~ParserAdapter();
+ 
+ public:
+-	bool	init(const char* id, WTSVariant* cfg, IParserStub* stub, IBaseDataMgr* bgMgr, IHotMgr* hotMgr = NULL);
++	bool	init(const char* id, WTSVariant* cfg, IParserStub* stub, IBaseDataMgr* bgMgr, IHotMgr* hotMgr = NULL, bool require_stop = false);
+ 
+ 	bool	initExt(const char* id, IParserApi* api, IParserStub* stub, IBaseDataMgr* bgMgr, IHotMgr* hotMgr = NULL);
+ 
+ 	void	release();
++	// 控制线程调用；false保留SPI和实例，全部生产者确认停止后才release。
++	bool	supports_stop() const;
++	bool	stop(uint32_t timeout_ms);
+ 
+-	bool	run();
++	// 默认保持原调用语义；true 要求传播插件连接失败。
++	bool	run(bool require_connect_success = false);
+ 
+ 	const char* id() const{ return _id.c_str(); }
+ 
+@@ -81,10 +87,16 @@
+ 
+ 
+ private:
++	friend class ParserAdapterMgr;
+ 	IParserApi*			_parser_api;
+ 	FuncDeleteParser	_remover;
++	typedef bool (*FuncStopParser)(IParserApi*, uint32_t);
++	FuncStopParser		_stopper;
++	DllHandle			_module;	// 保留到进程退出，最后tick/slice仍可调用模块代码。
++	bool				_stop_requested;
++	bool				_stop_confirmed;
+ 
+-	bool				_stopped;
++	std::atomic<bool>	_stopped;
+ 
+ 	/*
+ 	 *	检查时间设置项
+@@ -112,8 +124,11 @@
+ {
+ public:
+ 	void	release();
++	bool	supports_stop() const;
++	bool	stop(uint32_t timeout_ms);
+ 
+-	void	run();
++	// 默认保持原调用语义；true 要求传播插件连接失败。
++	bool	run(bool require_connect_success = false);
+ 
+ 	ParserAdapterPtr getAdapter(const char* id);
+ 
+@@ -122,6 +137,9 @@
+ 
+ public:
+ 	ParserAdapterMap _adapters;
++private:
++	bool _stop_requested = false;
++	bool _stop_confirmed = false;
+ };
+ 
+-NS_WTP_END
+\ No newline at end of file
++NS_WTP_END
+--- a/src/WtCore/TraderAdapter.cpp
++++ b/src/WtCore/TraderAdapter.cpp
+@@ -33,6 +33,9 @@
+ #include "../Share/CodeHelper.hpp"
+ 
+ #include <exception>
++#include <cmath>
++#include <memory>
++#include <limits>
+ #include <rapidjson/document.h>
+ #include <rapidjson/prettywriter.h>
+ 
+@@ -83,6 +86,8 @@
+ 	, _save_data(false)
+ 	, _notifier(caster)
+ 	, _ignore_sefmatch(false)
++	, _position_by_query(false)
++	, _order_by_query(false)
+ {
+ }
+ 
+@@ -96,6 +101,14 @@
+ bool TraderAdapter::init(const char* id, WTSVariant* params, IBaseDataMgr* bdMgr, ActionPolicyMgr* policyMgr)
+ {
+ 	if (params == NULL)
++		return false;
++
++	const bool position_by_query = params->getBoolean("position_by_query");
++	const std::string order_context=params->getString("order_context");
++	if(!order_context.empty()&&order_context!="native"&&order_context!="query_first")return false;
++	if(order_context=="query_first"&&!position_by_query)return false;
++	// 仅opt-in模式限制热切；默认旧通道的初始化语义保持。
++	if ((position_by_query || _position_by_query) && (_trader_api != NULL || _state != AS_NOTLOGIN))
+ 		return false;
+ 
+ 	_policy_mgr = policyMgr;
+@@ -110,6 +123,9 @@
+ 	_cfg = params;
+ 	_cfg->retain();
+ 
++	// 只适用于插件保证完整返回的账户缓存列表；异常批不得伪装成功空批。
++	_position_by_query = position_by_query;
++	_order_by_query = order_context=="query_first";
+ 	_ignore_sefmatch = _cfg->getBoolean("ignore_selfmatch");
+ 	_save_data = _cfg->getBoolean("savedata");
+ 	if (_save_data)
+@@ -205,6 +221,13 @@
+ 
+ bool TraderAdapter::initExt(const char* id, ITraderApi* api, IBaseDataMgr* bdMgr, ActionPolicyMgr* policyMgr)
+ {
++	return initExt(id, api, bdMgr, policyMgr, false);
++}
++
++bool TraderAdapter::initExt(const char* id, ITraderApi* api, IBaseDataMgr* bdMgr, ActionPolicyMgr* policyMgr, bool position_by_query)
++{
++	if ((position_by_query || _position_by_query) && (_trader_api != NULL || _state != AS_NOTLOGIN))
++		return false;
+ 	if (api == NULL)
+ 		return false;
+ 
+@@ -217,6 +240,7 @@
+ 	if (_cfg != NULL)
+ 		return false;
+ 
++	_position_by_query = position_by_query;
+ 	_save_data = true;
+ 	if (_save_data)
+ 		initSaveData();
+@@ -318,7 +342,8 @@
+ 		double	s_preavail;
+ 		 */
+ 
+-		for (auto it = _positions.begin(); it != _positions.end(); it++)
++		const PositionMap positions = copyPositions();
++		for (auto it = positions.begin(); it != positions.end(); it++)
+ 		{
+ 			const char* stdCode = it->first.c_str();
+ 			const PosItem& pInfo = it->second;
+@@ -422,8 +447,37 @@
+ 	}
+ }
+ 
++TraderAdapter::PositionMap TraderAdapter::copyPositions()
++{
++	SpinLock lock(_mtx_positions);
++	return _positions;
++}
++
++TraderAdapter::PosItem TraderAdapter::copyPositionForOrder(const char* stdCode)
++{
++	SpinLock lock(_mtx_positions);
++	// 新模式只有成功查询可创建键；旧模式保留buy/sell的空键插入语义。
++	if (!_position_by_query)
++		return _positions[stdCode];
++	auto it = _positions.find(stdCode);
++	return it == _positions.end() ? PosItem() : it->second;
++}
++
++void TraderAdapter::refreshPositionObservation()
++{
++	if (!_position_by_query)
++		return;
++	// 只发P查询，不递归重查O/D。拒绝仍保留旧观察，交既有SPI异常边界收口。
++	if (_trader_api == NULL || _trader_api->queryPositions() != 0)
++	{
++		WTSLogger::log_dyn("trader", _id.c_str(), LL_ERROR, "[{}] Position refresh rejected; prior observation retained", _id.c_str());
++		throw std::runtime_error("position refresh rejected");
++	}
++}
++
+ double TraderAdapter::getPosition(const char* stdCode, bool bValidOnly, int32_t flag /* = 3 */)
+ {
++	SpinLock lock(_mtx_positions);
+ 	auto it = _positions.find(stdCode);
+ 	if (it == _positions.end())
+ 		return 0;
+@@ -450,7 +504,8 @@
+ 
+ void TraderAdapter::enumPosition(FuncEnumChnlPosCallBack cb)
+ {
+-	for(auto& v : _positions)
++	const PositionMap positions = copyPositions();
++	for(auto& v : positions)
+ 	{
+ 		const char* stdCode = v.first.c_str();
+ 		const PosItem& pItem = v.second;
+@@ -463,6 +518,19 @@
+ 
+ OrderMap* TraderAdapter::getOrders(const char* stdCode)
+ {
++	if(_order_by_query)
++	{
++		SpinLock lock(_mtx_orders);OrderMap* result=OrderMap::create();
++		if(_orders==NULL)return result;
++		const bool all=strlen(stdCode)==0;
++		CodeHelper::CodeInfo key;if(!all)key=CodeHelper::extractStdCode(stdCode,NULL);
++		for(auto it=_orders->begin();it!=_orders->end();++it)
++		{
++			auto* row=(WTSOrderInfo*)it->second;
++			if(all||(strcmp(row->getCode(),key._code)==0&&strcmp(row->getExchg(),key._exchg)==0))result->add(it->first,row);
++		}
++		return result;
++	}
+ 	if (_orders == NULL)
+ 		return NULL;
+ 
+@@ -513,6 +581,8 @@
+ 
+ void TraderAdapter::updateUndone(const char* stdCode, double qty, bool bOuput /* = false */)
+ {
++	// 查询模式的未成交数量仅由完整券商ORDER发布；提交/成交/撤单通知不再增减它。
++	if(_order_by_query)return;
+ 	double& undone = _undone_qty[stdCode];
+ 	double oldQty = undone;
+ 	undone += qty;
+@@ -681,7 +751,7 @@
+ 
+ 	updateUndone(stdCode, qty, true);
+ 
+-	const PosItem& pItem = _positions[stdCode];
++	const PosItem pItem = copyPositionForOrder(stdCode);
+ 	WTSTradeStateInfo* statInfo = (WTSTradeStateInfo*)_stat_map->get(stdCode);
+ 	if (statInfo == NULL)
+ 	{
+@@ -973,7 +1043,7 @@
+ 
+ 	updateUndone(stdCode, -qty, true);
+ 
+-	const PosItem& pItem = _positions[stdCode];	
++	const PosItem pItem = copyPositionForOrder(stdCode);	
+ 	WTSTradeStateInfo* statInfo = (WTSTradeStateInfo*)_stat_map->get(stdCode);
+ 	if (statInfo == NULL)
+ 	{
+@@ -1536,65 +1606,235 @@
+ 
+ void TraderAdapter::onRspPosition(const WTSArray* ayPositions)
+ {
++	// opt-in的4096界限沿账户查询来源；默认通道继续原返回集与数值语义。
++	if (_position_by_query && (ayPositions == NULL || ayPositions->size() > 4096))
++		throw std::invalid_argument("invalid complete position batch");
++	PositionMap next;
++	wt_hashset<std::string> seen;
+ 	if (ayPositions && ayPositions->size() > 0)
+ 	{
+ 		for (auto it = ayPositions->begin(); it != ayPositions->end(); it++)
+ 		{
+-			WTSPositionItem* pItem = (WTSPositionItem*)(*it);
++			WTSPositionItem* pItem = _position_by_query
++				? dynamic_cast<WTSPositionItem*>(*it) : (WTSPositionItem*)(*it);
++			if (_position_by_query && pItem == NULL)
++				throw std::invalid_argument("invalid position row type");
+ 			WTSContractInfo* cInfo = pItem->getContractInfo();
+ 			if (cInfo == NULL)
++			{
++				if (_position_by_query) throw std::invalid_argument("position contract missing");
+ 				continue;
+-
++			}
+ 			WTSCommodityInfo* commInfo = cInfo->getCommInfo();
++			if (_position_by_query && (commInfo == NULL || strcmp(pItem->getCode(), cInfo->getCode()) != 0
++				|| strcmp(pItem->getExchg(), cInfo->getExchg()) != 0))
++				throw std::invalid_argument("position contract mismatch");
+ 			std::string stdCode;
+ 			if (commInfo->getCategoty() == CC_FutOption || commInfo->getCategoty() == CC_SpotOption)
+ 				stdCode = CodeHelper::rawFutOptCodeToStdCode(cInfo->getCode(), cInfo->getExchg());
+-			else if (CodeHelper::isMonthlyCode(cInfo->getCode()))//如果是分月合约
++			else if (CodeHelper::isMonthlyCode(cInfo->getCode()))
+ 				stdCode = CodeHelper::rawMonthCodeToStdCode(cInfo->getCode(), cInfo->getExchg());
+ 			else
+ 				stdCode = CodeHelper::rawFlatCodeToStdCode(cInfo->getCode(), cInfo->getExchg(), cInfo->getProduct());
+-			PosItem& pos = _positions[stdCode];
+-			if (pItem->getDirection() == WDT_LONG)
+-			{
+-				pos.l_newavail = pItem->getAvailNewPos();
+-				pos.l_newvol = pItem->getNewPosition();
+-				pos.l_preavail = pItem->getAvailPrePos();
+-				pos.l_prevol = pItem->getPrePosition();
+-			}
++			if (_position_by_query)
++			{
++				const double pre = pItem->getPrePosition(), now = pItem->getNewPosition();
++				const double pa = pItem->getAvailPrePos(), na = pItem->getAvailNewPos();
++				const auto direction = pItem->getDirection();
++				if (stdCode.empty() || (direction != WDT_LONG && direction != WDT_SHORT)
++					|| !std::isfinite(pre) || !std::isfinite(now) || !std::isfinite(pa) || !std::isfinite(na)
++					|| pre < 0 || now < 0 || pa < 0 || na < 0 || pa > pre || na > now
++					|| !std::isfinite(pre + now) || !std::isfinite(pa + na))
++					throw std::invalid_argument("invalid position quantity or direction");
++				if (!seen.insert(stdCode + (direction == WDT_LONG ? ":L" : ":S")).second)
++					throw std::invalid_argument("duplicate position row");
++			}
++			auto apply = [pItem](PosItem& pos)
++			{
++				if (pItem->getDirection() == WDT_LONG)
++				{
++					pos.l_newavail = pItem->getAvailNewPos(); pos.l_newvol = pItem->getNewPosition();
++					pos.l_preavail = pItem->getAvailPrePos(); pos.l_prevol = pItem->getPrePosition();
++				}
++				else
++				{
++					pos.s_newavail = pItem->getAvailNewPos(); pos.s_newvol = pItem->getNewPosition();
++					pos.s_preavail = pItem->getAvailPrePos(); pos.s_prevol = pItem->getPrePosition();
++				}
++			};
++			if (_position_by_query)
++				apply(next[stdCode]);
+ 			else
+ 			{
+-				pos.s_newavail = pItem->getAvailNewPos();
+-				pos.s_newvol = pItem->getNewPosition();
+-				pos.s_preavail = pItem->getAvailPrePos();
+-				pos.s_prevol = pItem->getPrePosition();
+-			}
+-		}
+-
+-		for (auto it = _positions.begin(); it != _positions.end(); it++)
+-		{
+-			const char* stdCode = it->first.c_str();
+-			const PosItem& pItem = it->second;
+-			printPosition(stdCode, pItem);
+-			for (auto sink : _sinks)
+-			{
+-				sink->on_position(stdCode, true, pItem.l_prevol, pItem.l_preavail, pItem.l_newvol, pItem.l_newavail, _trading_day);
+-				sink->on_position(stdCode, false, pItem.s_prevol, pItem.s_preavail, pItem.s_newvol, pItem.s_newavail, _trading_day);
+-			}
+-		}
+-	}
+-
++				SpinLock lock(_mtx_positions);
++				apply(_positions[stdCode]);
++			}
++		}
++	}
++
++	PositionMap notifications;
++	if (_position_by_query)
++	{
++		// 通知工作值及差集在提交前准备，失败保持原表；swap不涉及外部调用。
++		// 零通知表达本地缓存键移除，不是一条伪造的来源零行。
++		notifications = next;
++		{
++			SpinLock lock(_mtx_positions);
++			for (const auto& old : _positions)
++				if (next.find(old.first) == next.end()) notifications.emplace(old.first, PosItem());
++			_positions.swap(next);
++		}
++	}
++	else if (ayPositions && ayPositions->size() > 0)
++		notifications = copyPositions();
++
++	for (const auto& entry : notifications)
++	{
++		const char* stdCode = entry.first.c_str();
++		const PosItem& pItem = entry.second;
++		printPosition(stdCode, pItem);
++		for (auto sink : _sinks)
++		{
++			sink->on_position(stdCode, true, pItem.l_prevol, pItem.l_preavail, pItem.l_newvol, pItem.l_newavail, _trading_day);
++			sink->on_position(stdCode, false, pItem.s_prevol, pItem.s_preavail, pItem.s_newvol, pItem.s_newavail, _trading_day);
++		}
++	}
+ 	WTSLogger::log_dyn("trader", _id.c_str(), LL_INFO,"[{}] Position data updated", _id.c_str());
+-
+ 	if (_state == AS_LOGINED)
+ 	{
+ 		_state = AS_POSITION_QRYED;
+-
+ 		_trader_api->queryOrders();
+ 	}
+ }
+ 
++namespace {
++struct QueryOrderRelease { void operator()(WTSObject* value) const { if(value)value->release(); } };
++bool queryOrderCode(WTSOrderInfo* order,std::string& code)
++{
++	if(order==NULL || order->getContractInfo()==NULL || order->getContractInfo()->getCommInfo()==NULL)
++		return false;
++	WTSContractInfo* contract=order->getContractInfo();
++	WTSCommodityInfo* commodity=contract->getCommInfo();
++	if(commodity->getCategoty()==CC_FutOption || commodity->getCategoty()==CC_SpotOption)
++		code=CodeHelper::rawFutOptCodeToStdCode(contract->getCode(),contract->getExchg());
++	else if(CodeHelper::isMonthlyCode(contract->getCode()))
++		code=CodeHelper::rawMonthCodeToStdCode(contract->getCode(),contract->getExchg());
++	else
++		code=CodeHelper::rawFlatCodeToStdCode(contract->getCode(),contract->getExchg(),contract->getProduct());
++	return true;
++}
++void copyQueryOrderCounters(TradeStatInfo& to,const TradeStatInfo& from)
++{
++	// 仅替换完整ORDER查询拥有的字段；成交量、信息量及频率时间缓存保持原职责。
++	to.b_orders=from.b_orders;to.b_ordqty=from.b_ordqty;to.s_orders=from.s_orders;to.s_ordqty=from.s_ordqty;
++	to.b_cancels=from.b_cancels;to.b_canclqty=from.b_canclqty;to.s_cancels=from.s_cancels;to.s_canclqty=from.s_canclqty;
++	to.b_auto_cancels=from.b_auto_cancels;to.b_auto_canclqty=from.b_auto_canclqty;
++	to.s_auto_cancels=from.s_auto_cancels;to.s_auto_canclqty=from.s_auto_canclqty;
++	to.b_wrongs=from.b_wrongs;to.b_wrongqty=from.b_wrongqty;to.s_wrongs=from.s_wrongs;to.s_wrongqty=from.s_wrongqty;
++}
++}
++
++uint32_t TraderAdapter::queryOrderLocalId(const char* tag) const
++{
++	const std::string prefix=_order_pattern+".";
++	if(tag==NULL || strncmp(tag,prefix.c_str(),prefix.size())!=0)return 0;
++	tag+=prefix.size();if(!*tag)return 0;
++	uint32_t id=0;
++	for(;*tag;++tag)
++	{
++		if(*tag<'0'||*tag>'9'||id>((std::numeric_limits<uint32_t>::max)()-(*tag-'0'))/10)return 0;
++		id=id*10+(*tag-'0');
++	}
++	return id==(std::numeric_limits<uint32_t>::max)()?0:id;
++}
++
++bool TraderAdapter::applyQueryOrders(const WTSArray* rows)
++{
++	if(rows==NULL)return false;
++	std::unique_ptr<OrderMap,QueryOrderRelease> orders(OrderMap::create());
++	std::unique_ptr<TradeStatMap,QueryOrderRelease> statistics(TradeStatMap::create());
++	wt_hashmap<std::string,double> quantities;
++	auto orderids=_orderids;
++	const TradeStatInfo empty;
++	// 候选完全准备后统一发布。保留既有成交统计，重复完整查询只刷新订单字段。
++	if(_stat_map)
++	{
++		for(auto it=_stat_map->begin();it!=_stat_map->end();++it)
++		{
++			auto* old=(WTSTradeStateInfo*)it->second;
++			std::unique_ptr<WTSTradeStateInfo,QueryOrderRelease> copy(WTSTradeStateInfo::create(old->code()));
++			copy->statInfo()=old->statInfo();copyQueryOrderCounters(copy->statInfo(),empty);
++			statistics->add(old->code(),copy.get());
++		}
++	}
++	for(auto it=rows->begin();it!=rows->end();++it)
++	{
++		auto* row=dynamic_cast<WTSOrderInfo*>(*it);std::string code;
++		if(!queryOrderCode(row,code) || !std::isfinite(row->getVolLeft()) || row->getVolLeft()<0
++			|| !std::isfinite(row->getVolume()) || !std::isfinite(row->getVolTraded()))return false;
++		const bool buy=(row->getDirection()==WDT_LONG&&row->getOffsetType()==WOT_OPEN)
++			||(row->getDirection()==WDT_SHORT&&row->getOffsetType()!=WOT_OPEN);
++		auto* info=(WTSTradeStateInfo*)statistics->get(code.c_str());
++		if(info==NULL)
++		{
++			std::unique_ptr<WTSTradeStateInfo,QueryOrderRelease> next(WTSTradeStateInfo::create(code.c_str()));
++			statistics->add(code,next.get());info=next.get();
++		}
++		TradeStatInfo& item=info->statInfo();
++		if(buy){++item.b_orders;item.b_ordqty+=row->getVolume();}
++		else{++item.s_orders;item.s_ordqty+=row->getVolume();}
++		const double inactive=row->getVolume()-row->getVolTraded();
++		if(row->isError())
++		{
++			if(buy){++item.b_wrongs;item.b_wrongqty+=inactive;}else{++item.s_wrongs;item.s_wrongqty+=inactive;}
++		}
++		else if(row->getOrderState()==WOS_Canceled)
++		{
++			if(row->getOrderFlag()==WOF_NOR)
++			{
++				if(buy){++item.b_cancels;item.b_canclqty+=inactive;}else{++item.s_cancels;item.s_canclqty+=inactive;}
++			}
++			else if(buy){++item.b_auto_cancels;item.b_auto_canclqty+=inactive;}
++			else{++item.s_auto_cancels;item.s_auto_canclqty+=inactive;}
++		}
++		orderids.insert(row->getOrderID());
++		const uint32_t localid=queryOrderLocalId(row->getUserTag());
++		if(!row->isAlive() || !localid)continue;
++		if(orders->get(localid)!=NULL)return false;
++		orders->add(localid,row);quantities[code]+=row->getVolLeft()*(buy?1:-1);
++	}
++	{
++		SpinLock lock(_mtx_orders);
++		// 表、余量、订单统计一并换入；本模式仅由交易owner发布，锁内不通知策略/调用API。
++		OrderMap* old_orders=_orders;_orders=orders.release();orders.reset(old_orders);
++		TradeStatMap* old_stats=_stat_map;_stat_map=statistics.release();statistics.reset(old_stats);
++		_undone_qty.swap(quantities);_orderids.swap(orderids);
++	}
++	return true;
++}
++
++void TraderAdapter::pushQueryOrder(WTSOrderInfo* row)
++{
++	std::string code;if(!queryOrderCode(row,code))return;
++	const bool buy=(row->getDirection()==WDT_LONG&&row->getOffsetType()==WOT_OPEN)
++		||(row->getDirection()==WDT_SHORT&&row->getOffsetType()!=WOT_OPEN);
++	const uint32_t localid=queryOrderLocalId(row->getUserTag());
++	// 推送继续原通知/日志，完整查询单独更新原表；不将已查询的余量再按回报扣减。
++	if(localid)for(auto sink:_sinks)
++		sink->on_order(localid,code.c_str(),buy,row->getVolume(),row->getVolLeft(),row->getPrice(),row->getOrderState()==WOS_Canceled);
++	if(_save_data&&!row->isAlive())logOrder(localid,code.c_str(),row);
++	if(_notifier)_notifier->notify(id(),localid,code.c_str(),row);
++	_trader_api->queryOrders();refreshPositionObservation();
++}
++
+ void TraderAdapter::onRspOrders(const WTSArray* ayOrders)
+ {
++	if(_order_by_query)
++	{
++		if(!applyQueryOrders(ayOrders))throw std::invalid_argument("query_order_batch_invalid");
++		if(_state==AS_POSITION_QRYED){_state=AS_ORDERS_QRYED;_trader_api->queryTrades();}
++		return;
++	}
+ 	if (ayOrders)
+ 	{
+ 		if (_orders == NULL)
+@@ -1860,6 +2100,7 @@
+ 
+ void TraderAdapter::onPushOrder(WTSOrderInfo* orderInfo)
+ {
++	if(_order_by_query){pushQueryOrder(orderInfo);return;}
+ 	if (orderInfo == NULL)
+ 		return;
+ 
+@@ -1966,64 +2207,69 @@
+ 			}
+ 
+ 			//只有平仓需要更新可平
+-			if (orderInfo->getOffsetType() != WOT_OPEN)
++			if (!_position_by_query && orderInfo->getOffsetType() != WOT_OPEN)
+ 			{
+ 				//const char* code = stdCode.c_str();
+ 				bool isLong = (orderInfo->getDirection() == WDT_LONG);
+ 				bool isToday = (orderInfo->getOffsetType() == WOT_CLOSETODAY);
+ 				double qty = orderInfo->getVolume();
+ 
+-				PosItem& pItem = _positions[stdCode];
+-				if (isLong)	//平多
+-				{
+-					if (isToday)
++				PosItem observed;
++				{
++					SpinLock lock(_mtx_positions);
++					PosItem& pItem = _positions[stdCode];
++					if (isLong)	//平多
+ 					{
+-						pItem.l_newavail -= min(pItem.l_newavail, qty);	//如果是平今, 则只需要更新可平今仓
+-					}
+-					else
+-					{
+-						double left = qty;
+-
+-						//如果是平仓, 则先更新可平昨仓, 还有剩余, 再更新可平今仓
+-						//如果品种区分平昨平今, 也按照这个流程, 因为平昨的总数量不可能超出昨仓
+-						double maxQty = min(pItem.l_preavail, qty);
+-						pItem.l_preavail -= maxQty;
+-						pItem.l_preavail = max(pItem.l_preavail, 0.0);
+-						left -= maxQty;
+-
+-						if (left > 0)
++						if (isToday)
+ 						{
+-							pItem.l_newavail -= min(pItem.l_newavail, left);
+-							pItem.l_newavail = max(pItem.l_newavail, 0.0);
++							pItem.l_newavail -= min(pItem.l_newavail, qty);	//如果是平今, 则只需要更新可平今仓
++						}
++						else
++						{
++							double left = qty;
++
++							//如果是平仓, 则先更新可平昨仓, 还有剩余, 再更新可平今仓
++							//如果品种区分平昨平今, 也按照这个流程, 因为平昨的总数量不可能超出昨仓
++							double maxQty = min(pItem.l_preavail, qty);
++							pItem.l_preavail -= maxQty;
++							pItem.l_preavail = max(pItem.l_preavail, 0.0);
++							left -= maxQty;
++
++							if (left > 0)
++							{
++								pItem.l_newavail -= min(pItem.l_newavail, left);
++								pItem.l_newavail = max(pItem.l_newavail, 0.0);
++							}
+ 						}
+ 					}
+-				}
+-				else //平空
+-				{
+-					if (isToday)
++					else //平空
+ 					{
+-						pItem.s_newavail -= min(pItem.s_newavail, qty);
+-					}
+-					else
+-					{
+-						double left = qty;
+-
+-						double maxQty = min(pItem.s_preavail, qty);
+-						pItem.s_preavail -= maxQty;
+-						pItem.s_preavail = max(pItem.s_preavail, 0.0);
+-						left -= maxQty;
+-
+-						if (left > 0)
++						if (isToday)
+ 						{
+-							pItem.s_newavail -= min(pItem.s_newavail, left);
+-							pItem.s_newavail = max(pItem.s_newavail, 0.0);
++							pItem.s_newavail -= min(pItem.s_newavail, qty);
++						}
++						else
++						{
++							double left = qty;
++
++							double maxQty = min(pItem.s_preavail, qty);
++							pItem.s_preavail -= maxQty;
++							pItem.s_preavail = max(pItem.s_preavail, 0.0);
++							left -= maxQty;
++
++							if (left > 0)
++							{
++								pItem.s_newavail -= min(pItem.s_newavail, left);
++								pItem.s_newavail = max(pItem.s_newavail, 0.0);
++							}
+ 						}
+ 					}
+-				}
+-				printPosition(stdCode.c_str(), pItem);
+-			}
+-		}
+-		else if (orderInfo->getOrderState() == WOS_Canceled && orderInfo->getOffsetType() != WOT_OPEN)
++					observed = pItem;
++				}
++				printPosition(stdCode.c_str(), observed);
++			}
++		}
++		else if (!_position_by_query && orderInfo->getOrderState() == WOS_Canceled && orderInfo->getOffsetType() != WOT_OPEN)
+ 		{
+ 			//如果订单不是第一次推送, 且撤销了, 则要更新可平量
+ 			//const char* code = orderInfo->getCode();
+@@ -2031,40 +2277,45 @@
+ 			bool isToday = (orderInfo->getOffsetType() == WOT_CLOSETODAY);
+ 			double qty = orderInfo->getVolume() - orderInfo->getVolTraded();
+ 
+-			PosItem& pItem = _positions[stdCode];
+-			if (isLong)	//平多
+-			{
+-				if (isToday)
+-				{
+-					pItem.l_newavail += qty;	//如果是平今, 则只需要更新可平今仓
+-				}
+-				else
+-				{
+-					pItem.l_preavail += qty;
+-					if (pItem.l_preavail > pItem.l_prevol)
++			PosItem observed;
++			{
++				SpinLock lock(_mtx_positions);
++				PosItem& pItem = _positions[stdCode];
++				if (isLong)	//平多
++				{
++					if (isToday)
+ 					{
+-						pItem.l_newavail += (pItem.l_preavail - pItem.l_prevol);
+-						pItem.l_preavail = pItem.l_prevol;
++						pItem.l_newavail += qty;	//如果是平今, 则只需要更新可平今仓
+ 					}
+-				}
+-			}
+-			else //平空
+-			{
+-				if (isToday)
+-				{
+-					pItem.s_newavail += qty;
+-				}
+-				else
+-				{
+-					pItem.s_preavail += qty;
+-					if (pItem.s_preavail > pItem.s_prevol)
++					else
+ 					{
+-						pItem.s_newavail += (pItem.s_preavail - pItem.s_prevol);
+-						pItem.s_preavail = pItem.s_prevol;
++						pItem.l_preavail += qty;
++						if (pItem.l_preavail > pItem.l_prevol)
++						{
++							pItem.l_newavail += (pItem.l_preavail - pItem.l_prevol);
++							pItem.l_preavail = pItem.l_prevol;
++						}
+ 					}
+ 				}
+-			}
+-			printPosition(stdCode.c_str(), pItem);
++				else //平空
++				{
++					if (isToday)
++					{
++						pItem.s_newavail += qty;
++					}
++					else
++					{
++						pItem.s_preavail += qty;
++						if (pItem.s_preavail > pItem.s_prevol)
++						{
++							pItem.s_newavail += (pItem.s_preavail - pItem.s_prevol);
++							pItem.s_preavail = pItem.s_prevol;
++						}
++					}
++				}
++				observed = pItem;
++			}
++			printPosition(stdCode.c_str(), observed);
+ 		}
+ 	}
+ 
+@@ -2129,6 +2380,9 @@
+ 
+ 	if (_notifier)
+ 		_notifier->notify(id(), localid, stdCode.c_str(), orderInfo);
++
++	// 订单及策略通知完成后请求账户缓存观察；锁内不进入交易接口。
++	refreshPositionObservation();
+ }
+ 
+ void TraderAdapter::onPushTrade(WTSTradeInfo* tradeRecord)
+@@ -2156,7 +2410,6 @@
+ 		"[{}] Trade notified, instrument: {}, usertag: {}, trdqty: {}, trdprice: {}", 
+ 			_id.c_str(), stdCode.c_str(), tradeRecord->getUserTag(), tradeRecord->getVolume(), tradeRecord->getPrice());
+ 
+-	PosItem& pItem = _positions[stdCode];
+ 	WTSTradeStateInfo* statInfo = (WTSTradeStateInfo*)_stat_map->get(stdCode.c_str());
+ 	if (statInfo == NULL)
+ 	{
+@@ -2166,63 +2419,69 @@
+ 
+ 	TradeStatInfo& statItem = statInfo->statInfo();
+ 	double vol = tradeRecord->getVolume();
+-	if(isLong)
+-	{
+-		if (isOpen)
+-		{
+-			pItem.l_newvol += vol;
+-
+-			if(!commInfo->isT1())	//如果不是T1，则更新可用持仓
+-				pItem.l_newavail += vol;
+-
+-			statItem.l_openvol += vol;
+-		}
+-		else if (tradeRecord->getOffsetType() == WOT_CLOSETODAY)
+-		{
+-			pItem.l_newvol -= vol;
+-
+-			statItem.l_closevol += vol;
+-		}
+-		else
+-		{
+-			double left = vol;
+-			double maxVol = min(left, pItem.l_prevol);
+-			pItem.l_prevol -= maxVol;
+-			left -= maxVol;
+-			pItem.l_newvol -= left;
+-
+-			statItem.l_closevol += vol;
+-		}
++	// 成交统计继续原增量；账户持仓仅在默认模式应用成交算术。
++	if (isLong)
++	{
++		if (isOpen) statItem.l_openvol += vol; else statItem.l_closevol += vol;
+ 	}
+ 	else
+ 	{
+-		if (isOpen)
+-		{
+-			pItem.s_newvol += vol;
+-			if (!commInfo->isT1())	//如果不是T1，则更新可用持仓
+-				pItem.s_newavail += vol;
+-
+-			statItem.s_openvol += vol;
+-		}
+-		else if (tradeRecord->getOffsetType() == WOT_CLOSETODAY)
+-		{
+-			pItem.s_newvol -= vol;
+-
+-			statItem.s_closevol += vol;
+-		}
+-		else
+-		{
+-			double left = vol;
+-			double maxVol = min(left, pItem.s_prevol);
+-			pItem.s_prevol -= maxVol;
+-			left -= maxVol;
+-			pItem.s_newvol -= left;
+-
+-			statItem.s_closevol += vol;
+-		}
+-	}
+-
+-	printPosition(stdCode.c_str(), pItem);
++		if (isOpen) statItem.s_openvol += vol; else statItem.s_closevol += vol;
++	}
++	if (!_position_by_query)
++	{
++		PosItem observed;
++		{
++			SpinLock lock(_mtx_positions);
++			PosItem& pItem = _positions[stdCode];
++			if(isLong)
++			{
++				if (isOpen)
++				{
++					pItem.l_newvol += vol;
++
++					if(!commInfo->isT1())	//如果不是T1，则更新可用持仓
++						pItem.l_newavail += vol;
++				}
++				else if (tradeRecord->getOffsetType() == WOT_CLOSETODAY)
++				{
++					pItem.l_newvol -= vol;
++				}
++				else
++				{
++					double left = vol;
++					double maxVol = min(left, pItem.l_prevol);
++					pItem.l_prevol -= maxVol;
++					left -= maxVol;
++					pItem.l_newvol -= left;
++				}
++			}
++			else
++			{
++				if (isOpen)
++				{
++					pItem.s_newvol += vol;
++					if (!commInfo->isT1())	//如果不是T1，则更新可用持仓
++						pItem.s_newavail += vol;
++				}
++				else if (tradeRecord->getOffsetType() == WOT_CLOSETODAY)
++				{
++					pItem.s_newvol -= vol;
++				}
++				else
++				{
++					double left = vol;
++					double maxVol = min(left, pItem.s_prevol);
++					pItem.s_prevol -= maxVol;
++					left -= maxVol;
++					pItem.s_newvol -= left;
++				}
++			}
++
++			observed = pItem;
++		}
++		printPosition(stdCode.c_str(), observed);
++	}
+ 
+ 	//如果是自己的订单，则更新未完成单
+ 	uint32_t localid = 0;
+@@ -2249,6 +2508,8 @@
+ 		_notifier->notify(id(), localid, stdCode.c_str(), tradeRecord);
+ 
+ 	_trader_api->queryAccount();
++	if(_order_by_query)_trader_api->queryOrders();
++	refreshPositionObservation();
+ }
+ 
+ void TraderAdapter::onTraderError(WTSError* err, void* pData /* = NULL */)
+--- a/src/WtCore/TraderAdapter.h
++++ b/src/WtCore/TraderAdapter.h
+@@ -102,6 +102,9 @@
+ public:
+ 	bool init(const char* id, WTSVariant* params, IBaseDataMgr* bdMgr, ActionPolicyMgr* policyMgr);
+ 	bool initExt(const char* id, ITraderApi* api, IBaseDataMgr* bdMgr, ActionPolicyMgr* policyMgr);
++	// 显式选择完整账户缓存查询归约；只在首次初始化前使用，旧入口保持false。
++	// 成功空批清空缓存观察；该模式不证明柜台新鲜度或P/O同一时点。
++	bool initExt(const char* id, ITraderApi* api, IBaseDataMgr* bdMgr, ActionPolicyMgr* policyMgr, bool position_by_query);
+ 
+ 	void release();
+ 
+@@ -139,12 +142,20 @@
+ 	void	saveData(WTSArray* ayFunds = NULL);
+ 
+ 	inline void updateUndone(const char* stdCode, double qty, bool bOuput = true);
++	bool applyQueryOrders(const WTSArray* rows);
++	void pushQueryOrder(WTSOrderInfo* row);
++	uint32_t queryOrderLocalId(const char* tag) const;
+ 
+ public:
+ 	double getPosition(const char* stdCode, bool bValidOnly, int32_t flag = 3);
+ 	OrderMap* getOrders(const char* stdCode);
+ 	double getUndoneQty(const char* stdCode)
+ 	{
++		if(_order_by_query)
++		{
++			SpinLock lock(_mtx_orders);auto it=_undone_qty.find(stdCode);
++			return it==_undone_qty.end()?0:it->second;
++		}
+ 		auto it = _undone_qty.find(stdCode);
+ 		if (it != _undone_qty.end())
+ 			return it->second;
+@@ -228,8 +239,16 @@
+ 	IBaseDataMgr*		_bd_mgr;
+ 	ActionPolicyMgr*	_policy_mgr;
+ 
+-	wt_hashmap<std::string, PosItem> _positions;
+-
++	// 唯一账户持仓表。锁内只读取/提交值，外部回调、日志及API均在锁外。
++	typedef wt_hashmap<std::string, PosItem> PositionMap;
++	PositionMap _positions;
++	SpinMutex _mtx_positions;
++	bool _position_by_query; // 默认false；运行期间不热切模式。
++	PositionMap copyPositions();
++	PosItem copyPositionForOrder(const char* stdCode);
++	void refreshPositionObservation();
++
++	bool _order_by_query; // order_context=query_first显式启用；默认/native完整保留原路径。
+ 	SpinMutex	_mtx_orders;
+ 	OrderMap*	_orders;
+ 	wt_hashset<std::string> _orderids;	//主要用于标记有没有处理过该订单
+--- a/src/WtCore/WtCtaEngine.cpp
++++ b/src/WtCore/WtCtaEngine.cpp
+@@ -33,6 +33,7 @@
+ 
+ WtCtaEngine::WtCtaEngine()
+ 	: _tm_ticker(NULL)
++	, _cfg(NULL)
+ {
+ 	
+ }
+@@ -48,6 +49,32 @@
+ 
+ 	if (_cfg)
+ 		_cfg->release();
++}
++
++void WtCtaEngine::request_stop()
++{
++	if (_tm_ticker)
++		_tm_ticker->request_stop();
++}
++
++bool WtCtaEngine::stop()
++{
++	if (_tm_ticker)
++		_tm_ticker->stop();
++	if (_pool)
++	{
++		_pool->wait();
++		_pool.reset();
++	}
++	if (_risk_mon)
++		_risk_mon->self()->stop();
++	return stop_tasks();
++}
++
++void WtCtaEngine::release_contexts()
++{
++	// parser/ticker/pool/task 全部结束；工厂和基础数据仍由宿主持有。
++	_ctx_map.clear();
+ }
+ 
+ void WtCtaEngine::run()
+--- a/src/WtCore/WtCtaEngine.h
++++ b/src/WtCore/WtCtaEngine.h
+@@ -59,6 +59,11 @@
+ 
+ 	void handle_pos_change(const char* straName, const char* stdCode, double diffPos);
+ 
++	// 宿主先停止并等待 parser；本入口完成 ticker/pool/task 的收束。
++	void request_stop();
++	bool stop();
++	void release_contexts();
++
+ 	void addContext(CtaContextPtr ctx);
+ 	
+ 	CtaContextPtr	getContext(uint32_t id);
+--- a/src/WtCore/WtCtaTicker.cpp
++++ b/src/WtCore/WtCtaTicker.cpp
+@@ -167,7 +167,8 @@
+ 
+ void WtCtaRtTicker::run()
+ {
+-	if (_thrd)
++	StdUniqueLock joining(_join_mutex);
++	if (_thrd || _stopped.load())
+ 		return;
+ 
+ 	/*
+@@ -180,17 +181,24 @@
+ 	WTSLogger::info("Trading date confirmed: {}", curTDate);
+ 	_engine->on_init();
+ 	_engine->on_session_begin();
++	if (_stopped.load())
++		return;
+ 
+ 	//先检查当前时间, 如果大于
+ 
+ 	_thrd.reset(new StdThread([this](){
+-		while(!_stopped)
++		{
++			StdUniqueLock lock(_stop_wait_mutex);
++			_worker_id = std::this_thread::get_id();
++		}
++		while(!_stopped.load())
+ 		{
+ 			uint32_t offTime = _s_info->offsetTime(_engine->get_min_time(), true);
+ 
+ 			if (_time != UINT_MAX && _s_info->isInTradingTime(_time / 100000, true))
+ 			{
+-				std::this_thread::sleep_for(std::chrono::milliseconds(10));
++				if (wait_for_stop(10))
++					break;
+ 				uint64_t now = TimeUtils::getLocalTimeNow();
+ 
+ 				if (now >= _next_check_time && _last_emit_pos < _cur_pos)
+@@ -265,17 +273,41 @@
+ 				}
+ 				else
+ 				{
+-					std::this_thread::sleep_for(std::chrono::seconds(10));
++					wait_for_stop(10000);
+ 				}
+ 			}
+ 		}
++		StdUniqueLock lock(_stop_wait_mutex);
++		_worker_id = std::thread::id();
+ 	}));
+ }
+ 
++void WtCtaRtTicker::request_stop()
++{
++	{
++		StdUniqueLock lock(_stop_wait_mutex);
++		_stopped.store(true);
++	}
++	_stop_wakeup.notify_all();
++}
++
++bool WtCtaRtTicker::wait_for_stop(uint32_t milliseconds)
++{
++	StdUniqueLock lock(_stop_wait_mutex);
++	return _stop_wakeup.wait_for(lock, std::chrono::milliseconds(milliseconds),
++		[this] { return _stopped.load(); });
++}
++
+ void WtCtaRtTicker::stop()
+ {
+-	_stopped = true;
+-	if (_thrd)
++	request_stop();
++	{
++		StdUniqueLock lock(_stop_wait_mutex);
++		if (_worker_id == std::this_thread::get_id())
++			return;
++	}
++	StdUniqueLock joining(_join_mutex);
++	if (_thrd && _thrd->joinable())
+ 		_thrd->join();
+ }
+ 
+@@ -293,4 +325,4 @@
+ 		return uTime;
+ 
+ 	return _s_info->timeToMinutes(uTime, true);
+-}
+\ No newline at end of file
++}
+--- a/src/WtCore/WtCtaTicker.h
++++ b/src/WtCore/WtCtaTicker.h
+@@ -41,6 +41,9 @@
+ 	void	on_tick(WTSTickData* curTick);
+ 
+ 	void	run();
++	// 可从普通回调请求；唤醒计时等待，已进入的分钟回调整批完成。
++	void	request_stop();
++	// 控制线程等待 ticker 退出；重复/并发调用安全，worker 内调用仅请求停止。
+ 	void	stop();
+ 
+ 	bool		is_in_trading() const;
+@@ -48,6 +51,7 @@
+ 
+ private:
+ 	void	trigger_price(WTSTickData* curTick);
++	bool	wait_for_stop(uint32_t milliseconds);
+ 
+ private:
+ 	WTSSessionInfo*	_s_info;
+@@ -63,8 +67,12 @@
+ 	std::atomic<uint64_t>	_next_check_time;
+ 	std::atomic<uint32_t>	_last_emit_pos;
+ 
+-	bool			_stopped;
++	std::atomic<bool> _stopped;
+ 	StdThreadPtr	_thrd;
++	StdUniqueMutex	_stop_wait_mutex;
++	StdCondVariable	_stop_wakeup;
++	StdUniqueMutex	_join_mutex;
++	std::thread::id	_worker_id;
+ 
+ };
+-NS_WTP_END
+\ No newline at end of file
++NS_WTP_END
+--- a/src/WtCore/WtDtMgr.cpp
++++ b/src/WtCore/WtDtMgr.cpp
+@@ -25,18 +25,24 @@
+ 
+ WtDtMgr::WtDtMgr()
+ 	: _reader(NULL)
++	, _stopper(NULL)
++	, _remover(NULL)
++	, _module(NULL)
++	, _stop_confirmed(false)
+ 	, _engine(NULL)
+ 	, _loader(NULL)
+ 	, _bars_cache(NULL)
+ 	, _ticks_adjusted(NULL)
+ 	, _rt_tick_map(NULL)
+ 	, _force_cache(false)
++	, _align_by_section(false)
+ {
+ }
+ 
+ 
+ WtDtMgr::~WtDtMgr()
+ {
++	// 保持旧析构行为；reader只由已停止生产者的受管路径显式release。
+ 	if (_bars_cache)
+ 		_bars_cache->release();
+ 
+@@ -47,7 +53,7 @@
+ 		_rt_tick_map->release();
+ }
+ 
+-bool WtDtMgr::initStore(WTSVariant* cfg)
++bool WtDtMgr::initStore(WTSVariant* cfg, bool require_stop)
+ {
+ 	if (cfg == NULL)
+ 		return false;
+@@ -64,12 +70,19 @@
+ 		WTSLogger::error("Loading data reader module {} failed", module.c_str());
+ 		return false;
+ 	}
++	_module = hInst;
++	_stopper = (FuncStopDataReader)DLLHelper::get_symbol(hInst, "stopDataReader");
++	_remover = (FuncDeleteDataReader)DLLHelper::get_symbol(hInst, "deleteDataReader");
++	if (require_stop && (!_stopper || !_remover))
++	{
++		WTSLogger::error("Data reader module {} has no managed stop/delete exports", module.c_str());
++		return false;
++	}
+ 
+ 	FuncCreateDataReader funcCreator = (FuncCreateDataReader)DLLHelper::get_symbol(hInst, "createDataReader");
+ 	if(funcCreator == NULL)
+ 	{
+ 		WTSLogger::error("Loading data reader module {} failed, entrance function createDataReader not found", module.c_str());
+-		DLLHelper::free_library(hInst);
+ 		return false;
+ 	}
+ 
+@@ -77,7 +90,6 @@
+ 	if(_reader == NULL)
+ 	{
+ 		WTSLogger::error("Creating instance of data reader module {} failed", module.c_str());
+-		DLLHelper::free_library(hInst);
+ 		return false;
+ 	}
+ 
+@@ -86,8 +98,9 @@
+ 	return true;
+ }
+ 
+-bool WtDtMgr::init(WTSVariant* cfg, WtEngine* engine, bool bForceCache /* = false */)
+-{
++bool WtDtMgr::init(WTSVariant* cfg, WtEngine* engine, bool bForceCache /* = false */, bool require_stop /* = false */)
++{
++	if (!cfg || _reader || _module) return false;
+ 	_engine = engine;
+ 
+ 	_align_by_section = cfg->getBoolean("align_by_section");
+@@ -98,7 +111,38 @@
+ 
+ 	WTSLogger::info("Force to cache bars: {}", _force_cache ? "yes" : " no");
+ 
+-	return initStore(cfg->get("store"));
++	try { return initStore(cfg->get("store"), require_stop); }
++	catch (...) { return false; }
++}
++
++bool WtDtMgr::supports_stop() const
++{
++	return _reader != NULL && _stopper != NULL && _remover != NULL;
++}
++
++bool WtDtMgr::stop(uint32_t timeout_ms)
++{
++	if (_reader == NULL || _stop_confirmed) return true;
++	if (!supports_stop()) return false;
++	try
++	{
++		if (!_stopper(_reader, timeout_ms)) return false;
++	}
++	catch (...) { return false; }
++	_stop_confirmed = true;
++	return true;
++}
++
++void WtDtMgr::release()
++{
++	// 不在这里调用stop：调用方须先结束ticker、parser、pool和base task生产者。
++	if (_reader && !_stop_confirmed) return;
++	_bar_notifies.clear();
++	_subed_basic_bars.clear();
++	if (_bars_cache) { _bars_cache->release(); _bars_cache = NULL; }
++	if (_ticks_adjusted) { _ticks_adjusted->release(); _ticks_adjusted = NULL; }
++	if (_rt_tick_map) { _rt_tick_map->release(); _rt_tick_map = NULL; }
++	if (_reader) { _remover(_reader); _reader = NULL; }
+ }
+ 
+ void WtDtMgr::on_all_bar_updated(uint32_t updateTime)
+--- a/src/WtCore/WtDtMgr.h
++++ b/src/WtCore/WtDtMgr.h
+@@ -14,6 +14,7 @@
+ 
+ #include "../Includes/FasterDefs.h"
+ #include "../Includes/WTSCollection.hpp"
++#include "../Share/DLLHelper.hpp"
+ 
+ NS_WTP_BEGIN
+ class WTSVariant;
+@@ -31,10 +32,14 @@
+ 	~WtDtMgr();
+ 
+ private:
+-	bool	initStore(WTSVariant* cfg);
++	bool	initStore(WTSVariant* cfg, bool require_stop);
+ 
+ public:
+-	bool	init(WTSVariant* cfg, WtEngine* engine, bool bForceCache = false);
++	bool	init(WTSVariant* cfg, WtEngine* engine, bool bForceCache = false, bool require_stop = false);
++	// 生产者已结束后由控制线程调用。false保留reader及缓存，成功后才release。
++	bool	supports_stop() const;
++	bool	stop(uint32_t timeout_ms);
++	void	release();
+ 
+ 	void	regsiter_loader(IHisDataLoader* loader) { _loader = loader; }
+ 
+@@ -70,6 +75,11 @@
+ 
+ private:
+ 	IDataReader*	_reader;
++	typedef bool (*FuncStopDataReader)(IDataReader*, uint32_t);
++	FuncStopDataReader _stopper;
++	FuncDeleteDataReader _remover;
++	DllHandle		_module;	// 模块保留到进程退出，允许停止后最后slice/tick release。
++	bool			_stop_confirmed;
+ 	IHisDataLoader*	_loader;
+ 	WtEngine*		_engine;
+ 
+@@ -103,4 +113,4 @@
+ 	std::vector<NotifyItem> _bar_notifies;
+ };
+ 
+-NS_WTP_END
+\ No newline at end of file
++NS_WTP_END
+--- a/src/WtCore/WtEngine.cpp
++++ b/src/WtCore/WtEngine.cpp
+@@ -36,6 +36,17 @@
+ 
+ USING_NS_WTP;
+ 
++namespace
++{
++	thread_local WtEngine* task_worker_owner = nullptr;
++	struct TaskWorkerScope
++	{
++		WtEngine* previous;
++		explicit TaskWorkerScope(WtEngine* owner) : previous(task_worker_owner) { task_worker_owner = owner; }
++		~TaskWorkerScope() { task_worker_owner = previous; }
++	};
++}
++
+ WtEngine::WtEngine()
+ 	: _port_fund(NULL)
+ 	, _risk_volscale(1.0)
+@@ -1071,50 +1082,109 @@
+ 	}
+ }
+ 
+-void WtEngine::push_task(TaskItem task)
++bool WtEngine::push_task(TaskItem task)
+ {
+ 	{
+ 		StdUniqueLock lock(_mtx_task);
+-		_task_queue.push(task);
+-	}
+-	
+-
+-	if (_thrd_task == NULL)
+-	{
+-		_thrd_task.reset(new StdThread([this]{
+-			task_loop();
+-		}));
++		if (_terminated)
++			return false;
++
++		// 与准入、停止使用同一把锁，确保多个生产者只创建一个 worker。
++		// 创建失败时尚未接纳任务，异常由调用方处理。
++		if (!_thrd_task)
++			_thrd_task = std::make_shared<StdThread>([this] { task_loop(); });
++		_task_queue.push(std::move(task));
++		++_task_stats.accepted;
+ 	}
+ 
+ 	_cond_task.notify_all();
++	return true;
+ }
+ 
+ void WtEngine::task_loop()
+ {
+-	while (!_terminated)
++	// 标记覆盖闭包析构阶段，异常放弃队列时的资源清理也不能等待当前线程。
++	TaskWorkerScope worker_scope(this);
++	for (;;)
+ 	{
+ 		TaskQueue temp;
+ 		{
+ 			StdUniqueLock lock(_mtx_task);
+-			if(_task_queue.empty())
++			_cond_task.wait(lock, [this] { return _terminated || !_task_queue.empty(); });
++			if (_task_queue.empty())
+ 			{
+-				_cond_task.wait(_mtx_task);
+-				continue;
++				return;
+ 			}
+-
++			// 关闭准入后继续处理已接纳队列，以及此前交换出的本地批次。
+ 			temp.swap(_task_queue);
+ 		}
+ 
+-		for (;;)
+-		{
+-			if(temp.empty())
+-				break;
+-
+-			TaskItem& item = temp.front();
+-			item();
++		while (!temp.empty())
++		{
++			TaskItem item = std::move(temp.front());
+ 			temp.pop();
+-		}
+-	}
++			try
++			{
++				item();
++				StdUniqueLock lock(_mtx_task);
++				++_task_stats.completed;
++			}
++			catch (...)
++			{
++				TaskQueue abandoned;
++				{
++					StdUniqueLock lock(_mtx_task);
++					_task_failure = std::current_exception();
++					++_task_stats.failed;
++					_terminated = true;
++					_task_stats.not_executed += temp.size() + _task_queue.size();
++					abandoned.swap(_task_queue);
++				}
++				// 释放未执行闭包也在锁外；异常任务可能已有副作用，保留失败身份且不重放。
++				_cond_task.notify_all();
++				return;
++			}
++		}
++	}
++}
++
++bool WtEngine::stop_tasks()
++{
++	bool self;
++	{
++		StdUniqueLock lock(_mtx_task);
++		_terminated = true;
++		self = task_worker_owner == this;
++	}
++	_cond_task.notify_all();
++	if (self)
++		return false;
++
++	// join 不持队列锁；单独串行化多个关闭者，避免重复 join 或阻挡 worker 排空。
++	StdUniqueLock joining(_mtx_task_join);
++	StdThreadPtr worker;
++	{
++		StdUniqueLock lock(_mtx_task);
++		worker = _thrd_task;
++	}
++	if (worker && worker->joinable())
++		worker->join();
++
++	StdUniqueLock lock(_mtx_task);
++	_thrd_task.reset();
++	return _task_stats.failed == 0 && _task_stats.not_executed == 0;
++}
++
++WtEngine::TaskStopStats WtEngine::task_stop_stats()
++{
++	StdUniqueLock lock(_mtx_task);
++	return _task_stats;
++}
++
++std::exception_ptr WtEngine::task_failure()
++{
++	StdUniqueLock lock(_mtx_task);
++	return _task_failure;
+ }
+ 
+ bool WtEngine::init_riskmon(WTSVariant* cfg)
+@@ -1215,4 +1285,4 @@
+ 			<< totalprofit << "\n";
+ 		_close_logs->write_file(ss.str());
+ 	}
+-}
+\ No newline at end of file
++}
+--- a/src/WtCore/WtEngine.h
++++ b/src/WtCore/WtEngine.h
+@@ -10,6 +10,7 @@
+ #pragma once
+ #include <queue>
+ #include <functional>
++#include <exception>
+ #include <stdint.h>
+ 
+ #include "ParserAdapter.h"
+@@ -83,6 +84,21 @@
+ public:
+ 	WtEngine();
+ 
++	struct TaskStopStats
++	{
++		uint64_t accepted = 0;
++		uint64_t completed = 0;
++		uint64_t failed = 0;
++		uint64_t not_executed = 0;
++	};
++
++	// 宿主先停止任务生产者，再从控制线程关闭准入并等待所有已接纳任务。
++	// false 表示任务失败，或当前调用来自 worker（仅提交关闭请求，尚未 join）。
++	// 外部重复/并发调用安全；失败任务不重放，其后任务计入 not_executed。
++	bool stop_tasks();
++	TaskStopStats task_stop_stats();
++	std::exception_ptr task_failure();
++
+ 	inline void set_adapter_mgr(TraderAdapterMgr* mgr) { _adapter_mgr = mgr; }
+ 
+ 	void set_date_time(uint32_t curDate, uint32_t curTime, uint32_t curSecs = 0, uint32_t rawTime = 0);
+@@ -179,7 +195,7 @@
+ 
+ 	void		task_loop();
+ 
+-	void		push_task(TaskItem task);
++	bool		push_task(TaskItem task);
+ 
+ 	void		update_fund_dynprofit();
+ 
+@@ -308,6 +324,9 @@
+ 	StdUniqueMutex	_mtx_task;
+ 	StdCondVariable	_cond_task;
+ 	bool			_terminated;
++	StdUniqueMutex	_mtx_task_join;
++	TaskStopStats	_task_stats;
++	std::exception_ptr _task_failure;
+ 
+ 	typedef struct _RiskMonFactInfo
+ 	{
+@@ -332,4 +351,4 @@
+ 	//用于标记是否可以推送tickle
+ 	bool			_ready;
+ };
+-NS_WTP_END
+\ No newline at end of file
++NS_WTP_END
+--- a/src/WtRunner/WtRunner.cpp
++++ b/src/WtRunner/WtRunner.cpp
+@@ -20,6 +20,15 @@
+ #include "../WTSUtils/WTSCfgLoader.h"
+ #include "../WTSUtils/SignalHook.hpp"
+ #include "../Share/StrUtil.hpp"
++#include <csignal>
++
++namespace
++{
++// C++ lock-free 原子操作可用于普通信号处理；处理函数不进入日志或对象调用。
++static_assert(ATOMIC_BOOL_LOCK_FREE == 2, "Managed stop needs signal-safe lock-free bool");
++std::atomic<bool> managedSignalRequested(false);
++void requestManagedSignal(int) { managedSignalRequested.store(true); }
++}
+ 
+ 
+ const char* getBinDir()
+@@ -38,22 +47,37 @@
+ 
+ 
+ WtRunner::WtRunner()
+-	: _data_store(NULL)
++	: _config(NULL)
++	, _engine(NULL)
++	, _data_store(NULL)
+ 	, _is_hft(false)
+ 	, _is_sel(false)
+ 	, _to_exit(false)
++	, _exit_code(0)
++	, _managed_stop(false)
++	, _configured(false)
++	, _started(false)
++	, _stop_begun(false)
++	, _engine_stopped(false)
++	, _stop_complete(false)
+ {
+ 	install_signal_hooks([](const char* message) {
+ 		WTSLogger::error(message);
+ 	}, [this](bool bStopped) {
+ 		_to_exit = bStopped;
+-		WTSLogger::info("Exit flag is {}", _to_exit);
++		WTSLogger::info("Exit flag is {}", _to_exit.load());
+ 	});
+ }
+ 
+ 
+ WtRunner::~WtRunner()
+ {
++	if (_managed_stop)
++	{
++		// 未确认停止时保留整个成员依赖图，继续等待由插件负责的在途调用。
++		while (!stop())
++			std::this_thread::sleep_for(std::chrono::milliseconds(10));
++	}
+ }
+ 
+ void WtRunner::init(const std::string& filename)
+@@ -70,6 +94,11 @@
+ 
+ bool WtRunner::config(const std::string& filename)
+ {
++	std::lock_guard<std::mutex> lifecycle(_lifecycle_mutex);
++	try
++	{
++	if (_config || _started || _stop_complete)
++		return false;
+ 	_config = WTSCfgLoader::load_from_file(filename);
+ 	if(_config == NULL)
+ 	{
+@@ -77,8 +106,48 @@
+ 		return false;
+ 	}
+ 
++	WTSVariant* env = _config->get("env");
++	_managed_stop = env && env->getBoolean("managed_stop");
++	if (_managed_stop)
++	{
++		const char* mode = env->getCString("name");
++		WTSVariant* risk = env->get("riskmon");
++		WTSVariant* notifier = _config->get("notifier");
++		if (notifier && notifier->getBoolean("active"))
++		{
++			WTSLogger::error("Managed stop requires an inactive notifier");
++			return false;
++		}
++		if ((strlen(mode) && wt_stricmp(mode, "cta") != 0) || (risk && risk->getBoolean("active")))
++		{
++			WTSLogger::error("Managed stop requires CTA without an active risk monitor");
++			return false;
++		}
++		for (const char* key : { "traders", "executers" })
++		{
++			WTSVariant* entries = _config->get(key);
++			if (entries && (entries->type() != WTSVariant::VT_Array || entries->size() != 0))
++			{
++				WTSLogger::error("Managed stop requires an empty {} array", key);
++				return false;
++			}
++		}
++		// 受管模式当前使用内嵌 parser 列表，避免忽略外部配置加载失败。
++		WTSVariant* parsers = _config->get("parsers");
++		if (parsers && parsers->type() != WTSVariant::VT_Array)
++			return false;
++		managedSignalRequested.store(false);
++		std::signal(SIGINT, requestManagedSignal);
++		std::signal(SIGTERM, requestManagedSignal);
++#ifdef _WIN32
++		std::signal(SIGBREAK, requestManagedSignal);
++#endif
++	}
++
+ 	//基础数据文件
+ 	WTSVariant* cfgBF = _config->get("basefiles");
++	if (cfgBF == NULL)
++		return false;
+ 	if (cfgBF->get("session"))
+ 		_bd_mgr.loadSessions(cfgBF->getCString("session"));
+ 
+@@ -154,10 +223,12 @@
+ 	}
+ 
+ 	//初始化运行环境
+-	initEngine();
++	if (!initEngine())
++		return false;
+ 
+ 	//初始化数据管理
+-	initDataMgr();
++	if (!initDataMgr())
++		return false;
+ 
+ 	if (!initActionPolicy())
+ 		return false;
+@@ -191,7 +262,8 @@
+ 		}
+ 		else if (cfgParser->type() == WTSVariant::VT_Array)
+ 		{
+-			initParsers(cfgParser);
++			if (!initParsers(cfgParser) && _managed_stop)
++				return false;
+ 		}
+ 	}
+ 
+@@ -275,12 +347,24 @@
+ 			_cta_engine.loadRouterRules(cfgRouter);
+ 	}
+ 
++	if (_managed_stop && (!_parsers.supports_stop() || !_data_mgr.supports_stop()))
++		return false;
+ 	if (!_is_hft)
+-		initCtaStrategies();
++	{
++		if (!initCtaStrategies() && _managed_stop)
++			return false;
++	}
+ 	else
+ 		initHftStrategies();
+-	
+-	return true;
++	_configured = true;
++	return true;
++	}
++	catch (...)
++	{
++		_exit_code.store(1);
++		WTSLogger::error("Runner configuration failed with exception");
++		return false;
++	}
+ }
+ 
+ bool WtRunner::initCtaStrategies()
+@@ -306,7 +390,13 @@
+ 		const char* name = cfgItem->getCString("name");
+ 		int32_t slippage = cfgItem->getInt32("slippage");
+ 		CtaStrategyPtr stra = _cta_stra_mgr.createStrategy(name, id);
+-		stra->self()->init(cfgItem->get("params"));
++		if (!stra || !stra->self())
++			return false;
++		if (!stra->self()->init(cfgItem->get("params")) && _managed_stop)
++		{
++			WTSLogger::error("Managed CTA strategy initialization failed");
++			return false;
++		}
+ 		CtaStraContext* ctx = new CtaStraContext(&_cta_engine, id, slippage);
+ 		ctx->set_strategy(stra->self());
+ 		_cta_engine.addContext(CtaContextPtr(ctx));
+@@ -422,7 +512,8 @@
+ 	if (cfg == NULL)
+ 		return false;
+ 
+-	_data_mgr.init(cfg, _engine);
++	if (!_data_mgr.init(cfg, _engine, false, _managed_stop))
++		return false;
+ 	WTSLogger::info("Data manager initialized");
+ 
+ 	return true;
+@@ -451,8 +542,11 @@
+ 		}
+ 
+ 		ParserAdapterPtr adapter(new ParserAdapter);
+-		adapter->init(realid.c_str(), cfgItem, _engine, &_bd_mgr, &_hot_mgr);
+-		_parsers.addAdapter(realid.c_str(), adapter);
++		// 先交给manager持有，初始化失败也通过同一停止链收束已创建对象。
++		if (!_parsers.addAdapter(realid.c_str(), adapter))
++			return false;
++		if (!adapter->init(realid.c_str(), cfgItem, _engine, &_bd_mgr, &_hot_mgr, _managed_stop) && _managed_stop)
++			return false;
+ 
+ 		count++;
+ 	}
+@@ -578,18 +672,95 @@
+ 	return true;
+ }
+ 
++void WtRunner::request_stop()
++{
++	_to_exit.store(true);
++}
++
++bool WtRunner::stop_requested()
++{
++	if (_managed_stop && _cta_engine.task_failure())
++	{
++		_exit_code.store(1);
++		request_stop();
++	}
++	return _to_exit.load() || (_managed_stop && managedSignalRequested.load());
++}
++
++bool WtRunner::stop()
++{
++	request_stop();
++	std::lock_guard<std::mutex> lifecycle(_lifecycle_mutex);
++	if (!_managed_stop)
++		return false;
++	if (_stop_complete)
++		return true;
++	if (!_stop_begun)
++	{
++		_stop_begun = true;
++		WTSLogger::info("Managed CTA stop begin");
++	}
++	_cta_engine.request_stop();
++	if (!_parsers.stop(1000))
++	{
++		WTSLogger::warn("Managed CTA stop pending: parser");
++		return false;
++	}
++	if (!_engine_stopped)
++	{
++		if (!_cta_engine.stop())
++		{
++			_exit_code.store(1);
++			const auto stats = _cta_engine.task_stop_stats();
++			WTSLogger::error("Managed CTA task drain failed: accepted={}, completed={}, failed={}, not_executed={}; failed task effects are unknown",
++				stats.accepted, stats.completed, stats.failed, stats.not_executed);
++		}
++		_engine_stopped = true;
++	}
++	if (!_data_mgr.stop(1000))
++	{
++		WTSLogger::warn("Managed CTA stop pending: reader");
++		return false;
++	}
++	_cta_stra_mgr.release();
++	_cta_engine.release_contexts();
++	_parsers.release();
++	_data_mgr.release();
++	if (_config) { _config->release(); _config = NULL; }
++	_stop_complete = true;
++	WTSLogger::info("Managed CTA stop complete");
++	return true;
++}
++
+ void WtRunner::run(bool bAsync /* = false */)
+ {
+ 	try
+ 	{
+-		_parsers.run();
+-		_traders.run();
+-
+-		_engine->run();
++		{
++			std::lock_guard<std::mutex> lifecycle(_lifecycle_mutex);
++			if (!_configured || _started || _stop_begun)
++			{
++				_exit_code.store(1);
++				return;
++			}
++			_started = true;
++			const bool parsers_started = _parsers.run(_managed_stop);
++			if (_managed_stop && !parsers_started)
++			{
++				_exit_code.store(1);
++				request_stop();
++				WTSLogger::error("Managed CTA parser start failed");
++			}
++			else
++			{
++				_traders.run();
++				_engine->run();
++			}
++		}
+ 
+ 		if(!bAsync)
+ 		{
+-			while(!_to_exit)
++			while(!stop_requested())
+ 			{
+ 				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+ 			}
+@@ -597,9 +768,16 @@
+ 	}
+ 	catch (...)
+ 	{
++		_exit_code.store(1);
++		request_stop();
+ 		print_stack_trace([](const char* message) {
+ 			WTSLogger::error(message);
+ 		});
++	}
++	if (_managed_stop && (!bAsync || _exit_code.load() != 0))
++	{
++		while (!stop())
++			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+ 	}
+ }
+ 
+@@ -627,4 +805,4 @@
+ 	_notifier.init(cfg);
+ 
+ 	return true;
+-}
+\ No newline at end of file
++}
+--- a/src/WtRunner/WtRunner.h
++++ b/src/WtRunner/WtRunner.h
+@@ -9,6 +9,8 @@
+  */
+ #pragma once
+ #include <string>
++#include <atomic>
++#include <mutex>
+ #include <unordered_map>
+ 
+ #include "../Includes/ILogHandler.h"
+@@ -50,6 +52,13 @@
+ 	bool config(const std::string& filename);
+ 
+ 	void run(bool bAsync = false);
++
++	// 回调只请求停止；stop 由控制线程调用，确认所有生产者结束后才释放依赖。
++	void request_stop();
++	// 异步宿主轮询此入口，统一观察信号、显式请求与后台任务失败。
++	bool stop_requested();
++	bool stop();
++	int exit_code() const { return _exit_code.load(); }
+ 
+ private:
+ 	bool initTraders(WTSVariant* cfgTrader);
+@@ -95,6 +104,14 @@
+ 	bool				_is_hft;
+ 	bool				_is_sel;
+ 
+-	bool				_to_exit;
++	std::atomic<bool> _to_exit;
++	std::atomic<int> _exit_code;
++	std::mutex _lifecycle_mutex;
++	bool _managed_stop;
++	bool _configured;
++	bool _started;
++	bool _stop_begun;
++	bool _engine_stopped;
++	bool _stop_complete;
+ };
+ 
+--- a/src/WtRunner/main.cpp
++++ b/src/WtRunner/main.cpp
+@@ -52,9 +52,10 @@
+ 	else
+ 		filename = "./config.yaml";
+ 
+-	runner.config(filename);
++	if (!runner.config(filename))
++		return 2;
+ 
+ 	runner.run(false);
+-	return 0;
++	return runner.exit_code();
+ }
+ 

@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "guanheng.nqh.view.v2",
+  "title": "Native QMT readonly value view v2",
+  "type": "object",
+  "required": [
+    "version",
+    "view"
+  ],
+  "properties": {
+    "version": {
+      "const": 2
+    },
+    "view": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "view": {
+            "const": 0
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "phase",
+          "source_kind",
+          "profile",
+          "observation_qualified",
+          "trade_date",
+          "aggregate_only",
+          "batches",
+          "close",
+          "failure"
+        ],
+        "properties": {
+          "batches": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "trade_date": {
+            "type": "object",
+            "required": [
+              "availability",
+              "value",
+              "reason"
+            ],
+            "properties": {
+              "availability": {
+                "enum": [
+                  "present",
+                  "unknown",
+                  "invalid",
+                  "not_applicable"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          },
+          "close": {
+            "type": "object",
+            "required": [
+              "status",
+              "drained",
+              "joined"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "not_started",
+                  "waiting",
+                  "timeout",
+                  "complete"
+                ]
+              },
+              "drained": {
+                "type": "boolean"
+              },
+              "joined": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "required": [
+          "index",
+          "identity",
+          "facts",
+          "abi"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "identity": {
+            "type": "object"
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "availability",
+                "value",
+                "reason"
+              ],
+              "properties": {
+                "availability": {
+                  "enum": [
+                    "present",
+                    "unknown",
+                    "invalid",
+                    "not_applicable"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "abi": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "value",
+                "mapping"
+              ],
+              "properties": {
+                "mapping": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

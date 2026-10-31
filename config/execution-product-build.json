@@ -1,0 +1,161 @@
+{
+  "schema": "guanheng.standard-execution-source-build.v1",
+  "upstream_commit": "08b230dd05facf6d650d949bfe51054115a2ecb1",
+  "upstream_roots": [
+    "src/Includes",
+    "src/Share",
+    "src/FasterLibs",
+    "src/Common",
+    "src/WTSTools",
+    "src/WTSUtils",
+    "src/WtCore",
+    "src/WtExeFact",
+    "src/WtRunner",
+    "LICENSE"
+  ],
+  "overlays": [
+    {
+      "path": "integrations/wondertrader_execution/managed-cta-account.patch",
+      "sha256": "d88865360d0d9d71d88400cf34e778b7584e370923e64e30601485d4deffe3c3",
+      "files": [
+        "src/WtCore/CtaStrategyMgr.h",
+        "src/WtCore/ParserAdapter.cpp",
+        "src/WtCore/ParserAdapter.h",
+        "src/WtCore/TraderAdapter.cpp",
+        "src/WtCore/TraderAdapter.h",
+        "src/WtCore/WtCtaEngine.cpp",
+        "src/WtCore/WtCtaEngine.h",
+        "src/WtCore/WtCtaTicker.cpp",
+        "src/WtCore/WtCtaTicker.h",
+        "src/WtCore/WtDtMgr.cpp",
+        "src/WtCore/WtDtMgr.h",
+        "src/WtCore/WtEngine.cpp",
+        "src/WtCore/WtEngine.h",
+        "src/WtRunner/WtRunner.cpp",
+        "src/WtRunner/WtRunner.h",
+        "src/WtRunner/main.cpp"
+      ],
+      "approved_behavior": [
+        "CORE-004",
+        "CORE-007",
+        "CORE-009",
+        "position_by_query"
+      ]
+    },
+    {
+      "path": "integrations/wondertrader_stock_reference/stock-reference.patch",
+      "sha256": "cf46bc5bc136446dd9d840faa3e6460eeed536205c33d36f88cd39aaac7fe976",
+      "files": [
+        "src/WtExeFact/WtExeFact.cpp",
+        "src/WtExeFact/WtStockMinImpactExeUnit.cpp",
+        "src/WtExeFact/WtStockMinImpactExeUnit.h"
+      ],
+      "approved_behavior": [
+        "CORE-011"
+      ]
+    }
+  ],
+  "patched_files": {
+    "src/WtCore/CtaStrategyMgr.h": {
+      "baseline_sha256": "b8d4d996753d8b6ef96d56d5a89902996d82bb8892c1cfd4a05c9aa7df8c384d",
+      "normalized_result_sha256": "24191cc07c592495fb3096cde603d1f6b8aaa43ffdceee80548e40ecfc5a263b"
+    },
+    "src/WtCore/ParserAdapter.cpp": {
+      "baseline_sha256": "ee784b3d9bdff479fd86a494c88acf44045331ae42827a14e0563f8a5ffe00bb",
+      "normalized_result_sha256": "85ee29918b1966f355222402eec2109f6e8e5fe8db3820e29da8e801045ca230"
+    },
+    "src/WtCore/ParserAdapter.h": {
+      "baseline_sha256": "d296cc519d7bae117e342c7938bcf4e71f4dcf566bc20ae1e85d7f8f7a1a96cd",
+      "normalized_result_sha256": "b4c4ab9139d33d84820ca7063896fda884fb4eb9104724247669092c5c2080de"
+    },
+    "src/WtCore/TraderAdapter.cpp": {
+      "baseline_sha256": "effa4d8c26767b7c99c1887eb53f3d0edb19babf01575af1ca85f77becba54cf",
+      "normalized_result_sha256": "612a374968255c7e5bc2aab16c6288535f69f95c0ed55e4b05ce54be8eea5503"
+    },
+    "src/WtCore/TraderAdapter.h": {
+      "baseline_sha256": "1a86b502ba1c673fb02ae7dd5e14d005fe6e86876dd0f26031f18c26ddac8cb7",
+      "normalized_result_sha256": "934eaaf0b2ecf01d91a8b102edccce44f3c3b29812b9285a86c5bff856215391"
+    },
+    "src/WtCore/WtCtaEngine.cpp": {
+      "baseline_sha256": "76d587c31c2735f470dfab7823df60562418835263fc9a0dbd87cab8e4086b4e",
+      "normalized_result_sha256": "b871a6b94769ad67a62c17956ff95de5645304cedbeea870ca0493ee96b59c1d"
+    },
+    "src/WtCore/WtCtaEngine.h": {
+      "baseline_sha256": "c951f6080161a53243edb3a50ecdc65b814e3e16224a81fdf25f006c6de0dfac",
+      "normalized_result_sha256": "b83161b918af5436aa1b784b1e3650583bd1cd4ac0460c5f4bbf2e6f96981edd"
+    },
+    "src/WtCore/WtCtaTicker.cpp": {
+      "baseline_sha256": "fee43b18f01221f9bf1939f42107447215d7568acc0e04d0e93865be36a53fd0",
+      "normalized_result_sha256": "874859cee96c6b25b755c6201a21174cea7abda528e042b7072c89b5bd015e10"
+    },
+    "src/WtCore/WtCtaTicker.h": {
+      "baseline_sha256": "2f9539db7a3ce1023425237f714fbcfb04f9587e7afeef52647738c39ceb67b5",
+      "normalized_result_sha256": "cd33549e681da4115995f6c5e2bf8e8d07f9fc0a3088d6b2176e25774cf94e95"
+    },
+    "src/WtCore/WtDtMgr.cpp": {
+      "baseline_sha256": "1a97d7d37888fadc4c2c106d5baeedea668d37802317bec2d433c56401a38588",
+      "normalized_result_sha256": "50367324cf6c748287997682ea204e9be623b721f55ca311d452f56df9d31604"
+    },
+    "src/WtCore/WtDtMgr.h": {
+      "baseline_sha256": "75159737299c6415e156f757b601c5021943d9583a64f8f7448d5b2e132c0b3a",
+      "normalized_result_sha256": "572cde7495cbdfd7f238db8367c18e872dad754246cedbe9934efb22ab04a55b"
+    },
+    "src/WtCore/WtEngine.cpp": {
+      "baseline_sha256": "fcf2d9e5d39e4b115f027d961cc2180e11b204a6ab3ab6ce7c605e8f107c4266",
+      "normalized_result_sha256": "6677db2e35bbe9260dc57422cdf00707e822579635a670d61fd34d8fac06001e"
+    },
+    "src/WtCore/WtEngine.h": {
+      "baseline_sha256": "8b7d61c0aa05064794872cdc9cbdee76bb10864ffdc4ed45a479bc5d7e272a2b",
+      "normalized_result_sha256": "b56476f686de98aa2c677842d74f4f27cac002e1bfd9af1f10afc87fa892ee1c"
+    },
+    "src/WtRunner/WtRunner.cpp": {
+      "baseline_sha256": "516a516874210b241127d11f9287a57ea1094103cd862bc53155f2fb445b59d6",
+      "normalized_result_sha256": "e68a524b1a5ed7e7944b2f35f55d55469b85029ed1cf545da14e658d1506f0ee"
+    },
+    "src/WtRunner/WtRunner.h": {
+      "baseline_sha256": "d20799f8bc9a95523b2e08654443d70d541623270605f1d53cfebbab31092122",
+      "normalized_result_sha256": "d6627b522ccca273f1585034bccfcc0986715dd3884bb1e4709230d357d73d85"
+    },
+    "src/WtRunner/main.cpp": {
+      "baseline_sha256": "5500fa9a69465d9455cefa2ec4b62a1cd653a485cf7fb7f63b3b1b5f707f501b",
+      "normalized_result_sha256": "90f0a5ed5e07f563f2cb0151a06bf2394220981297cf4da3289b84d9b8e40792"
+    },
+    "src/WtExeFact/WtExeFact.cpp": {
+      "baseline_sha256": "afbae1d39c6afc6d9c3f1104b1516244d3f79e1edef13e9cd3ab07b5c1a0c294",
+      "normalized_result_sha256": "a63844e8f1f332c4c84be3398dc55518dd6218c595f9fd21eb43785f954c59a8"
+    },
+    "src/WtExeFact/WtStockMinImpactExeUnit.cpp": {
+      "baseline_sha256": "b55e8b4191b6dc0414a45d3ad1e78040b508042534b519ca250506c83df83d22",
+      "normalized_result_sha256": "330c1875f05fb5d27a5b95e7348a7609223bf85d269c32d93cfa43826a4d5333"
+    },
+    "src/WtExeFact/WtStockMinImpactExeUnit.h": {
+      "baseline_sha256": "ae699656cc721b6c1d9cb821c4392ab5d0711b53f70a4af759cb6f61ef2f391a",
+      "normalized_result_sha256": "df1a8ba611801a5966d238ac2e144917aaf9787475dd4aea5ec9222e3b1144a2"
+    }
+  },
+  "owned_directories": [
+    "src/GuanhengCommon",
+    "src/GuanhengQmtBootstrap",
+    "src/GuanhengExecution",
+    "src/GuanhengRealtime",
+    "src/TraderQMT",
+    "src/TraderQMTReadOnly",
+    "cmake/native/qmt_readonly_fixed",
+    "cmake/native/qmt_standard_product",
+    "tests/integration/qmt_readonly_bootstrap",
+    "tests/integration/qmt_http_bootstrap",
+    "tests/integration/qmt_broker_context",
+    "scripts/native_support",
+    "cmake/native/execution_product"
+  ],
+  "owned_files": [
+    "scripts/native.py",
+    "scripts/execution_product.py",
+    "config/execution-product-build.json",
+    "config/native-dependencies.json"
+  ],
+  "target": "GuanhengCtaHost",
+  "owned_standard_source_sha256": "818fa8e433fa98f022f07bb8cd85908e9ee1fb69ebfbdcd3dc341bb904c11bcf",
+  "source_cmake": "cmake/native/execution_product",
+  "old_binary_inputs_allowed": false
+}
