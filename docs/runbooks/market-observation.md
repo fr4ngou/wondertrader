@@ -108,3 +108,9 @@ $ObservationDeploymentSha = (Get-FileHash -LiteralPath $ObservationDeployment -A
 前台维护入口使用Ctrl+C请求正常停止；受管维护环境沿本实例控制目录写原`guanheng.observation-stop.v1`停止收据，包含匹配control_id及同机单调时钟的有限deadline。监督进程先关闭原采集owner，再join自己的停止监视线程，写closed或failure；完整关闭同时证明子进程、Job整树及管道已回收。可选`--seconds`限制包括启动和关闭的总运行时间，用于有限验收；长期维护环境省略该项并持有监督进程。截止到达由原Job收尾，强制回收作为失败。中断保留原版本与尝试，下一次启动先核原窗口状态。心跳表示最近检查；来源可用和数据覆盖沿每路回执核实，Web继续读取此前合格版本。
 
 沪深北高管候选在executive_changes中显式选择scope=ashare，登记executive.net.ashare、executive.ratio.ashare、executive.companies.ashare及source.executive_ashare_universe，并提供同一bse_history、minimum_bse_universe和www.bse.cn来源主机。股票池、规范代码与公司分母共用原BSE资料；缺身份仍留空，图表标注已披露范围。原shsz来源保持可选。配置字段和失败保旧沿[唯一规格](../specs/independent-market-observation.md#obi9-高管披露接线)，实际来源/页面与安装资格沿[本轮证据](../evidence/2026-10-31-bse-executive-observation.md)。
+
+## 沪深北固定日终原件
+
+配置`ashare_snapshot`来源时，显式绑定原件清单绝对路径及SHA256；清单交易日须与本次`refresh --as-of`一致。原件包包含同日普通A股股票池、沪深日线、北交所行情及股份资料，并保留各自实收时刻。沿原独立采集入口发布，四项`.ashare`指标与已有`.shsz`历史分别展示。
+
+固定包提供对应交易日的可核验观察；每日取得新原件和配置身份更新由持续来源负责。更新失败保留原成功快照，界面继续显示其实际日期及原因。完整合同和验收范围见[日终规格](../specs/observer-ashare-day.md)。

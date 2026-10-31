@@ -15,7 +15,7 @@ def _number(value):
         result = Decimal(value)
     except InvalidOperation:
         raise ValueError('stock number is invalid') from None
-    if not result.is_finite() or abs(result) > Decimal('1e30'):
+    if not result.is_finite() or result.copy_abs() > Decimal('1e30'):
         raise ValueError('stock number is not finite or exceeds capacity')
     return result
 
@@ -29,7 +29,7 @@ def _ratio(numerator, denominator, scale=100):
     return result
 
 
-def stock_day(fields, rows, universe, day, *, check=lambda: None):
+def stock_day(fields, rows, universe, day, *, scope='shsz', check=lambda: None):
     """按已声明股票池计算日终观察；缺行/缺值保留未知，停牌单列。
 
     universe来自同源证券类型及上市/退市日期准入，volume单位为原始股数，
@@ -40,8 +40,11 @@ def stock_day(fields, rows, universe, day, *, check=lambda: None):
         raise ValueError('invalid stock day')
     if not 1 <= len(universe) <= 20000 or len(set(universe)) != len(universe):
         raise ValueError('invalid stock universe size or duplicates')
-    if any(type(code) is not str or re.fullmatch(r'(sh|sz)\.\d{6}', code) is None for code in universe):
-        raise ValueError('invalid SH/SZ stock identity')
+    if scope not in ('shsz', 'ashare'):
+        raise ValueError('invalid stock scope')
+    pattern = r'(sh|sz)\.[0-9]{6}' if scope == 'shsz' else r'(sh|sz|bj)\.[0-9]{6}'
+    if any(type(code) is not str or re.fullmatch(pattern, code) is None for code in universe):
+        raise ValueError('invalid stock identity for declared scope')
     required = {'date', 'code', 'close', 'preclose', 'volume', 'turn', 'tradestatus'}
     if (not 1 <= len(fields) <= 64 or len(set(fields)) != len(fields)
             or not required <= set(fields) or len(rows) > 20000):
@@ -72,7 +75,7 @@ def stock_day(fields, rows, universe, day, *, check=lambda: None):
             raise ValueError('invalid turnover percentage')
         if row['tradestatus'] == '0':
             suspended += 1
-            if volume == 0:
+            if volume in (None, Decimal(0)) and turn in (None, Decimal(0)):
                 known_turn += 1
             continue
         if turn is not None:

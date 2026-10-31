@@ -199,3 +199,5 @@
 
 - [原生 Reader 离线构建](native-reader-offline-build.md)：固定 Git 与批准覆盖、同批 WT 依赖、原版/NRC/WLC 显式选择及普通安装读取验证。
 - [原生数据组件固定源码构建](native-data-offline-build.md)：选中非交易原生组件的版本化源码、同批依赖及可搬迁原生组件切片。
+
+- [沪深北日终广度与换手](observer-ashare-day.md)：同日原件、统一stock_day、停牌换手资格、固定包消费与持续来源边界。

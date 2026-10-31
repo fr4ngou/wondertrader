@@ -38,7 +38,7 @@ def tencent(fetch, config, start, end):
     return updates
 
 def baostock_daily(fetch, config, start, end):
-    from .breadth_models import METRICS,rows_for_metrics,universe_row
+    from .breadth_models import SHSZ_METRICS as METRICS,rows_for_metrics,universe_row
     from .market_breadth import stock_day
     from .stock_universe import shsz_listings,listed_codes
     selected=set(config.get('datasets',[])) & set(METRICS)

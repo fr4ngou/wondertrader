@@ -6,7 +6,7 @@ import io
 import json
 
 from .admission import admit_dataset, register_standard_assets, register_standard_asset
-from .breadth_models import METRICS, attach_boards, definition, rows_for_metrics, universe_row
+from .breadth_models import SHSZ_METRICS as METRICS, admit_definition, attach_boards, definition, rows_for_metrics, universe_row
 from .contracts import ObservationError, USAGE
 from .market_breadth import stock_day
 from .metadata import computation_identity
@@ -107,10 +107,9 @@ def derive_archive(source, target, snapshot, start, end, expected, deadline):
         candidate['source_table_parents']['source.shsz_universe']=all_parents
         for metric,rows in updates.items():
             check();old=candidate['datasets'].get(metric)
-            metadata=copy.deepcopy(old['definition']) if old else definition(metric)
-            if metadata['definition_version']!=definition(metric)['definition_version']:
-                raise ObservationError('stock_method_mismatch', '当前指标方法版本需要显式迁移', 409)
-            rows=merge(target.rows(old['partition']) if old else [],rows)[0]
+            prior=target.rows(old['partition']) if old else []
+            metadata=admit_definition(metric,old['definition'] if old else None,prior,rows)
+            rows=merge(prior,rows)[0]
             metadata.update(universe_version=universe_partition,archive_source_snapshot=snapshot)
             lineage=[*all_parents,*([old['partition'],*old['parents']] if old else [])]
             candidate['datasets'][metric]=admit_dataset(target.objects,metadata,rows,lineage)

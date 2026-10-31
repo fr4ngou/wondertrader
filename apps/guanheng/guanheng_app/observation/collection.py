@@ -18,15 +18,16 @@ from .query import ObservationReader,parquet_bytes
 from .storage import digest,encode
 from .stock_partitions import extend_daily_partitions
 from .wondertrader_source import history as market_history
-from .breadth_models import prepare_definitions,attach_boards
+from .breadth_models import METRICS as BREADTH_METRICS, admit_definition, prepare_definitions,attach_boards
 from . import financial_models, executive_models, t2108_models
 from .financial_source import annual_reports
 from .executive_source import executive_changes
 from .t2108_source import history as t2108_history
+from .ashare_source import history as ashare_history
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,financial_annual=annual_reports,
-    executive_changes=executive_changes,qmt_t2108=t2108_history)
+    executive_changes=executive_changes,qmt_t2108=t2108_history,ashare_snapshot=ashare_history)
 
 
 def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=None,cancelled=None,
@@ -104,11 +105,13 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             else:updates=PARSERS[source['kind']](fetch,source,start,end)
             allowed=set(source.get('tables',[]))|set(source.get('datasets',[]))
             if set(updates)-allowed:raise SourceFailure('unregistered_source_output')
-            prepared={};revisions=[];count=0
+            prepared={};revisions=[];count=0;prepared_definitions={}
             for key,rows in updates.items():
                 budget.remaining();old=datasets.get(key,tables.get(key,[]))
                 if source['kind']=='qmt_t2108' and key==t2108_models.METRIC:
                     old=t2108_models.versioned_history(old,definitions[key]['definition_version'])
+                if key in BREADTH_METRICS:
+                    prepared_definitions[key]=admit_definition(key,definitions.get(key),old,rows)
                 if source.get('replace_tables'):
                     if key in datasets or not {r['date'] for r in old if r['date']<=as_of}<={r['date'] for r in rows}:
                         raise SourceFailure('market_existing_coverage_missing')
@@ -116,6 +119,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 else:prepared[key],changes=merge(old,rows,tenor=definitions.get(key,{}).get('axis_type')=='tenor')
                 revisions.extend(dict(metric_id=key,**item) for item in changes);count+=len(rows)
             raw_manifest=reader.objects.put(encode(fetch.records),kind='standard')
+            definitions.update(prepared_definitions)
             if source['kind']=='qmt_t2108':definitions[t2108_models.METRIC]=t2108_models.definition()
             for key,rows in prepared.items():
                 if key in datasets:datasets[key]=rows

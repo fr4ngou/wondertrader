@@ -42,6 +42,7 @@ const statuses: Record<string,string> = {
   snapshot_imported:'已接纳固定历史版本',
 }
 const sources: Record<string,string> = {
+  'ashare-public-day':'沪深北日终广度与换手',
   'wondertrader.indices':'统一行情指数',
   'qmt.t2108':'40期均线股票覆盖',
   'tencent.indices':'指数行情','baostock.pb':'沪深逐股PB','shenwan.801003':'申万A指估值与成交',
@@ -61,6 +62,10 @@ const frequencies: Record<string, string> = { daily: '日度', weekly: '周度',
 export const frequencyLabel = (frequency: string) => frequencies[frequency] || frequency
 export function failureLabel(code?:string) {
   if (!code) return '检查记录已保存；实际末期见来源覆盖'
+  if (code === 'ashare_source_date') return '尚未取得所需交易日的全市场原件，继续提供原版本'
+  if (code === 'ashare_source_not_closed') return '全市场日线尚未确认收盘，本批暂未接纳'
+  if (code === 'ashare_source_status_unqualified') return '来源出现待核的证券交易状态，继续保留原版本'
+  if (code === 'ashare_source_coverage') return '沪深北股票池或原件覆盖尚未齐全，继续保留原版本'
   if (code === 't2108_no_qualified_observations') return '本批尚无同日且满40期有效前复权收盘的股票，保留原指标'
   if (code === 't2108_source_not_closed') return '日线闭合时间尚未核实，本批暂未接纳'
   if (code === 'market_source_not_configured') return '统一行情读取连接尚未配置，继续保留历史数据'
