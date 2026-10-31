@@ -233,6 +233,18 @@ int StandardExecutionHost::query_positions() {
     auto& x=*impl_; if(!x.on_owner())return StandardQmtWrongOwner;
     return x.api && x.readable() ? x.api->queryPositions() : StandardQmtUnavailable;
 }
+int StandardExecutionHost::query_account() {
+    auto& x=*impl_;if(!x.on_owner())return StandardQmtWrongOwner;
+    return x.api&&x.readable()?x.api->queryAccount():StandardQmtUnavailable;
+}
+bool StandardExecutionHost::pause_inserts(bool paused) {
+    auto& x=*impl_;return x.on_owner()&&!x.pumping&&x.api&&x.readable()&&x.functions.pause_inserts
+        &&x.functions.pause_inserts(x.api,paused?1u:0u)==0;
+}
+bool StandardExecutionHost::prepare_recovery() {
+    auto& x=*impl_;if(!x.on_owner()||x.requested.load()||!pause_inserts(true))return false;
+    x.stop_bridge();return true;
+}
 bool StandardExecutionHost::begin_recovery() {
     auto& x=*impl_;if(!x.on_owner()||x.pumping||!x.readable()||x.requested.load()
         ||!x.functions.close_submissions||!x.functions.recovery)return false;

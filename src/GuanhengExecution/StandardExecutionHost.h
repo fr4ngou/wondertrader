@@ -19,6 +19,7 @@ struct StandardPluginFunctions {
     decltype(&closeStandardQmtSubmissions) close_submissions=nullptr;
     decltype(&inspectStandardQmtRecovery) recovery=nullptr;
     decltype(&inspectStandardQmtAwaitingObservation) awaiting_observation=nullptr;
+    decltype(&pauseStandardQmtInserts) pause_inserts=nullptr;
 };
 enum class ExecutionHostPhase : std::uint8_t { New, Connecting, Ready, Degraded, Stopping, Closed };
 enum class ExecutionHostFault : std::uint8_t { None, InvalidConfiguration, Initialize, Plugin, Queue, Close, WrongOwner, Reentrant };
@@ -64,6 +65,11 @@ public:
     // 异步查询：0为已受理，完成由后续pump通知原Adapter；不承诺本次调用同步刷新。
     int query_orders();
     int query_positions();
+    int query_account();
+    // 暂停新insert，原查询/cancel仍可用；恢复只改变此暂停，不解除未知/硬错。
+    bool pause_inserts(bool paused);
+    // 停止目标/行情交接并暂停新insert，供正常收束后再begin_recovery关闭全部提交。
+    bool prepare_recovery();
     // 停新目标和新提交，原pump/查询继续；只在显式恢复流程且同owner调用。
     bool begin_recovery();
     // API删除后返回关闭前最后一次真实观察；版本/size须匹配。

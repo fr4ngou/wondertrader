@@ -155,7 +155,7 @@
     "config/native-dependencies.json"
   ],
   "target": "GuanhengCtaHost",
-  "owned_standard_source_sha256": "d41ea92461ea61a3ba40ac1657bb25f534172350e5128a543154f4c2ef1a2aff",
+  "owned_standard_source_sha256": "245668f03466d28711e3920a6bc72d0a54d0a1aff0080c9acdc5b0e04081258f",
   "source_cmake": "cmake/native/execution_product",
   "old_binary_inputs_allowed": false
 }

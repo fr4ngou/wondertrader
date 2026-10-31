@@ -30,7 +30,8 @@ struct StandardQmtDiagnostics {
 struct StandardQmtRecoveryV1 {
  std::uint32_t version=1,size=sizeof(StandardQmtRecoveryV1),query_first=0,submissions_closed=0;
  std::uint32_t open_group=0,unresolved_children=0,pending_commands=0,unsafe=0,active_orders=0;
- std::uint64_t next_task=0,last_order_query=0,last_position_query=0;
+ // 完整查询交给原SPI并返回后的原任务ID；0表示尚未应用。size严格拒绝混编。
+ std::uint64_t next_task=0,last_order_query=0,last_position_query=0,last_account_query=0;
 };
 // 生命周期和pump同创建线程；native业务入口保持原有界复制/并发排队。
 // query_first的新增提交组及insert只在创建线程同步base调用内准入；其它线程明确拒绝。
@@ -53,6 +54,8 @@ public:
  int stop();int diagnostics(StandardQmtDiagnostics&) const;
  // 同owner单向关闭新增insert/cancel；保持既有收据、查询和事件处理，0=已关闭。
  int close_submissions();int recovery(StandardQmtRecoveryV1&) const;
+ // 同owner暂停/恢复新insert，保留定向cancel和查询；不解除未知或硬错保护。
+ int pause_inserts(bool paused);
  // 1=仅query_first等待原单观察且无硬错，0=不属该等待，负值=调用失败。
  int awaiting_observation() const;
  int begin_submission(const SubmissionKeyV1&,SubmissionTokenV1&,SubmissionViewV1&);
@@ -85,6 +88,7 @@ GH_QMT_STANDARD_EXPORT int waitStandardQmtTrader(wtp::ITraderApi*,std::uint32_t 
 GH_QMT_STANDARD_EXPORT int stopStandardQmtTrader(wtp::ITraderApi*);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtTrader(wtp::ITraderApi*,guanheng::StandardQmtDiagnostics*);
 GH_QMT_STANDARD_EXPORT int closeStandardQmtSubmissions(wtp::ITraderApi*);
+GH_QMT_STANDARD_EXPORT int pauseStandardQmtInserts(wtp::ITraderApi*,std::uint32_t paused);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtRecovery(wtp::ITraderApi*,guanheng::StandardQmtRecoveryV1*);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtAwaitingObservation(wtp::ITraderApi*);
 // 同owner同步许可；无STL跨DLL、无解除责任接口；异常只返回固定Fault。

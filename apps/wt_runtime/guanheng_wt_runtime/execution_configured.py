@@ -279,6 +279,8 @@ class RetainedStrategy:
         rows = self._broker_rows(broker)
         if self.recovery == 'resume_clean':
             self._load_state(context.load_quantity_state())
+            # 原单已由运行owner撤清并重查P/A；保留周期/止损和退出记忆，重新规划执行。
+            self.state = None
         else:
             _need(context.facts().fund_pnl == 0, 'takeover_mark_required')
             text = context.load_quantity_state()

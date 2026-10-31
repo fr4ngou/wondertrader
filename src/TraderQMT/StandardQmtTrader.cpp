@@ -245,11 +245,11 @@ struct StandardQmtTrader::Impl {
   SubmissionKeyV1 key;std::uint64_t id=0;std::uint32_t accepted=0;bool open=false,failed=false;
  };
  bool query_first=false;ActiveGroup submission;std::uint64_t next_group=0;
- std::atomic<bool> submissions_closed{false};
- std::uint64_t last_order_query=0,last_position_query=0;std::uint32_t active_orders=0;
+ std::atomic<bool> submissions_closed{false},inserts_paused{false};
+ std::uint64_t last_order_query=0,last_position_query=0,last_account_query=0;std::uint32_t active_orders=0;
  std::uint64_t submission_refresh_task=0;
  Clock::time_point submission_refresh_after=Clock::time_point::min();
- static constexpr std::size_t submission_fixed_bytes=sizeof(ActiveGroup)+sizeof(bool)+2*sizeof(std::uint64_t);
+ static constexpr std::size_t submission_fixed_bytes=sizeof(ActiveGroup)+2*sizeof(bool)+3*sizeof(std::uint64_t);
 
  struct Candidate {std::unique_ptr<QmtAccountIdentityCandidate> value;Clock::time_point deadline;std::size_t charge=0;};
  const std::thread::id owner_thread=std::this_thread::get_id();
@@ -369,8 +369,8 @@ struct StandardQmtTrader::Impl {
   catch(...){/* 诊断失败不改变已经锁存的硬故障。 */}
  }
  void fence_unknown(){unknown_fenced=true;writes_blocked=true;}
- bool write_wait_stopped()const noexcept{return worker_stop.load()||submissions_closed.load();}
- bool permits(Kind kind)const{return !submissions_closed&&!hard_fault&&!stop_requested&&(kind==Kind::Cancel||!unknown_fenced);}
+ bool write_wait_stopped(Kind kind)const noexcept{return worker_stop.load()||submissions_closed.load()||(kind==Kind::Insert&&inserts_paused.load());}
+ bool permits(Kind kind)const{return !submissions_closed&&!hard_fault&&!stop_requested&&(kind==Kind::Cancel||(!unknown_fenced&&!inserts_paused));}
  bool audit_io()const{return !worker_stop&&!audit_detached;}
 
  static bool submission_key(const SubmissionKeyV1& key)noexcept
@@ -1072,7 +1072,7 @@ struct StandardQmtTrader::Impl {
    }
   }
   result.status=pin_audit_source(client);if(!result.status.ok())return;
-  if(write_wait_stopped()){result.status=failure(ErrorCode::Unavailable,"qmt_standard_stopping_before_submit");result.insert_failure_confirmed=true;return;}
+  if(write_wait_stopped(task.kind)){result.status=failure(ErrorCode::Unavailable,"qmt_standard_stopping_before_submit");result.insert_failure_confirmed=true;return;}
   QmtTradePreparation prepared;QmtTradeReceipt target_insert;
   if(task.kind==Kind::Insert)prepared=client.create_insert(task.order.insert,end);
   else {
@@ -1119,7 +1119,7 @@ struct StandardQmtTrader::Impl {
    }
    result.charge=add_size(result.charge,reserve);
   }
-  if(write_wait_stopped()){
+  if(write_wait_stopped(task.kind)){
    std::lock_guard<std::mutex> lock(mutex);auto found=pending.find(id);uncharge(found->second.charge);pending.erase(found);
    result.status=failure(ErrorCode::Unavailable,"qmt_standard_stopping_before_submit");result.insert_failure_confirmed=true;return;
   }
@@ -1134,11 +1134,11 @@ struct StandardQmtTrader::Impl {
   result.status=result.trade.status;
   // 正常运行沿原D核同一命令；恢复停机关闭写准入时结束写等待，
   // 原worker才能继续账户核查。已发送的未知收据仍由原pending保留。
-  while(!write_wait_stopped()&&end.remaining()&&(result.trade.phase==QmtTradePhase::Queued
+  while(!write_wait_stopped(task.kind)&&end.remaining()&&(result.trade.phase==QmtTradePhase::Queued
    ||result.trade.phase==QmtTradePhase::Dispatching||(!query_first&&result.trade.phase==QmtTradePhase::Unknown))){
    std::unique_lock<std::mutex> lock(mutex);
-   cv.wait_until(lock,(std::min)(task.deadline,Clock::now()+std::chrono::milliseconds(10)),[&]{return write_wait_stopped();});
-   lock.unlock();if(write_wait_stopped()||!end.remaining())break;
+   cv.wait_until(lock,(std::min)(task.deadline,Clock::now()+std::chrono::milliseconds(10)),[&]{return write_wait_stopped(task.kind);});
+   lock.unlock();if(write_wait_stopped(task.kind)||!end.remaining())break;
    result.trade=client.resume(receipt,end);result.status=result.trade.status;
   }
   const bool terminal=result.trade.phase==QmtTradePhase::SdkReturned||result.trade.phase==QmtTradePhase::DefinitelyNotCalled
@@ -2031,7 +2031,7 @@ int StandardQmtTrader::inspect_submission(const SubmissionKeyV1& key,SubmissionV
  std::lock_guard<std::mutex> lock(x.mutex);x.submission_view(key,out);
  out.decision=!x.query_first?SubmissionDecision::ModeMismatch:x.stop_requested?SubmissionDecision::Stopped
   :x.hard_fault?SubmissionDecision::Fault:x.submission.open?SubmissionDecision::BlockedBusy
-  :(x.unknown_fenced||x.writes_blocked||out.unresolved_children)?SubmissionDecision::BlockedAwait:SubmissionDecision::Admitted;
+  :(x.unknown_fenced||x.writes_blocked||x.inserts_paused||out.unresolved_children)?SubmissionDecision::BlockedAwait:SubmissionDecision::Admitted;
  return static_cast<int>(out.decision);
 }
 int StandardQmtTrader::begin_submission(const SubmissionKeyV1& key,SubmissionTokenV1& token,SubmissionViewV1& out)
@@ -2045,7 +2045,7 @@ int StandardQmtTrader::begin_submission(const SubmissionKeyV1& key,SubmissionTok
  else if(!x.active()||!x.logged_in||!x.expected.writes_enabled||x.submissions_closed)decision=SubmissionDecision::Stopped;
  else if(x.hard_fault)decision=SubmissionDecision::Fault;
  else if(x.submission.open||x.pumping||x.in_callback)decision=SubmissionDecision::BlockedBusy;
- else if(x.unknown_fenced||x.writes_blocked||out.unresolved_children)decision=SubmissionDecision::BlockedAwait;
+ else if(x.unknown_fenced||x.writes_blocked||x.inserts_paused||out.unresolved_children)decision=SubmissionDecision::BlockedAwait;
  else if(x.next_group==(std::numeric_limits<std::uint64_t>::max)()
    ||x.identities.size()>=static_cast<std::size_t>(x.binding.row_limit)+x.max_pending||x.outstanding>=x.max_queue)
   decision=SubmissionDecision::Capacity;
@@ -2387,13 +2387,14 @@ int StandardQmtTrader::pump(std::uint32_t limit)
     if(result.stage==0)x.position_query_applied(mapped.batch,result.id);
     x.observation_refresh_applied(result.id);
     // 只有完整查询交给原SPI并返回，才公开本次事实的序号。活动单覆盖整个账户。
-    if(result.stage<=1){
+    if(result.stage<=1||result.stage==3){
      std::uint32_t active=0;
      if(result.stage==1)for(unsigned i=0;i<mapped.batch.array->size();++i)
       if(mapped.batch.array->at<wtp::WTSOrderInfo>(i)->isAlive())++active;
      std::lock_guard<std::mutex> lock(x.mutex);
      if(result.stage==0)x.last_position_query=result.id;
-     else{x.last_order_query=result.id;x.active_orders=active;}
+     else if(result.stage==1){x.last_order_query=result.id;x.active_orders=active;}
+     else x.last_account_query=result.id;
     }
     {std::lock_guard<std::mutex> lock(x.mutex);if(x.submission_refresh_task==result.id)x.submission_refresh_task=0;}
     if(x.events_enabled){std::lock_guard<std::mutex> lock(x.mutex);x.query_flow_mask|=1u<<result.stage;x.cv.notify_all();}
@@ -2481,7 +2482,9 @@ int StandardQmtTrader::diagnostics(StandardQmtDiagnostics& out)const
 {
  if(!owner())return StandardQmtWrongOwner;auto& x=*impl_;StandardQmtDiagnostics value;
  value.phase=static_cast<unsigned>(x.phase);value.connected=x.connected;value.logged_in=x.logged_in;
- value.stop_requested=x.stop_requested;value.writes_blocked=x.writes_blocked||x.hard_fault;
+ value.stop_requested=x.stop_requested;
+ // 临时调度暂停沿独立准入位处理；此字段继续表示原通信/故障围栏。
+ value.writes_blocked=x.writes_blocked||x.hard_fault;
  value.worker_live=x.worker_live;value.joined=x.joined;value.callbacks=x.callbacks;
  value.queries=x.queries;value.inserts=x.inserts;value.cancels=x.cancels;
  value.candidates=static_cast<unsigned>(x.candidates.size())+(x.event_chain&&x.event_chain->candidate?1u:0u);value.owner_thread=std::hash<std::thread::id>{}(x.owner_thread);
@@ -2507,6 +2510,14 @@ int StandardQmtTrader::close_submissions()
  if(!x.query_first||!x.active()||!x.logged_in||x.submission.open)return StandardQmtUnavailable;
  x.submissions_closed=true;x.cv.notify_all();return 0;
 }
+int StandardQmtTrader::pause_inserts(bool paused)
+{
+ if(!owner())return StandardQmtWrongOwner;auto& x=*impl_;
+ if(x.pumping||x.in_callback)return StandardQmtReentrant;
+ std::lock_guard<std::mutex> lock(x.mutex);
+ if(!x.query_first||!x.active()||!x.logged_in||x.submissions_closed||x.submission.open)return StandardQmtUnavailable;
+ x.inserts_paused=paused;x.cv.notify_all();return 0;
+}
 int StandardQmtTrader::recovery(StandardQmtRecoveryV1& out)const
 {
  if(!owner())return StandardQmtWrongOwner;
@@ -2516,7 +2527,7 @@ int StandardQmtTrader::recovery(StandardQmtRecoveryV1& out)const
  value.pending_commands=static_cast<std::uint32_t>(x.pending.size());
  value.unsafe=x.hard_fault||x.unknown_fenced||!x.first_error.ok()||!x.ingress_error.ok()||!x.owner_error.ok();
  value.active_orders=x.active_orders;value.next_task=x.next_task;
- value.last_order_query=x.last_order_query;value.last_position_query=x.last_position_query;
+ value.last_order_query=x.last_order_query;value.last_position_query=x.last_position_query;value.last_account_query=x.last_account_query;
  for(const auto& item:x.identities)if(item.second.group_id&&item.second.observation!=SubmissionObservation::None)++value.unresolved_children;
  out=value;return 0;
 }

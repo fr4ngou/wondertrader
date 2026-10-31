@@ -13,6 +13,8 @@
 #include "WTSUtils/WTSCfgLoader.h"
 #include "Includes/CtaStrategyDefs.h"
 #include "Includes/WTSVariant.hpp"
+#include "Includes/WTSTradeDef.hpp"
+#include "GuanhengRealtime/ManagedStrategyBridge.h"
 #include "Share/CodeHelper.hpp"
 #include <rapidjson/document.h>
 #include <rapidjson/reader.h>
@@ -223,7 +225,34 @@ rj::Document state_identity(const fs::path& output,const rj::Value& strategies){
 }
 bool settled(const guanheng::StandardQmtRecoveryV1& value){
     return value.query_first&&value.submissions_closed&&!value.open_group&&!value.unresolved_children
-        &&!value.pending_commands&&!value.unsafe&&!value.active_orders;
+        &&!value.pending_commands&&!value.unsafe;
+}
+bool own_orders_empty(guanheng::StandardExecutionHost& execution){
+    auto* rows=execution.orders("");need(rows!=nullptr);const bool empty=rows->size()==0;rows->release();return empty;
+}
+// 原query_first表只包含Host已核身份及本Adapter本地ID的活动单；人工单不进入该表。
+// 先退休每个原单，再读取后继P/A；只持有本次调用的取消ID，不保存新的恢复状态。
+template<class Check,class Advance>void reconcile_own_orders(guanheng::StandardExecutionHost& execution,Check check,Advance advance){
+    check();guanheng::StandardQmtRecoveryV1 state;need(execution.recovery(state)==0);
+    auto refresh=[&]{check();advance();check();need(execution.recovery(state)==0);};
+    std::set<std::uint32_t> cancelled;
+    for(;;){
+        auto barrier=state.next_task;check();need(execution.query_orders()==0);check();
+        while(state.last_order_query<=barrier)refresh();
+        auto* rows=execution.orders("");need(rows!=nullptr);
+        struct OrdersOwner{wtp::OrderMap* value;~OrdersOwner(){value->release();}} owned{rows};
+        for(auto it=rows->begin();it!=rows->end();++it){
+            auto* row=static_cast<wtp::WTSOrderInfo*>(it->second);
+            need(it->first&&row->isAlive()&&row->getEntrustID()[0]&&row->getUserTag()[0]);
+            if(cancelled.insert(it->first).second){check();need(cancelled.size()<=4096&&execution.cancel(it->first));check();}
+        }
+        barrier=state.next_task;check();need(execution.query_positions()==0);check();
+        while(state.last_position_query<=barrier)refresh();
+        if(own_orders_empty(execution)&&!state.open_group&&!state.unresolved_children&&!state.pending_commands&&!state.unsafe)break;
+        refresh();
+    }
+    const auto barrier=state.next_task;check();need(execution.query_account()==0);check();
+    while(state.last_account_query<=barrier)refresh();
 }
 void bootstrap_takeover(const rj::Value& input,const std::string& input_sha,const fs::path& output,
     const rj::Value& strategies,guanheng::StandardExecutionHost& execution,WTSBaseDataMgr& base,
@@ -258,7 +287,7 @@ void bootstrap_takeover(const rj::Value& input,const std::string& input_sha,cons
     const auto current_minute=std::uint64_t(observed_time.date)*10000+observed_time.time_ms/100000;
     guanheng::StandardQmtRecoveryV1 state;need(execution.recovery(state)==0);
     need(state.query_first&&!state.open_group&&!state.unresolved_children&&!state.pending_commands&&!state.unsafe
-        &&state.last_order_query&&state.last_position_query&&!state.active_orders);
+        &&state.last_order_query&&state.last_position_query&&own_orders_empty(execution));
     const auto& rows=member(input,"positions");need(rows.IsArray()&&rows.Size()>0&&rows.Size()<=8);
     std::map<std::string,std::pair<double,double>> expected;
     rj::Document strategy(rj::kObjectType);auto& a=strategy.GetAllocator();rj::Value positions(rj::kArrayType);
@@ -333,6 +362,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
     rj::Document recovery_strategies;
     rj::Document takeover_input;std::string takeover_sha;
     bool recovery_enabled=false,recovery_armed=false,recovery_ready=false;
+    decltype(&gh_ms_status) target_status=nullptr;std::uint64_t initial_setters=0;
     bool success=false,closed=false,stop_deadline_fixed=false;unsigned stop_ms=10000,native_error=0;
     const char* stage="configuration";
     try{
@@ -445,6 +475,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         if(recovery_enabled){
             functions.close_submissions=plugin.get<decltype(functions.close_submissions)>("closeStandardQmtSubmissions");
             functions.recovery=plugin.get<decltype(functions.recovery)>("inspectStandardQmtRecovery");
+            functions.pause_inserts=plugin.get<decltype(functions.pause_inserts)>("pauseStandardQmtInserts");
         }
         need(factory.loadFactories((root/"executers").string().c_str()));
         environment.reset(new guanheng::ExecutionEnvironment(base,reference_session.c_str(),&hot));
@@ -457,10 +488,11 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             need(execution->status().fault==guanheng::ExecutionHostFault::None);Sleep(1);
         }
         publish_broker(*execution,*environment);
-        if(recovery_hooks.restore){
-            guanheng::StandardQmtRecoveryV1 state;need(execution->recovery(state)==0);
-            need(state.query_first&&!state.open_group&&!state.unresolved_children&&!state.pending_commands&&!state.unsafe
-                &&state.last_order_query&&state.last_position_query&&!state.active_orders);
+        if(recovery_enabled){
+            stage="reconcile_orders";
+            reconcile_own_orders(*execution,check_start,[&]{need(execution->pump(64,16)>=0
+                &&execution->status().fault==guanheng::ExecutionHostFault::None);Sleep(1);});
+            publish_broker(*execution,*environment);
         }
         stage="strategies";const auto& strategies=member(cfg,"strategies");need(strategies.IsArray()&&strategies.Size()>0&&strategies.Size()<=64);
         factories.reserve(strategies.Size());parameters.reserve(strategies.Size());unowned.reserve(strategies.Size());
@@ -472,6 +504,12 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             parameters.push_back(load_variant(member(item,"parameters")));
             auto* strategy=factories.back().value->createStrategy(text(item,"name").c_str(),text(item,"id",63).c_str());need(strategy!=nullptr);
             unowned.push_back({strategy,factories.back().value,parameters.back().get()});
+        }
+        if(recovery_enabled&&strategies.Size()==1){
+            target_status=reinterpret_cast<decltype(target_status)>(GetProcAddress(factories[0].library->module,"gh_ms_status"));
+            if(target_status){GhMsStatus value{};value.size=sizeof(value);
+                need(target_status(&value)==0&&value.failure==0&&value.configured==1);
+                initial_setters=value.setters;need(execution->pause_inserts(true));}
         }
         stage="cta";session.reset(new guanheng::CtaExecutionSession(base,hot,*execution,unowned));unowned.clear();
         const auto& parsers=member(cfg,"parsers");need(parsers.IsArray());rj::Document parser_root(rj::kObjectType);
@@ -508,6 +546,15 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                     static_cast<unsigned>(session->status().fault),static_cast<unsigned>(execution->status().fault),
                     static_cast<unsigned>(execution->command()->status().fault));std::fflush(stderr);need(false);
             }
+            if(target_status){
+                GhMsStatus value{};value.size=sizeof(value);need(target_status(&value)==0&&value.failure==0);
+                if(value.setters>initial_setters){
+                    // setter计数先出现，再读取active，确认带新目标的首次回调已经结束。
+                    GhMsStatus completed{};completed.size=sizeof(completed);
+                    need(target_status(&completed)==0&&completed.failure==0);
+                    if(!completed.active){need(execution->pause_inserts(false));target_status=nullptr;}
+                }
+            }
             publish_broker(*execution,*environment);Sleep(2);
         }
         need(!stop_seen||stop_decoded);
@@ -515,15 +562,11 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         if(recovery_enabled){
             stage="recovery_drain";
             int quiesced=1;while((quiesced=session->quiesce(100))==1){need(Clock::now()<close_until);Sleep(1);}need(quiesced==0);
-            need(session->status().fault==guanheng::CtaExecutionFault::None&&execution->begin_recovery());
-            guanheng::StandardQmtRecoveryV1 state;need(execution->recovery(state)==0);const auto barrier=state.next_task;
-            need(execution->query_orders()==0);
-            auto advance=[&]{need(Clock::now()<close_until&&(!health||health(health_user)==0));
-                need(execution->pump(64,16)>=0&&execution->status().fault==guanheng::ExecutionHostFault::None);
-                need(execution->recovery(state)==0&&!state.unsafe);Sleep(1);};
-            while(state.last_order_query<=barrier)advance();
-            const auto order_barrier=state.next_task;need(!state.active_orders&&execution->query_positions()==0);
-            while(state.last_position_query<=order_barrier||!settled(state))advance();
+            need(session->status().fault==guanheng::CtaExecutionFault::None&&execution->prepare_recovery());
+            reconcile_own_orders(*execution,[&]{need(Clock::now()<close_until&&(!health||health(health_user)==0));},
+                [&]{need(execution->pump(64,16)>=0&&execution->status().fault==guanheng::ExecutionHostFault::None);Sleep(1);});
+            need(execution->begin_recovery());
+            guanheng::StandardQmtRecoveryV1 state;need(execution->recovery(state)==0&&settled(state));
             recovery_armed=true;
         }
         success=true;
