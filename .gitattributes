@@ -1,0 +1,20 @@
+*.md text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+.gitattributes text eol=lf
+
+# 自有发行源码按原字节入库，保持签名材料和构建源清单可重现。
+# 编辑时沿文件既有格式；此处只关闭 Git 的隐式换行转换。
+apps/** -text
+connectors/** -text
+packages/** -text
+integrations/** -text
+config/** -text
+scripts/** -text
+tests/** -text
+cmake/native/** -text
+src/Guanheng*/** -text
+src/TraderQMT/** -text
+src/TraderQMTReadOnly/** -text
+src/ReaderGuanhengRealtime/** -text
+src/ParserQMTHostV6/** -text

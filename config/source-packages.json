@@ -1,0 +1,22 @@
+{
+  "core_members": {
+    "guanheng_market_client/qmt_native_replay.py": "packages/native-analysis-core/public/guanheng_market_client/qmt_native_replay.py",
+    "integrations/__init__.py": "packages/native-analysis-core/namespace/integrations/__init__.py",
+    "integrations/guanheng/__init__.py": "packages/native-analysis-core/namespace/integrations/guanheng/__init__.py",
+    "integrations/guanheng/dependencies.py": "integrations/guanheng/dependencies.py",
+    "integrations/guanheng/models.py": "integrations/guanheng/models.py",
+    "integrations/guanheng/native_history.py": "integrations/guanheng/native_history.py",
+    "integrations/guanheng/price_quality.py": "integrations/guanheng/price_quality.py",
+    "integrations/guanheng/qmt_dat_layout.py": "integrations/guanheng/qmt_dat_layout.py",
+    "integrations/guanheng/qmt_minute_import.py": "integrations/guanheng/qmt_minute_import.py",
+    "integrations/guanheng/qmt_native_adjustment.py": "integrations/guanheng/qmt_native_adjustment.py",
+    "integrations/guanheng/qmt_native_replay.py": "integrations/guanheng/qmt_native_replay.py",
+    "integrations/guanheng/source_history_transport.py": "integrations/guanheng/source_history_transport.py"
+  },
+  "projects": {
+    "agent": "connectors/qmt_shm/agent",
+    "core": "packages/native-analysis-core",
+    "host": "connectors/qmt_shm/host"
+  },
+  "schema": "guanheng.source-packages.v1"
+}
