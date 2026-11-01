@@ -177,9 +177,9 @@ class MarketChartSourceProvenance(MarketModel):
 
 
 class MarketChartBundle(MarketModel):
-    schema_version: Literal["1.4", "1.5", "1.6", "1.7"] = "1.4"
+    schema_version: Literal["1.4", "1.5", "1.6", "1.7", "1.8"] = "1.4"
     symbol: str = Field(pattern=r"^[0-9]{6}\.(SH|SZ)$")
-    period: Literal["1m", "5m", "1d"]
+    period: Literal["1m", "5m", "1d", "1w", "1mo"]
     candles: list[MarketChartCandle] = Field(default_factory=list, max_length=2000)
     data_available: bool
     as_of: datetime | None = None
@@ -204,10 +204,15 @@ class MarketChartBundle(MarketModel):
     def consistent(self):
         source_dates = isinstance(self.native_source, MarketChartSourceDateSource)
         source_labels = isinstance(self.native_source, MarketChartSourceLabelSource) and not source_dates
-        if self.schema_version == "1.6" or self.period == "1d" or self.source_period == "1d" or source_dates:
-            if (self.schema_version != "1.6" or self.period != "1d" or self.source_period != "1d"
-                    or self.source_bar_count != len(self.candles) or self.native_source is not None and not source_dates):
-                raise ValueError("来源日线须绑定1.6、日期语义及1d原周期")
+        calendar_derived = self.period in ("1w", "1mo")
+        if (self.schema_version in ("1.6", "1.8") or self.period in ("1d", "1w", "1mo")
+                or self.source_period == "1d" or source_dates):
+            expected_schema = "1.8" if calendar_derived else "1.6"
+            if (self.schema_version != expected_schema or self.period not in ("1d", "1w", "1mo")
+                    or self.source_period != "1d" or self.source_bar_count is None
+                    or (not calendar_derived and self.source_bar_count != len(self.candles))
+                    or self.native_source is not None and not source_dates):
+                raise ValueError("来源日线及周月投影须绑定对应schema、日期语义及1d原周期")
             if any(c.occurred_at.astimezone(SHANGHAI_TIME_ZONE).time().isoformat() != "00:00:00" for c in self.candles):
                 raise ValueError("日线时间仅接受上海交易日期零点标签")
         if source_labels and (self.schema_version not in ("1.5", "1.7") or self.period != "1m"):
@@ -234,16 +239,21 @@ class MarketChartBundle(MarketModel):
             raise ValueError("来源观测及分段须显式使用1.7")
         if self.data_available != bool(self.candles) or self.data_available == bool(self.missing_reason):
             raise ValueError("图表可用性与数据不一致")
-        if self.derived != (self.period == "5m") or (self.derived and self.source_bar_count is not None):
+        if self.derived != (self.period in ("5m", "1w", "1mo")):
             raise ValueError("周期推导身份不一致")
+        if self.period == "5m" and self.source_bar_count is not None:
+            raise ValueError("5分钟推导不声明原分钟数量")
         if self.data_available and (self.native_source is None or self.as_of != self.candles[-1].occurred_at):
             raise ValueError("图表缺少有效来源或观察时间")
         if self.as_of is not None and self.as_of.utcoffset() is None:
             raise ValueError("观察时间须包含时区")
         if any(c.volume is None for c in self.candles):
             raise ValueError("原生图表须具备来源成交量")
-        if self.source_bar_count is not None and self.source_bar_count != len(self.candles):
-            raise ValueError("原生1m数量不一致")
+        if self.source_bar_count is not None:
+            if calendar_derived and self.source_bar_count < len(self.candles):
+                raise ValueError("周月聚合的来源日线数量不足")
+            if not calendar_derived and self.source_bar_count != len(self.candles):
+                raise ValueError("原生周期数量不一致")
         times = [c.occurred_at for c in self.candles]
         if times != sorted(set(times)):
             raise ValueError("分钟顺序或唯一性无效")

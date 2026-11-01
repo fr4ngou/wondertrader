@@ -36,7 +36,7 @@ export function ObserverLayout({ children, connected, failed = false }: {
     const timer = window.setInterval(() => setToday(new Date()), 60_000)
     return () => window.clearInterval(timer)
   }, [])
-  return <div className={`app-shell independent-shell observer-design${observation ? ' observer-design-observation' : ''}`}>
+  return <div className={`app-shell independent-shell observer-design${observation ? ' observer-design-observation' : ''}${location.pathname === '/market' ? ' observer-design-market' : ''}`}>
     <a className="skip-link" href="#workspace-content">跳到主要内容</a>
     <aside className="sidebar" aria-label="工作区侧边栏">
       <NavLink className="brand-lockup" to="/dashboard" aria-label={brand.display_name}>
@@ -50,7 +50,8 @@ export function ObserverLayout({ children, connected, failed = false }: {
       <div className="sidebar-footer"><BarChart3 size={15} aria-hidden="true" /><span>观衡 · 数据与策略观察</span></div>
     </aside>
     <header className="topbar">
-      <SecurityAutocomplete onSelect={term => navigate(`/market?${new URLSearchParams({ search: term })}`)} />
+      <SecurityAutocomplete initialSearch={location.pathname === '/market' ? new URLSearchParams(location.search).get('search') ?? '' : ''}
+        onSelect={term => navigate(`/market?${new URLSearchParams({ search: term })}`)} />
       <div className="observer-header-meta">
         <span className={`observer-service-state${failed ? ' observer-service-warning' : ''}`} role="status" title="表示观衡接口的读取状态；具体账户和行情时间见对应页面。">
           <Circle size={8} fill="currentColor" aria-hidden="true" />{failed ? connected ? '刷新待重试' : '连接待恢复' : connected ? '服务在线' : '正在连接'}

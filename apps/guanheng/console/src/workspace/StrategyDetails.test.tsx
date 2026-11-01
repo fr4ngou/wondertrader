@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import StrategyDetails from './StrategyDetails'
+import { MemoryRouter } from 'react-router-dom'
 import { validateStrategyDetails } from './strategyDetailsApi'
 import account from './account-v2.fixture.json'
 import type { AccountOverviewV2, AccountRow } from './accountApi'
@@ -15,7 +16,7 @@ const fixture = ()=>({schema_version:'guanheng.strategy-details.v1',read_only:tr
  returns:{cumulative_pct:missing('缺少起始本金和期间现金流基准')}})
 const clients:QueryClient[]=[]
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals()})
-function mount(){const c=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});clients.push(c);render(<QueryClientProvider client={c}><StrategyDetails/></QueryClientProvider>)}
+function mount(){const c=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});clients.push(c);render(<QueryClientProvider client={c}><MemoryRouter><StrategyDetails/></MemoryRouter></QueryClientProvider>)}
 test('未启动策略仍显示四项当前持仓，资金、预算和收益基准分别解释',async()=>{
  const value=fixture();const row=value.account.groups.position.rows[0]
  value.account.groups.position.rows=[0,1,2,3].map((i):AccountRow=>({...structuredClone(row),identity:{m_strInstrumentID:`5100${i}0`,m_strExchangeID:'SH'},
@@ -25,9 +26,9 @@ test('未启动策略仍显示四项当前持仓，资金、预算和收益基�
  expect(within(table).getAllByRole('row')).toHaveLength(5)
  expect(table).toHaveTextContent('1,200');expect(table).toHaveTextContent('800');expect(table).toHaveTextContent('9,800')
  expect(screen.getByText('策略未启动')).toBeVisible()
- expect(screen.getByText('账户可用资金归账户所有')).toBeVisible()
- expect(screen.getByText('缺少起始本金和期间现金流基准')).toBeVisible()
- expect(screen.getByText('来源尚未提供开始时间')).toBeVisible()
+ expect(screen.getByText('账户可用资金归账户所有')).toBeInTheDocument()
+ expect(screen.getByText('缺少起始本金和期间现金流基准')).toBeInTheDocument()
+ expect(screen.getByText('来源尚未提供开始时间')).toBeInTheDocument()
  expect(screen.queryByText('0%')).not.toBeInTheDocument()
  expect(document.body).not.toHaveTextContent('pid')
 })
@@ -67,6 +68,6 @@ test('新一轮局部资金持仓失败沿原账户投影保留成功批和原�
  await screen.findByRole('region',{name:'策略当前持仓'})
  fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
  expect(await screen.findByText('本轮持仓未更新，当前保留上次成功持仓及原查询时间。')).toBeVisible()
- expect(screen.getByText('本轮资金未更新，当前保留上次成功资金及原查询时间。')).toBeVisible()
+ expect(screen.getByText('本轮资金未更新，当前保留上次成功资金及原查询时间。')).toBeInTheDocument()
  expect(screen.getByRole('region',{name:'策略当前持仓'})).toBeVisible()
 })

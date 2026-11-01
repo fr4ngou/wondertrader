@@ -1,5 +1,7 @@
 # 模块导航
 
+- [观衡行情工作区](observer-market-workspace.md)：单搜索、自选五日小图、日周月范围与偏好状态。
+
 - [证券目录与检索](security-search.md)：中文、拼音、代码前缀候选及规范行情身份。
 
 - [策略与报告详情](observer-strategy-details.md)：实际账户资金/持仓、正式报告及分实例只读状态。

@@ -1,5 +1,11 @@
 # 验证证据
 
+- [策略资金迁移审计](2026-11-02-strategy-capital-audit.md)：原生机制和模板本金缺口已核实，真实最新基线仍待原件。
+
+- [日线与自然周期公开验收](2026-11-02-daily-history-calendar-periods.md)：5,274证券日仓及目标股票/ETF真实读取。
+
+- [独立WT日线运行](2026-11-02-daily-history-wt-runtime.md)：原history工厂管理来源，真实GET与正常停止通过。
+
 - [2026-11-01观衡a80主干与用户验收](2026-11-01-observer-a80-user-acceptance.md)：已合入干净主干并运行18123；一年高管、曲线及手动读取修正已验。
 
 - [2026-11-01新版用户验收入口](2026-11-01-observer-user-acceptance.md)：a79+oar.2已在18122持续运行，原18120保持。

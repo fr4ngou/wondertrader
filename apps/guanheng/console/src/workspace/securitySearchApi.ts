@@ -54,9 +54,9 @@ export function decodeSecuritySearch(value: unknown): SecuritySearchResponse {
     catalog_id: value.catalog_id, generated_at: value.generated_at, results })
 }
 
-export async function searchSecurities(query: string, signal?: AbortSignal): Promise<SecuritySearchResponse> {
+export async function searchSecurities(query: string, signal?: AbortSignal, preview = false, timeoutMs = 6500): Promise<SecuritySearchResponse> {
   const term = query.trim()
   if (!term || new TextEncoder().encode(term).length > 128) throw new Error('请输入证券简称、拼音或代码')
   return decodeSecuritySearch(await fetchReadJson<unknown>(
-    `/v1/ui/securities/search?query=${encodeURIComponent(term)}&limit=12`, '证券搜索', signal, 'workspace', 6500))
+    `/v1/ui/securities/search?query=${encodeURIComponent(term)}&limit=12`, '证券搜索', signal, preview ? 'preview' : 'workspace', timeoutMs))
 }

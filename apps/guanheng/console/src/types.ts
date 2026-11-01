@@ -1193,7 +1193,7 @@ export interface StreamEvent {
   payload: Record<string, unknown>
 }
 
-export type MarketChartPeriod = '1m' | '5m' | '1d'
+export type MarketChartPeriod = '1m' | '5m' | '1d' | '1w' | '1mo'
 
 export interface MarketChartCandle {
   occurred_at: string
@@ -1247,14 +1247,14 @@ export interface MarketChartNativeSource {
 }
 
 export interface MarketChartBundle {
-  schema_version: '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6' | '1.7'
+  schema_version: '1.0' | '1.1' | '1.2' | '1.3' | '1.4' | '1.5' | '1.6' | '1.7' | '1.8'
   symbol: string
   period: MarketChartPeriod
   candles: MarketChartCandle[]
   data_available: boolean
   as_of?: string | null
   missing_reason?: string | null
-  source_period?: MarketChartPeriod | null
+  source_period?: '1m' | '1d' | null
   source_bar_count?: number | null
   source_kind?: 'market_bars' | 'resonance_daily' | 'mixed' | 'quote_observations' | 'wondertrader' | null
   native_source?: MarketChartNativeSource | null
@@ -1306,7 +1306,7 @@ export interface PublicObservationProjection {
 
 export interface MarketChartRefreshRequest {
   schema_version: '1.0'
-  period: Exclude<MarketChartPeriod, '1d'>
+  period: '1m' | '5m'
   requested_count: number
   read_only: true
   executable: false
@@ -1315,7 +1315,7 @@ export interface MarketChartRefreshRequest {
 export interface MarketChartRefreshReceipt {
   schema_version: '1.0'
   symbol: string
-  requested_period: Exclude<MarketChartPeriod, '1d'>
+  requested_period: '1m' | '5m'
   source_period: '1m'
   requested_count: number
   collected_bar_count: number

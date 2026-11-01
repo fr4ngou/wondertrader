@@ -134,8 +134,8 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         available=bool(configured.wondertrader_market_url and configured.wondertrader_market_token.get_secret_value())
         business=all((configured.wt_status_file,configured.wt_control_id,configured.wt_instance_id,configured.wt_configuration_sha256))
         return {"read_only":True,"features":{
-            "minute_chart":{"available":available,"periods":["1m","1d"] if configured.wondertrader_history_semantics=="source" else ["1m","5m"],"timeout_seconds":configured.wondertrader_market_timeout_seconds,"reason":None if available else "尚未配置WT行情读取连接"},
-            "daily_chart":{"available":available and configured.wondertrader_history_semantics=="source","periods":["1d"],"read_only":True,"reason":None if available else "尚未配置WT日线读取连接"},
+            "minute_chart":{"available":available,"periods":["1m","1d","1w","1mo"] if configured.wondertrader_history_semantics=="source" else ["1m","5m"],"timeout_seconds":configured.wondertrader_market_timeout_seconds,"reason":None if available else "尚未配置WT行情读取连接"},
+            "daily_chart":{"available":available and configured.wondertrader_history_semantics=="source","periods":["1d","1w","1mo"],"read_only":True,"reason":None if available else "尚未配置WT日线读取连接"},
             "backtest":{"available":bool(configured.backtest_archive_root),"read_only":True,"reason":None if configured.backtest_archive_root else "尚未配置WT已保存的回测报告"},
             "personal_watchlist":application.state.watchlist_owner.capability() if application.state.watchlist_owner else {"available":False,"editable":False,"max_items":WATCHLIST_MAX_ITEMS,"scope":"personal-observation","affects_strategy":False,"reason":UNCONFIGURED},
             "account":{"available":business,"read_only":True,"scope":"account","datatypes":["position","order","deal","account"],"timeout_seconds":2,"reason":None if business else "尚未配置WT账户观察读取连接"},
@@ -146,7 +146,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
             "strategy":{"available":True,"read_only":True,"reason":None},
             "execution":{"available":business,"read_only":True,"reason":None if business else "尚未配置WT策略观察读取连接"}}}
 
-    async def read_chart(symbol, period, limit, before, deadline):
+    async def read_chart(symbol, period, limit, before, daily_limit, years, deadline):
         remaining = deadline - monotonic()
         if remaining <= 0:
             return unavailable_native_chart(symbol, period, "WonderTrader 行情读取预算已耗尽")
@@ -155,7 +155,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
                 lambda budget: build_native_chart(
                     symbol=symbol, period=period, limit=limit, before=before,
                     settings=configured, client_factory=market_client_factory,
-                    timeout_seconds=budget,
+                    timeout_seconds=budget, daily_limit=daily_limit, years=years,
                 ), deadline,
             )
             wrapped = asyncio.wrap_future(future)
@@ -174,8 +174,10 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
 
     @application.get("/v1/ui/market/chart/{symbol}", response_model=MarketChartBundle)
     async def market_chart(
-        symbol: str, period: str = Query(default="1m", pattern=r"^(1m|5m|1d)$"),
-        limit: int = Query(default=240, ge=1, le=2000), before: datetime | None = None,
+        symbol: str, period: str = Query(default="1m", pattern=r"^(1m|5m|1d|1w|1mo)$"),
+        limit: int | None = Query(default=None, ge=1, le=2000), before: datetime | None = None,
+        daily_limit: int | None = Query(default=None, ge=1, le=2000),
+        years: int | None = Query(default=None, ge=1),
         benchmark_symbol: str | None = None, feature_version: str | None = None,
     ):
         try:
@@ -184,17 +186,24 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
                 benchmark_symbol = normalize_chart_symbol(benchmark_symbol)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
+        limit = (60 if period == "1d" else 240) if limit is None else limit
+        if daily_limit is not None and period not in ("1w", "1mo"):
+            raise HTTPException(422, "daily_limit 仅用于周线和月线")
+        if years is not None and period not in ("1d", "1w", "1mo"):
+            raise HTTPException(422, "years 仅用于日线、周线和月线")
+        if daily_limit is not None and years is not None:
+            raise HTTPException(422, "daily_limit 与 years 不能同时使用")
         if feature_version is not None or (before is not None and before.utcoffset() is None):
             raise HTTPException(422, "行情查询须使用带时区的时间，且不接受旧feature_version")
         # 主图与基准共享同一绝对截止；每个worker真正执行时再次扣除排队时间。
         deadline = monotonic() + configured.wondertrader_market_timeout_seconds
-        chart = await read_chart(symbol, period, limit, before, deadline)
+        chart = await read_chart(symbol, period, limit, before, daily_limit, years, deadline)
         unavailable = {"strategy", "bridge"}
         benchmark = None
         if benchmark_symbol and benchmark_symbol != symbol:
             # 主图空或失败时，附加读取没有对齐窗口；明确缺项并保留来源预算。
             source = (
-                await read_chart(benchmark_symbol, period, limit, before, deadline)
+                await read_chart(benchmark_symbol, period, limit, before, daily_limit, years, deadline)
                 if chart.data_available else unavailable_native_chart(
                     benchmark_symbol, period, "主图无可用行情，基准暂不读取"
                 )

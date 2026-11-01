@@ -51,7 +51,7 @@ export function MarketCandlestickChart({
     const chart = echarts.init(root.current, undefined, {
       renderer: import.meta.env.MODE === 'test' ? 'svg' : 'canvas',
     })
-    const intraday = bundle.period !== '1d'
+    const intraday = bundle.period === '1m' || bundle.period === '5m'
     const hasVolume = bundle.volume_available !== false
     const labels = bundle.candles.map((item) => {
       const date = new Date(item.occurred_at)
@@ -120,8 +120,8 @@ export function MarketCandlestickChart({
           name: '价格', type: 'candlestick' as const,
           data: bundle.candles.map((item) => [item.open, item.close, item.low, item.high]),
           itemStyle: {
-            color: '#c75f63', color0: '#5d7185',
-            borderColor: '#c75f63', borderColor0: '#5d7185',
+            color: '#ed5264', color0: '#00a77a',
+            borderColor: '#ed5264', borderColor0: '#00a77a',
           },
         }]
     const priceWithEvidence = priceSeries.map((series, index) => ({
@@ -208,7 +208,7 @@ export function MarketCandlestickChart({
           name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
           data: bundle.candles.map((item) => ({
             value: item.volume,
-            itemStyle: { color: item.close >= item.open ? 'rgba(199,95,99,.42)' : 'rgba(93,113,133,.38)' },
+            itemStyle: { color: item.close >= item.open ? '#f17a87' : '#43bfa0' },
           })),
         }] : []),
         ...benchmarkSeries,
@@ -238,13 +238,13 @@ export function MarketCandlestickChart({
     return (
       <EmptyState
         title="暂无权威 K 线"
-        detail={bundle?.schema_version === '1.4' || bundle?.schema_version === '1.5' || bundle?.schema_version === '1.6'
+        detail={bundle?.schema_version === '1.4' || bundle?.schema_version === '1.5' || bundle?.schema_version === '1.6' || bundle?.schema_version === '1.8'
           ? bundle.missing_reason ?? '原生行情暂不可用。'
           : diagnosticLabel(bundle?.missing_reason, '行情服务尚未发布该标的和周期的闭合行情。')}
       />
     )
   }
-  const kind = bundle.period === '1d' ? 'K 线' : '分时走势'
+  const kind = bundle.period === '1m' || bundle.period === '5m' ? '分时走势' : 'K 线'
   const volumeLabel = bundle.volume_partial
     ? '，近期报价聚合段成交量暂未提供'
     : bundle.volume_available === false ? '，成交量暂未提供' : '与成交量'

@@ -36,6 +36,7 @@
 | WT-S05 | 策略状态、理论持仓、用户数据 | CTA/SEL上下文JSON/输出；UFT另有mmap状态 | 账户实际持仓与策略理论持仓分开；保存动作不证明跨文件事务 |
 | WT-S06 | 组合目标、路由、多执行通道 | 原生Engine/ExecuterManager | 在已接通宿主和执行器配置下复用；重复旧目标汇总退出 |
 | WT-S07 | 策略指标/图表标记 | 原生上下文及EventNotifier | 特有策略指标算法按业务要求实现；通知不是持久业务确认 |
+| WT-S08 | 策略损益、策略本金与资金份额 | 原生CtaStraBaseCtx::StraFundInfo及stra_get_fund_data；组合资金统计、风险插件另有配置 | CTA的flag0为平仓损益−费用＋浮动损益，flag1/2/3分别为平仓损益/浮动损益/费用；该返回值不含本金。策略本金及同账户各策略现金份额由使用方明确提供，券商账户查询不能自动识别该份额。资金来源、配置金额和策略损益须分别核实，数值等式一致不能证明本金来源正确 |
 | WT-T01 | 登录/账户/持仓/委托/成交查询 | 原生ITraderApi及TraderAdapter查询链 | 源返回字段/范围和快照回报交接由插件保证；不默认四查询共同事务。原历史成交响应累计统计，实时成交还改变持仓与未成交量；完整相同事实不能直接交付两次 |
 | WT-T02 | 委托、撤单及回报 | 原生ITraderApi/ITraderSpi、TraderAdapter及Order/Trade对象 | 标准EntrustID/userTag/OrderID映射由插件保持；来源认证、跨进程防重及未知结果核查由接入层负责，正常写开关、账户及终端模式沿实际接口处理；额外逐单审批签名、生产资格等级和同水位四快照不属于WT标准前提。旧QMT默认工厂仍为受管入口；正式可选TraderQMTStandard已通过原Adapter/Local与SHM运输的SDK替身主链，正式宿主和恢复继续，见[执行模块](../modules/execution.md) |
 | WT-T03 | Local/Diff执行与算法工厂 | 原生目标差量执行和ExecuteUnit/IExecuterFact | 买卖/撤单就绪、拆单改价与每项授权须一致；算法实现逐项核查 |

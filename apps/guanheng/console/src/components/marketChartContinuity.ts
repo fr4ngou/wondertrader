@@ -1,6 +1,6 @@
 import type { MarketChartCandle, MarketChartPeriod } from '../types'
 
-const PERIOD_MILLISECONDS: Record<Exclude<MarketChartPeriod, '1d'>, number> = {
+const PERIOD_MILLISECONDS: Record<'1m' | '5m', number> = {
   '1m': 60_000,
   '5m': 300_000,
 }
@@ -37,7 +37,7 @@ export function buildMarketChartContinuity(
   if (candles.length === 0) {
     return { segments: [], gapCount: 0, largestGapMinutes: null }
   }
-  if (period === '1d') {
+  if (period !== '1m' && period !== '5m') {
     return {
       segments: [candles.map((item) => item.close)],
       gapCount: 0,

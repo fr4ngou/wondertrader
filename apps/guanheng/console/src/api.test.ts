@@ -38,6 +38,20 @@ describe('bounded interactive status reads', () => {
     vi.unstubAllGlobals()
   })
 
+  it('keeps one slow preview below two foreground reads and independent status/audit capacity', async () => {
+    const mock = vi.fn(abortablePendingFetch)
+    vi.stubGlobal('fetch', mock)
+    const controller = new AbortController()
+    const read = (path: string, lane: Parameters<typeof fetchReadJson>[3]) =>
+      fetchReadJson(path, '测试', controller.signal, lane, 10_000)
+    const results = [read('/preview/1', 'preview'), read('/preview/2', 'preview'),
+      read('/main', 'workspace'), read('/search', 'workspace'), read('/status', 'status'), read('/audit', 'audit')]
+    const settled = Promise.allSettled(results)
+    expect(mock.mock.calls.map(([url]) => url)).toEqual(['/preview/1', '/main', '/search', '/status', '/audit'])
+    controller.abort()
+    await settled
+  })
+
   it.each([
     ['QMT connection', fetchQmtConnectionStatus, 'QMT 连接状态读取超时'],
   ] as const)('fails a hanging %s read with an explicit deadline', async (_label, request, message) => {

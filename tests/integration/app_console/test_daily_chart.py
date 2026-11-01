@@ -90,6 +90,72 @@ def test_main_daily_actual_app_http_and_shutdown(monkeypatch):
     assert app.state.shutdown_complete and app.state.reader.live_threads == 0
 
 
+def test_week_month_use_real_daily_window_and_natural_calendar_ohlcv():
+    rows = [
+        (20260129, 10, 11, 9, 10, 1), (20260130, 10, 12, 8, 11, 2),
+        (20260202, 20, 22, 19, 21, 3), (20260203, 21, 23, 18, 20, 4),
+        (20260227, 21, 24, 17, 23, 5), (20260302, 30, 32, 29, 31, 6),
+    ]
+    def behavior(request):
+        response = daily_response(request, empty=True)
+        response['data']['bars'] = [{"symbol":request['exchange']+'.'+request['code'],"date":date,
+            "open":op,"high":high,"low":low,"close":close,"volume":volume,"amount":volume*close}
+            for date,op,high,low,close,volume in rows]
+        return response
+    weekly_factory = DailyFactory(behavior)
+    weekly = build_native_chart(symbol='510300.SH',period='1w',limit=2000,daily_limit=6,
+        before=None,settings=settings(),now=NOW,client_factory=weekly_factory)
+    assert weekly.schema_version == '1.8' and weekly.derived and weekly.source_period == '1d'
+    assert weekly.source_bar_count == 6 and len(weekly.candles) == 4
+    assert weekly.candles[0].model_dump(exclude={'occurred_at'}) == {
+        'open':10.0,'high':12.0,'low':8.0,'close':11.0,'volume':3.0}
+    monthly_factory = DailyFactory(behavior)
+    monthly = build_native_chart(symbol='510300.SH',period='1mo',limit=2,daily_limit=6,
+        before=None,settings=settings(),now=NOW,client_factory=monthly_factory)
+    assert monthly.schema_version == '1.8' and monthly.derived and monthly.source_bar_count == 4
+    assert [row.model_dump(exclude={'occurred_at'}) for row in monthly.candles] == [
+        {'open':20.0,'high':24.0,'low':17.0,'close':23.0,'volume':12.0},
+        {'open':30.0,'high':32.0,'low':29.0,'close':31.0,'volume':6.0},
+    ]
+    assert weekly_factory.calls[0][0]['limit'] == monthly_factory.calls[0][0]['limit'] == 6
+
+
+def test_week_month_http_contract_and_daily_limit_scope():
+    app = create_app(settings(), DailyFactory())
+    with TestClient(app) as client:
+        capabilities = client.get('/v1/ui/capabilities').json()['features']
+        assert capabilities['daily_chart']['periods'] == ['1d','1w','1mo']
+        value = client.get('/v1/ui/market/chart/510300.SH',
+            params={'period':'1w','limit':2000,'daily_limit':5}).json()
+        assert value['schema_version'] == '1.8' and value['period'] == '1w'
+        assert value['source_period'] == '1d' and value['source_bar_count'] == 2
+        assert client.get('/v1/ui/market/chart/510300.SH',
+            params={'period':'1d','daily_limit':5}).status_code == 422
+        assert client.get('/v1/ui/market/chart/510300.SH',
+            params={'period':'1w','daily_limit':5,'years':1}).status_code == 422
+    assert app.state.shutdown_complete and app.state.reader.live_threads == 0
+
+
+def test_calendar_year_window_uses_last_actual_source_date_before_aggregation():
+    dates=(20241029,20251029,20251030,20261030)
+    def behavior(request):
+        response=daily_response(request,empty=True)
+        response['data']['bars']=[{'symbol':request['exchange']+'.'+request['code'],'date':date,
+            'open':float(i),'high':float(i+1),'low':float(i)-.5,'close':float(i)+.5,
+            'volume':float(i),'amount':float(i*i)} for i,date in enumerate(dates,1)]
+        return response
+    daily=build_native_chart(symbol='510300.SH',period='1d',limit=2000,years=1,
+        before=None,settings=settings(),now=datetime(2026,11,1,tzinfo=timezone.utc),
+        client_factory=DailyFactory(behavior))
+    assert daily.source_bar_count==2
+    assert [row.occurred_at.astimezone(timezone.utc).date().isoformat() for row in daily.candles] == [
+        '2025-10-29','2026-10-29']
+    monthly=build_native_chart(symbol='510300.SH',period='1mo',limit=2000,years=1,
+        before=None,settings=settings(),now=datetime(2026,11,1,tzinfo=timezone.utc),
+        client_factory=DailyFactory(behavior))
+    assert monthly.source_bar_count==2 and len(monthly.candles)==2
+
+
 def test_daily_earlier_observed_date_and_deployment_budget_are_respected():
     factory = DailyFactory()
     result = build_native_chart(symbol="159919.sz", period="1d", limit=2,

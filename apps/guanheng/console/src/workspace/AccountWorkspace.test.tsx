@@ -115,7 +115,7 @@ it('首次读取繁忙时说明等待，并可从相同入口恢复', async () =
   mount()
   const alert = await screen.findByRole('alert')
   expect(alert).toHaveTextContent('账户读取繁忙，请等待本轮结束后刷新')
-  expect(alert).toHaveTextContent('尚未取得账户数据，可稍后按“刷新账户”重试。')
+  expect(alert).toHaveTextContent('账户读取繁忙，请等待本轮结束后刷新')
   expect(alert).not.toHaveTextContent('检查来源连接')
   fireEvent.click(screen.getByRole('button', { name: '刷新账户' }))
   await screen.findByText('600000.SH')

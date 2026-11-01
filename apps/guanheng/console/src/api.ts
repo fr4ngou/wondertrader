@@ -63,7 +63,7 @@ type ScheduledRead = {
   abortQueued: () => void
 }
 
-type ReadLaneName = 'status' | 'overview' | 'workspace' | 'audit'
+type ReadLaneName = 'status' | 'overview' | 'workspace' | 'audit' | 'preview'
 
 // 排队和传输共享同一截止类型，公开投影边界据此区分超时与连接失败。
 class ReadDeadlineError extends Error {}
@@ -85,21 +85,19 @@ type ReadLane = {
   queue: ScheduledRead[]
 }
 
-// Browsers expose only a small per-origin connection pool. Keep two slots reserved
-// for status and audit evidence, and share the remaining two between Overview and
-// workspace projections. Without the aggregate cap, four workspace reads plus the
-// shell and SSE can prevent a newly selected order trace from reaching Console at
-// all, even though every logical lane has its own queue.
-const MAX_ACTIVE_READS = 4
+// 小图只占一个额外槽；原工作区两个交互槽和状态/审计两个槽保持。
+// 五个HTTP读取仍为浏览器常见六连接池保留一个长连接名额。
+const MAX_ACTIVE_READS = 5
 const MAX_BACKGROUND_READS = 2
 // 每条读取通道独立保留32个等待名额，工作区满额不占用状态/审计的等待容量。
 export const MAX_QUEUED_READS_PER_LANE = 32
-const READ_LANE_PRIORITY: ReadLaneName[] = ['status', 'audit', 'workspace', 'overview']
+const READ_LANE_PRIORITY: ReadLaneName[] = ['status', 'audit', 'workspace', 'overview', 'preview']
 const scheduledReadLanes: Record<ReadLaneName, ReadLane> = {
   status: { active: 0, limit: 1, queue: [] },
   overview: { active: 0, limit: 1, queue: [] },
   workspace: { active: 0, limit: 2, queue: [] },
   audit: { active: 0, limit: 1, queue: [] },
+  preview: { active: 0, limit: 1, queue: [] },
 }
 let scheduledReadSequence = 0
 
@@ -476,8 +474,11 @@ export async function fetchMarketChart(
   limit = 2000,
   before?: string,
   timeoutMs = INTERACTIVE_STATUS_TIMEOUT_MS,
+  range?: { dailyLimit?: number; years?: number; preview?: boolean },
 ): Promise<MarketChartBundle> {
   const params = new URLSearchParams({ period, limit: String(limit) })
+  if (range?.dailyLimit !== undefined) params.set('daily_limit', String(range.dailyLimit))
+  if (range?.years !== undefined) params.set('years', String(range.years))
   if (before) params.set('before', before)
   if (benchmarkSymbol && benchmarkSymbol !== symbol) {
     params.set('benchmark_symbol', benchmarkSymbol)
@@ -486,7 +487,7 @@ export async function fetchMarketChart(
     `/v1/ui/market/chart/${encodeURIComponent(symbol)}?${params}`,
     '行情图表',
     signal,
-    'workspace',
+    range?.preview ? 'preview' : 'workspace',
     timeoutMs,
   )
   // 原生失败投影没有来源metadata；真实成功空查询仍携带metadata。
