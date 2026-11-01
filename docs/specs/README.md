@@ -1,3 +1,5 @@
+- [独立市场更新角色的行情连接](observation-update-connection.md)：显式私有连接、凭据隔离、无凭据停止及原监督生命周期。
+
 - [观衡人工验收修复与视觉重设计](observer-acceptance-repair.md)：OAR-01至09，搜索、历史/广度、中文金额、账户/策略/报告、运行接线和先选图后实施的UI重设计。
 
 #- [QMT Host通信记录的持久I/O](qmt-host-durable-io.md)：DIO，同一owner连接、原事务与FULL持久确认，原截止及未知身份保持；完整调仓验收继续。
