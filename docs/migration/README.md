@@ -1,5 +1,7 @@
 # 观衡量化系统移植入口
 
+- [观衡验收修复并行计划](observer-acceptance-parallel.md)：八图功能缺口、开发者1/2/杂役完整模块、公共接缝及单一集成；[UI调研与截图审阅](observer-ui-design-research.md)记录组件依据和三套视觉方向。
+
 > 源码交付范围：本页标注的外部历史/待归仓路径用于追溯原记录，未随本次源码提交。其旧通过记录不授当前入口可复现资格；当前构建与运行以对应永久源码及正式安装手册为准。
 
 - [原生账户四查询的WT只读发布接线](native-account-publication-proposal.md)：NAP-v1组件/descriptor/locator与原帧包装合同已冻结；无App生产者、两轮/失败恢复和原C投影已实跑，A公共装配与C页面按同合同接线。

@@ -1,3 +1,5 @@
+- [观衡人工验收修复与视觉重设计](observer-acceptance-repair.md)：OAR-01至09，搜索、历史/广度、中文金额、账户/策略/报告、运行接线和先选图后实施的UI重设计。
+
 #- [QMT Host通信记录的持久I/O](qmt-host-durable-io.md)：DIO，同一owner连接、原事务与FULL持久确认，原截止及未知身份保持；完整调仓验收继续。
 
 - [观衡持续公开A股来源](observer-public-ashare-producer.md)：沪深北行情事实、覆盖说明、原服务采集归档及市场观察指标。
