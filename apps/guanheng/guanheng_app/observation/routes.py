@@ -177,6 +177,9 @@ def make_router():
             raise ObservationError('invalid_query', '观察查询条件无效，请核对日期和参数范围', 422) from None
         owner = getattr(request.app.state, 'observation_owner', None)
         if owner is None:
+            error = getattr(request.app.state, 'observation_error', None)
+            if error is not None:
+                raise ObservationError(error['code'], error['detail'], error['status'])
             raise ObservationError('not_configured', '尚未配置独立市场观察数据', 503)
 
         def operation(_remaining):

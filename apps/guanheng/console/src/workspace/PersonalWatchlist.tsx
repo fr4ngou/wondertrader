@@ -6,6 +6,7 @@ import {
   savePersonalWatchlist, WatchlistSaveError, WATCHLIST_MAX_ITEMS,
 } from './watchlistApi'
 import type { PersonalWatchlist as Snapshot } from './watchlistApi'
+import { searchSecurities } from './securitySearchApi'
 import './personal-watchlist.css'
 
 export const PERSONAL_WATCHLIST_QUERY_KEY = ['independent-watchlist', 'default'] as const
@@ -13,7 +14,7 @@ const capabilityKeys = ['available', 'editable', 'max_items', 'scope', 'affects_
 type Capability = { available: boolean; editable: boolean }
 type Phase = 'idle' | 'saved' | 'unknown' | 'conflict' | 'rejected' | 'review' | 'verified' | 'confirmed'
 type Intent = { id: string; minimumVersion: number; symbols: readonly string[] }
-type Props = { capability?: unknown; chartAvailable: boolean; chartBusy: boolean; chartPeriodLabel?: string; onView: (symbol: string) => void }
+type Props = { capability?: unknown; searchCapability?: unknown; initialSearch?: string; chartAvailable: boolean; chartBusy: boolean; chartPeriodLabel?: string; onView: (symbol: string) => void }
 
 type UiState = Readonly<{
   phase: Phase
@@ -141,12 +142,16 @@ export default function PersonalWatchlist(props: Props) {
   return <AvailableWatchlist {...props} capability={capability} />
 }
 
-function AvailableWatchlist({ capability, chartAvailable, chartBusy, chartPeriodLabel = '分钟线', onView }: Omit<Props, 'capability'> & { capability: Capability }) {
+function AvailableWatchlist({ capability, searchCapability, initialSearch = '', chartAvailable, chartBusy, chartPeriodLabel = '分钟线', onView }: Omit<Props, 'capability'> & { capability: Capability }) {
   const client = useQueryClient()
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [input, setInput] = useState('')
   const [validation, setValidation] = useState('')
+  const [searchInput, setSearchInput] = useState(() => initialSearch.trim())
+  const [searchTerm, setSearchTerm] = useState(() => initialSearch.trim())
+  const [searchOpen, setSearchOpen] = useState(() => Boolean(initialSearch.trim()))
+  const [searchComposing, setSearchComposing] = useState(false)
   const owner = watchlistOwner(client)
   const state = useSyncExternalStore(owner.subscribe, owner.getSnapshot, owner.getSnapshot)
   const { phase, saving, confirmedId, intent } = state
@@ -169,6 +174,21 @@ function AvailableWatchlist({ capability, chartAvailable, chartBusy, chartPeriod
     },
     retry: false, structuralSharing: false, refetchOnWindowFocus: false, refetchOnReconnect: false, refetchOnMount: 'always',
   })
+  const searchAvailable = Boolean(searchCapability && typeof searchCapability === 'object'
+    && !Array.isArray(searchCapability) && (searchCapability as Record<string, unknown>).available === true)
+  const search = useQuery({ queryKey: ['security-search', searchTerm],
+    queryFn: ({ signal }) => searchSecurities(searchTerm, signal),
+    enabled: searchAvailable && searchOpen && !searchComposing && Boolean(searchTerm) && searchTerm === searchInput.trim(),
+    retry: false, refetchOnWindowFocus: false })
+  useEffect(() => {
+    if (searchComposing) return
+    const timer = window.setTimeout(() => setSearchTerm(searchInput.trim()), 200)
+    return () => window.clearTimeout(timer)
+  }, [searchInput, searchComposing])
+  useEffect(() => {
+    const term = initialSearch.trim()
+    if (term) { setSearchInput(term); setSearchTerm(term); setSearchOpen(true) }
+  }, [initialSearch])
   const snapshot = query.data
   const fresh = query.isSuccess && !query.isFetching
   const identityChanged = Boolean(snapshot && confirmedId && snapshot.watchlist_id !== confirmedId)
@@ -216,6 +236,12 @@ function AvailableWatchlist({ capability, chartAvailable, chartBusy, chartPeriod
     if (snapshot.symbols.length >= WATCHLIST_MAX_ITEMS) { setValidation('个人观察最多保存100个证券，请先移出一项。'); return }
     void save([...snapshot.symbols, symbol], true)
   }
+  function addSymbol(symbol: string) {
+    if (!canEdit || !snapshot) return
+    if (snapshot.symbols.includes(symbol)) { setValidation('该证券已在个人观察中，无需重复添加。'); return }
+    if (snapshot.symbols.length >= WATCHLIST_MAX_ITEMS) { setValidation('个人观察最多保存100个证券，请先移出一项。'); return }
+    void save([...snapshot.symbols, symbol], false)
+  }
   function confirmCurrent() {
     if (!snapshot || !fresh || needsRead) return
     owner.confirm(snapshot)
@@ -227,6 +253,29 @@ function AvailableWatchlist({ capability, chartAvailable, chartBusy, chartPeriod
       <p>仅个人观察偏好可编辑；添加或移出不改变策略交易范围，也不会订阅行情。</p></div>
       <button type="button" disabled={saving || query.isFetching} onClick={() => void reread()}>重新读取个人观察</button>
     </header>
+    {searchAvailable ? <section className="security-search" aria-label="搜索证券"
+      onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false) }}>
+      <form className="personal-watchlist-form" onSubmit={event => { event.preventDefault(); const term = searchInput.trim(); if (term && !searchComposing) { setSearchTerm(term); setSearchOpen(true) } }}>
+        <label>搜索证券简称、拼音或代码<input aria-label="搜索证券简称、拼音或代码" value={searchInput} maxLength={64}
+          placeholder="例如 68817、浦发银行、pfyh" autoComplete="off" spellCheck={false}
+          onFocus={() => setSearchOpen(true)} onCompositionStart={() => setSearchComposing(true)} onCompositionEnd={() => setSearchComposing(false)}
+          onKeyDown={event => { if (event.key === 'Escape') setSearchOpen(false); if (event.key === 'Enter' && (searchComposing || event.nativeEvent.isComposing)) event.preventDefault() }}
+          onChange={event => { setSearchInput(event.target.value); setSearchOpen(true) }} /></label>
+        <button type="submit" disabled={!searchInput.trim() || search.isFetching}>搜索证券</button>
+      </form>
+      {searchOpen && !searchComposing && searchInput.trim() && searchTerm === searchInput.trim() ? <div className="personal-search-dropdown">
+      {search.isFetching ? <p role="status">正在搜索证券目录…</p> : null}
+      {search.isError ? <p role="alert">证券目录搜索失败，请稍后重试。</p> : null}
+      {search.data && !search.data.results.length ? <p role="status">证券目录中没有匹配项；未生成或补全任何代码。</p> : null}
+      {search.data?.results.length ? <ul className="security-search-results" aria-label="证券搜索结果">
+        {search.data.results.map(item => <li key={item.symbol}><span><strong>{item.name}</strong> · {item.symbol} · {
+          item.security_type === 'stock' ? '股票' : item.security_type === 'etf' ? 'ETF' : '指数'}</span>
+          <button type="button" disabled={!chartAvailable || chartBusy} onClick={() => { onView(item.symbol); setSearchOpen(false) }}>查看{chartPeriodLabel}</button>
+          <button type="button" disabled={!canEdit || snapshot?.symbols.includes(item.symbol)} onClick={() => addSymbol(item.symbol)}>
+            {snapshot?.symbols.includes(item.symbol) ? '已在个人观察' : '加入个人观察'}</button></li>)}
+      </ul> : null}
+      </div> : null}
+    </section> : <p role="status">证券目录搜索尚未配置；仍可输入完整规范代码。</p>}
     <form className="personal-watchlist-form" onSubmit={event => { event.preventDefault(); add() }}>
       <label htmlFor={inputId}>加入个人观察的证券代码<input ref={inputRef} id={inputId} value={input} maxLength={32}
         disabled={!canEdit} placeholder="例如 600000.SH" autoComplete="off" spellCheck={false}

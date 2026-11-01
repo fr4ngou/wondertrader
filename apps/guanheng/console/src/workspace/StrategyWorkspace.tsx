@@ -12,7 +12,7 @@ export default function StrategyWorkspace() {
   function target(value: string) { const next = new URLSearchParams(params); next.set('tab', value); return `/strategies?${next}` }
   return <div className="strategy-workspace">
     <nav className="strategy-workspace-tabs account-actions" aria-label="策略工作区">
-      <Link to={target('catalog')} aria-current={tab === 'catalog' ? 'page' : undefined}>策略介绍</Link>
+      <Link to={target('catalog')} aria-current={tab === 'catalog' ? 'page' : undefined}>策略详情</Link>
       <Link to={target('backtests')} aria-current={tab === 'backtests' ? 'page' : undefined}>回测与报告</Link>
     </nav>
     {tab === 'catalog' ? <StrategyCatalogWorkspace />

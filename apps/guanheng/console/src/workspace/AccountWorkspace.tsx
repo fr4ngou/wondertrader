@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { FinancialValue } from './FinancialValue'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import type { Capabilities } from './IndependentApp'
@@ -15,9 +16,10 @@ const columns: Record<Exclude<AccountKind, 'account'>, [string, string][]> = {
 }
 const money = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 })
 
-function fieldText(field?: AccountField, side = false) {
+function fieldText(field?: AccountField, side = false, currency = false) {
   if (!field || field.availability !== 'present') return field?.availability === 'invalid' ? '来源值无效' : '未知'
   if (side && (field.value === 48 || field.value === 49)) return field.value === 48 ? '买入' : '卖出'
+  if (currency && (typeof field.value === 'number' || typeof field.value === 'string')) return <FinancialValue value={field.value} />
   return typeof field.value === 'number' ? money.format(field.value) : field.value ?? '未知'
 }
 
@@ -90,10 +92,10 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
         {publication.runtime_state!=='ready' ? <p>WT当前尚未处于就绪状态，以下结果保留原查询时间。</p> : null}</div> : null}
       <p role={data.status === 'complete' ? 'status' : 'alert'}>{data.reason}</p>
       {!recordsOnly ? <div className="account-funds">{[['total_asset', '总资产'], ['available', '可用资金'], ['frozen_cash', '冻结现金'], ['commission', '来源手续费']].map(([key, label]) => <article className="surface-card" key={key}>
-        <h2>{label}（元）</h2><strong title={fundRow?.fields[key]?.reason ?? undefined}>{fieldText(fundRow?.fields[key])}</strong>
+        <h2>{label}（元）</h2><strong title={fundRow?.fields[key]?.reason ?? undefined}>{fieldText(fundRow?.fields[key], false, true)}</strong>
       </article>)}</div> : null}
       {!recordsOnly && funds ? <><p>{fundsPrevious ? `本轮资金未更新，保留上次成功结果。${data.groups.account.reason ?? ''}` : funds.status !== 'complete' ? funds.reason ?? '本轮资金查询未完成，金额保持未知。' : funds.rows.length === 0 ? '本轮资金返回为空，未作为零资产处理。' : '资金查询时间见下方。'}</p><GroupSource group={funds} />
-        {fundRow ? <details><summary>查看其余来源资金字段</summary><dl className="account-money-details">{[['previous_balance', '前余额'], ['frozen_margin', '冻结保证金'], ['frozen_commission', '冻结手续费'], ['position_profit', '持仓盈亏'], ['float_profit', '浮动盈亏']].map(([key, label]) => <div key={key}><dt>{label}（元）</dt><dd title={fundRow.fields[key]?.reason ?? undefined}>{fieldText(fundRow.fields[key])}</dd></div>)}</dl></details> : null}</> : null}
+        {fundRow ? <details><summary>查看其余来源资金字段</summary><dl className="account-money-details">{[['previous_balance', '前余额'], ['frozen_margin', '冻结保证金'], ['frozen_commission', '冻结手续费'], ['position_profit', '持仓盈亏'], ['float_profit', '浮动盈亏']].map(([key, label]) => <div key={key}><dt>{label}（元）</dt><dd title={fundRow.fields[key]?.reason ?? undefined}>{fieldText(fundRow.fields[key], false, true)}</dd></div>)}</dl></details> : null}</> : null}
       <div role="tablist" aria-label={recordsOnly ? '交易记录类型' : '账户记录'} className="period-switch">{tabs.map((kind, index, kinds) => <button role="tab" className={tab === kind ? 'period-active' : ''} tabIndex={tab === kind ? 0 : -1} aria-selected={tab === kind} id={`account-tab-${kind}`} aria-controls={`account-panel-${kind}`} key={kind}
         onClick={() => { setTab(kind); setPage(0) }} onKeyDown={event => {
           const target = event.key === 'ArrowRight' ? kinds[(index + 1) % kinds.length] : event.key === 'ArrowLeft' ? kinds[(index + kinds.length - 1) % kinds.length]
@@ -106,7 +108,7 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
           : group.rows.length === 0 ? <p role="status">{group.source?.kind === 'wt_native_observation' ? `最近发布的${names[tab]}观察为空。` : `本轮${names[tab]}查询完整，返回 0 条记录。`}</p>
             : <div className="account-table-scroll" tabIndex={0} role="region" aria-label={`${names[tab]}明细，可横向滚动`}><table><thead><tr><th scope="col">证券</th>{tab !== 'position' ? <th scope="col">{tab === 'deal' ? '成交编号 / 委托编号' : '委托编号'}</th> : null}
               {columns[tab].map(([key, label]) => <th scope="col" key={key}>{label}</th>)}
-            </tr></thead><tbody>{group.rows.slice(pageIndex * 50, (pageIndex + 1) * 50).map((row, index) => <tr key={`${tab}-${pageIndex}-${index}`}><RowIdentity row={row} kind={tab} />{columns[tab].map(([key]) => <td key={key} title={row.fields[key]?.reason ?? undefined}>{fieldText(row.fields[key], key === 'side')}</td>)}</tr>)}</tbody></table></div>}
+            </tr></thead><tbody>{group.rows.slice(pageIndex * 50, (pageIndex + 1) * 50).map((row, index) => <tr key={`${tab}-${pageIndex}-${index}`}><RowIdentity row={row} kind={tab} />{columns[tab].map(([key]) => <td key={key} title={row.fields[key]?.reason ?? undefined}>{fieldText(row.fields[key], key === 'side', ['market_value', 'position_profit', 'float_profit', 'amount'].includes(key))}</td>)}</tr>)}</tbody></table></div>}
         {group.status === 'complete' && group.rows.length ? <div className="account-actions" aria-label="账户明细分页"><span>{group.rows.length} 条记录 · 第 {pageIndex + 1} / {pages} 页</span><button disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)}>上一页</button><button disabled={pageIndex + 1 === pages} onClick={() => setPage(pageIndex + 1)}>下一页</button></div> : null}
         <details><summary>字段与查询范围说明</summary><p>“未知”表示来源未提供该事实；来源值无效时保持缺失。可卖数量与总量分别来自券商查询，差额不作为委托冻结数量。</p>
           {tab !== 'position' ? <p>此处显示全账户查询记录，记录中的策略归属和价格类型以已取得的信息为准。</p> : null}

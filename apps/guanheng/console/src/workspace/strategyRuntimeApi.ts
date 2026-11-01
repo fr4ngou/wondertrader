@@ -14,6 +14,7 @@ export type RuntimePosition = { symbol: string; target_weight: number | null; th
   broker_quantity: number | null; broker_sellable: number | null }
 export type StrategyRuntime = { schema_version: 'guanheng.strategy-runtime.v1'; read_only: true; observed_at: string;
   runtime_state?: string;
+  execution_state?: 'not_started';
   state: 'unconfigured' | 'waiting' | 'available'; strategy: null | {
     display_name: string; strategy_version: '1.1.2'; status: keyof typeof runtimeLabels; status_label: string;
     decision_at: string | null; broker_observed_at: string | null; broker_position_qualified: false;
@@ -35,6 +36,7 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
     || !time(data.observed_at) || typeof data.state !== 'string' || !['unconfigured', 'waiting', 'available'].includes(data.state)) return invalid()
   if (data.runtime_state !== undefined && (typeof data.runtime_state !== 'string'
     || !['new','starting','ready','stopping','closed','faulted','unconfigured'].includes(data.runtime_state))) return invalid()
+  if (data.execution_state !== undefined && data.execution_state !== 'not_started') return invalid()
   if (data.state !== 'available') { if (data.strategy !== null) return invalid(); return data as StrategyRuntime }
   const s = data.strategy
   if (!record(s) || s.display_name !== '共振市场状态 ETF 策略' || s.strategy_version !== '1.1.2'

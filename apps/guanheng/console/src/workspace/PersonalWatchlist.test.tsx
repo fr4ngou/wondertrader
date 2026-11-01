@@ -3,10 +3,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import PersonalWatchlist, { PERSONAL_WATCHLIST_QUERY_KEY } from './PersonalWatchlist'
 import * as api from './watchlistApi'
+import * as security from './securitySearchApi'
 
 vi.mock('./watchlistApi', async importOriginal => {
   const actual = await importOriginal<typeof import('./watchlistApi')>()
   return { ...actual, fetchPersonalWatchlist: vi.fn(), savePersonalWatchlist: vi.fn() }
+})
+vi.mock('./securitySearchApi', async importOriginal => {
+  const actual = await importOriginal<typeof import('./securitySearchApi')>()
+  return { ...actual, searchSecurities: vi.fn() }
 })
 const clients: QueryClient[] = []
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.resetAllMocks() })
@@ -70,6 +75,41 @@ test('有效空列表允许本地偏好编辑，行情关闭不触发查看', as
   expect(screen.getByText('分钟行情尚未配置；个人观察的读取和保存可独立使用。')).toBeVisible()
   expect(api.fetchPersonalWatchlist).toHaveBeenCalledTimes(1)
   expect(api.savePersonalWatchlist).not.toHaveBeenCalled()
+})
+
+test('输入68817无需搜索按钮自动列候选，可查看并以规范身份加入个人观察', async () => {
+  vi.mocked(api.fetchPersonalWatchlist).mockResolvedValue(snapshot())
+  vi.mocked(security.searchSecurities).mockResolvedValue(security.decodeSecuritySearch({
+    schema_version: security.SECURITY_SEARCH_SCHEMA, query: '68817',
+    catalog_id: '4db2e4201db801878f71838e98e0f3157f0cfc482e2cfc9fd724b55dcf2252ba',
+    generated_at: '2026-11-01T10:00:00Z', results: [{ symbol: '688170.SH', code: '688170', exchange: 'SH',
+      name: '德龙激光', security_type: 'stock', pinyin_initials: 'dljg', pinyin_full: 'delongjiguang', match: 'code' }],
+  }))
+  vi.mocked(api.savePersonalWatchlist).mockResolvedValue(saved(snapshot(['688170.SH'], 2)))
+  const { props } = show({ searchCapability: { available: true, read_only: true, types: ['stock', 'etf', 'index'], reason: null } })
+  fireEvent.change(screen.getByRole('textbox', { name: '搜索证券简称、拼音或代码' }), { target: { value: '68817' } })
+  expect(await screen.findByText(/德龙激光/)).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '查看分钟线' }))
+  expect(props.onView).toHaveBeenCalledWith('688170.SH')
+  fireEvent.focus(screen.getByRole('textbox', { name: '搜索证券简称、拼音或代码' }))
+  await screen.findByRole('list', { name: '证券搜索结果' })
+  fireEvent.click(screen.getByRole('list', { name: '证券搜索结果' }).querySelectorAll('button')[1])
+  await waitFor(() => expect(api.savePersonalWatchlist).toHaveBeenCalledWith(snapshot(), ['688170.SH']))
+  expect(await screen.findByRole('button', { name: '查看 688170.SH 分钟线' })).toBeVisible()
+})
+
+test('全局market search参数复用同一目录查询并初始化候选', async () => {
+  vi.mocked(api.fetchPersonalWatchlist).mockResolvedValue(snapshot())
+  vi.mocked(security.searchSecurities).mockResolvedValue(security.decodeSecuritySearch({
+    schema_version: security.SECURITY_SEARCH_SCHEMA, query: 'pfyh',
+    catalog_id: '4db2e4201db801878f71838e98e0f3157f0cfc482e2cfc9fd724b55dcf2252ba',
+    generated_at: '2026-11-01T10:00:00Z', results: [{ symbol: '600000.SH', code: '600000', exchange: 'SH',
+      name: '浦发银行', security_type: 'stock', pinyin_initials: 'pfyh', pinyin_full: 'pufayinhang', match: 'pinyin_initials' }],
+  }))
+  show({ initialSearch: ' pfyh ', searchCapability: { available: true } })
+  expect(await screen.findByText(/浦发银行/)).toBeVisible()
+  expect(security.searchSecurities).toHaveBeenCalledWith('pfyh', expect.any(AbortSignal))
+  expect(screen.getByRole('textbox', { name: '搜索证券简称、拼音或代码' })).toHaveValue('pfyh')
 })
 
 test('表单提交与快速重复提交只保存一次，收到回执前不乐观加入', async () => {

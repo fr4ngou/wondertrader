@@ -33,8 +33,7 @@ function publishedData(v: unknown) {
     && time(v.published_at) : v.basis_date === null && v.published_at === null
 }
 
-export async function fetchWtRuntime(signal: AbortSignal): Promise<WtRuntimeObservation> {
-  const data = await fetchReadJson<unknown>('/v1/ui/wt-runtime', 'WT运行状态', signal, 'status')
+export function validateWtRuntime(data: unknown): WtRuntimeObservation {
   const error = () => new Error('WT运行状态格式无效，请重新读取')
   if (!object(data) || data.schema_version !== 'guanheng.wt-runtime-observation.v1' || data.read_only !== true
     || !time(data.observed_at) || typeof data.reason !== 'string') throw error()
@@ -53,4 +52,8 @@ export async function fetchWtRuntime(signal: AbortSignal): Promise<WtRuntimeObse
     }
   } else throw error()
   return data as WtRuntimeObservation
+}
+
+export async function fetchWtRuntime(signal: AbortSignal): Promise<WtRuntimeObservation> {
+  return validateWtRuntime(await fetchReadJson<unknown>('/v1/ui/wt-runtime', 'WT运行状态', signal, 'status'))
 }

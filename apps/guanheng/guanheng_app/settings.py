@@ -36,6 +36,8 @@ class ConsoleSettings(BaseModel):
     # 个人观察偏好根，安装目录之外显式准备；空值关闭，不影响行情或交易配置。
     watchlist_root: str = ""
     observation_root: str = ""
+    # 证券目录是部署时发布的只读制品；名称、拼音和规范证券身份在同一制品中闭合。
+    security_catalog_file: str = ""
 
     @classmethod
     def from_environment(cls):
@@ -54,4 +56,5 @@ class ConsoleSettings(BaseModel):
             backtest_archive_root=os.environ.get("GUANHENG_BACKTEST_ARCHIVE_ROOT", ""),
             watchlist_root=os.environ.get("GUANHENG_WATCHLIST_ROOT", ""),
             observation_root=os.environ.get("GUANHENG_OBSERVATION_ROOT", ""),
+            security_catalog_file=os.environ.get("GUANHENG_SECURITY_CATALOG_FILE", ""),
         )

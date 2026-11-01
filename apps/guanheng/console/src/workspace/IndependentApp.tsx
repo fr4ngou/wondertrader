@@ -1,10 +1,10 @@
 import { lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import brand from '../../config/project-branding.json'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { fetchReadJson } from '../api'
 import './independent.css'
+import { ObserverLayout } from './ObserverLayout'
 
 const MinuteWorkspace = lazy(() => import('./MinuteWorkspace'))
 const AccountWorkspace = lazy(() => import('./AccountWorkspace'))
@@ -39,23 +39,17 @@ export default function IndependentApp() {
   const location = useLocation()
   const title = navigation.find(([id]) => location.pathname.startsWith(`/${id}`))?.[1] ?? '工作区'
   if (location.pathname === '/observation' || location.pathname.startsWith('/observation/')) {
-    return <Suspense fallback={<p role="status">正在加载市场观察…</p>}><ObservationShell /></Suspense>
+    return <ObserverLayout connected={Boolean(capability.data)} failed={capability.isError}>
+      <Suspense fallback={<p role="status">正在加载市场观察…</p>}><ObservationShell /></Suspense>
+    </ObserverLayout>
   }
-  return <div className="app-shell independent-shell">
-    <a className="skip-link" href="#workspace-content">跳到主要内容</a>
-    <aside className="sidebar" aria-label="工作区侧边栏">
-      <div className="brand-lockup"><div><strong>{brand.short_name}</strong><span>{brand.display_name}</span></div></div>
-      <nav aria-label="主要工作区">{navigation.map(([id, label]) => <NavLink className={({ isActive }) => isActive ? 'nav-item nav-item-active' : 'nav-item'} to={`/${id}`} key={id}><span>{label}</span></NavLink>)}</nav>
-      <div className="sidebar-footer"><span>独立应用</span><strong>交易只读</strong></div>
-    </aside>
-    <header className="topbar"><span role="status">已接入能力逐项展示 · 交易操作关闭</span></header>
-    <main className="workspace-main" id="workspace-content" tabIndex={-1}>
+  return <ObserverLayout connected={Boolean(capability.data)} failed={capability.isError}>
       {capability.isError ? <section className="workspace-page" role="alert"><h2>连接信息暂时无法更新</h2><p>{capability.error.message}</p>{capability.data ? <p>当前保留已读取的页面及连接信息，可继续查看数据和各自的查询时间。</p> : null}<button onClick={() => void capability.refetch()}>重新读取连接信息</button></section> : null}
       {capability.isPending ? <p role="status">正在读取连接信息…</p> : null}
       <Suspense fallback={<p role="status">正在加载工作区…</p>}><Routes>
             <Route path="/" element={<Navigate to="/market" replace />} />
             <Route path="/dashboard" element={<AccountWorkspace key="overview" view="overview" capability={features.account ?? unknownFeatures.account} />} />
-            <Route path="/market" element={<MinuteWorkspace capability={features.minute_chart} watchlistCapability={features.personal_watchlist} />} />
+            <Route path="/market" element={<MinuteWorkspace capability={features.minute_chart} capabilityPending={capability.isPending} watchlistCapability={features.personal_watchlist} searchCapability={features.security_search} initialSearch={new URLSearchParams(location.search).get('search') ?? ''} />} />
             <Route path="/account" element={<AccountWorkspace capability={features.account ?? unknownFeatures.account} />} />
             <Route path="/orders" element={<AccountWorkspace key="trading-records" view="trading-records" capability={features.account ?? unknownFeatures.account} />} />
             <Route path="/strategies" element={<StrategyWorkspace />} />
@@ -67,8 +61,7 @@ export default function IndependentApp() {
             <Route path="/audit" element={<Navigate to="/operations" replace />} />
             <Route path="*" element={<section className="workspace-page"><h1>{title}</h1><EmptyState title="该功能尚未接通" detail="当前版本尚未接通此功能，可先使用行情页查看已接入的分钟数据。" /></section>} />
           </Routes></Suspense>
-    </main>
-  </div>
+  </ObserverLayout>
 }
 
 function StrategyTabRedirect({ tab }: { tab: string }) {

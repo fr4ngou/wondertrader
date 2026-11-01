@@ -82,7 +82,7 @@ test.each([['/research', '/market', '行情'], ['/research/legacy?tab=news', '/m
     expect(nav.querySelector('a[href="/research"]')).toBeNull()
     expect(document.querySelector('iframe')).toBeNull()
     expect(requests).toEqual(target === '/operations'
-      ? ['/v1/ui/capabilities', '/v1/ui/wt-runtime', '/v1/ui/operations/status'] : ['/v1/ui/capabilities'])
+      ? ['/v1/ui/capabilities', '/v1/ui/wt-instances', '/v1/ui/operations/status'] : ['/v1/ui/capabilities'])
   },
 )
 
@@ -125,7 +125,7 @@ test('真实独立壳将个人观察能力传入行情页；分钟关闭仍可�
   fireEvent.change(input, { target: { value: '600000.SH' } })
   fireEvent.submit(input.closest('form')!)
   await screen.findByText('已保存个人观察；策略交易范围不变。')
-  expect(screen.getByText('交易只读')).toBeVisible()
+  expect(screen.getByText('只读')).toBeVisible()
   expect(screen.getByRole('button', { name: '查看 600000.SH 分钟线' })).toBeEnabled()
   expect(requests).toEqual([{ url: '/v1/ui/capabilities', method: 'GET' },
     { url: '/v1/ui/watchlists/default', method: 'GET' }, { url: '/v1/ui/watchlists/default', method: 'PUT' }])
@@ -142,7 +142,7 @@ test('独立壳的个人观察能力关闭只请求capabilities，不采用旧�
     } })
   }))
   mountPersonalMarket()
-  expect(await screen.findByText('个人观察暂不可用，请检查本机配置或偏好资料。仍可直接查询分钟线。', {}, { timeout: 5000 })).toBeVisible()
+  expect(await screen.findByText(/个人观察暂不可用，请检查本机配置或偏好资料。/, {}, { timeout: 5000 })).toBeVisible()
   expect(screen.queryByRole('textbox', { name: '加入个人观察的证券代码' })).not.toBeInTheDocument()
   expect(requests).toEqual(['/v1/ui/capabilities'])
 })

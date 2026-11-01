@@ -1,5 +1,7 @@
 # 账户只读观察
 
+观衡当前持仓归属展示、唯一策略详情及分实例WT运行读取见[策略与报告详情模块](observer-strategy-details.md)。
+
 > 源码交付范围：本页标注的外部历史/待归仓路径用于追溯原记录，未随本次源码提交。其旧通过记录不授当前入口可复现资格；当前构建与运行以对应永久源码及正式安装手册为准。
 
 类型：模块说明。所有者角色：账户接入与业务展示维护者。行为要求见[NAC规格](../specs/native-account-console.md)与[共享内存账户契约](../specs/qmt-shm-account-read.md)，部署与处理见[账户手册](../runbooks/account-observation.md)。

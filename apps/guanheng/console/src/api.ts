@@ -43,8 +43,8 @@ export const OVERVIEW_QUERY_KEY = ['console-overview'] as const
 export const WATCHLIST_QUERY_KEY = ['watchlist', 'default'] as const
 export const QMT_CONNECTION_QUERY_KEY = ['qmt-connection-status'] as const
 
-// 行情图服务端读取限于 5.8 秒；浏览器再留 0.7 秒给 HTTP 传输与 JSON
-// 解析。其他 Console 读取各有独立预算，统一截止避免请求永久停在“读取中”。
+// 默认交互读取使用有限截止；独立行情页按服务端能力声明的预算读取，
+// 另留传输时间，避免浏览器提前中止仍在正常执行的来源历史查询。
 export const INTERACTIVE_STATUS_TIMEOUT_MS = 6_500
 export const DEFERRED_OVERVIEW_TIMEOUT_MS = 20_000
 export const AUDIT_TRACE_TIMEOUT_MS = DEFERRED_OVERVIEW_TIMEOUT_MS
@@ -475,6 +475,7 @@ export async function fetchMarketChart(
   signal?: AbortSignal,
   limit = 2000,
   before?: string,
+  timeoutMs = INTERACTIVE_STATUS_TIMEOUT_MS,
 ): Promise<MarketChartBundle> {
   const params = new URLSearchParams({ period, limit: String(limit) })
   if (before) params.set('before', before)
@@ -485,6 +486,8 @@ export async function fetchMarketChart(
     `/v1/ui/market/chart/${encodeURIComponent(symbol)}?${params}`,
     '行情图表',
     signal,
+    'workspace',
+    timeoutMs,
   )
   // 原生失败投影没有来源metadata；真实成功空查询仍携带metadata。
   // 将业务不可用归入读取错误，React Query保留同条件上次成功值。

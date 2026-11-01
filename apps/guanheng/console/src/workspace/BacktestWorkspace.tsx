@@ -4,6 +4,7 @@ import { fetchBacktestDay, fetchBacktestRecords, fetchBacktestArchive, type Back
 import BacktestPerformance from './BacktestPerformance'
 import { isRetainedReport, type RetainedSummary } from './backtestRetained'
 import { backtestMoney } from './backtestMoney'
+import BacktestSourceState from './BacktestSourceState'
 
 const stages: Record<string, string> = { buying: '买入中', selling: '卖出中', converged: '已达到目标持仓', waiting_fee: '等待费用信息',
   waiting_cash: '等待可用资金', waiting_basis: '等待资金数据', waiting_pending: '等待调仓结果', waiting_sellable: '等待可卖数量',
@@ -60,9 +61,10 @@ function CompletedArchive() {
   return <section aria-label="历史回测报告"><h2>历史回测报告</h2><button disabled={query.isFetching} onClick={() => void query.refetch()}>刷新历史报告</button>
     {query.isPending ? <p role="status">正在读取历史报告…</p> : null}
     {query.isFetching && available ? <p role="status">正在刷新目录，当前显示上次结果。</p> : null}
-    {query.isError ? <p role="alert">历史报告目录读取失败。{available ? '当前保留上次结果。' : ''}请稍后刷新。</p> : null}
+    {query.isError ? <>{available ? <p role="status">本次目录未更新，当前保留上次结果及原读取时间。</p> : null}<BacktestSourceState /></> : null}
     {available ? <><p>读取于 {readTime(query.dataUpdatedAt)}（北京时间）</p>
-      {available.invalid_receipts || available.unarchived_runs ? <p role="alert">部分回测报告暂不可读取，请检查保存情况。</p> : null}
+      {available.invalid_receipts ? <p role="alert">{available.invalid_receipts} 份回测完成证明未通过校验，请保留原件并核对格式和完整性。</p> : null}
+      {available.unarchived_runs ? <p role="status">{available.unarchived_runs} 项运行尚未发布正式完成证明，未作为已保存报告展示。</p> : null}
       {!available.runs.length ? <p role="status">尚无已保存的回测报告。</p> : <label>选择历史回测<select aria-label="选择历史回测" value={selected?.run_id ?? ''} onChange={event => { setRunId(event.target.value); setPage(0); setDay(null) }}>
         {available.runs.map((item, index) => <option key={item.run_id} value={item.run_id}>{item.configuration.label} · 报告 {available.runs.length - index}</option>)}</select></label>}
     </> : null}

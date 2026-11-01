@@ -25,6 +25,7 @@ from .executive_source import executive_changes
 from .t2108_source import history as t2108_history
 from .ashare_source import history as ashare_history
 from .ashare_public import history as public_ashare_history
+from .breadth_trends import attach_trends, attach_benchmark
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,financial_annual=annual_reports,
@@ -166,20 +167,24 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             datasets['valuation_marketcap_gdp_observed']=merge(datasets['valuation_marketcap_gdp_observed'],datasets.get('valuation_marketcap_gdp_monthly',[]))[0]
         rebase_gdp_dependencies(tables,datasets);attach_daily_context(tables,datasets,definitions,mapping)
         financial_models.refresh_ranks(datasets,check=finalization.remaining)
+        attach_trends(datasets,definitions,tables,check=finalization.remaining)
+        attach_benchmark(datasets,definitions,tables)
         for row in datasets.get('leverage_margin',[]):
             if row.get('fin_buy') is not None and row.get('fin_repay') is not None:row['fin_net_arithmetic']=row['fin_buy']-row['fin_repay']
         if 'leverage_margin' in datasets:datasets['margin.short']=[dict(r) for r in datasets['leverage_margin']]
-        for key,rows in datasets.items():
+        for key in sorted(datasets,key=lambda name:bool(definitions[name].get('input_metrics'))):
+            rows=datasets[key]
             if key not in manifest['datasets'] and not rows:continue
             finalization.remaining();definition=definitions[key]
-            relevant=[r for r in receipts if any(s['id']==r['source_id'] and key in s.get('datasets',[])+s.get('derived_metrics',[]) for s in config['sources'])]
+            relevant=[r for r in receipts if any(s['id']==r['source_id'] and key in s.get('datasets',[])+s.get('derived_metrics',[])+s.get('tables',[]) for s in config['sources'])]
             if relevant:definition['freshness']=dict(last_checked_at=run['completed_at'],source_results=relevant,loaded_end=rows[-1]['date'] if rows else None)
             old=manifest['datasets'].get(key,dict(parents=[]))
             universe_table=definition.get('universe_table')
             if universe_table in tables:
                 definition['universe_version']=reader.objects.put(parquet_bytes(tables[universe_table]),kind='standard')
             context_parents=table_parents.get('market.'+mapping[key]['symbol'],[]) if key in mapping else []
-            candidate['datasets'][key]=admit_dataset(reader.objects,definition,rows,[*([old['partition']] if 'partition' in old else []),*old['parents'],*context_parents,
+            input_parents=[candidate['datasets'][name]['partition'] for name in definition.get('input_metrics',[])]
+            candidate['datasets'][key]=admit_dataset(reader.objects,definition,rows,[*([old['partition']] if 'partition' in old else []),*old['parents'],*context_parents,*input_parents,
                 *[r['source_manifest'] for r in relevant if r.get('source_manifest')]])
         candidate['source_tables']={key:reader.objects.put(parquet_bytes(rows),kind='standard') for key,rows in tables.items()}
         attach_boards(candidate,candidate['datasets'])

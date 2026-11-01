@@ -24,8 +24,10 @@ from .wt_business_observation import router as wt_business_router
 from .backtest_readonly import router as backtest_router
 from .strategy_catalog import strategy_catalog
 from .observation.contracts import ObservationError
-from .observation.runtime import build_reader as observation_reader
+from .observation.runtime import build_prepared_reader as observation_reader
 from .observation.routes import make_router as observation_router, observation_error, REQUEST_SECONDS as OBSERVATION_REQUEST_SECONDS
+from .security_catalog import SecurityCatalog
+from .security_routes import router as security_router
 
 UNMIGRATED_REASON = "该观衡只读功能正在接入WonderTrader公开结果"
 
@@ -49,6 +51,7 @@ async def _initialize_document(reader, owner):
 def create_app(settings=None, market_client_factory=None, static_directory=None, watchlist_owner_factory=None):
     """构造只读消费者；生命周期只拥有Web读池、个人自选和独立观察读取。"""
     configured = settings if settings is not None else ConsoleSettings.from_environment()
+    securities = SecurityCatalog(configured.security_catalog_file)
 
     @asynccontextmanager
     async def lifespan(application):
@@ -56,6 +59,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         application.state.backtest_reader = BoundedReader(workers=1, capacity=2)
         application.state.watchlist_owner = None
         application.state.observation_owner = None
+        application.state.observation_error = None
         application.state.shutdown_complete = False
         application.state.shutdown_errors = ()
         lifecycle_error = None
@@ -65,8 +69,8 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
             if configured.observation_root:
                 try:
                     application.state.observation_owner = observation_reader(configured.observation_root)
-                except ObservationError:
-                    pass
+                except ObservationError as error:
+                    application.state.observation_error = dict(code=error.code, detail=error.detail, status=error.status)
             application.state.watchlist_owner = (watchlist_owner_factory or WatchlistOwner)(configured.watchlist_root)
             if configured.watchlist_root:
                 await _initialize_document(application.state.reader, application.state.watchlist_owner)
@@ -109,6 +113,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
     application.include_router(wt_business_router(configured))
     application.add_exception_handler(ObservationError,observation_error)
     application.include_router(observation_router())
+    application.include_router(security_router(securities))
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(_request,_exception):
@@ -129,13 +134,14 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         available=bool(configured.wondertrader_market_url and configured.wondertrader_market_token.get_secret_value())
         business=all((configured.wt_status_file,configured.wt_control_id,configured.wt_instance_id,configured.wt_configuration_sha256))
         return {"read_only":True,"features":{
-            "minute_chart":{"available":available,"periods":["1m","1d"] if configured.wondertrader_history_semantics=="source" else ["1m","5m"],"reason":None if available else "尚未配置WT行情读取连接"},
+            "minute_chart":{"available":available,"periods":["1m","1d"] if configured.wondertrader_history_semantics=="source" else ["1m","5m"],"timeout_seconds":configured.wondertrader_market_timeout_seconds,"reason":None if available else "尚未配置WT行情读取连接"},
             "daily_chart":{"available":available and configured.wondertrader_history_semantics=="source","periods":["1d"],"read_only":True,"reason":None if available else "尚未配置WT日线读取连接"},
             "backtest":{"available":bool(configured.backtest_archive_root),"read_only":True,"reason":None if configured.backtest_archive_root else "尚未配置WT已保存的回测报告"},
             "personal_watchlist":application.state.watchlist_owner.capability() if application.state.watchlist_owner else {"available":False,"editable":False,"max_items":WATCHLIST_MAX_ITEMS,"scope":"personal-observation","affects_strategy":False,"reason":UNCONFIGURED},
             "account":{"available":business,"read_only":True,"scope":"account","datatypes":["position","order","deal","account"],"timeout_seconds":2,"reason":None if business else "尚未配置WT账户观察读取连接"},
             "operations":{"available":True,"read_only":True,"reason":None},
             "market_observation":{"available":application.state.observation_owner is not None,"read_only":True,"scope":"independent-observation","executable":False,"reason":None if application.state.observation_owner else "尚未配置独立市场观察数据"},
+            "security_search":securities.capability(),
             "strategy_configuration":{"available":False,"editable":False,"max_versions":CONFIGURATION_MAX_VERSIONS,"scope":"wt-configuration-observation","runtime_effect":False,"reason":"实际配置由WT入口维护"},
             "strategy":{"available":True,"read_only":True,"reason":None},
             "execution":{"available":business,"read_only":True,"reason":None if business else "尚未配置WT策略观察读取连接"}}}

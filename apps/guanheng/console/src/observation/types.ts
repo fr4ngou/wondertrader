@@ -1,5 +1,5 @@
 export type Row = Record<string, string | number | null>
-export interface Line { key: string; name: string; color: string; unit: string; panel: string; shown: boolean; formula: string; reading: string; chart_type?:string; candle_fields?:string[]; observed_dates_only?:boolean }
+export interface Line { key: string; name: string; color: string; unit: string; panel: string; shown: boolean; formula: string; reading: string; chart_type?:string; candle_fields?:string[]; observed_dates_only?:boolean; observation_dates?:string[]; axis?:'right'; signed?:boolean; reference_levels?:{value:number;name:string;color:string}[] }
 export interface Definition {
   id: string; definition_version?: string; board: string; label: string; frequency: string; source: string; source_url: string;
   unit: string; lines: Line[]; coverage: { start: string; end: string; observations: number };
@@ -10,6 +10,9 @@ export interface Definition {
   reference_levels?: { value: number; name: string; color: string }[]; reference_review?: unknown;
   axis_type?: string; metric_right?: boolean; price_above?: boolean; overlay?: boolean;
   primary_coverage?: {start:string|null;end:string|null;observations:number};
+  panel_groups?: {id:string;title:string;min?:number;max?:number}[];
+  trading_days?: string[];
+  context_source?: {symbol:string;label:string;table:string};
 }
 export interface Catalog {
   snapshot_id: string; published_at: string;

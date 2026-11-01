@@ -1,5 +1,6 @@
 """WT已发布回测归档的只读装配；运行和保存仍由WT原owner负责。"""
 import asyncio
+from pathlib import Path
 from time import monotonic
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -39,6 +40,43 @@ def router(root):
     @routes.get('/archive')
     async def index(request: Request):
         return await read(request, lambda deadline: archive.list(deadline))
+
+    @routes.get('/source')
+    async def source(request: Request):
+        """目录状态与读取故障分别表达；持久归档在WT停止后仍保持可读。"""
+        if request.query_params or request.headers.get('content-length', '0') != '0' or request.headers.get('transfer-encoding'):
+            raise HTTPException(422, '报告来源状态不接受额外参数')
+        def body(state, reason, index=None):
+            return JSONResponse(dict(schema_version='guanheng.backtest-source.v1', read_only=True,
+                state=state, reason=reason, persistent=True, index=index), headers={'Cache-Control':'no-store'})
+        if archive is None:
+            return body('unconfigured', '尚未配置WT回测归档目录，请由维护人员连接已有正式归档。')
+        def inspect(deadline):
+            path = Path(root)
+            if not path.is_absolute() or not path.is_dir():
+                return 'invalid_path', '配置的回测归档目录不存在或路径类型错误，请核对读取配置。', None
+            try:
+                value = archive.list(deadline)
+            except ArchiveError:
+                return 'invalid_archive', '归档目录读取或格式校验失败，请保留原目录并核对访问权限、原件和完成证明。', None
+            state = 'available' if value['runs'] else 'invalid_archive' if value['invalid_receipts'] else 'empty'
+            reason = {'available':'已连接WT保存的回测归档；WT停止后仍可读取原报告。',
+                'invalid_archive':'已有回测完成证明未通过校验，请核对原件和格式。',
+                'empty':'已连接归档目录，当前没有已保存的正式回测报告。'}[state]
+            if state == 'empty' and value['unarchived_runs']:
+                reason = '目录中存在尚未发布完成证明的运行，当前没有可读取的正式归档。'
+            return state, reason, value
+        deadline, future = monotonic() + 5, None
+        try:
+            future = request.app.state.backtest_reader.submit(lambda _remaining: inspect(deadline), deadline)
+            wrapped = asyncio.wrap_future(future)
+            wrapped.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+            return body(*await asyncio.wait_for(asyncio.shield(wrapped), max(0, deadline-monotonic())))
+        except (ReadCapacityError, TimeoutError):
+            raise HTTPException(503, '报告来源状态读取繁忙或超时，请重新读取') from None
+        finally:
+            if future is not None:
+                future.cancel()
 
     @routes.get('/comparison')
     async def comparison(request: Request,

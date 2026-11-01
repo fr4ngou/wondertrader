@@ -1,7 +1,7 @@
 """显式本地数据根；构造不创建文件、不联网、不启动线程。"""
 
 from .contracts import ObservationError
-from .query import ObservationReader
+from .query import ObservationReader, prepare_parquet_runtime
 from .storage import ContentStore, SnapshotRepository
 
 
@@ -9,6 +9,20 @@ def build_reader(root):
     if not root:
         raise ObservationError('not_configured', '尚未配置独立市场观察数据', 503)
     return ObservationReader(SnapshotRepository(root), ContentStore(root))
+
+
+def build_prepared_reader(root):
+    """App在本模块就绪前初始化codec；失败保持观察域错误供其余工作区独立服务。"""
+    if not root:
+        return build_reader(root)
+    try:
+        prepare_parquet_runtime()
+        return build_reader(root)
+    except ObservationError:
+        raise
+    except Exception as error:
+        raise ObservationError('observation_runtime_unavailable',
+            '市场观察读取依赖加载失败，请检查本次安装的运行库；账户、策略和报告可继续读取', 503) from error
 
 
 def market_client_factory():

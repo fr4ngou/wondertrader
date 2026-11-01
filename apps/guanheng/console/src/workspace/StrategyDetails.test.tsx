@@ -1,0 +1,72 @@
+import { afterEach, expect, test, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import StrategyDetails from './StrategyDetails'
+import { validateStrategyDetails } from './strategyDetailsApi'
+import account from './account-v2.fixture.json'
+import type { AccountOverviewV2, AccountRow } from './accountApi'
+
+const missing = (reason:string)=>({value:null,reason})
+const fixture = ()=>({schema_version:'guanheng.strategy-details.v1',read_only:true,observed_at:'2026-11-01T01:00:00Z',
+ strategy:{strategy_id:'resonance-regime-v1',strategy_version:'1.1.2',display_name:'共振市场状态 ETF 策略'},
+ assignment:{scope:'current-account-inventory',label:'现有持仓归属此策略',reason:'按用户确认展示当前账户持仓；历史开仓和成交记录不迁移。'},
+ execution:{state:'not_started',label:'策略未启动',reason:'当前WT仅提供账户读取。',started_at:missing('来源尚未提供开始时间'),duration_seconds:missing('缺少策略开始时间')},
+ account:structuredClone(account) as AccountOverviewV2,account_reason:null,calculation:null,calculation_reason:null,budget_cny:missing('账户可用资金归账户所有'),
+ returns:{cumulative_pct:missing('缺少起始本金和期间现金流基准')}})
+const clients:QueryClient[]=[]
+afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals()})
+function mount(){const c=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});clients.push(c);render(<QueryClientProvider client={c}><StrategyDetails/></QueryClientProvider>)}
+test('未启动策略仍显示四项当前持仓，资金、预算和收益基准分别解释',async()=>{
+ const value=fixture();const row=value.account.groups.position.rows[0]
+ value.account.groups.position.rows=[0,1,2,3].map((i):AccountRow=>({...structuredClone(row),identity:{m_strInstrumentID:`5100${i}0`,m_strExchangeID:'SH'},
+   fields:{...row.fields,quantity:{availability:'present',value:1200+i,reason:null},sellable:{availability:'present',value:800+i,reason:null},market_value:{availability:'present',value:9800+i,reason:null}}}))
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(value)));mount()
+ const table=await screen.findByRole('region',{name:'策略当前持仓'})
+ expect(within(table).getAllByRole('row')).toHaveLength(5)
+ expect(table).toHaveTextContent('1,200');expect(table).toHaveTextContent('800');expect(table).toHaveTextContent('9,800')
+ expect(screen.getByText('策略未启动')).toBeVisible()
+ expect(screen.getByText('账户可用资金归账户所有')).toBeVisible()
+ expect(screen.getByText('缺少起始本金和期间现金流基准')).toBeVisible()
+ expect(screen.getByText('来源尚未提供开始时间')).toBeVisible()
+ expect(screen.queryByText('0%')).not.toBeInTheDocument()
+ expect(document.body).not.toHaveTextContent('pid')
+})
+test('刷新失败保留同一成功详情和原时间，再恢复',async()=>{
+ const fetch=vi.fn().mockResolvedValueOnce(Response.json(fixture())).mockResolvedValueOnce(Response.json({}, {status:503}))
+   .mockResolvedValue(Response.json({...fixture(),execution:{...fixture().execution,state:'closed',label:'策略已停止'}}))
+ vi.stubGlobal('fetch',fetch);mount();await screen.findByText('策略未启动')
+ fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
+ expect(await screen.findByRole('alert')).toHaveTextContent('保留上次成功结果')
+ expect(screen.getByText('策略未启动')).toBeVisible()
+ fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
+ expect(await screen.findByText('策略已停止')).toBeVisible()
+})
+test('金额按中文单位显示且可查看精确值，持仓份额保持原数量',async()=>{
+ const value=fixture()
+ const fields=value.account.groups.position.rows[0].fields
+ fields.quantity={availability:'present',value:25000000,reason:null}
+ fields.market_value={availability:'present',value:25000000,reason:null}
+ fields.float_profit={availability:'present',value:-885123435.815,reason:null}
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(value)));mount()
+ const table=await screen.findByRole('region',{name:'策略当前持仓'})
+ expect(within(table).getByText('25,000,000')).toBeVisible()
+ expect(within(table).getByText('2.5千万')).toHaveAttribute('title','25,000,000元')
+ expect(within(table).getByText('-8.8512亿')).toHaveAttribute('title','-885,123,435.815元')
+})
+test('详情拒绝未知版本和伪造缺失值',()=>{
+ expect(()=>validateStrategyDetails({...fixture(),strategy:{...fixture().strategy,strategy_version:'1.0.0'}})).toThrow()
+ expect(()=>validateStrategyDetails({...fixture(),budget_cny:{value:null,reason:null}})).toThrow()
+})
+test('新一轮局部资金持仓失败沿原账户投影保留成功批和原时间',async()=>{
+ const first=fixture();const partial=fixture()
+ partial.account.status='partial'
+ partial.account.groups.position={...partial.account.groups.position,status:'unavailable',rows:[],reason:'本轮来源暂不可用'}
+ partial.account.groups.account={...partial.account.groups.account,status:'unavailable',rows:[],reason:'本轮来源暂不可用'}
+ const fetch=vi.fn().mockResolvedValueOnce(Response.json(first)).mockResolvedValueOnce(Response.json(partial))
+ vi.stubGlobal('fetch',fetch);mount()
+ await screen.findByRole('region',{name:'策略当前持仓'})
+ fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
+ expect(await screen.findByText('本轮持仓未更新，当前保留上次成功持仓及原查询时间。')).toBeVisible()
+ expect(screen.getByText('本轮资金未更新，当前保留上次成功资金及原查询时间。')).toBeVisible()
+ expect(screen.getByRole('region',{name:'策略当前持仓'})).toBeVisible()
+})

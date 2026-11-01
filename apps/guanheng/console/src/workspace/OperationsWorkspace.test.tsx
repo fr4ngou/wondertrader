@@ -7,6 +7,9 @@ import {fetchOperations} from './operationsApi'
 import {operationsFixture} from './operations.fixture'
 
 vi.mock('./wtRuntimeApi',()=>({fetchWtRuntime:vi.fn()}))
+vi.mock('./wtInstancesApi',()=>({fetchWtInstances:(signal:AbortSignal)=>fetchWtRuntime(signal).then(value=>({
+ schema_version:'guanheng.wt-instances.v1',read_only:true,observed_at:value.observed_at,
+ instances:[{...value,scope_id:'a'.repeat(64),label:'WT'}]}))}))
 vi.mock('./operationsApi',()=>({fetchOperations:vi.fn()}))
 const clients: QueryClient[]=[]
 const runtime: WtRuntimeObservation={schema_version:'guanheng.wt-runtime-observation.v1',read_only:true,
@@ -23,7 +26,7 @@ test('中文发布状态与两个时间分别展示，只提供读取动作',asy
  expect(card).toHaveTextContent('最近发布：基础就绪')
  expect(card).toHaveTextContent('2026-10-30 09:20:00')
  expect(card).toHaveTextContent('2026-10-30 09:19:58')
- expect(card).toHaveTextContent('最近一次发布的状态')
+ expect(card).toHaveTextContent('最近发布的状态')
  expect(card).toHaveTextContent('历史查询')
  expect(screen.getAllByRole('button')).toHaveLength(1)
  expect(screen.getByRole('button')).toHaveTextContent('重新读取状态')

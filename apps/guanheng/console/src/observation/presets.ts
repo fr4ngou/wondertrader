@@ -11,5 +11,5 @@ export function defaultMetric(catalog:Catalog,board:string) {
 export function boardDatasets(catalog:Catalog) {
   const rules:Record<string,string[]> = presentation.main_board_datasets
   const labels:Record<string,string> = presentation.display_names
-  return catalog.datasets.filter(item=>!rules[item.board] || rules[item.board].includes(item.id)).map(item=>({...item,label:labels[item.id] || item.label}))
+  return catalog.datasets.filter(item=>item.id!=='market.sh000001' && (!rules[item.board] || rules[item.board].includes(item.id))).map(item=>({...item,label:labels[item.id] || item.label}))
 }

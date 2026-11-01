@@ -50,6 +50,8 @@ async function request<T>(path: string, params: Record<string, string | number |
     if (controller.signal.aborted) throw new Error('观察读取已取消。')
     const response = await fetch(apiURL(path, params), { signal: controller.signal, credentials: 'same-origin', cache: 'no-store' })
     if (!response.ok) {
+      const failure=await response.json().catch(()=>null)
+      if(failure?.code==='observation_runtime_unavailable')throw new Error('市场观察读取组件加载失败，请检查本次安装；账户、策略和报告可继续读取。')
       throw new Error(response.status === 422 ? '查询条件无效，请检查日期、计算窗口和参数范围。' : `观察数据读取失败（${response.status}），请重新读取。`)
     }
     const value = await decode(response)

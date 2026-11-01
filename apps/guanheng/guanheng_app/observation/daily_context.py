@@ -19,10 +19,9 @@ def attach_daily_context(tables, datasets, definitions, mapping):
         # Drop previously derived price-only rows and rebuild from current facts.
         rows = {r['date']: {k: v for k, v in r.items() if not k.startswith('sse_')}
                 for r in original if spec['mode'] != 'overlay' or r.get(primary) is not None}
-        if spec['mode'] == 'overlay':
-            rows.update({day: rows.get(day, dict(date=day, available_at=None)) for day in prices
-                         if not original or day >= original[0]['date']})
-            definition['field_schema'][primary]['required'] = False
+        rows.update({day: rows.get(day, dict(date=day, available_at=None)) for day in prices
+                     if not original or day >= original[0]['date']})
+        definition['field_schema'][primary]['required'] = False
         for day, row in rows.items():
             if day in prices:
                 row.update({'sse_' + field: prices[day].get(field)

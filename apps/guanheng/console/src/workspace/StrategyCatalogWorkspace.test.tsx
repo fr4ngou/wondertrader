@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import StrategyCatalogWorkspace from './StrategyCatalogWorkspace'
+vi.mock('./StrategyDetails',()=>({default:()=>null}))
 
 const clients: QueryClient[] = []
 const catalog = { schema: 'guanheng.strategy-catalog.v1', read_only: true, scope: 'registered-definitions', strategies: [

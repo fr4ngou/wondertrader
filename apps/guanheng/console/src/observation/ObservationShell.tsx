@@ -16,6 +16,8 @@ import { boardDatasets, defaultMetric } from './presets'
 import {statusLabel,sourceLabel,failureLabel,displayedUnit,displayedPrimary,automaticUpdateLabel,localSchedulerLabel,frequencyLabel} from './presentation'
 import type { Catalog, Definition, Range, Row, Series } from './types'
 import './observation.css'
+import { exactObservationValue, observationNumber, observationDisplayUnit } from './numbers'
+import { MarketObservationGroup, groupedBoard, groupDateDomain } from './MarketObservationGroup'
 
 const value = (v: unknown, key?: string) => key === 'source_kind' ? sourceTypeLabel(v) : key === 'method_version' ? methodVersionLabel(v) : typeof v === 'number' ? new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(v) : v == null ? '不可用' : String(v)
 function Message({ children, retry }: { children: ReactNode; retry?: () => void }) {
@@ -63,7 +65,8 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const focus = search.get('focus') || 'both'; const mode = search.get('mode') || 'fixed_base'; const activity = search.get('activity') || 'all'
   const [futuresMatrix, setFuturesMatrix] = useState(true)
   const defaultPreset = dataset.default_preset || 'd30'
-  const range = search.get('start') && search.get('end') ? { start: search.get('start')!, end: search.get('end')! } : presetRange(search.get('preset') || defaultPreset, dataset.coverage.end, dataset.coverage)
+  const coverage=groupedBoard(dataset.board)?groupDateDomain(catalog,dataset.board,dataset.coverage):dataset.coverage
+  const range = search.get('start') && search.get('end') ? { start: search.get('start')!, end: search.get('end')! } : presetRange(search.get('preset') || defaultPreset, coverage.end, coverage)
   const selectedPreset = search.get('preset') || (search.get('start') ? '' : defaultPreset)
   const parameters = { window: search.get('window') || (dataset.board === 'spread' ? '756' : '20'), k: search.get('k') || '2', method: search.get('method') || 'sma', pcr_type: search.get('pcr_type') || 'oi' }
   const definition = useQuery({ retry: false, queryKey: ['observation', 'definition', dataset.id, catalog.snapshot_id], queryFn: ({ signal }) => getDefinition(dataset.id, catalog.snapshot_id, signal) })
@@ -91,9 +94,10 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const primaryRows=d ? series.data?.rows.filter(row=>typeof row[d.primary_field]==='number') : undefined
   const last = primaryRows?.at(-1)
   const primaryLine=d?.lines.find(line=>line.key===d.primary_field)
+  const primaryUnit=d&&primaryLine?displayedUnit(primaryLine,d,mode):d?.unit
   useEffect(()=>{
     if(d?.axis_type==='tenor' || !history.data)return
-    const coverage=history.data.coverage
+    const coverage=groupedBoard(dataset.board)?groupDateDomain(catalog,dataset.board,dataset.coverage):history.data.coverage
     const keydown=(event:KeyboardEvent)=>{
       const target=event.target
       if(event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
@@ -109,20 +113,20 @@ function Boards({ catalog }: { catalog: Catalog }) {
     <section className="observation-panel observation-controls"><label>查看指标<select aria-label="观察口径" value={dataset.id} onChange={e => select(e.target.value)}>{available.filter(v => v.board === dataset.board).map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>
       <label>起始<input aria-label="起始日期" type="date" min={dateDomain.start} max={range.end} value={range.start} onChange={e => e.target.value && updateRange({ ...range, start: e.target.value })} /></label>
       <label>截止<input aria-label="截止日期" type="date" min={range.start} max={dateDomain.end} value={range.end} onChange={e => e.target.value && updateRange({ ...range, end: e.target.value })} /></label>
-      <div className="observation-presets">{presets.map(([key, label]) => <button key={key} className={selectedPreset === key ? 'active' : ''} onClick={() => updateRange(presetRange(key, range.end, key==='all'?dataset.coverage:dateDomain), key)}>{label}</button>)}</div>
+      <div className="observation-presets">{presets.map(([key, label]) => <button key={key} className={selectedPreset === key ? 'active' : ''} onClick={() => updateRange(presetRange(key, range.end, key==='all'?coverage:dateDomain), key)}>{label}</button>)}</div>
       <p className="observation-note">当前截止 {range.end} · 本数据集可用至 {dataset.coverage.end}{d?.primary_coverage?.end && d.primary_coverage.end!==dataset.coverage.end && ` · 主指标实际末期 ${d.primary_coverage.end}`} {range.end<dataset.coverage.end && <button onClick={()=>updateRange(latestRange(range,selectedPreset,dataset.coverage,dateDomain),selectedPreset)}>查看最新数据</button>}</p>
     </section>
-    <section className="observation-panel"><div className="observation-chart-title"><div><h2>{dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{primaryLine?.name}</span><strong>{last && d ? value(displayedPrimary(d,primaryRows!,mode)) : '—'} <small>{d && primaryLine ? displayedUnit(primaryLine,d,mode) : ''}</small></strong><span>{last?.date}</span></div></div>
+    <section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{primaryLine?.name}</span><strong title={last&&d?exactObservationValue(displayedPrimary(d,primaryRows!,mode),primaryUnit):undefined}>{last && d ? observationNumber(displayedPrimary(d,primaryRows!,mode),primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
       {d?.id==='t2108.ashare' && <T2108Coverage row={last} definitionVersion={d.definition_version} mixedMethods={new Set(series.data?.rows.map(row=>row.method_version || d.definition_version || 'unregistered')).size>1} />}
       <FieldCoverage metric={dataset.id} row={series.data?.rows.at(-1)} />
       {d?.parameters && <div className="observation-inline"><label>窗口<input aria-label="计算窗口" type="number" min="2" max="2000" value={parameters.window} onChange={e => parameter('window', e.target.value)} /></label><label>倍数<input aria-label="通道倍数" type="number" min="0" max="10" step="0.5" value={parameters.k} onChange={e => parameter('k', e.target.value)} /></label><select aria-label="通道算法" value={parameters.method} onChange={e => parameter('method', e.target.value)}><option value="sma">算术均值</option><option value="ema">EMA中心</option><option value="ema_moments">EMA矩通道</option></select>{dataset.board === 'pcr' && <select aria-label="PCR口径" value={parameters.pcr_type} onChange={e => parameter('pcr_type', e.target.value)}><option value="oi">持仓</option><option value="volume">成交</option></select>}</div>}
-      <div className="observation-inline">{(dataset.board==='pcr' ? [['both','三图联动'],['upper','只看PCR'],['lower','放大认购/认沽']] : [['both', '上下图'], ['upper', '只看上图'], ['lower', '放大下图']]).map(([id, label]) => <button key={id} className={focus === id ? 'active' : ''} onClick={() => parameter('focus',id)}>{label}</button>)}
+      {!groupedBoard(dataset.board) && <div className="observation-inline">{(dataset.board==='pcr' ? [['both','三图联动'],['upper','只看PCR'],['lower','放大认购/认沽']] : [['both', '上下图'], ['upper', '只看上图'], ['lower', '放大下图']]).map(([id, label]) => <button key={id} className={focus === id ? 'active' : ''} onClick={() => parameter('focus',id)}>{label}</button>)}
         {dataset.board === 'crossmarket' && <><select aria-label="价格比较模式" value={mode} onChange={e => parameter('mode',e.target.value)}><option value="fixed_base">固定基准100</option><option value="window_return">区间涨幅</option><option value="raw_panels">原始点位分图</option></select><select aria-label="成交市场" value={activity} onChange={e => parameter('activity',e.target.value)}><option value="all">两个市场成交</option><option value="a_activity">只看上证成交</option><option value="hscei_activity">只看国企成交</option></select></>}
         {dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && <button onClick={() => setFuturesMatrix(!futuresMatrix)}>{futuresMatrix ? '切换单项详细' : '四品种2×2'}</button>}
-      </div>
+      </div>}
       <ReadNotice label="指标数据" query={series} /><ReadNotice label="历史导航" query={history} /><ReadNotice label="指标说明" query={definition} />
-      {dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && futuresMatrix ? <div className="observation-matrix">{['if', 'ih', 'ic', 'im'].map(product => <FuturesCard key={product} product={product} version={catalog.snapshot_id} range={range} onRange={updateRange} />)}</div> : !series.data || !d ? series.isPending ? <Message>正在读取所选窗口…</Message> : null : !series.data.rows.length ? <Message>所选日期没有已发布观察。请选择来源覆盖内的日期；休市和未披露日期保持空值。</Message> : <>
-        <ObservationChart definition={d} rows={series.data.rows} history={history.data} range={range} hidden={hidden} focus={focus} mode={mode} activity={activity} onRange={updateRange} onHidden={keys=>parameter('hidden',keys.join(','))} />
+      {groupedBoard(dataset.board) ? <MarketObservationGroup catalog={catalog} metric={dataset.id} board={dataset.board} range={range} parameters={parameters} onRange={updateRange}/> : dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && futuresMatrix ? <div className="observation-matrix">{['if', 'ih', 'ic', 'im'].map(product => <FuturesCard key={product} product={product} version={catalog.snapshot_id} range={range} onRange={updateRange} />)}</div> : !series.data || !d ? series.isPending ? <Message>正在读取所选窗口…</Message> : null : !series.data.rows.length ? <Message>所选日期没有已发布观察。请选择来源覆盖内的日期；休市和未披露日期保持空值。</Message> : <>
+        {<ObservationChart definition={d} rows={series.data.rows} history={history.data} range={range} hidden={hidden} focus={focus} mode={mode} activity={activity} onRange={updateRange} onHidden={keys=>parameter('hidden',keys.join(','))} />}
         {dataset.board === 'crossmarket' && <p className="observation-note">{mode==='raw_panels' ? '两个面板分别显示国企与上证的原始点位，各读自己的纵轴；比较涨跌幅可切换固定基准或区间涨幅。' : '上图比较价格表现，量能下图各自“平常成交=1倍”。'}固定领先上证一两个月的说法，当前样本检验未获支持。<br />本窗口国企涨幅 {change(series.data.rows, 'hscei_close')}，上证涨幅 {change(series.data.rows, 'a_close')}；固定基准日为2020-07-27。</p>}
         <div className="observation-line-toggles">{shownLines.map(line => <label key={line.key}><input type="checkbox" checked={!hidden.includes(line.key)} onChange={() => parameter('hidden', hidden.includes(line.key) ? hidden.filter(key => key !== line.key).join(',') : [...hidden, line.key].join(','))} /><i style={{ background: line.color }} />{line.name} · {d && displayedUnit(line,d,mode)}</label>)}</div>
       </>}
@@ -140,9 +144,10 @@ function Boards({ catalog }: { catalog: Catalog }) {
 
 function change(rows: Row[], key: string) { const a = rows.find(r => typeof r[key] === 'number')?.[key]; const b = [...rows].reverse().find(r => typeof r[key] === 'number')?.[key]; return typeof a === 'number' && typeof b === 'number' ? value((b / a - 1) * 100) + '%' : '不可用' }
 function DataTable({ definition, rows }: { definition: Definition; rows: Row[] }) {
+  const [exact,setExact] = useState(false)
   const [page,setPage] = useState(0); const pages = Math.max(1,Math.ceil(rows.length / 100)); const selected = Math.min(page,pages - 1)
   const fields = ['date', ...Object.keys(definition.field_schema).filter(key => key !== 'date')]
-  return <><div className="observation-inline"><button disabled={selected === 0} onClick={() => setPage(selected - 1)}>上一页</button><span>第{selected + 1}/{pages}页 · 共{rows.length}条 · 每页100条</span><button disabled={selected + 1 >= pages} onClick={() => setPage(selected + 1)}>下一页</button></div><div className="observation-table-scroll"><table><thead><tr>{fields.map(key => <th key={key}>{definition.field_schema[key]?.label || key}{definition.field_schema[key]?.unit ? `（${definition.field_schema[key].unit}）` : ''}</th>)}</tr></thead><tbody>{rows.slice(selected * 100,(selected + 1) * 100).map((row, index) => <tr key={String(row.date) + '-' + index}>{fields.map(key => <td key={key}>{value(row[key], key)}</td>)}</tr>)}</tbody></table></div></>
+  return <><div className="observation-inline"><button disabled={selected === 0} onClick={() => setPage(selected - 1)}>上一页</button><span>第{selected + 1}/{pages}页 · 共{rows.length}条 · 每页100条</span><button disabled={selected + 1 >= pages} onClick={() => setPage(selected + 1)}>下一页</button><label><input type="checkbox" checked={exact} onChange={e=>setExact(e.target.checked)} />显示精确原值</label></div><div className="observation-table-scroll"><table><thead><tr>{fields.map(key => <th key={key}>{definition.field_schema[key]?.label || key}{definition.field_schema[key]?.unit ? `（${exact?definition.field_schema[key].unit:observationDisplayUnit(definition.field_schema[key].unit)}）` : ''}</th>)}</tr></thead><tbody>{rows.slice(selected * 100,(selected + 1) * 100).map((row, index) => <tr key={String(row.date) + '-' + index}>{fields.map(key => <td key={key} title={exactObservationValue(row[key],definition.field_schema[key]?.unit)}>{typeof row[key]==='number'?observationNumber(row[key],definition.field_schema[key]?.unit,exact):value(row[key],key)}</td>)}</tr>)}</tbody></table></div></>
 }
 function FuturesCard({ product, version, range, onRange }: { product: string; version: string; range: Range; onRange: (r: Range) => void }) {
   const id = 'cffex_' + product

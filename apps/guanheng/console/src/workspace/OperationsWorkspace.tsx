@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import { fetchOperations } from './operationsApi'
-import { fetchWtRuntime, type RuntimeIssue } from './wtRuntimeApi'
+import { type RuntimeIssue } from './wtRuntimeApi'
+import { fetchWtInstances } from './wtInstancesApi'
 import './operations.css'
 
 const time = (value: string | null) => value ? absoluteChinaTime(value) : '未知'
@@ -17,7 +18,7 @@ function IssueDetail({issue}: {issue?: RuntimeIssue | null}) {
 }
 
 export default function OperationsWorkspace() {
-  const runtime = useQuery({queryKey:['independent-wt-runtime'],queryFn:({signal})=>fetchWtRuntime(signal),
+  const runtime = useQuery({queryKey:['independent-wt-instances'],queryFn:({signal})=>fetchWtInstances(signal),
     retry:false,refetchOnWindowFocus:false,refetchOnReconnect:false})
   const operations = useQuery({queryKey:['independent-operations'],queryFn:({signal})=>fetchOperations(signal),
     retry:false,refetchOnWindowFocus:false,refetchOnReconnect:false})
@@ -28,12 +29,13 @@ export default function OperationsWorkspace() {
       <button disabled={fetching} onClick={()=>void Promise.all([runtime.refetch(),operations.refetch()])}>{fetching?'正在读取…':'重新读取状态'}</button></div>
     {runtime.isFetching?<p role="status">正在读取WT运行状态…</p>:null}
     {runtime.isError?<p role="alert">WT运行状态读取失败。{data?'当前保留上次成功结果和时间。':'请稍后重新读取。'}</p>:null}
-    {data?<section className="surface-card" aria-label="WT运行状态"><h2>WT运行状态</h2>
-      <p>{data.runtime?'显示WT最近一次发布的状态，数据时间见各工作区。':data.reason}</p><p>本次读取：{time(data.observed_at)}</p>
-      {data.runtime?<><strong>最近发布：{data.runtime.label}</strong><p>状态更新时间：{time(data.published_at)}</p>
-        <IssueDetail issue={data.runtime.issue}/>
+    {data?.catalog_reason?<p role="alert">{data.catalog_reason}</p>:null}
+    {data?data.instances.map(instance=><section key={instance.scope_id} className="surface-card" aria-label={`${instance.label}运行状态`}><h2>{instance.label}</h2>
+      <p>{instance.runtime?'显示此WT实例最近发布的状态，数据时间见各工作区。':instance.reason}</p><p>本次读取：{time(data.observed_at)}</p>
+      {instance.runtime?<><strong>最近发布：{instance.runtime.label}</strong><p>状态更新时间：{time(instance.published_at)}</p>
+        <IssueDetail issue={instance.runtime.issue}/>
         <dl className="operations-facts">
-          {data.runtime.components.map(item=><div key={item.name}><dt>{item.display_name}</dt><dd>{item.label}
+          {instance.runtime.components.map(item=><div key={item.name}><dt>{item.display_name}</dt><dd>{item.label}
             <IssueDetail issue={item.issue}/>
             {item.data?<><p>{item.data.label}</p><p>{item.data.ready === null?'数据状态未知':item.data.ready?'保留最近发布数据':'尚未发布策略数据'}</p>
               {item.data.basis_date?<p>最近数据交易日：{item.data.basis_date}</p>:null}
@@ -41,7 +43,7 @@ export default function OperationsWorkspace() {
           </dd></div>)}
         </dl></>:null}
       <p>观衡只读取已发布结果；关闭或更新观衡后，WT继续独立运行。</p>
-    </section>:null}
+    </section>):null}
     {operations.isError?<p role="alert">行情查询状态读取失败。{query?'当前保留上次成功结果和时间。':'请稍后重新读取。'}</p>:null}
     {query?<section className="surface-card" aria-label="行情查询服务"><h2>行情查询服务</h2><strong>{queryLabels[query.state]}</strong>
       <p>{query.reason}</p><p>本次读取：{time(operations.data!.observed_at)}</p>

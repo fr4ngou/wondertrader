@@ -21,7 +21,7 @@ export default function StrategyRuntimeSummary() {
     {query.isError ? <p role="alert">{query.error.message}{data ? '。当前保留上次成功结果和原数据时间。' : ''}</p> : null}
     {query.isFetching && data ? <p role="status">正在刷新，当前显示上次成功结果。</p> : null}
     {data?.state === 'unconfigured' ? <p role="status">当前尚未接入策略运行结果。</p> : null}
-    {data?.state === 'waiting' ? <p role="status">等待策略发布运行结果。</p> : null}
+    {data?.execution_state === 'not_started' ? <p role="status">策略未启动，当前WT实例仅提供账户读取。</p> : data?.state === 'waiting' ? <p role="status">等待策略发布运行结果。</p> : null}
     {data?.runtime_state && publishedLabels[data.runtime_state] ? <p role="status">WT最近发布：{publishedLabels[data.runtime_state]}。下方保留最后完整结果及原数据时间。</p> : null}
     {strategy ? <>
       <h3>{strategy.display_name} <small>v{strategy.strategy_version}</small></h3>

@@ -1,5 +1,9 @@
 # 模块导航
 
+- [证券目录与检索](security-search.md)：中文、拼音、代码前缀候选及规范行情身份。
+
+- [策略与报告详情](observer-strategy-details.md)：实际账户资金/持仓、正式报告及分实例只读状态。
+
 - [完成回测报告只读准入](backtest-report-reading.md)：原领域验证、有界规范纯值、深不可变快照及独立读取发行。
 
 - [QMT账户读取责任回收](qmt-account-read-retirement.md)：原Native账户消费确认、原容量持续查询与金融证明保留。
