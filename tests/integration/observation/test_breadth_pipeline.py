@@ -109,7 +109,7 @@ def test_recorded_provider_first_publish_actual_http_and_legacy_mode(tmp_path,mo
     config=configuration();validate_configuration(config)
     result=refresh(reader,config,as_of=DAY,deadline=monotonic()+15,fetcher_factory=RecordedFetcher)
     assert result['status']=='success' and result['sdk_requests']==3
-    catalog=reader.catalog();assert {row['id'] for row in catalog['datasets']}==set(METRICS)
+    catalog=reader.catalog();assert {row['id'] for row in catalog['datasets']}==set(METRICS)|{'msi.shsz','breadth.thrust.shsz'}
     app=create_app(ConsoleSettings(observation_root=str(tmp_path)))
     with TestClient(app) as client:
         page=client.get('/v1/ui/market-observation/series',params=dict(metric_id='turnover.gt5.shsz')).json()

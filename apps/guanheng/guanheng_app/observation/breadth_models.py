@@ -4,6 +4,7 @@ import copy
 
 from .contracts import ObservationError
 from .storage import digest, encode
+from .breadth_provenance import retain_history_provenance
 
 
 METRICS = {
@@ -133,14 +134,14 @@ def admit_definition(metric, previous, prior, incoming):
                 if line['key'] in descriptions:
                     for field in ('formula','reading'):
                         line[field]=descriptions[line['key']][field]
-        return admitted
+        return retain_history_provenance(admitted,previous,current)
     if (metric in ASHARE_METRICS and old_version==metric+'/1' and current['definition_version']==metric+'/2'
             and {row['date'] for row in prior}<={row['date'] for row in incoming}):
-        return {**copy.deepcopy(previous), **current}
+        return retain_history_provenance({**copy.deepcopy(previous), **current},previous,current)
     if (metric == 'turnover.gt5.shsz' and old_version == metric+'/1'
             and current['definition_version'] == metric+'/2'
             and {row['date'] for row in prior} <= {row['date'] for row in incoming}):
-        return {**copy.deepcopy(previous), **current}
+        return retain_history_provenance({**copy.deepcopy(previous), **current},previous,current)
     raise ObservationError('stock_method_mismatch', '统计口径变更须使用完整历史原件重新计算', 409)
 
 

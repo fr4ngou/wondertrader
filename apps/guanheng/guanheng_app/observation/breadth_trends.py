@@ -1,6 +1,7 @@
 """广度趋势的单一公式：原RANA口径、EMA预热和MSI累计起点分别登记。"""
 import math
 from .contracts import ObservationError
+from .breadth_provenance import retain_history_provenance
 
 
 class _EMA:
@@ -84,7 +85,10 @@ def attach_trends(datasets,definitions,tables,*,check=lambda:None):
         if not breadth or not rana:continue
         rows=trend_rows(breadth,rana,trading_days=days,check=check)
         for kind in ('msi','breadth.thrust'):
-            metric=kind+'.'+scope;definitions[metric]=definition(kind,scope);datasets[metric]=rows
+            metric=kind+'.'+scope
+            method=definition(kind,scope)
+            definitions[metric]=retain_history_provenance(method,definitions.get(metric),method)
+            datasets[metric]=rows
 
 
 def attach_benchmark(datasets,definitions,tables):

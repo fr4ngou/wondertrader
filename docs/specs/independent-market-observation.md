@@ -12,6 +12,8 @@ WT-D03/D05/D06拥有行情历史存储读取；独有宏观、利差、PCR及观
 
 ## OBI2 独立存储与发布
 
+历史扩展的来源事实由数据生产者持有。定义的可选`history_extension`采用`observation-history-extension/1`，固定recipe摘要、定义版本、历史区间、来源链接、首次可知时间资格及限制。方法注册拥有公式和通用说明；同方法增量及派生定义重建保留独立历史描述，重复重建保持幂等。方法版本变化清除旧方法历史资格，新资格由完整历史重算提供；结构错误保留上一冻结快照。该描述不扩大历史区间、采集预算或来源权限。
+
 指标定义的frequency描述稳定的采样频率；当前样本数量和日期范围由同一快照的coverage提供。初次导入的行数与日期不写入长期频率和限制文案。定义资料修订沿完整冻结版本校验及expected-current发布，保持原金融行值和历史快照；后继采集继续沿用已修订定义。
 
 依据[ADR-0015](../architecture/adr/0015-observation-snapshot-owner.md)，显式本地root拥有只增的SHA256内容对象和SQLite目录。空root关闭。导入校验完整冻结manifest及全部引用对象/分区/资产行数，保留原snapshot身份；校验失败保持current。发布在同一事务比较expected-current、写manifest、切current并记receipt；失败和冲突保持先前版本。显式restore重新验证，切指针与回退receipt同事务。读取核摘要，拒绝未知/损坏版本。
