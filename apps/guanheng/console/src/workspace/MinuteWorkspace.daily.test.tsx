@@ -34,5 +34,5 @@ test('canonical分钟来源以已声明周期启动，保留5分钟入口',async
   return u.includes('/chart/')?Response.json({...daily,period:new URL(u,'http://test').searchParams.get('period')}):new Response('',{status:503})}))
  mount(['1m','5m']);await screen.findByRole('img',{name:'510300.SH 1m'})
  expect(screen.queryByRole('button',{name:'日线'})).toBeNull();fireEvent.click(screen.getByRole('button',{name:'5分钟'}))
- await screen.findByRole('img',{name:'510300.SH 5m'});expect(urls.filter(u=>u.includes('/chart/')).every(u=>!u.includes('period=1d'))).toBe(true)
+ await screen.findByRole('img',{name:'510300.SH 5m'});expect(urls.filter(u=>u.includes('/chart/')).every(u=>!u.includes('period=1d')&&u.includes('limit=2000'))).toBe(true)
 })

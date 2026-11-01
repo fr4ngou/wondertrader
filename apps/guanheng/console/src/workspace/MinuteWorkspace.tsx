@@ -42,8 +42,8 @@ export default function MinuteWorkspace({ capability, capabilityPending = false,
     ? sourceSeconds * 1000 + 700 : INTERACTIVE_STATUS_TIMEOUT_MS
   const intraday = period === '1m' || period === '5m'
   const queryRange = typeof range === 'number' ? { dailyLimit: range } : { years: Number(range[0]) }
-  const limit = intraday ? 240 : period === '1d' && typeof range === 'number' ? range : 2000
-  const chart = useQuery({ queryKey: ['independent-market-chart', symbol, period, intraday ? 240 : range],
+  const limit = intraday ? 2000 : period === '1d' && typeof range === 'number' ? range : 2000
+  const chart = useQuery({ queryKey: ['independent-market-chart', symbol, period, intraday ? 2000 : range],
     queryFn: ({ signal }) => fetchMarketChart(symbol, period, undefined, signal, limit, undefined, timeoutMs,
       intraday || period === '1d' && typeof range === 'number' ? undefined : queryRange),
     enabled: Boolean(symbol) && !capabilityPending, retry: false, refetchOnWindowFocus: false })
