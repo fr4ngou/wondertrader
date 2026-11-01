@@ -22,14 +22,14 @@ from .breadth_models import METRICS as BREADTH_METRICS, admit_definition, prepar
 from . import financial_models, executive_models, t2108_models
 from .financial_source import annual_reports
 from .executive_source import executive_changes
-from .t2108_source import history as t2108_history
+from .t2108_feed import history as t2108_history
 from .ashare_source import history as ashare_history
 from .ashare_public import history as public_ashare_history
 from .breadth_trends import attach_trends, attach_benchmark
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,financial_annual=annual_reports,
-    executive_changes=executive_changes,qmt_t2108=t2108_history,ashare_snapshot=ashare_history)
+    executive_changes=executive_changes,ashare_snapshot=ashare_history)
 
 
 def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=None,cancelled=None,
@@ -115,6 +115,8 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             elif source['kind']=='ashare_public':
                 updates=public_ashare_history(reader,fetch,source,start,end,
                     retry_seconds=config['retry_seconds'],max_attempts=config['max_window_attempts'])
+            elif source['kind']=='qmt_t2108':
+                updates=t2108_history(fetch,source,start,end,calendar=config['models'].get('calendars',{}).get('cn'))
             else:updates=PARSERS[source['kind']](fetch,source,start,end)
             allowed=set(source.get('tables',[]))|set(source.get('datasets',[]))
             if set(updates)-allowed:raise SourceFailure('unregistered_source_output')

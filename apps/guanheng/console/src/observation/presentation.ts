@@ -72,6 +72,7 @@ export function failureLabel(code?:string) {
   if (code === 'ashare_source_coverage') return '沪深北股票池或原件覆盖尚未齐全，继续保留原版本'
   if (code === 't2108_no_qualified_observations') return '本批尚无同日且满40期有效前复权收盘的股票，保留原指标'
   if (code === 't2108_source_not_closed') return '日线闭合时间尚未核实，本批暂未接纳'
+  if (code === 't2108_ready_not_available') return '所需交易日的40期均线原件尚未到达，继续显示原数据'
   if (code === 'market_source_not_configured') return '统一行情读取连接尚未配置，继续保留历史数据'
   if (code === 'market_source_unavailable') return '统一行情暂未提供这组指数日线，继续保留原值；需要补齐对应来源'
   if (code === 'market_no_observations') return '所选日期尚未取得指数日线，继续保留原值'

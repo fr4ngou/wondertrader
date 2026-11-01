@@ -163,7 +163,13 @@ updates.scheduler表示同根调度记录和最近心跳，updates.process标识
 
 ### OBI9-R4 T2108原QAS回包消费
 
-观衡沿原统一`refresh`新增显式`qmt_t2108`来源，只读来源owner导出的原`BoundAnalysisClient.read`公开收据，不连接QMT、不启动来源、不下载或写缓存。配置指定绝对`input_manifest`和精确`input_sha256`，datasets固定为`t2108.ashare`，tables固定为`source.t2108_ashare_universe`。原source lease、批次截止、字节额度、内容对象、修订、窗口回执及CAS继续唯一拥有更新。普通Web只读已发布目录。
+观衡沿原统一`refresh`新增显式`qmt_t2108`来源，只读来源owner导出的原`BoundAnalysisClient.read`公开收据，不连接QMT、不启动来源、不下载或写缓存。配置在绝对`input_manifest`与精确`input_sha256`、绝对`input_directory`两种定位中互斥选择；datasets固定为`t2108.ashare`，tables固定为`source.t2108_ashare_universe`。原source lease、批次截止、字节额度、内容对象、修订、窗口回执及CAS继续唯一拥有更新。普通Web只读已发布目录。
+
+目录模式要求`models.calendars.cn`为既有`official-exchange-calendar/v1`。原日历owner的`last_open_day`流式核验开放日JSON及摘要，选择不晚于窗口as_of的最近开市日；日历需覆盖查询end，目标日早于start或缺覆盖则明确失败。定日标记为`input_directory/<观察日>/CURRENT.json`，schema为`guanheng.observation-qas-ready.v1`，精确字段为schema/observation_date/input；input保留原path/sha256描述，解析后位于该根的`packets/<版本目录>/`内。已封存包与定日标记、`.publisher`控制区保持不重合，原输入v1/v2、同批时间、股票池、slot与SHA仍由原读取器逐件核验。缺目标日包时返回`t2108_ready_not_available`并保留原结果，旧包不冒充新日。
+
+来源owner在包完整封存后调用`python -m guanheng_app.observation.t2108_feed_cli`，显式提供root/config/config-sha256/source-id/input-manifest/input-sha256/as-of及seconds。root只存证原件，目标feed来自固定source配置；本次原D及总字节/响应额度取配置和调用者上限较早者。公开入口单次退出，不启动QMT或持有调度；原WT来源owner继续负责QAB请求、原slot先保存后consumed及新日原件生成。原collection_lease排他下先校验和入库，再原子提交定日标记。published/already_published/another_owner_running及publication_unknown分别记录；重复和租约释放后的晚到也核原D，结果未知时核原输入及标记，保留同一身份。
+
+标记读取复用`managed_local_process._open_read`的Windows删除共享，存储层拥有首发独占rename及已有标记ReplaceFileW提交，沿既有回执语义保持读者完整旧快照与后继完整新快照。该文件原语属于独立观察存储，不依赖Host运行库；原D终态与未知结果继续覆盖提交及租约释放。发布标记只改自有feed，业务current仍由原refresh事务拥有。静态包回放、连续新交易日生产和实际调度窗口分别验收。
 
 输入索引`guanheng.observation-qas-inputs.v1`包含`observation_date/closed_through/closure_observed_at/closure_evidence/source_binding_sha256/universe/entries`及`schema`。日期使用ISO上海日，闭合时钟有时区且不晚于实收当前时刻；闭合日最多为该上海时钟15:00后的当日或15:00前的前日。该时段检查补充来源owner的交易日闭合证据。`universe`及每项原回包引用固定为`{path,sha256}`，路径相对索引目录且解析后保持目录内；每件原字节按SHA、单件和总字节、原截止准入并进入内容对象。股票池采用定日原owner的`date/members/market_count`；members为规范`sh./sz./bj.`普通股代码，唯一且与声明数量相同，输入声明的股票类型和完整性仍归原股票池owner。
 

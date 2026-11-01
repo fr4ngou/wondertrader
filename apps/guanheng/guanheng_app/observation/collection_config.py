@@ -13,7 +13,7 @@ KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmon
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
-    'input_manifest','input_sha256'}
+    'input_manifest','input_sha256','input_directory'}
 
 
 def _need(value):
@@ -117,11 +117,20 @@ def validate_configuration(value):
         _need('url' in source or source['kind'] in ('baostock','wondertrader','qmt_t2108','ashare_snapshot'))
         if source['kind']=='qmt_t2108':
             from .t2108_models import METRIC,UNIVERSE
-            _need(type(source.get('input_manifest')) is str and Path(source['input_manifest']).is_absolute()
-                and type(source.get('input_sha256')) is str and re.fullmatch('[a-f0-9]{64}',source['input_sha256'])
-                and source.get('datasets')==[METRIC] and source.get('tables')==[UNIVERSE])
+            if 'input_directory' in source:
+                _need(not {'input_manifest','input_sha256'} & set(source)
+                    and type(source['input_directory']) is str and Path(source['input_directory']).is_absolute())
+                _need(type(value['models']) is dict)
+                calendars=value['models'].get('calendars',{});_need(type(calendars) is dict)
+                calendar=calendars.get('cn',{})
+                _need(type(calendar) is dict and calendar.get('kind')=='official-exchange-calendar/v1')
+            else:
+                _need(type(source.get('input_manifest')) is str and Path(source['input_manifest']).is_absolute()
+                    and type(source.get('input_sha256')) is str and re.fullmatch('[a-f0-9]{64}',source['input_sha256']))
+            _need(source.get('datasets')==[METRIC] and source.get('tables')==[UNIVERSE])
             _need(not {'url','referer','symbols','replace_tables','window_mode','scope','bse_history'} & set(source))
         elif source['kind']=='ashare_snapshot':
+            _need('input_directory' not in source)
             from .breadth_models import ASHARE_METRICS
             from .ashare_source import UNIVERSE
             _need(type(source.get('input_manifest')) is str and Path(source['input_manifest']).is_absolute()
@@ -129,12 +138,13 @@ def validate_configuration(value):
                 and set(source.get('datasets',[]))==set(ASHARE_METRICS) and source.get('tables')==[UNIVERSE])
             _need(not {'url','referer','symbols','replace_tables','window_mode','scope','bse_history'} & set(source))
         elif source['kind']=='ashare_public':
+            _need('input_directory' not in source)
             from .breadth_models import ASHARE_METRICS
             from .ashare_source import UNIVERSE
             _need(set(source.get('datasets',[]))==set(ASHARE_METRICS) and source.get('tables')==[UNIVERSE]
                 and source.get('max_pages')==16 and 'www.bse.cn' in hosts)
             _need(not {'input_manifest','input_sha256','symbols','replace_tables','window_mode','scope','bse_history','reports'} & set(source))
-        else:_need(not {'input_manifest','input_sha256'} & set(source))
+        else:_need(not {'input_manifest','input_sha256','input_directory'} & set(source))
         for key in ('tables','datasets','derived_metrics','symbols','products'):
             if key in source:
                 _need(type(source[key]) is list and 1<=len(source[key])<=128

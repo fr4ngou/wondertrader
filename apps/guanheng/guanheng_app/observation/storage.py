@@ -20,6 +20,27 @@ OBJECT_BYTES = 256 * 1024 * 1024
 MANIFEST_BYTES = 64 * 1024 * 1024
 
 
+def replace_readable_file(candidate,target):
+    """单写者原子提交完整文件；共享删除读者可继续持有旧快照。
+
+    沿原Host retained回执的ReplaceFileW语义：Windows MoveFileEx仍与打开
+    的旧目标冲突。首发独占rename；其他平台用replace。失败保留原生错误，
+    截止、未知结果及临时文件的清理由调用者持有。本观察包不依赖Host运行库。
+    """
+    try:os.lstat(target)
+    except FileNotFoundError:
+        os.rename(candidate,target);return
+    if os.name!='nt':os.replace(candidate,target);return
+    import ctypes
+    from ctypes import wintypes
+    api=ctypes.WinDLL('kernel32',use_last_error=True)
+    api.ReplaceFileW.argtypes=[wintypes.LPCWSTR,wintypes.LPCWSTR,wintypes.LPCWSTR,
+        wintypes.DWORD,wintypes.LPVOID,wintypes.LPVOID]
+    api.ReplaceFileW.restype=wintypes.BOOL
+    if not api.ReplaceFileW(os.fspath(target),os.fspath(candidate),None,0,None,None):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def _catalog_runtime():
     # WAL-reset在3.51.3修正；读连接关闭也可触发checkpoint，所有目录连接统一准入。
     if sqlite3.sqlite_version_info < (3, 51, 3):
