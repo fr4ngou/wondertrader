@@ -181,6 +181,8 @@ updates.scheduler表示同根调度记录和最近心跳，updates.process标识
 
 ### OBI9 日终横截面接线
 
+T2108历史点可带可选日期字段`reconstruction_as_of`，记录用于重建该点的资料截止日；原始当日点可缺省。方法定义登记该字段并在日更重建定义时保留，历史金融值及原时间保持。该字段表示当前可见资料的重建时点，历史当时可得性继续未知，不授因果回测资格。
+
 T2108批量后继接收[QAB原包](qmt-analysis-batch-source.md)，使用显式`guanheng.observation-qas-inputs.v2`索引：共用v1的观察日、闭合声明、绑定和定日股票池，另有`batch_capture`清单引用与`qualifications`逐证券核验资料引用映射。按原batch_id一次读取完整slot并核SHA、原请求/结果摘要、原binding、原接收时钟、操作和批量参数；再按原securities[code]的none/front_ratio指针`/data/securities/{code}`投影数据，保留共享批次身份。原包股票池日期、总数和摘要须与观察索引相同，selected_count等于本批请求证券数。SH/SZ/BJ格式域沿v8，实际支持与复权资格由来源证据决定。原比较的日期交集、basis、rows与至少40期标记均从原数据独立核对；全市场统计仍只选唯一观察日，逐证券旧basis不冒充同日收盘。
 
 前复权日线的empty、missing、invalid和requires_partition均计入缺失，并另列空结果、无效帧和需分段子计数；其余过期、不足期及前复权不可用保持互斥。原包factors=not_requested、adjustment_qualified=false及closed_basis_qualified=false继续原样记录为上游未授资格；这些标记不阻止使用其明确的front_ratio序列计算当前点。qualifications旧映射仅为历史材料引用，当前计算不读取因子证明。读取入口、统一更新与Web不启动Host或SDK；上游whole_run关闭失败保持其原事实。

@@ -33,6 +33,8 @@ def definition():
         source_received_at=dict(label='本批来源最晚接收时间', unit='时间，未知留空'),
         source_kind=dict(label='来源类型',data_type='string',unit='文本'),
         method_version=dict(label='计算口径',data_type='string',unit='文本'))
+    # 重建截止日属于历史来源事实；原始当日点缺省，刷新继续保留历史值。
+    schema['reconstruction_as_of']=dict(label='历史重建资料截止日',data_type='date',unit='日期',required=False)
     schema.update({key: dict(label=label, unit=unit, data_type='integer' if unit=='只' else 'number')
         for key,(label,unit) in FIELDS.items()})
     return dict(id=METRIC, board='breadth', label='40期均线上方比例 · A股T2108方法',
@@ -47,6 +49,7 @@ def definition():
             '均线按实际日线观察计算；缺行与停牌不填价、不延用旧价，历史首次可知时间保持未知。',
             '当期收盘与均线取同一QMT前复权序列，直接使用供应商值；逐股除权因子核算不参与本指标准入。',
             '这是当前可见数据的观察统计；历史当时可得、原生分析及交易资格沿各自来源，SDK演示数据单独标明。',
+            '标记历史重建资料截止日的点使用该日可见的前复权序列；历史当时可得性未知，不能用于因果回测。',
             '历史点保留各自计算口径：原核验口径的待核数和供应商序列口径的不可用数分别解释，历史点未按新口径重算。'],
         how_to_read=dict(purpose=reading,signals=[],boundary='合格表示同一当前前复权序列满足40期计算条件；历史当时可得时间保持未知。部分覆盖时完整市场占比留空。'))
 
