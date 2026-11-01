@@ -65,7 +65,8 @@ def launch_environment(prepared, profile):
     except (ValueError, UnicodeError):
         raise RuntimeError('market_environment_invalid') from None
     require(type(values) is dict and set(values) <= MARKET_ENVIRONMENT_KEYS
-            and all(type(value) is str for value in values.values()), 'market_environment_fields')
+            and all(type(value) is str and '\x00' not in value for value in values.values()),
+            'market_environment_fields')
     require(all(values.get(key, '').strip() for key in ('GUANHENG_MARKET_URL', 'GUANHENG_MARKET_TOKEN')),
             'market_environment_connection_required')
     environment.update(values)

@@ -80,22 +80,27 @@ class UpdateEnvironmentTests(unittest.TestCase):
 
     def test_invalid_credentials_leave_no_run_identity_or_launched_process(self):
         # 原故障在启动时发生；先核凭据，避免产生无法归因的待定运行身份。
-        prepared = self.prepared({'GUANHENG_MARKET_TOKEN': 'synthetic-test-token'})
-        prepared['expected_current'] = 'baseline'
-        profile = prepared['profiles']['live']
-        for name in ('sources', 'service', 'deployment'):
-            path = self.directory / (name + '.json')
-            path.write_bytes(b'{}')
-            profile.update({name: str(path), name + '_sha256': hashlib.sha256(b'{}').hexdigest()})
         state = {'alive': False, 'launcher_alive': False, 'child_alive': False, 'instance': None}
-        with patch.object(OWNER, 'control_status', return_value=state), \
-             patch.object(OWNER, 'business_status', return_value={'current': 'baseline'}), \
-             patch.object(OWNER, 'write') as write, \
-             patch.object(OWNER.subprocess, 'Popen') as popen:
-            with self.assertRaisesRegex(RuntimeError, 'market_environment_connection_required'):
-                OWNER.start(prepared, 'live', None)
-            write.assert_not_called()
-            popen.assert_not_called()
+        cases = [({'GUANHENG_MARKET_TOKEN': 'synthetic-test-token'}, 'market_environment_connection_required'),
+                 ({'GUANHENG_MARKET_URL': 'http://127.0.0.1',
+                   'GUANHENG_MARKET_TOKEN': 'synthetic-test-token\x00'}, 'market_environment_fields')]
+        for values, code in cases:
+            with self.subTest(code=code):
+                prepared = self.prepared(values)
+                prepared['expected_current'] = 'baseline'
+                profile = prepared['profiles']['live']
+                for name in ('sources', 'service', 'deployment'):
+                    path = self.directory / (name + '.json')
+                    path.write_bytes(b'{}')
+                    profile.update({name: str(path), name + '_sha256': hashlib.sha256(b'{}').hexdigest()})
+                with patch.object(OWNER, 'control_status', return_value=state), \
+                     patch.object(OWNER, 'business_status', return_value={'current': 'baseline'}), \
+                     patch.object(OWNER, 'write') as write, \
+                     patch.object(OWNER.subprocess, 'Popen') as popen:
+                    with self.assertRaisesRegex(RuntimeError, code):
+                        OWNER.start(prepared, 'live', None)
+                    write.assert_not_called()
+                    popen.assert_not_called()
 
     def test_stop_can_still_operate_when_connection_file_is_missing(self):
         prepared = self.prepared({'GUANHENG_MARKET_TOKEN': 'synthetic-test-token'})
