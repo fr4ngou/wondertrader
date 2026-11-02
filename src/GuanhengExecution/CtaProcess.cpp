@@ -174,6 +174,22 @@ rj::Document receipt(const char* schema,const std::string& id,const std::string&
     value.AddMember("config_sha256",rj::Value(config_sha.c_str(),a),a);value.AddMember("pid",static_cast<unsigned>(GetCurrentProcessId()),a);
     value.AddMember("closed",closed,a);return value;
 }
+// 生命周期时间由本原生执行器的创建/关闭线程记录；只用于只读运行展示。
+// 保留原ready/closed协议及金融恢复身份，观测回执失败不改变执行结果。
+void publish_lifecycle(const fs::path& control,const char* name,const char* schema,
+                       const std::string& id,const std::string& config_sha,bool closed) noexcept {
+    try {
+        SYSTEMTIME utc{};GetSystemTime(&utc);char stamp[32]{};
+        std::snprintf(stamp,sizeof(stamp),"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ",
+            static_cast<unsigned>(utc.wYear),static_cast<unsigned>(utc.wMonth),static_cast<unsigned>(utc.wDay),
+            static_cast<unsigned>(utc.wHour),static_cast<unsigned>(utc.wMinute),
+            static_cast<unsigned>(utc.wSecond),static_cast<unsigned>(utc.wMilliseconds));
+        auto value=receipt(schema,id,config_sha,closed);auto& a=value.GetAllocator();
+        // 事件实际发生的UTC时间，毫秒精度；与文件时间和资金基准分别解释。
+        value.AddMember("event_at",rj::Value(stamp,a),a);
+        publish(control/name,value);
+    } catch(...) { std::fprintf(stderr,"CTA lifecycle observation unavailable\n"); }
+}
 struct Library {
     HMODULE module=nullptr; // 进程级工厂及插件保留至OS回收，与原工厂装载期保持一致。
     explicit Library(const fs::path& path){module=LoadLibraryExW(path.c_str(),nullptr,LOAD_WITH_ALTERED_SEARCH_PATH);need(module!=nullptr);}
@@ -364,6 +380,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
     bool recovery_enabled=false,recovery_armed=false,recovery_ready=false;
     decltype(&gh_ms_status) target_status=nullptr;std::uint64_t initial_setters=0;
     bool success=false,closed=false,stop_deadline_fixed=false;unsigned stop_ms=10000,native_error=0;
+    bool lifecycle_started=false; // 原Native start已完成；用于确认停止事件属于真实启动过的这一代。
     const char* stage="configuration";
     try{
         need(std::wstring(argv[1])==L"--config"&&std::wstring(argv[3])==L"--control"
@@ -516,6 +533,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         parser_root.AddMember("parsers",rj::Value(parsers,parser_root.GetAllocator()),parser_root.GetAllocator());parser_config=load_variant(parser_root);
         need(session->initialize(env.get(),data.get(),parser_config->get("parsers"),output.string().c_str(),recovery_enabled?&recovery_hooks:nullptr));check_start();
         need(session->start());check_start();
+        lifecycle_started=true;
+        publish_lifecycle(control,"lifecycle-started.json","guanheng.execution.started.v1",id,expected_sha,false);
         auto ready=receipt("guanheng.execution.ready.v1",id,expected_sha,false);publish(control/"ready.json",ready);stage="runtime";
         const auto run_until=Clock::now()+std::chrono::milliseconds(run_ms);
         bool stop_seen=false,stop_decoded=false;
@@ -609,6 +628,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             terminal.AddMember("recovery_ready",success&&recovery_ready,terminal.GetAllocator());publish(control/"close-prepared.json",terminal);
         }
     }catch(...){success=false;}
+    if(closed&&lifecycle_started)
+        publish_lifecycle(control,"lifecycle-finished.json","guanheng.execution.finished.v1",id,expected_sha,true);
     // 未确认关闭保留整树至进程回收；避免普通局部析构越过原截止或释放在途依赖。
     if(!closed)ExitProcess(3);
     return success?0:1;

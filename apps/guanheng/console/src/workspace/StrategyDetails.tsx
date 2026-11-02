@@ -50,7 +50,7 @@ export default function StrategyDetails() {
   const positions = positionGroup?.status === 'complete' ? positionGroup.rows : undefined
   const hasRunFacts = data && [data.execution.started_at, data.execution.duration_seconds, data.returns.cumulative_pct].some(fact => fact.value !== null)
   const runFacts = data ? <dl className="operations-facts">
-    <div><dt>策略开始时间</dt><dd>{data.execution.started_at.value === null ? '尚未取得' : clock(String(data.execution.started_at.value))}{data.execution.started_at.reason ? <details className="compact-details"><summary>说明</summary><small>{data.execution.started_at.reason}</small></details> : null}</dd></div>
+    <div><dt>执行开始时间</dt><dd>{data.execution.started_at.value === null ? '尚未取得' : clock(String(data.execution.started_at.value))}{data.execution.started_at.reason ? <details className="compact-details"><summary>说明</summary><small>{data.execution.started_at.reason}</small></details> : null}</dd></div>
     <Fact name="运行时长" fact={data.execution.duration_seconds} unit="秒" />
     {!data.capital_baseline ? <Fact name="策略预算（元）" fact={data.budget_cny} unit="元" /> : null}
     <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" />

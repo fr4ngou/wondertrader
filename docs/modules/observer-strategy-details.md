@@ -8,7 +8,9 @@
 
 账户总资产、可用资金、冻结现金分别复制券商字段；来源没有总现金时保留未知。策略预算只从已经准入的WT策略结果中读取原policy.initial_capital_cny；账户现金不作为策略预算。累计收益缺少起始本金、现金流和连续净值基准时保持未知；当前持仓浮盈作为独立金额展示。未启动执行器时状态为not_started；ready不作为策略已经计算的证明。首次资金观察没有decision_at时沿策略原等待状态展示，取得实际决策时间后才显示已发布计算结果。
 
-原报告可选的execution_started_at记录本次策略实际初始化完成的带时区时间，逐次发布保持此值；正常重启记录本次初始化时间，capital.baseline_at沿金融基准保持。App将其投影到原execution.started_at，ready期间按同一时间计算运行秒数，页面用天、小时、分钟和秒显示。来源未提供、时间无效或停止后缺少原停止时间时，相应时间字段保持未知；文件修改时间和资金基准时间各自保留含义。
+开始与停止事实由自有原生执行器发布到同一control目录的固定`lifecycle-started.json`与`lifecycle-finished.json`。六个字段为schema（started/finished各自的guanheng.execution事件v1）、control_id、config_sha256、pid、closed及event_at；身份沿原执行回执，event_at为事件实际发生的UTC毫秒时间。启动事件在原session.start成功后记录，停止事件在原资源关闭确认后记录。生命周期观测写入失败保持原执行结果；原ready/closed协议与Python金融状态身份保持。
+
+App沿已核execution_reference读取固定文件，校验同一control/config/pid后投影到原execution.started_at/duration_seconds；ready期间用当前时间减原启动时间，停止后用已发布停止时间减启动时间，页面显示天、小时、分钟和秒。旧报告可选execution_started_at仍可读；没有生命周期回执时沿其原值。来源未提供、时间无效或停止后缺少原停止时间时，相应字段保持未知。capital.baseline_at沿金融基准保持；文件修改时间和资金基准时间各自保留含义。
 
 新接口共享原App读池和2秒总截止，分项读取错误只影响所属字段；每项保留状态/中文原因，顶层不返回凭证、原部署路径或私有运行身份。原`strategy-runtime.v1`保持兼容。
 

@@ -17,6 +17,33 @@ def _missing(reason):
     return dict(value=None, reason=reason)
 
 
+def _execution_lifecycle(reference, deadline):
+    """沿已核执行引用读固定生命周期回执；旧执行器缺少回执时保持原未知字段。"""
+    if reference is None:
+        return {}
+    result = {}
+    for event, closed in (('started', False), ('finished', True)):
+        if monotonic() >= deadline:
+            break
+        path = Path(reference['path']).with_name('lifecycle-'+event+'.json')
+        try:
+            value = read_status_snapshot(path, 4096).value
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError):
+            result['execution_'+event+'_at'] = ''
+            continue
+        expected = {'schema', 'control_id', 'config_sha256', 'pid', 'closed', 'event_at'}
+        if (not isinstance(value, dict) or set(value) != expected
+            or value['schema'] != 'guanheng.execution.'+event+'.v1'
+            or any(value[key] != reference[key] for key in ('control_id','config_sha256','pid'))
+            or value['closed'] is not closed):
+            result['execution_'+event+'_at'] = ''
+            continue
+        result['execution_'+event+'_at'] = value['event_at']
+    return result
+
+
 def project_execution(runtime, strategy, report=None):
     """ready表示原组件就绪；实际策略结果另验，文件mtime不充当运行开始时间。"""
     component = runtime['components'].get('execution') if runtime else None
@@ -32,7 +59,7 @@ def project_execution(runtime, strategy, report=None):
         label = labels[state]
     started_at = _missing('WT现有公开结果未提供本次策略启动时间。')
     duration = _missing('缺少策略启动时间，无法确定运行时长。')
-    # 启动时间由策略实际初始化完成后发布；资金基准和文件mtime各有自己的含义。
+    # 启动时间由原生执行器session.start成功后发布；资金基准与文件mtime分别解释。
     origin = report.get('execution_started_at') if isinstance(report, dict) else None
     if origin is not None:
         try:
@@ -43,11 +70,22 @@ def project_execution(runtime, strategy, report=None):
             if stamp.utcoffset() is None or stamp > now:
                 raise ValueError('strategy_start_time')
             started_at = dict(value=origin, reason=None)
-            duration = (dict(value=int((now-stamp).total_seconds()), reason=None) if state == 'ready'
-                else _missing('策略当前未运行；原发布未提供停止时间，运行时长保持未知。'))
         except (ValueError, TypeError, OverflowError):
             started_at = _missing('本次发布的策略启动时间格式无效。')
             duration = _missing('启动时间未通过校验，运行时长保持未知。')
+        else:
+            end = report.get('execution_finished_at')
+            if end is not None:
+                try:
+                    finished = datetime.fromisoformat(end)
+                    if finished.utcoffset() is None or not stamp <= finished <= now:
+                        raise ValueError('strategy_finish_time')
+                    duration = dict(value=int((finished-stamp).total_seconds()), reason=None)
+                except (ValueError, TypeError, OverflowError):
+                    duration = _missing('停止时间未通过校验，运行时长保持未知。')
+            else:
+                duration = (dict(value=int((now-stamp).total_seconds()), reason=None) if state == 'ready'
+                    else _missing('策略当前未运行；原发布未提供停止时间，运行时长保持未知。'))
     return dict(state=state, label=label,
         reason='当前WT实例未配置策略执行器；账户持仓可独立查看。' if state == 'not_started'
             else '运行状态以WT最近发布为准，组件就绪与策略计算结果分别核实。',
@@ -73,7 +111,7 @@ def observe_details(settings, configuration, deadline):
     except (ValueError, OSError, TimeoutError):
         account_reason = '账户结果本次读取失败，请核对WT账户发布；策略状态单独显示。'
 
-    strategy, report = None, None
+    strategy, report, lifecycle = None, None, {}
     strategy_reason = None
     if runtime and 'execution' in runtime['components']:
         try:
@@ -81,9 +119,10 @@ def observe_details(settings, configuration, deadline):
             if strategies is not None:
                 strategy = project_strategy(dict(schema='guanheng.configured-cta-observation.v1', strategies=strategies),runtime_state=_state)
                 report = strategies.get('resonance-regime-v1') if strategy else None
+                lifecycle = _execution_lifecycle(_reference, deadline)
         except (ValueError, OSError, TimeoutError, KeyError, TypeError):
             strategy_reason = '策略计算结果本次读取失败，账户数据保持独立。'
-    execution = project_execution(runtime, strategy, report)
+    execution = project_execution(runtime, strategy, dict(report or {}, **lifecycle))
     if runtime_error:
         execution.update(state='unavailable', label='策略状态暂不可用', reason='本次WT运行状态读取失败，请重新读取。')
     budget = _missing('当前没有可读取的WT策略预算；账户可用资金归账户所有。')
