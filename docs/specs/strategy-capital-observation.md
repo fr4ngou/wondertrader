@@ -14,7 +14,9 @@ capital_baseline模式为guanheng.current-capital-baseline.v1，包含total_cny�
 
 capital模式为guanheng.strategy-capital-observation.v1，货币CNY。nav_cny、spendable_cash_cny、cash_balance_cny、market_value_cny、native_pnl_cny分别供策略总资产、可用资金、现金余额、持仓市值和本次运行盈亏展示。金额保留十进制字符串，缺可用资金及账户约束值保持null；页面不重算分配、净值或可用资金。
 
-原observed_at是CTA估值截止，position_observed_at是券商持仓接收时点，account_observed_at是原账户批结束时点；baseline_at是原首次初始化时间。GET时间、文件mtime和页面刷新不能替换这些来源时点。
+原observed_at是运行侧首次初始化或CTA回调的估值截止，position_observed_at是券商持仓接收时点，account_observed_at是原账户批结束时点；baseline_at是原首次初始化时间。GET时间、文件mtime和页面刷新不能替换这些来源时点。
+
+首次初始化早于Parser启动且可能处于闭市时间。显式初始持仓装配将同一原MarketClient快照连接交给自有策略适配器；加载实际库存后，沿原WT损益、券商持仓和已声明有效期内的真实QMT快照发布首次资金。`market_value_source=broker-position+raw-QMT-snapshot`标识此路径，完整快照、来源时间及资格保留在同代运行观察；该路径不调用策略计算或目标setter。后续原K线计算继续使用`broker-position+raw-CTA-price`。两种来源均禁止用历史收盘替代当前快照。
 
 App沿原发布核验基准和金额关系；运行已停止或原账户期限过期时取消当前可用现金资格，其他已发布金额和原时间保留。历史本金与historical_return_pct为空，本次运行资金不能生成旧历史收益。
 
