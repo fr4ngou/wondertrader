@@ -1,11 +1,11 @@
 import { useState } from 'react'
+import { NavLink } from 'react-router-dom'
 import { FinancialValue } from './FinancialValue'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import type { Capabilities } from './IndependentApp'
 import { fetchAccountOverview, type AccountField, type AccountGroup, type AccountKind, type AccountRow } from './accountApi'
 import { accountReadView, type AccountReadView } from './accountPresentation'
-import StrategyRuntimeSummary from './StrategyRuntimeSummary'
 import { StatusBadge } from './StatusBadge'
 
 const names: Record<AccountKind, string> = { position: '持仓', order: '委托', deal: '成交', account: '资金' }
@@ -55,7 +55,7 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
   const labels = {
     account: { title: '账户', description: '查看券商资金、持仓、委托与成交；每类数据保留自己的来源时间。', badge: '只读账户' },
     'trading-records': { title: '交易记录', description: '查看券商全账户委托与成交；与账户页共用读取结果，各类记录保留自己的来源时间。', badge: '只读记录' },
-    overview: { title: '总览', description: '查看账户资金、持仓与策略运行结果。', badge: '只读总览' },
+    overview: { title: '总览', description: '账户资金与记录概况。', badge: '只读总览' },
   }[view]
   const tabs: ('position' | 'order' | 'deal')[] = recordsOnly ? ['order', 'deal'] : ['position', 'order', 'deal']
   const [tab, setTab] = useState<'position' | 'order' | 'deal'>(recordsOnly ? 'order' : 'position')
@@ -78,9 +78,29 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
   const stateLabel = ({ refreshing: '正在更新', ready: '已发布', stopped: '已停止', degraded: '更新失败',
     unconfigured: '未配置', waiting: '等待数据', complete: '读取完成', partial: '部分可用', unavailable: '不可用' } as Record<string,string>)[state] ?? state
   const latest = publication?.last_success_at ?? funds?.execution_finished_at ?? null
+  // 总览复用账户原值与完整分组计数；具体策略及明细由各自页面负责。
+  if (view === 'overview') return <section className="workspace-page account-workspace overview-workspace">
+    <header className="page-heading"><h1>总览</h1></header>
+    <div className="compact-status-strip" role="status"><StatusBadge state={state} label={stateLabel} />
+      <small>{latest ? `账户更新于 ${timeText(latest)}` : '等待账户数据'}</small>
+      <button onClick={() => void query.refetch()} disabled={query.isFetching}>{query.isFetching ? '更新中…' : '刷新'}</button>
+    </div>
+    {query.isError ? <p role="alert">{query.error.message}</p> : null}
+    <div className="account-funds">{[['total_asset', '账户总资产'], ['available', '账户可用资金'], ['frozen_cash', '账户冻结现金']].map(([key, label]) =>
+      <article className="surface-card" key={key}><h2>{label}</h2>
+        <strong title={fundRow?.fields[key]?.reason ?? undefined}>{fieldText(fundRow?.fields[key], false, true)}</strong>
+      </article>)}</div>
+    <div className="overview-counts">{(['position', 'order', 'deal'] as const).map(kind => {
+      const records = query.data?.complete[kind] ?? data?.groups[kind]
+      return <article className="surface-card" key={kind}><h2>{names[kind]}记录</h2>
+        <strong>{records?.status === 'complete' ? records.rows.length.toLocaleString('zh-CN') : '—'}</strong>
+      </article>
+    })}</div>
+    <nav className="overview-links" aria-label="账户快捷入口"><NavLink to="/account">资金与持仓 →</NavLink>
+      <NavLink to="/orders">委托与成交 →</NavLink><NavLink to="/operations">系统状态 →</NavLink></nav>
+  </section>
   return <section className="workspace-page account-workspace">
     <header className="page-heading"><h1>{labels.title}</h1></header>
-    {view === 'overview' ? <StrategyRuntimeSummary /> : null}
     <div className="compact-status-strip" role="status"><StatusBadge state={state} label={stateLabel} />
       <small>{latest ? `数据时间 ${timeText(latest)}` : capability.reason ?? '等待首轮数据'}</small>
       <button className="account-refresh" onClick={() => void query.refetch()} disabled={query.isFetching}>{query.isFetching ? '正在读取账户…' : '刷新账户'}</button></div>

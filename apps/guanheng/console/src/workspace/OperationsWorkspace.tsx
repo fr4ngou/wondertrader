@@ -41,7 +41,7 @@ export default function OperationsWorkspace() {
             {item.data.published_at ? ` · ${time(item.data.published_at)}` : ''}</p> : null}</details> : null}
       </li>)}</ul><details className="compact-details"><summary>实例说明</summary><p>显示此WT实例最近发布的状态。</p>
         <p>本次读取：{time(data.observed_at)}</p><IssueDetail issue={instance.runtime.issue} />
-        <p>基础就绪表示组件初始化完成，实际数据和交易状态分别核实。</p></details></> : <p role="status">{instance.reason}</p>}
+        <p>组件状态由WT发布，业务数据保留各自更新时间。</p></details></> : <p role="status">{instance.reason}</p>}
     </section>)}
     {operations.isError ? <p role="alert">行情查询状态读取失败。{query ? '当前保留上次成功结果和时间。' : '请稍后重新读取。'}</p> : null}
     {query ? <section className="surface-card runtime-instance" aria-label="行情查询服务">

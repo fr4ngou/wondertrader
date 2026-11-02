@@ -12,6 +12,10 @@
 .account-actions .account-refresh { color: #fff; border-color: var(--accent); background: var(--accent); }
 .account-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .account-funds { display: flex; flex-wrap: wrap; gap: 12px; }
+.overview-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.overview-counts h2 { color: var(--muted); font-size: 13px; font-weight: 500; }
+.overview-counts strong { font-size: 25px; font-variant-numeric: tabular-nums; }
+.overview-links { display: flex; flex-wrap: wrap; gap: 14px 28px; padding-block: 8px; font-size: 14px; }
 .account-workspace .account-funds > article { flex: 1 1 150px; min-width: min-content; max-width: 100%; }
 .account-funds h2 { font-size: 14px; }
 .account-workspace .account-funds strong { font-size: clamp(18px, 6vw, 24px); white-space: nowrap; overflow-wrap: normal; }

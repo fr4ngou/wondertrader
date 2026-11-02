@@ -54,7 +54,8 @@ def project_execution(runtime, strategy, report=None):
         new='策略待启动', starting='策略启动中', ready='策略执行组件已就绪',
         stopping='策略停止中', closed='策略已停止', faulted='策略运行失败', unavailable='策略状态暂不可用')
     if state == 'ready' and strategy:
-        label = 'WT已发布策略计算结果' if strategy.get('decision_at') is not None else strategy['status_label']
+        label = ('运行中 · 等待新行情' if strategy.get('status') == 'waiting_market_input'
+            else 'WT已发布策略计算结果' if strategy.get('decision_at') is not None else strategy['status_label'])
     else:
         label = labels[state]
     started_at = _missing('WT现有公开结果未提供本次策略启动时间。')

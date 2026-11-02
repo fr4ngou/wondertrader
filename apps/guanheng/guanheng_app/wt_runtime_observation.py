@@ -9,7 +9,7 @@ from uuid import UUID
 from guanheng_market_client.runtime_status import read_status_snapshot
 
 _STATES = {
-    'disabled': '未配置', 'new': '待启动', 'starting': '启动中', 'ready': '基础就绪',
+    'disabled': '未配置', 'new': '待启动', 'starting': '启动中', 'ready': '已就绪',
     'stopping': '停止中', 'closed': '已停止', 'faulted': '失败',
 }
 _COMPONENTS = {'host': 'QMT通信', 'trade_host': '交易通信', 'account_host': '账户通信',

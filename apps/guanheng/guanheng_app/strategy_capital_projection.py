@@ -34,7 +34,8 @@ def project_capital(value, origin, *, runtime_state='ready'):
         'cash_balance_cny', 'spendable_cash_cny', 'account_observation_qualified', 'account_observed_at', 'account_valid_until',
         'account_available_cny', 'account_frozen_cash_cny', 'account_source_sha256',
         'cash_constraint_scope', 'historical_return_pct'}
-    _need(type(value) is dict and set(value) == fields and value['schema'] == 'guanheng.strategy-capital-observation.v1'
+    _need(type(value) is dict and fields <= set(value) <= fields | {'price_observed_at'}
+        and value['schema'] == 'guanheng.strategy-capital-observation.v1'
         and value['currency'] == 'CNY' and project_baseline(value['baseline']) == origin
         # 首次加载可由当前QMT快照估值；后续沿CTA原报价，两个来源都由WT明确声明。
         and value['market_value_source'] in ('broker-position+raw-CTA-price', 'broker-position+raw-QMT-snapshot')
@@ -48,6 +49,10 @@ def project_capital(value, origin, *, runtime_state='ready'):
     _need(stamp.utcoffset() is not None and stamp <= datetime.now(timezone.utc))
     position_stamp = datetime.fromisoformat(value['position_observed_at'])
     _need(position_stamp.utcoffset() is not None and position_stamp <= stamp)
+    # 报价事件时间与本次估值、持仓和账户时间分别拥有；旧发布可不提供。
+    if value.get('price_observed_at') is not None:
+        price_stamp = datetime.fromisoformat(value['price_observed_at'])
+        _need(price_stamp.utcoffset() is not None and price_stamp <= stamp)
     if value['account_observed_at'] is not None:
         account_stamp = datetime.fromisoformat(value['account_observed_at'])
         until = datetime.fromisoformat(value['account_valid_until'])

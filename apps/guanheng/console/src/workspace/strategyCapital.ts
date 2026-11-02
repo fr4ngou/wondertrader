@@ -22,6 +22,8 @@ export type StrategyCapital = {
   baseline: CapitalBaseline
   /** WT首次初始化或原CTA回调的估值截止时间，含时区；页面刷新保持该原时间。 */
   observed_at: string
+  /** 所用报价中最旧的事件时间，含时区；旧发布可省略，null表示未提供。 */
+  price_observed_at?: string | null
   /** 券商持仓查询结果的原接收时间，含时区。 */
   position_observed_at: string
   /** 市值使用券商持仓和原CTA价格，或首次初始化的真实QMT快照；两种来源均由WT声明。 */
@@ -79,6 +81,7 @@ export function validateCapitalFields(value: Record<string, unknown>): void {
     || capital.baseline.total_cny !== origin.total_cny || capital.baseline.baseline_at !== origin.baseline_at
     || capital.baseline.source !== origin.source || capital.schema !== 'guanheng.strategy-capital-observation.v1'
     || capital.currency !== 'CNY' || !time(capital.observed_at) || !time(capital.position_observed_at)
+    || !(capital.price_observed_at == null || time(capital.price_observed_at))
     || !['native_pnl_cny','nav_cny','market_value_cny','cash_balance_cny'].every(key => amount(capital[key]))
     || !(capital.spendable_cash_cny === null || amount(capital.spendable_cash_cny))
     || typeof capital.account_observation_qualified !== 'boolean'
