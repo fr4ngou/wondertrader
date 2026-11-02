@@ -17,7 +17,7 @@ def _missing(reason):
     return dict(value=None, reason=reason)
 
 
-def project_execution(runtime, strategy):
+def project_execution(runtime, strategy, report=None):
     """ready表示原组件就绪；实际策略结果另验，文件mtime不充当运行开始时间。"""
     component = runtime['components'].get('execution') if runtime else None
     state = 'unconfigured' if runtime is None else 'not_started' if component is None else component['state']
@@ -27,14 +27,31 @@ def project_execution(runtime, strategy):
         new='策略待启动', starting='策略启动中', ready='策略执行组件已就绪',
         stopping='策略停止中', closed='策略已停止', faulted='策略运行失败', unavailable='策略状态暂不可用')
     if state == 'ready' and strategy:
-        label = 'WT已发布策略计算结果'
+        label = 'WT已发布策略计算结果' if strategy.get('decision_at') is not None else strategy['status_label']
     else:
         label = labels[state]
+    started_at = _missing('WT现有公开结果未提供本次策略启动时间。')
+    duration = _missing('缺少策略启动时间，无法确定运行时长。')
+    # 启动时间由策略实际初始化完成后发布；资金基准和文件mtime各有自己的含义。
+    origin = report.get('execution_started_at') if isinstance(report, dict) else None
+    if origin is not None:
+        try:
+            if not isinstance(origin, str) or not 1 <= len(origin) <= 64:
+                raise ValueError('strategy_start_time')
+            stamp = datetime.fromisoformat(origin)
+            now = datetime.now(timezone.utc)
+            if stamp.utcoffset() is None or stamp > now:
+                raise ValueError('strategy_start_time')
+            started_at = dict(value=origin, reason=None)
+            duration = (dict(value=int((now-stamp).total_seconds()), reason=None) if state == 'ready'
+                else _missing('策略当前未运行；原发布未提供停止时间，运行时长保持未知。'))
+        except (ValueError, TypeError, OverflowError):
+            started_at = _missing('本次发布的策略启动时间格式无效。')
+            duration = _missing('启动时间未通过校验，运行时长保持未知。')
     return dict(state=state, label=label,
         reason='当前WT实例未配置策略执行器；账户持仓可独立查看。' if state == 'not_started'
             else '运行状态以WT最近发布为准，组件就绪与策略计算结果分别核实。',
-        started_at=_missing('WT现有公开结果未提供本次策略启动时间。'),
-        duration_seconds=_missing('缺少策略启动时间，无法确定运行时长。'))
+        started_at=started_at, duration_seconds=duration)
 
 
 def observe_details(settings, configuration, deadline):
@@ -66,7 +83,7 @@ def observe_details(settings, configuration, deadline):
                 report = strategies.get('resonance-regime-v1') if strategy else None
         except (ValueError, OSError, TimeoutError, KeyError, TypeError):
             strategy_reason = '策略计算结果本次读取失败，账户数据保持独立。'
-    execution = project_execution(runtime, strategy)
+    execution = project_execution(runtime, strategy, report)
     if runtime_error:
         execution.update(state='unavailable', label='策略状态暂不可用', reason='本次WT运行状态读取失败，请重新读取。')
     budget = _missing('当前没有可读取的WT策略预算；账户可用资金归账户所有。')

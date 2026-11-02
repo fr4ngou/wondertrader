@@ -19,9 +19,17 @@ const field = (v?: AccountField, currency = false) => v?.availability === 'prese
     ? <FinancialValue value={v.value} /> : amount(v.value) : '尚未取得'
 const clock = (v?: string | null) => v ? absoluteChinaTime(v) : '尚未取得'
 const groupTime = (v?: AccountGroup) => v && 'received_at' in v ? v.received_at : v?.execution_finished_at
+function runtimeDuration(value: string | number) {
+  const seconds = Math.floor(Number(value))
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor(seconds / 3600) % 24
+  const minutes = Math.floor(seconds / 60) % 60
+  return days > 0 ? `${days}天${hours}小时` : hours > 0 ? `${hours}小时${minutes}分钟`
+    : minutes > 0 ? `${minutes}分钟${seconds % 60}秒` : `${seconds}秒`
+}
 function Fact({ name, fact, unit = '' }: { name: string; fact: OptionalFact; unit?: string }) {
   return <div><dt>{name}</dt><dd>{fact.value === null ? '暂不可用' : unit === '元'
-    ? <FinancialValue value={fact.value} /> : `${amount(fact.value)}${unit}`}
+    ? <FinancialValue value={fact.value} /> : unit === '秒' ? runtimeDuration(fact.value) : `${amount(fact.value)}${unit}`}
     {fact.reason ? <details className="compact-details"><summary>说明</summary><small>{fact.reason}</small></details> : null}</dd></div>
 }
 
@@ -42,7 +50,7 @@ export default function StrategyDetails() {
   const positions = positionGroup?.status === 'complete' ? positionGroup.rows : undefined
   const hasRunFacts = data && [data.execution.started_at, data.execution.duration_seconds, data.returns.cumulative_pct].some(fact => fact.value !== null)
   const runFacts = data ? <dl className="operations-facts">
-    <div><dt>策略开始时间</dt><dd>{data.execution.started_at.value === null ? '尚未取得' : clock(String(data.execution.started_at.value))}<details className="compact-details"><summary>说明</summary><small>{data.execution.started_at.reason}</small></details></dd></div>
+    <div><dt>策略开始时间</dt><dd>{data.execution.started_at.value === null ? '尚未取得' : clock(String(data.execution.started_at.value))}{data.execution.started_at.reason ? <details className="compact-details"><summary>说明</summary><small>{data.execution.started_at.reason}</small></details> : null}</dd></div>
     <Fact name="运行时长" fact={data.execution.duration_seconds} unit="秒" />
     {!data.capital_baseline ? <Fact name="策略预算（元）" fact={data.budget_cny} unit="元" /> : null}
     <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" />
