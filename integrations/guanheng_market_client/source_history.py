@@ -37,7 +37,7 @@ def validate_source_metadata(value, *, period="1m", selection=False):
     if selection:
         source = _object(value["source"], ("kind", "provider", "selection_id"))
         _enum(source["kind"], ("SourceSelection",))
-        _enum(source["provider"], ("Qmt",))
+        _enum(source["provider"], ("Qmt", "Tdx", "BaoStock", "Tencent", "Mixed") if period == "1d" else ("Qmt",))
         _sha(source["selection_id"])
     else:
         _source(value["source"])
@@ -76,6 +76,24 @@ def source_selection_metadata(bars, provenance):
     metadata.update(source=dict(kind="SourceSelection", provider="Qmt", selection_id=identity),
         dataset_version="source-selection.v1:" + identity, content_id=identity,
         source_license="source-selection.v1: original licenses in provenance")
+    return metadata
+
+
+def daily_selection_metadata(bars, provenance):
+    """日期行与分段原身份共同绑定；集合身份不代表供应商捕获会话。"""
+    identity = hashlib.sha256(json.dumps(dict(schema="source-daily-selection.v1", bars=bars, provenance=provenance),
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf8")).hexdigest()
+    metadata = copy.deepcopy(provenance[0]["metadata"])
+    providers = {part["metadata"]["source"]["provider"] for part in provenance}
+    for key in ("price_unit", "volume_unit", "amount_unit"):
+        values = {part["metadata"][key] for part in provenance}
+        metadata[key] = next(iter(values)) if len(values) == 1 else "unknown"
+    metadata.update(
+        # kind区分来源集合；provider共同来源或Mixed；selection_id为本选择SHA256。
+        source=dict(kind="SourceSelection", provider=next(iter(providers)) if len(providers) == 1 else "Mixed", selection_id=identity),
+        dataset_version="source-daily-selection.v1:" + identity,  # 绑定本次行及分段证据的版本。
+        content_id=identity,  # 当前选择内容摘要，不冒充原文件摘要。
+        source_license="source-daily-selection.v1: original licenses in provenance")
     return metadata
 
 
@@ -138,8 +156,10 @@ def validate_source_daily_request(value):
 
 def validate_source_daily_data(value, request):
     validate_source_daily_request(request)
-    _object(value, ("metadata", "bars", "coverage", "missing_dates", "selection"))
-    validate_source_metadata(value["metadata"], period="1d")
+    fields = ("metadata", "bars", "coverage", "missing_dates", "selection")
+    _object(value, fields + ("provenance",), required=fields)
+    composite = "provenance" in value
+    validate_source_metadata(value["metadata"], period="1d", selection=composite)
     _enum(value["coverage"], ("Unknown",))
     _list(value["missing_dates"], 0)
     selection = _object(value["selection"], ("period", "limit"))
@@ -160,6 +180,18 @@ def validate_source_daily_data(value, request):
         for key in ("volume", "amount"):
             _number(bar[key])
         previous = day
+    if composite:
+        offset = 0
+        for part in _list(value["provenance"], request["limit"]):
+            # offset为从0起的bar索引；count为连续行数；metadata保存这些行的原来源。
+            _object(part, ("offset", "count", "metadata"))
+            if _integer(part["offset"], 0, request["limit"]) != offset:
+                raise MarketProtocolError("daily source provenance is discontinuous")
+            offset += _integer(part["count"], 1, request["limit"])
+            validate_source_metadata(part["metadata"], period="1d")
+        if (not value["provenance"] or offset != len(value["bars"]) or
+                value["metadata"] != daily_selection_metadata(value["bars"], value["provenance"])):
+            raise MarketProtocolError("daily source selection evidence differs")
     return value
 
 

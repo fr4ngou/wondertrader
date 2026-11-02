@@ -110,26 +110,26 @@ class SourceHistoryBar:
 
 @dataclass(frozen=True)
 class SourceHistoryMetadata:
-    source: SourceSession
-    qualification: str
-    dataset_version: str
-    content_id: str
-    source_license: str
-    period: str
-    expected_count: int | None
-    price_unit: str
-    volume_unit: str
-    amount_unit: str
-    minute_boundary: str
-    value_semantics: str = "source"
-    timestamp_semantics: str = "source_label"
-    adjustment: str = "none"
-    factor_version: str = ""
-    timezone: str = "Asia/Shanghai"
-    price_range_inconsistent_rows: int = 0
+    source: SourceSession  # 该冻结来源的提供者、实例、会话与代际。
+    qualification: str  # 原来源验收等级，当前仅DevelopmentVerified。
+    dataset_version: str  # 来源格式及派生版本，保持计数与缺失字段语义。
+    content_id: str  # 当前读取DSB的SHA256，由调用者读前后核对。
+    source_license: str  # 来源许可声明；unknown不提升为开放再分发许可。
+    period: str  # 原生周期，1m或1d。
+    expected_count: int | None  # 本文件预期bar数；None表示只有读取预算约束。
+    price_unit: str  # 原始价格单位CNY或unknown，不执行隐式换算。
+    volume_unit: str  # 来源量单位share、lot或unknown；数值保持。
+    amount_unit: str  # 来源额单位CNY或unknown；数值保持。
+    minute_boundary: str  # 来源分钟边界；日线固定unknown。
+    value_semantics: str = "source"  # 保留来源原值。
+    timestamp_semantics: str = "source_label"  # 分钟标签或日线交易日期；不授知晓时刻。
+    adjustment: str = "none"  # 本读取合同为未复权来源。
+    factor_version: str = ""  # 未复权时为空；不推定复权因子。
+    timezone: str = "Asia/Shanghai"  # 来源标签解释时区。
+    price_range_inconsistent_rows: int = 0  # 明确记录的OHLC异常行数，默认0。
 
     def __post_init__(self):
-        if (not isinstance(self.source, SourceSession) or self.source.provider != "Qmt"
+        if (not isinstance(self.source, SourceSession) or self.source.provider not in ("Qmt", "BaoStock", "Tencent")
                 or self.qualification != "DevelopmentVerified" or self.period not in ("1m", "1d")
                 or self.value_semantics != "source"
                 or (self.period == "1m" and self.timestamp_semantics != "source_label")

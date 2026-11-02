@@ -118,7 +118,8 @@ def _queue_id(value):
 
 def _source(value):
     _object(value, ("provider", "instance_id", "session_id", "generation"))
-    if value["provider"] not in ("Qmt", "Tdx"):
+    # 日线公开补充保留真实提供者；现有Qmt/Tdx身份继续沿原合同。
+    if value["provider"] not in ("Qmt", "Tdx", "BaoStock", "Tencent"):
         raise MarketProtocolError("market provider is unsupported")
     _text(value["instance_id"], limit=128)
     _text(value["session_id"], limit=128)
