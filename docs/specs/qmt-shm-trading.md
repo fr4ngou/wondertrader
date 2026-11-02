@@ -49,7 +49,7 @@ S1 的 orderError 示例第 5474 行误写 position_callback；本规格按第 5
 
 候选固定 quickTrade=2，以避免排队后再次由 K 线时点决定是否触发。它具有历史 bar 也可下单的源语义，因此只允许已准入 live 环境、原线程的专用命令排空阶段调用；init、历史回放、handlebar 扫描、主推回调及重入路径均不得执行命令。实际策略定时排空路径与目标环境语义须单独验证，不能仅依赖 quickTrade。无需通过替身调用 SDK 即可验证这些前置拒绝。
 
-SDK callable 和 ContextInfo 由生成策略既有注入边界显式提供，源端 kernel 不自行寻找全局函数。passorder 返回 None 记录“调用已返回、等待柜台结果”，不产生 BrokerAccepted。cancel true 只记录“取消信号已发出”，false 只记录“本次调用未发出信号”；原订单可能并发成交或被其他来源处理，终态仍查真实订单。调用进入之后发生异常、超时、载体断开或回执丢失，保存 original command_id 并进入 unknown。
+SDK callable 和 ContextInfo 由生成策略既有注入边界显式提供，源端 kernel 不自行寻找全局函数。passorder 正常返回记录“调用已返回、等待柜台结果”；其公开接口未声明返回值的业务含义，因此丢弃返回对象，不产生 BrokerAccepted。cancel true 只记录“取消信号已发出”，false 只记录“本次调用未发出信号”；原订单可能并发成交或被其他来源处理，终态仍查真实订单。调用进入之后发生异常、超时、载体断开或回执丢失，保存 original command_id 并进入 unknown。
 
 ## QST-R3 命令与身份契约
 
@@ -108,7 +108,7 @@ TraderQMT 标准 ABI 接收对象仅本次借用，异步前复制必要值；SP
 | ID | 观察与判定 | 验证入口/状态 |
 |---|---|---|
 | QST-R1 | 默认写关闭、旧读 profile 不升级、错误账户/权限拒绝；查询继续工作 | 新纯替身准入测试 + 实际生成策略/Host 配对集成；待实现 |
-| QST-R2 | 精确 passorder 11 个参数、现金限价映射、空账户/错误类型/历史阶段拒绝；None 仅 sdk_returned；cancel true/false 不伪造终态 | 新 trading_kernel 纯测试，独立记录调用次数/参数/线程；待实现 |
+| QST-R2 | 精确 passorder 11 个参数、现金限价映射、空账户/错误类型/历史阶段拒绝；passorder正常返回仅sdk_returned，返回对象不作业务解释；cancel true/false 不伪造终态 | 新 trading_kernel 纯测试，独立记录调用次数/参数/线程；待实现 |
 | QST-R3 | 同 ID 同文只一次 SDK 调用、异文冲突；备注精确回显恢复原 WT userTag/entrustID；截断/空备注/多匹配隔离 | 纯字段测试、真实原 TraderAdapter 合成 SPI 链；待实现 |
 | QST-R4 | 受理/发布/调用/结果保存前后故障、超时/重启保留原 ID；调用后 unknown 不重发，查无记录不解除 | 独立记录副作用的双进程替身 + Journal 故障注入；待实现 |
 | QST-R5 | 同步回调、早到成交、重复/乱序/冲突、队列满及错误无法关联；原回报对象不被延长使用 | 回调纯投影/有界队列及 Agent/Host 集成；待实现 |
@@ -134,7 +134,7 @@ TraderQMT 标准 ABI 接收对象仅本次借用，异步前复制必要值；SP
 
 execute(command, *, deadline, phase)仅在原线程、非重入、phase=live_drain且明确写开关为true时准入；deadline为源端已映射的原monotonic绝对截止，不接受来自Host未经证明同基的裸值。命令是精确dict，公共键schema_version=qmt.trade-command.v1、command_id（规范UUID）、operation（order.insert/order.cancel）、binding_id、account_id、account_type、entrust_id、user_tag。insert额外精确含symbol、side（buy/sell）、order_type=limit、limit_price（正有限十进制字符串）、quantity（精确正整数股数）、sdk_user_order_id（1..64 ASCII token，仅为协议资源上限，SDK接受性另验）；cancel额外精确含original_command_id（UUID）、broker_order_id（有限非空ASCII）。WT字符串完整保留且拒控制字符/超限，source不生成或改写WT身份。策略名取固定binding，所有SDK调用传确切账户和原ContextInfo。
 
-insert按R2精确映射11参数，price_tick与数量规则用独立精确计算校验，不受调用者Decimal全局上下文影响；转SDK double后仍须有限正值。cancel四参数中公开account_type=stock映射为官方明确的SDK字面值STOCK，其余原值映射；不假设SDK接受小写类型。只有进入SDK之前的拒绝授definitely_not_called；进入后异常、返回类型不符或晚于原D返回授unknown，并关闭该kernel新写准入。passorder正常None仅sdk_returned；cancel精确bool原样保留signal_sent，不产生撤成。结果精确包含schema_version=qmt.trade-call-result.v1、command_id、command_sha256、operation、stage（definitely_not_called/sdk_returned/unknown）、sdk_entered、signal_sent（None/bool）及error_code（None或有限固定码）。参数形状/原文冲突以固定安全异常码拒绝，不带账户原文。
+insert按R2精确映射11参数，price_tick与数量规则用独立精确计算校验，不受调用者Decimal全局上下文影响；转SDK double后仍须有限正值。cancel四参数中公开account_type=stock映射为官方明确的SDK字面值STOCK，其余原值映射；不假设SDK接受小写类型。只有进入SDK之前的拒绝授definitely_not_called；进入后异常、cancel返回类型不符或晚于原D返回授unknown，并关闭该kernel新写准入。passorder正常返回仅sdk_returned，丢弃返回对象；cancel精确bool原样保留signal_sent，不产生撤成。结果精确包含schema_version=qmt.trade-call-result.v1、command_id、command_sha256、operation、stage（definitely_not_called/sdk_returned/unknown）、sdk_entered、signal_sent（None/bool）及error_code（None或有限固定码）。参数形状/原文冲突以固定安全异常码拒绝，不带账户原文。
 
 同会话用有限命令索引保存原canonical摘要与原结果：同ID同文取原结果副本，异文拒绝且不覆盖原项；SDK前即占用身份，触发同线程重入时不重复调用。容量满拒绝新命令，已存命令结果仍可核取；不逐出尚有副作用的身份。request_close只停新写，不自动撤单；索引是该Agent会话的重复抑制，不能冒充跨重启持久保证。Host仍负责原命令持久身份和unknown核查。
 

@@ -224,8 +224,10 @@ class TradingKernel(object):
         result.update(stage='unknown', sdk_entered=True, error_code='sdk_exception')
         try:
             if command['operation'] == 'order.insert':
-                returned = self._passorder(*args)
-                valid = returned is None
+                # 官方接口未声明下单返回值的业务含义；当前原生实现返回int。
+                # 正常返回仅证明SDK调用结束，委托/成交仍由原柜台回报和查询核实。
+                self._passorder(*args)
+                valid = True
             else:
                 returned = self._cancel(*args)
                 valid = type(returned) is bool
