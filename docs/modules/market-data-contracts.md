@@ -56,6 +56,8 @@ Source的_latest是每证券最新纯值字典，_pending是有界(symbol,tick)�
 
 来源日线采用period=1d、timestamp_semantics=source_date；occurred_at为交易日期00:00+08:00，原day DSB的date保存交易日、time为0。这是日期标签，不能作为当天收盘数据已可获知时刻；完整闭合、可获知时刻和交易日历另由对应来源事实证明。具体导入布局与公开合同见[DSH](../specs/qmt-source-daily-history.md)。
 
+该source_date的+08:00固定标签覆盖公开八位有效公历日期域1000..9999年，历史夏令时不改变标签。来源分钟及canonical继续原时刻/IANA语义。DAT导出可按显式来源标签日期闭区间选择，收据保留全原件SHA及扫描/选中/按日期排除数；无窗口仍完整导出，原负量拒绝规则保持。历史日线计数语义按同源验证范围登记，已核分钟布局不自动授全部日线历史的字段解释资格。
+
 来源单位由具体接口、安装版本、证券类别及数据批次的证据决定，price_unit、volume_unit、amount_unit分别核实；一个字段已确认不隐式补齐其他字段。lot表示来源“手”，每手多少股或基金份额由证券规则决定；消费端换算必须明确目标数量单位。以新profile修订单位时生成新的manifest/成功数据根及dataset_version，保留原根；API单位证据不能直接升级旧DAT布局或实时全推的单位资格。
 
 服务请求history.source-query的exchange/code/from/to/limit为显式闭区间，limit=1..2000；返回区间内最新至多limit根并升序。响应metadata/bars/coverage/missing_minutes/selection由[source_history](../../integrations/guanheng_market_client/source_history.py)校验。每bar是symbol=SSE.六位或SZSE.六位、minute=YYYYMMDDHHMM及OHLC/量额。该分钟标签不移位；coverage=Unknown与missing_minutes=[]不能解读为数据齐全。

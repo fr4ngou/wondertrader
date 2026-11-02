@@ -6,11 +6,15 @@
 
 现有QMI v1 canonical分钟、v2 source分钟合同保持。新增manifest schema_version=3，顶层精确schema_version/period/profile/securities，period仅1d；profile沿v2字段，minute_boundary固定unknown（日线采用交易日期，分钟边界不适用），原价none、未知单位明确unknown。输入七列CSV的timestamp必须交易日期零点+08:00；不借此声称当天00:00已知完整日线。每证券每天至多一行，排序/预算/身份/数值/原价格质量检查复用原实现。来源API返回与请求、原始日期及正文SHA另保留。
 
+来源日线的日期支持域由四位年CSV、八位YYYYMMDD公开JSON整数、Python公历及WTSBar.date的共同表示推出，为1000-01-01..9999-12-31；零点标签固定+08:00。DAT自身仍受uint32纪元秒表示约束，固定+08零点整日可表示范围为1970-01-02..2106-02-07。canonical与分钟的原导入日期范围及IANA真实时刻路径保持。
+
 仍由原_Native写并完整逐字段回读，原Helper period=d、WTSBar.date为交易日期、time为0，目录his/day/SSE|SZSE/code.dsb。sidecar format=3、period=1d、timestamp_semantics=source_date；成功收据schema3及period1d，其余沿RS源值收据。失败保留本次新根且无成功收据，旧根不覆盖。日线不由不完整分钟合成。
 
 ## DSH2 原生Reader与策略
 
 NativeHistory.read_source_store识别schema3/day/format3，沿同一收据/文件/sidecar摘要核验，原文件ABI期望类型23。SourceHistoryMetadata允许1d/source_date/unknown分钟边界，SourceHistoryBar的occurred_at保留该交易日期00:00+08；同时保持原分钟source_label与canonical读取15:00行为。返回source/单位/复权/质量及coverageUnknown，原日期不授market_available_at或历史时点可获知资格。
+
+source_date标签使用固定+08:00，1991夏令段也保持同一交易日期零点；IANA规则继续服务canonical及分钟的真实时刻，不参与来源交易日期标签解释。
 
 B读取9证券固定真实d1窗口可直接用此安装Reader；A后继提供同版公开SDK/HTTP，沿单一路径复用原读取。15:00闭合/知晓、单位标准化、完整日历与缺口须绑定独立来源事实后才能授相应策略运行资格；不可凭原DSB已存在提升。首算法可按纯核自身需要使用源数值，真实执行准入分别核实。
 

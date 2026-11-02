@@ -18,7 +18,7 @@ import re
 import stat
 import sys
 
-from .native_history import BAR_CALLBACK, COUNT_CALLBACK, LOG_CALLBACK, WTSBar
+from .native_history import BAR_CALLBACK, COUNT_CALLBACK, LOG_CALLBACK, WTSBar, source_date_label
 
 
 class ImportFailure(ValueError):
@@ -182,7 +182,9 @@ def _rows(data, profile, previous, remaining, *, period="1m"):
             stamp = datetime.fromisoformat(fields[0])
             if period == "1d" and (not source_values or stamp.hour or stamp.minute):
                 _fail("源日线必须使用交易日期零点标签")
-            if not 1992 <= stamp.year <= 2099:
+            if period == "1d":
+                stamp = source_date_label(stamp)
+            elif not 1992 <= stamp.year <= 2099:
                 _fail("历史日期超出支持范围")
             if not source_values and profile["minute_boundary"] == "left":
                 right = stamp + timedelta(minutes=1)

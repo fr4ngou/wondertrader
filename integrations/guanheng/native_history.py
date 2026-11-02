@@ -32,6 +32,18 @@ COUNT_CALLBACK = C.CFUNCTYPE(None, C.c_uint32)
 LOG_CALLBACK = C.CFUNCTYPE(None, C.c_char_p)
 
 
+def source_date_label(day: datetime):
+    """来源日线是八位YYYYMMDD日期标签，固定00:00+08:00，与IANA时刻分开。
+
+    CSV四位年、JSON八位日期整数和WTSBar.date共同可表示1000..9999年。
+    本标签不声明收盘/知晓时刻；canonical和分钟继续使用shanghai_time。
+    """
+    encoded = day.year * 10000 + day.month * 100 + day.day
+    if len(str(encoded)) != 8 or day.hour or day.minute or day.second or day.microsecond:
+        raise ValueError("来源日线必须为八位有效日期的零点标签")
+    return day.replace(tzinfo=timezone(timedelta(hours=8), "Asia/Shanghai"))
+
+
 def shanghai_time(day: datetime):
     # 1992 年起上海无夏令时；现代证券历史可由标准库明确表达 +08:00。
     # 更早历史必须具有 IANA 规则，避免在精简 Windows 包里静默改变历史时间。
@@ -445,9 +457,9 @@ class NativeHistory:
                         # source-date保留日期；canonical沿原15:00右端合同。
                         # 知晓/闭合时间由来源证据另外提供，不能从日期字段虚构。
                         if isinstance(metadata, SourceHistoryMetadata):
-                            if row.time != 0:
+                            if row.time != 0 or len(str(row.date)) != 8:
                                 raise ValueError("原生源日线日期布局不合格")
-                            stamp = day.replace(tzinfo=shanghai_time(day))
+                            stamp = source_date_label(day)
                         else:
                             stamp = day.replace(hour=15, tzinfo=shanghai_time(day))
                     else:

@@ -116,7 +116,8 @@ def validate_source_observation(value, request, selected_rows):
 
 def _date(value):
     """日线标签只表示交易日期，不推导知晓/闭合时刻。"""
-    _integer(value, 19920101, 20991231)
+    # 八位JSON整数的范围；实际上下界再由有效公历日期校验推出。
+    _integer(value, 10**7, 10**8-1)
     try:
         datetime.strptime(str(value), "%Y%m%d")
     except ValueError:

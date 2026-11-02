@@ -1,14 +1,29 @@
-# QMT 本地分钟 DAT 离线转换
+# QMT 本地分钟与日线 DAT 离线转换
 
-> 源码交付范围：本页标注的外部历史/待归仓路径用于追溯原记录，未随本次源码提交。其旧通过记录不授当前入口可复现资格；当前构建与运行以对应永久源码及正式安装手册为准。
+> 本页历史build路径用于追溯当时原件；旧通过记录按对应源码、依赖和数据身份复核。当前入口与独立闭包各自固定摘要，源码接收、离线可复现和生产接线分别验收。
 
 类型：操作手册。范围：本机已下载的 SH/SZ 分钟缓存导出与 WT 历史导入。状态：正常样本及来源价格范围异常的3证券完整转换/原生回读已通过；整批库存转换继续。
 
 ## 执行链与适用范围
 
-产品入口（外部历史/待归仓路径：`../../integrations/guanheng/qmt_local_dat.py`）在 QMT 外用 Python 标准库只读 DAT，输出 QMI v2 和 source 原值 CSV；`convert` 继续调用原 [Importer](../../integrations/guanheng/qmt_minute_import.py)、WT Helper，生成标准 DSB。命令无需启动 QMT 策略或 Host，不加载 QMT SDK、不访问网络、不修改原缓存。实时和在线读取继续使用既有共享内存链路。
+源码入口[qmt_local_dat.py](../../integrations/guanheng/qmt_local_dat.py)在 QMT 外用 Python 标准库只读 DAT，分钟输出 QMI v2、日线输出schema3及source原值CSV；`convert`继续调用原[Importer](../../integrations/guanheng/qmt_minute_import.py)、WT Helper生成DSB。命令无需启动QMT策略或Host，不加载QMT SDK、不访问网络、不修改原缓存。实时和在线读取继续使用既有共享内存链路。
 
 当前适配已验证的 `8 + 64 × 记录数` 布局，缓存位置为 `<cache-root>/SH/60/<代码>.DAT` 或 `SZ/60/<代码>.DAT`。目录扫描表示发现缓存文件，不能证明时间覆盖完整或所有代码均为股票；证券范围由显式清单或 `--all-cache` 选择。
+
+`--period 1d`显式选择SH/SZ的86400日线目录，输出schema3及his/day，日期固定00:00+08标签，历史夏令时保持同一标签。日线日期、量额语义与原分钟各按相应契约核实；旧日线计数异常保持原件和失败资格，分钟验证覆盖其原验证范围。
+
+export/convert支持`--from-date YYYY-MM-DD`和`--to-date YYYY-MM-DD`的来源标签日期闭区间；省略端点表示该方向不设边界。每份原DAT仍完整扫描和计算全文件SHA，export/convert收据包含selection、scanned_rows、selected_rows、excluded_rows。选中行沿原数值准入，无窗口完整导出继续拒绝负量；日期窗口按请求范围排除记录，不按证券或异常类别筛选。inspect保持轻量首尾库存语义，不接窗口参数。
+
+输出行预算沿--max-rows/--max-total-rows；窗口全原件扫描另受--max-scan-rows及原文件字节预算约束。完整模式默认扫描预算沿原总行数，窗口默认取原默认一千万行或调用者已显式提高的总量；需要扩大扫描时显式提供预算。失败根保留，重试选择新输出目录。
+
+以下为显式日期窗口示例；实际Helper及SHA取对应固定安装清单，输出根必须新建：
+
+```powershell
+python -B -m integrations.guanheng.qmt_local_dat convert `
+  --cache-root 'D:/software/guoxin/datadir' --symbols '000001.SH' --period 1d `
+  --from-date 2015-01-01 --to-date 2026-10-30 `
+  --output-root '<新的输出目录>' --helper '<固定WtDtHelper.dll>' --helper-sha256 '<64位SHA256>'
+```
 
 来源值和时间标签遵循 [source 历史合同](../specs/qmt-source-history.md)。未知价格、成交量、成交额单位及分钟边界保留 `unknown`，不擅自做 100 倍换算。输出保持 `value_semantics=source`、`coverage=unknown`，离线来源身份与在线会话分开记录。
 
