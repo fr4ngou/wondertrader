@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 import re
-from time import monotonic
+from time import monotonic, sleep
 from uuid import UUID
 
-from guanheng_market_client.runtime_status import read_status_snapshot
+from guanheng_market_client.runtime_status import CollectionStatusPending, read_status_snapshot
 
 _STATES = {
     'disabled': '未配置', 'new': '待启动', 'starting': '启动中', 'ready': '已就绪',
@@ -138,7 +138,18 @@ def read_runtime_snapshot(configuration, deadline):
     _require(configuration is not None)
     if monotonic() >= deadline:
         raise TimeoutError('WT状态读取超过本次时间')
-    snapshot = read_status_snapshot(configuration.path)
+    while True:
+        try:
+            snapshot = read_status_snapshot(configuration.path)
+            break
+        except CollectionStatusPending:
+            # 发布者替换状态文件时，Windows可能暂时占用文件名。SDK明确返回
+            # Pending后，消费者沿本次原总截止取得下一份完整快照；格式、身份
+            # 与其他I/O错误仍沿原失败路径，不能用旧值冒充本次成功。
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError('WT状态读取超过本次时间') from None
+            sleep(min(.01, remaining))
     if monotonic() >= deadline:
         raise TimeoutError('WT状态读取超过本次时间')
     value = snapshot.value
@@ -159,8 +170,8 @@ def read_runtime_snapshot(configuration, deadline):
 def observe_runtime(configuration, deadline):
     """原有界读池调用，单次SDK读取前后核同一monotonic秒截止。
 
-    Windows原子替换沿SDK共享删除协议；路径及控制身份由安装配置固定。
-    本函数没有停止、订阅或重试操作，也不推断进程/PID存活。
+    Windows原子替换沿SDK共享删除协议，短暂Pending由统一读取接缝在原D内接续；
+    路径及控制身份由安装配置固定。本函数只读，不推断进程/PID存活。
     """
     if configuration is None:
         return dict(state='unconfigured', reason='尚未配置独立WT状态读取',
