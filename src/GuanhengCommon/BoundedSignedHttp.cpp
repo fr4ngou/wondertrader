@@ -190,6 +190,23 @@ Status http_error(unsigned code)
     if (code >= 300 && code < 400) return failure(ErrorCode::IoError,"qmt_http_redirect_rejected");
     return failure(ErrorCode::IoError,"qmt_http_remote_failure");
 }
+// 仅复制已登记错误码到诊断；不复制账户、响应正文、凭据或远端错误消息。
+Status response_http_error(unsigned code,const std::string& body)
+{
+    auto status=http_error(code);
+    if(status.reason!="qmt_http_remote_failure")return status;
+    status.reason+=":"+std::to_string(code);
+    rapidjson::Document value;
+    if(body.size()<=65536&&parse_bounded_qmt_json(body,value,65536,1024)&&value.IsObject()){
+        if(value.HasMember("error_code")&&value["error_code"].IsString()){
+            const char* fixed[]={"queue_full","strategy_stale","journal_unavailable","source_unavailable","order_source_unavailable","read_retention_capacity_exhausted"};
+            for(const auto* text:fixed)if(std::strcmp(value["error_code"].GetString(),text)==0){status.reason+=":"+std::string(text);break;}
+        }else if(value.HasMember("schema_version")&&value["schema_version"].IsString()
+            &&std::strcmp(value["schema_version"].GetString(),"qmt.trade-host-status.v2")==0)
+            status.reason+=":trade_status_not_ready";
+    }
+    return status;
+}
 #ifdef _WIN32
 std::wstring wide(const std::string& value)
 {
@@ -387,7 +404,7 @@ void CALLBACK http_callback(HINTERNET, DWORD_PTR context, DWORD code, LPVOID inf
                 else
                 {
                     state->result.response_complete = true;
-                    state->finish(state->result.code == 200 || state->result.code == 202 ? Status{} : http_error(state->result.code));
+                    state->finish(state->result.code == 200 || state->result.code == 202 ? Status{} : response_http_error(state->result.code,state->result.body));
                 }
                 break;
             }

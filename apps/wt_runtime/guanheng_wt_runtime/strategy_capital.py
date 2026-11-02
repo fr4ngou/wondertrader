@@ -138,13 +138,14 @@ class AccountCashReader:
 
 
 def observe_capital(origin, pnl, market_value, observed_at, account, qualified, *, max_age_seconds=60,
-                    position_observed_at=None):
+                    position_observed_at=None, market_value_source='broker-position+raw-CTA-price'):
     """复用WT损益；现金余额=NAV−库存市值，账户冻结仅作保守现金约束。
 
     账户可用上限已经含券商冻结影响；以min合并，冻结现金只减一次。fee_reserve
     仍由NSQ对新增买入组核算。缺当前账户来源时可用值为unknown，不使用旧值交易。
     """
     origin = baseline(origin)
+    _require(market_value_source in ('broker-position+raw-CTA-price', 'broker-position+raw-QMT-snapshot'))
     nav = rational(origin['total_cny']) + pnl
     cash = nav - market_value
     spendable = None
@@ -159,7 +160,7 @@ def observe_capital(origin, pnl, market_value, observed_at, account, qualified, 
         observed_at=observed_at,  # 本次CTA回调估值截止；带时区ISO8601，不冒充账户批次的原时点。
         native_pnl_cny=_decimal(pnl),  # 新运行以来原WT flag0损益；含原WT费用，未迁入旧历史盈亏。
         position_observed_at=position_observed_at,  # 券商P原接收时点；带时区ISO8601，None表示调用方未提供。
-        market_value_source='broker-position+raw-CTA-price',  # 市值来源口径；实际券商数量乘原CTA未复权报价。
+        market_value_source=market_value_source,  # 市值来源；实际券商数量乘原CTA未复权报价，或首次原QMT快照，禁止历史收盘代替。
         nav_cny=_decimal(nav),  # 当前净值；原资本基准加原WT新运行损益，含当前库存价值。
         market_value_cny=_decimal(market_value),  # 当前实际库存市值；数量为股/份，报价为CNY/股或份。
         cash_balance_cny=_decimal(cash),  # 策略现金余额；净值减实际库存市值，允许负值，不取账户总现金。
@@ -173,3 +174,21 @@ def observe_capital(origin, pnl, market_value, observed_at, account, qualified, 
         account_source_sha256=None if account is None else account.source_sha256,  # 原NAP帧SHA256；无成功来源为None，失效保持来源身份。
         cash_constraint_scope='account-wide-conservative-limit',  # 账户级保守上限标识；没有按策略分摊账户冻结额。
         historical_return_pct=None)  # 迁入前历史收益率，单位%；固定None表示未知，不由新运行净值倒算。
+
+
+def refresh_account_constraint(value, reader, deadline):
+    """只续核账户现金约束；保留原WT损益、持仓/价格估值和全部原时点。
+
+    reader由同一执行发布owner的账户读取线程独占，沿原NAP身份/有效窗读取。
+    读取失败保留上次来源及时间、撤销可用资格；不刷新估值或将未知资金按0处理。
+    """
+    account,qualified = reader.read(datetime.now(timezone.utc),deadline)
+    if account is None and value['account_observed_at'] is not None:
+        account = AccountCash(value['account_available_cny'],value['account_frozen_cash_cny'],
+            value['account_observed_at'],value['account_source_sha256'])
+    if account is not None and value['account_observed_at'] is not None:
+        if datetime.fromisoformat(account.observed_at) < datetime.fromisoformat(value['account_observed_at']):
+            return value
+    return observe_capital(value['baseline'],rational(value['native_pnl_cny']),rational(value['market_value_cny']),
+        value['observed_at'],account,qualified,max_age_seconds=reader.max_age,
+        position_observed_at=value['position_observed_at'],market_value_source=value['market_value_source'])

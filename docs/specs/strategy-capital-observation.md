@@ -18,6 +18,8 @@ capital模式为guanheng.strategy-capital-observation.v1，货币CNY。nav_cny�
 
 首次初始化早于Parser启动且可能处于闭市时间。显式初始持仓装配将同一原MarketClient快照连接交给自有策略适配器；加载实际库存后，沿原WT损益、券商持仓和已声明有效期内的真实QMT快照发布首次资金。`market_value_source=broker-position+raw-QMT-snapshot`标识此路径，完整快照、来源时间及资格保留在同代运行观察；该路径不调用策略计算或目标setter。后续原K线计算继续使用`broker-position+raw-CTA-price`。两种来源均禁止用历史收盘替代当前快照。
 
+无新K线时，同一原执行进程每10秒沿原NAP身份和原账户有效期续核现金约束，并通过同一原子发布者更新账户来源、有效期及保守可用值。原WT损益、NAV、市值、余额、估值时间、持仓时间、价格来源和策略sequence保持最近一次实际观察；读取失败保留来源时点并取消可用资格。此线程不访问Native上下文、不调用策略核或setter；随执行进程停止并取得原ThreadOwner的join证明。
+
 App沿原发布核验基准和金额关系；运行已停止或原账户期限过期时取消当前可用现金资格，其他已发布金额和原时间保留。历史本金与historical_return_pct为空，本次运行资金不能生成旧历史收益。
 
 ## 验收与资格

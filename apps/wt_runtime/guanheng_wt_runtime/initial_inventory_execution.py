@@ -266,6 +266,9 @@ class InitialInventoryExecutionProcess(ManagedPythonExecutionProcess):
             parameters['capital_account'] = dict(path=str(account.control_root/'current.json'),
                 config_sha256=account.scan.configuration_sha256, account=account.scan.account,
                 environment=account.scan.environment)
+            # 首次只读估值沿同一已声明快照来源；旧持仓基准和交易计算触发保持原owner。
+            parameters['capital_market'] = dict(self.inventory.market,
+                max_age_seconds=self.inventory.max_age_seconds)
         if 'native-input.json' in files:
             native['takeover'] = dict(input_file=str(root/'native-input.json'), input_sha256=files['native-input.json'])
         effective = self._directory/'execution.json'

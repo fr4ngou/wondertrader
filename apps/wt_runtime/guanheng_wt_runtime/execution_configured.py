@@ -13,11 +13,13 @@ from pathlib import Path
 import sys
 import time
 from types import SimpleNamespace
+from threading import Event, RLock
 from zoneinfo import ZoneInfo
 
 from .execution_process import ExecutionProcessConfig, _PYTHON_PACKAGES, _python_bytes, _python_inventory, _python_packages
 from .execution_strategy import CtaRuntime, StrategyBinding, _need
 from .managed_local_process import _inspect, _json, _read
+from .thread_owner import ThreadOwner
 
 
 def _encode(value):
@@ -138,7 +140,7 @@ class RetainedStrategy:
         _need(type(native.get('strategies')) is list and len(native['strategies'])==1, 'retained_cycle_scope')
         parameters = item['parameters'].get('python_strategy')
         required = {'schema','input_file','input_sha256','main_symbol','evaluation_seconds','broker_max_age_seconds'}
-        _need(type(parameters) is dict and required <= set(parameters) <= required | {'market_window', 'capital_account'}
+        _need(type(parameters) is dict and required <= set(parameters) <= required | {'market_window', 'capital_account', 'capital_market'}
               and parameters['schema'] == 'guanheng.retained-cta.v1'
               and item['id'] == 'resonance-regime-v1', 'strategy_profile')
         executer = native.get('executer',{})
@@ -164,6 +166,7 @@ class RetainedStrategy:
         _need(self.input_sha == parameters['input_sha256'], 'strategy_input_identity')
         self.inputs = RetainedRuntimeInput.from_dict(_json(raw))
         self.capital_reader, self.capital_observation = None, None
+        self.capital_market = parameters.get('capital_market')
         if self.inputs.capital_baseline is not None:
             from .strategy_capital import AccountCashReader
             self.capital_reader = AccountCashReader(parameters['capital_account'], self.max_age)
@@ -326,8 +329,66 @@ class RetainedStrategy:
         if self.recovery != 'resume_clean':
             context.store_quantity_state(self._state_payload(None,0,self.cycles,self.exits))
         self.initialized = True
+        if self.inputs.capital_baseline is not None and self.capital_market is not None:
+            self._publish_initial_capital(context, broker)
         print('CTA retained strategy initialized',flush=True)
         print('CTA retained strategy initialized',file=sys.stderr,flush=True)
+
+    def _publish_initial_capital(self, context, broker):
+        """初始化后发布只读资金；原WT损益、券商P和明确当前快照各保留原来源。
+
+        原CTA初始化早于行情Parser启动，当前价格尚未进入CTA缓存。首次估值使用
+        已声明的原MarketClient快照，不触发策略计算、目标setter或金融命令。
+        后续原K线回调继续以原CTA价格和同一资本基准更新。
+        """
+        from guanheng_market_client import MarketClient
+        from .strategy_capital import observe_capital
+        market = self.capital_market
+        _need(type(market) is dict and set(market) == {
+            'base_url','token_env','timeout_seconds','max_response_bytes','max_age_seconds'}, 'capital_market')
+        _need(type(market['max_age_seconds']) in (int,float) and 0 < market['max_age_seconds'] <= 3600,
+              'capital_market_age')
+        deadline = time.monotonic()+self.seconds
+        quantities = self._broker_rows(broker)
+        codes = [code for symbol,code in self.mapping.items() if quantities.get(code,(0,0))[0]]
+        value, response = Fraction(0), None
+        if codes:
+            client = MarketClient(market['base_url'],os.environ[market['token_env']],
+                timeout=min(market['timeout_seconds'],deadline-time.monotonic()),
+                max_response_bytes=market['max_response_bytes'])
+            response = client.quotes_query(['.'.join(code.split('.')[::2]) for code in sorted(codes)])
+            _need(response['status']['code'] == 'Ok' and response['data']['metadata']['qualification']
+                  in ('NativeVerified','ProductionQualified'), 'capital_market_source')
+            observed = {}
+            now = datetime.now(timezone.utc)
+            for row in response['data']['snapshots']:
+                exchange,code = row['symbol'].split('.')
+                key = exchange+'.ETF.'+code
+                stamp = datetime.strptime(str(row['date'])+f"{row['action_time']//1000:06d}",'%Y%m%d%H%M%S')
+                stamp = stamp.replace(tzinfo=ZoneInfo('Asia/Shanghai'),microsecond=row['action_time']%1000*1000)
+                price = row['price']
+                _need(key in codes and key not in observed and row['source_time_verified'] is True
+                    and stamp <= now < stamp+timedelta(seconds=market['max_age_seconds'])
+                    and type(price) in (int,float) and math.isfinite(price) and price > 0,'capital_market_snapshot')
+                observed[key] = price
+            _need(set(observed) == set(codes),'capital_market_complete')
+            value = sum((Fraction(repr(observed[code]))*quantities[code][0] for code in codes),Fraction(0))
+        cutoff = datetime.now(timezone.utc)
+        funds = context.facts();_need(math.isfinite(funds.fund_pnl),'native_funds')
+        account,qualified = self.capital_reader.read(cutoff,deadline)
+        self.capital_observation = observe_capital(self.inputs.capital_baseline,Fraction(repr(funds.fund_pnl)),
+            value,cutoff.isoformat(),account,qualified,max_age_seconds=self.max_age,
+            position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat(),
+            market_value_source='broker-position+raw-QMT-snapshot')
+        self.sequence += 1
+        candidate = dict(status='waiting_market_input',reason='awaiting_first_strategy_calculation',sequence=self.sequence,
+            broker_observation=asdict(broker),broker_position_qualified=False,recovery_mode=self.recovery,
+            restored_state_id=self.restored_state_id,restored_sequence=self.restored_sequence,
+            cycle_metadata=dict(self.cycles),capital_baseline=self.inputs.capital_baseline,
+            capital=self.capital_observation,initial_market_observation=response)
+        self.publish(self.id,candidate,preview=True,deadline=deadline)
+        context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
+        self.publish(self.id,candidate,deadline=deadline)
 
     def _flat_source(self,symbol,broker,trades):
         if trades is None or not trades.known or trades.submission_revision is None:return None
@@ -574,9 +635,16 @@ def main():
     config = ExecutionProcessConfig.load(args.installation, args.config, args.control.parent)
     _need(config.configuration_sha256 == args.config_sha256, 'configuration_identity')
     native = _json(_read(args.config, 256 * 1024, clock=time.monotonic, deadline=args.deadline))
-    reports = {}
+    reports, publication_lock = {}, RLock()
 
     def publish(strategy_id, value, *, preview=False, deadline):
+        _need(publication_lock.acquire(timeout=max(0,deadline-time.monotonic())), 'publication_deadline')
+        try:
+            return publish_locked(strategy_id,value,preview=preview,deadline=deadline)
+        finally:
+            publication_lock.release()
+
+    def publish_locked(strategy_id, value, *, preview=False, deadline):
         def check():
             _need(time.monotonic() < deadline, 'evaluation_deadline')
         check()
@@ -607,7 +675,47 @@ def main():
             _need(str(path) in identities and hashlib.sha256(_python_bytes(path, deadline=args.deadline)).hexdigest()
                   == identities[str(path)], 'imported_module_identity')
     runtime = CtaRuntime(config, tuple(s.binding() for s in strategies), deadline=args.deadline)
-    result = runtime.run(args.control, args.control_id)
+    # 同一原执行进程持有账户约束线程；线程只读NAP及发布值，从不借用Native上下文。
+    # K线回调和账户更新共享唯一原子发布者，估值时间与策略sequence保持原值。
+    refresh_stop = Event()
+    from .strategy_capital import AccountCashReader, refresh_account_constraint
+    readers = {s.id:AccountCashReader(s.capital_reader.binding,s.max_age)
+               for s in strategies if s.capital_reader is not None}
+    def refresh_accounts():
+        try:
+            while not refresh_stop.wait(10):
+                deadline = time.monotonic()+2
+                if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
+                    continue
+                try:
+                    for strategy_id,reader in readers.items():
+                        report = reports.get(strategy_id)
+                        capital = None if report is None else report.get('capital')
+                        if capital is None:
+                            continue
+                        updated = refresh_account_constraint(capital,reader,deadline)
+                        if updated != capital:
+                            publish_locked(strategy_id,dict(report,capital=updated),deadline=deadline)
+                finally:
+                    publication_lock.release()
+        except Exception as error:
+            # 账户约束更新局部故障保留原资金/时点；原过期规则会撤销可用资格。
+            with (args.control/'capital-refresh-failure.json').open('x',encoding='ascii') as stream:
+                json.dump(dict(exception_type=type(error).__name__),stream)
+    refresher = ThreadOwner(target=refresh_accounts,name='capital-account-constraint') if readers else None
+    try:
+        if refresher is not None:
+            refresher.start()
+        result = runtime.run(args.control, args.control_id)
+    finally:
+        refresh_stop.set()
+        if refresher is not None:
+            joined = refresher.join_until(time.monotonic()+3)
+            with (args.control/'capital-refresh-closed.json').open('x',encoding='ascii') as stream:
+                json.dump(dict(
+                    joined=joined,  # 原ThreadOwner已取得标准线程退出/join证明；False表示关闭未确认。
+                    pending=refresher.pending),stream)  # 账户读取线程仍有生命周期责任；布尔值，由原owner提供。
+            _need(joined,'capital_refresh_close_unconfirmed')
     if runtime._last_error is not None:
         # 私有有限诊断只记类型/调用位置；账户、变量内容和异常正文保持在原owner内。
         import traceback
