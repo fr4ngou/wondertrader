@@ -131,6 +131,14 @@ class AccountObservationProcess:
             stream.write(raw)
             stream.flush()
         replace_status(temporary, self._directory / 'observation.json')
+        # 固定定位只发布当前owner引用；金融正文和各批原时间仍归原observation文件。
+        reference = dict(schema='guanheng.account-observation-reference.v1', control_id=self._control_id,
+            config_sha256=scan.configuration_sha256, pid=os.getpid(), path=str(self._directory/'observation.json'),
+            ready_path=str(self._directory/'ready.json'))
+        pointer = self.config.control_root / ('.current.'+str(uuid4()))
+        with pointer.open('xb') as stream:
+            stream.write(json.dumps(reference, separators=(',', ':')).encode('utf8')); stream.flush()
+        replace_status(pointer, self.config.control_root/'current.json')
         with self._condition:
             self._observation_state = state
 

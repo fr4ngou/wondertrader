@@ -31,3 +31,9 @@ UTC与同进程系统uptime有效窗均需覆盖准备时点，最长一小时�
 每代实际原生配置写在原控制目录，指向这一份固定输入，再由原P23重新核当次实际数量、活动订单和未知责任后加载原WT文件。BASELINE.json只证明原输入已准备，不证明原生启动或正常停止。来源不完整、无有效标价、已有不完整准备根或原责任不允许时沿当前阶段失败，原件保留。
 
 后续resume_clean使用相同state_root、模板和来源配置，核原准备文件摘要后只读复用原基准；原Native仍取得本代账户查询并按原clean准入。改成record_clean不会覆盖原准备根。省略initial_inventory对象时，原手动准备/空仓执行工厂保持其原入口。自动启动、非空库存主链和恢复资格正在后继验证，准备CLI的封存资格保持原范围。
+
+## 当前总资本包含库存
+
+按[NRT-R34](../specs/native-realtime-strategy.md#nrt-r34-显式当前策略总资本与只读资金接线)，本次用户指定的当前总资本为100万元。在initial_inventory内显式设置`capital: {"total_cny":"1000000","source":"user-confirmed-current-total:2026-11-02"}`；同时配置原account_observation组件并使用相同Scan配置及control_root。原观察owner发布固定current.json引用，重启正常换代，策略只读原账户冻结和可用资金。
+
+该金额包含现有库存。prepare生成的QuantityPolicy使用此运行起点，capital_baseline单独标记当前总资本、启用时间和声明来源；旧历史本金为null。策略NAV沿当前基线加原WT损益，余额减库存市值，可用再受原账户冻结现金及可用资金限制。账户总资产不分配给策略；正常恢复只读复用该基准。缺当前账户冻结来源保持等待并保留原时间，禁止用文件mtime、读取时间或未知字段0冒充新的账户现值。观衡只读消费原capital发布，不加载私有配置或运行owner。

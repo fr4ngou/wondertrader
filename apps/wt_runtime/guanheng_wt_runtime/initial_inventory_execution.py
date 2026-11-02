@@ -31,11 +31,13 @@ class InitialInventoryStartupConfig:
     market: object
     max_age_seconds: float
     identity: str
+    capital: object = None
 
     @classmethod
     def from_dict(cls, value):
-        _require(type(value) is dict and set(value) == {
+        _require(type(value) is dict and {
             'schema', 'state_root', 'account_observation', 'market', 'max_age_seconds'}
+            <= set(value) <= {'schema', 'state_root', 'account_observation', 'market', 'max_age_seconds', 'capital'}
             and value['schema'] == 'guanheng.initial-inventory-start.v1')
         source, market = value['account_observation'], value['market']
         _require(type(source) is dict and set(source) == {'descriptor', 'sha256'}
@@ -49,7 +51,10 @@ class InitialInventoryStartupConfig:
         MarketClient(market['base_url'], 'configuration-only', timeout=market['timeout_seconds'],
                      max_response_bytes=market['max_response_bytes'])
         age = _duration(value['max_age_seconds'], 3600)
-        return cls(state_root, account, MappingProxyType(dict(market)), age, sha256(_encode(value)).hexdigest())
+        from .strategy_capital import current_capital
+        capital = None if 'capital' not in value else current_capital(value['capital'])
+        return cls(state_root, account, MappingProxyType(dict(market)), age, sha256(_encode(value)).hexdigest(),
+                   None if capital is None else MappingProxyType(capital))
 
 
 class _PreparationStopped(Exception):
@@ -237,7 +242,8 @@ class InitialInventoryExecutionProcess(ManagedPythonExecutionProcess):
             template_raw = _read(_path(parameters['input_file']), 16*1024*1024, clock=self._clock, deadline=deadline)
             _require(sha256(template_raw).hexdigest() == _sha(parameters['input_sha256']))
             facts, now, uptime = self._current_facts(native, deadline)
-            prepared = prepare_initial_inventory(RetainedRuntimeInput.from_dict(_json(template_raw)), facts, now=now, uptime_ms=uptime)
+            prepared = prepare_initial_inventory(RetainedRuntimeInput.from_dict(_json(template_raw)), facts,
+                now=now, uptime_ms=uptime, capital=None if self.inventory.capital is None else dict(self.inventory.capital))
             value = RetainedRuntimeInput.from_dict(_json(prepared.runtime_input))
             self._inventory_check(deadline)
             evaluate_retained(value.request, value.policy, budget=EvaluationBudget(max_seconds=min(5, deadline-self._clock())))
@@ -255,6 +261,11 @@ class InitialInventoryExecutionProcess(ManagedPythonExecutionProcess):
         self._inventory_check(deadline)
         parameters = native['strategies'][0]['parameters']['python_strategy']
         parameters.update(input_file=str(root/'runtime-input.json'), input_sha256=files['runtime-input.json'])
+        if self.inventory.capital is not None:
+            account = self.inventory.account
+            parameters['capital_account'] = dict(path=str(account.control_root/'current.json'),
+                config_sha256=account.scan.configuration_sha256, account=account.scan.account,
+                environment=account.scan.environment)
         if 'native-input.json' in files:
             native['takeover'] = dict(input_file=str(root/'native-input.json'), input_sha256=files['native-input.json'])
         effective = self._directory/'execution.json'

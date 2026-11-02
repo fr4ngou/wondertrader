@@ -137,13 +137,21 @@ class Runtime:
         self._attempted, self._state, self._error = False, 'new', None
         self._stop_deadline = None
         # 工厂构造仅验证配置。全部成功后才允许任何start，避免缺执行模块时先启动半套服务。
-        owners = []
+        owners, capital_accounts, observation = [], [], None
         for name, component in config.components:
             owner = factory(component)
+            if name == 'account_observation':
+                observation = getattr(owner, 'config', None)
+            inventory = getattr(owner, 'inventory', None)
+            if inventory is not None and inventory.capital is not None:
+                capital_accounts.append(inventory.account)
             if component.wait_for_source:
                 from .execution_source_wait import SourceWaitingExecution, TradeSourceProbe
                 owner = SourceWaitingExecution(owner, TradeSourceProbe(component.descriptor, component.sha256))
             owners.append((name, owner))
+        for account in capital_accounts:
+            _require(observation is not None and observation.control_root == account.control_root
+                     and observation.scan.configuration_sha256 == account.scan.configuration_sha256)
         self._owners = tuple(owners)
 
     def status(self):

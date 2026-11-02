@@ -44,7 +44,7 @@ class InitialInventoryPreparation:
     position_count: int
 
 
-def prepare_initial_inventory(template, facts, *, now, uptime_ms):
+def prepare_initial_inventory(template, facts, *, now, uptime_ms, capital=None):
     """纯值装配，保留原价/分析/参数/数量policy；所有旧周期与退出初值归零。
 
     facts由当前券商/标价owner冻结并绑定来源摘要；捕获/有效期不宣称四查询
@@ -110,7 +110,14 @@ def prepare_initial_inventory(template, facts, *, now, uptime_ms):
             opened_local_minute=opening, cycle_source_sha256=source))
     request = replace(template.request, cycles=tuple(cycles), previous_exits=(),
         cycles_captured_at=now, cycles_valid_until=until, decision_cutoff=now)
-    runtime = replace(template, request=request)
+    policy, origin = template.policy, template.capital_baseline
+    if capital is not None:
+        from .strategy_capital import current_capital
+        declared = current_capital(capital)
+        policy = replace(policy, initial_capital_cny=declared['total_cny'], capital_source=declared['source'])
+        origin = dict(schema='guanheng.current-capital-baseline.v1', **declared,
+                      baseline_at=now.isoformat(), historical_initial_capital_cny=None)
+    runtime = replace(template, request=request, policy=policy, capital_baseline=origin)
     raw = canonical_bytes(runtime, max_bytes=16*1024*1024)
     native = None
     if rows:

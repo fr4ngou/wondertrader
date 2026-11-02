@@ -98,17 +98,22 @@ class RetainedRuntimeInput:
     fee_source: str | None
     market_manifest_source: str
     schema: str = 'guanheng.retained-cta-input.v1'
+    capital_baseline: dict | None = None
 
     @classmethod
     def from_dict(cls, value):
         from guanheng_strategy_v1 import RetainedInput
         from guanheng_strategy_native import Basis, Price, QuantityPolicy
-        _need(type(value) is dict and set(value) == set(cls.__dataclass_fields__)
+        _need(type(value) is dict and set(cls.__dataclass_fields__)-{'capital_baseline'} <= set(value)
+              <= set(cls.__dataclass_fields__)
               and value['schema'] == 'guanheng.retained-cta-input.v1', 'retained_input')
         data = dict(value)
         data['request'] = RetainedInput.from_dict(data['request'])
         _need(type(data['policy']) is dict, 'retained_policy')
         data['policy'] = QuantityPolicy(**data['policy'])
+        if data.get('capital_baseline') is not None:
+            from .strategy_capital import baseline
+            data['capital_baseline'] = baseline(data['capital_baseline'], data['policy'])
         source = data['market_manifest_source']
         _need(type(source) is str and 1 <= len(source) <= 256
               and all(32 <= ord(c) <= 126 for c in source), 'market_source')
@@ -133,7 +138,7 @@ class RetainedStrategy:
         _need(type(native.get('strategies')) is list and len(native['strategies'])==1, 'retained_cycle_scope')
         parameters = item['parameters'].get('python_strategy')
         required = {'schema','input_file','input_sha256','main_symbol','evaluation_seconds','broker_max_age_seconds'}
-        _need(type(parameters) is dict and required <= set(parameters) <= required | {'market_window'}
+        _need(type(parameters) is dict and required <= set(parameters) <= required | {'market_window', 'capital_account'}
               and parameters['schema'] == 'guanheng.retained-cta.v1'
               and item['id'] == 'resonance-regime-v1', 'strategy_profile')
         executer = native.get('executer',{})
@@ -158,6 +163,10 @@ class RetainedStrategy:
         self.input_sha = hashlib.sha256(raw).hexdigest()
         _need(self.input_sha == parameters['input_sha256'], 'strategy_input_identity')
         self.inputs = RetainedRuntimeInput.from_dict(_json(raw))
+        self.capital_reader, self.capital_observation = None, None
+        if self.inputs.capital_baseline is not None:
+            from .strategy_capital import AccountCashReader
+            self.capital_reader = AccountCashReader(parameters['capital_account'], self.max_age)
         from .execution_market_window import MarketWindowFile
         self.market_window = MarketWindowFile.from_dict(parameters['market_window']) if 'market_window' in parameters else None
         self.recovery = configuration.recovery_mode
@@ -352,7 +361,7 @@ class RetainedStrategy:
                     opened_at=opened.isoformat(),
                     source_sha256=_digest(('guanheng.actual-opening-source.v1',source,asdict(row))))
 
-    def _capture(self, context, prices, cutoff, result_sha, *, price_source=None):
+    def _capture(self, context, prices, cutoff, result_sha, *, price_source=None, deadline=float('inf'), broker=None):
         from guanheng_strategy_native import Basis, NativePosition, Observation, Price
         from .execution_facts import _decimal
         raw, positions = [], []
@@ -372,10 +381,25 @@ class RetainedStrategy:
         identity = _digest((self.id,self.sequence,raw,prices,asdict(facts)))
         nav = Fraction(self.inputs.policy.initial_capital_cny)+Fraction(repr(facts.fund_pnl))
         cash = nav-sum((p.actual*Fraction(repr(prices[p.symbol])) for p in positions),Fraction(0))
+        verified = True
+        nav_source, cash_source = 'original-CTA:explicit-genesis+flag0', 'original-CTA:NAV-minus-complete-theoretical-holdings'
+        if self.inputs.capital_baseline is not None:
+            from .strategy_capital import observe_capital
+            _need(broker is not None and broker.positions_known and broker.position_received_ms is not None, 'capital_positions')
+            quantities = self._broker_rows(broker)
+            actual_value = sum((Fraction(repr(prices[s]))*quantities.get(self.mapping[s],(0,0))[0]
+                                for s in self.execution), Fraction(0))
+            account, qualified = self.capital_reader.read(datetime.now(timezone.utc), deadline)
+            self.capital_observation = observe_capital(self.inputs.capital_baseline, Fraction(repr(facts.fund_pnl)),
+                actual_value, cutoff.isoformat(), account, qualified, max_age_seconds=self.max_age,
+                position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat())
+            spendable = self.capital_observation['spendable_cash_cny']
+            cash, verified = Fraction(spendable or '0'), spendable is not None
+            nav_source, cash_source = 'current-capital:explicit-baseline+WT-flag0', 'broker-P:raw-mark+NAP-cash-constraint'
+            identity = _digest((identity,self.capital_observation,asdict(broker)))
         basis = Basis(cutoff.isoformat(),result_sha,_decimal(nav),repr(facts.fund_pnl),_decimal(cash),
-                      self.inputs.fee_reserve_cny,'original-CTA:explicit-genesis+flag0',
-                      'original-CTA:NAV-minus-complete-theoretical-holdings',self.inputs.fee_source,
-                      tuple(Price(s,repr(prices[s]),price_source or self.inputs.market_manifest_source) for s in self.execution),True,identity)
+                      self.inputs.fee_reserve_cny,nav_source,cash_source,self.inputs.fee_source,
+                      tuple(Price(s,repr(prices[s]),price_source or self.inputs.market_manifest_source) for s in self.execution),verified,identity)
         observed = Observation(cutoff.isoformat(),'original-CTA:cash-long-theoretical',tuple(positions),True,identity)
         return facts,raw,basis,observed
 
@@ -442,6 +466,11 @@ class RetainedStrategy:
                          restored_state_id=self.restored_state_id,restored_sequence=self.restored_sequence)
         candidate['broker_trades']=None if trades is None else asdict(trades)
         candidate['cycle_metadata']=dict(metadata)
+        if self.inputs.capital_baseline is not None:
+            candidate['capital_baseline'] = self.inputs.capital_baseline
+            if self.capital_observation is not None:
+                candidate['capital'] = dict(self.capital_observation,
+                    account_observation_qualified=False, spendable_cash_cny=None)
         state, exits, vector = self.state,self.exits,()
         if status is None:
             request = replace(self.inputs.request,cycles=tuple(cycles),cycles_captured_at=received,
@@ -478,10 +507,18 @@ class RetainedStrategy:
             prices = {s:context.price(self.mapping[s]) for s in self.execution}
             _need(all(type(p) in (int,float) and math.isfinite(p) and p > 0 for p in prices.values()), 'native_price')
             price_source = None if self.market_window is None else 'original-CTA:quote;window:'+candidate['market_window']['publication_sha256']
-            facts,raw,basis,observed = self._capture(context,prices,cutoff,result['input_sha256'],price_source=price_source)
+            facts,raw,basis,observed = self._capture(context,prices,cutoff,result['input_sha256'],price_source=price_source,deadline=deadline,broker=broker)
+            if self.capital_observation is not None:
+                candidate['capital'] = self.capital_observation
             basis,observed,execution = self._execution_capture(broker,basis,observed)
-            outcome, previous_status = advance_retained(decision.target,self.inputs.policy,execution,basis,state)
-            state = outcome.state;exits = self._exit_values(result['next_exits'])
+            if self.inputs.capital_baseline is not None and not basis.native_nav_verified:
+                # 当前现金约束缺失属于来源等待。原NSQ只接受已核basis；保留
+                # 上一阶段与未决责任，下一轮取得新来源后再交原核推进。
+                from guanheng_strategy_native import Outcome
+                outcome, previous_status = Outcome('waiting_basis','account_cash_unavailable',state), None
+            else:
+                outcome, previous_status = advance_retained(decision.target,self.inputs.policy,execution,basis,state)
+                state = outcome.state;exits = self._exit_values(result['next_exits'])
             vector = tuple((self.mapping[t.symbol],t.shares) for t in outcome.submit_targets)
             candidate.update(status=outcome.status,reason=outcome.reason,core_result=result,outcome=asdict(outcome),
                              quantity_basis=asdict(basis),native_observation=asdict(observed),raw_positions=raw,
