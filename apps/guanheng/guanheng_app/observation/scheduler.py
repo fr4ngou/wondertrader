@@ -14,7 +14,7 @@ def tick(reader,config,now,*,deadline,cancelled=None,fetcher_factory=None,market
     results=[]
     for key,_when in due_windows(now,config['schedule']):
         if monotonic()>=deadline or cancelled is not None and cancelled():break
-        arguments=dict(as_of=window_as_of(key,now),deadline=deadline,window_key=key,now=now,
+        arguments=dict(as_of=window_as_of(key,now,config['schedule'],config['models']),deadline=deadline,window_key=key,now=now,
             cancelled=cancelled,market_client_factory=market_client_factory)
         if fetcher_factory is not None:arguments['fetcher_factory']=fetcher_factory
         try:result=refresh(reader,config,**arguments)

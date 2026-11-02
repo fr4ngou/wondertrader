@@ -31,7 +31,16 @@ class BaostockClient:
             self._message('00','login',['anonymous','123456','0']);self.logged_in=True
             return self
         except (OSError,TimeoutError):
-            self.close();self.budget.remaining();raise SourceFailure('pb_transport_unavailable') from None
+            self.close()
+            error=SourceFailure('pb_transport_unavailable',diagnostic=dict(
+                provider='baostock',  # 固定公开供应商标识，供PB和高管来源共同诊断。
+                stage='connect',  # TCP/DNS连接阶段；此时尚无协议请求类型。
+                received_bytes=0))  # 本连接尚未收到协议回包，单位为字节。
+            try:self.budget.remaining()
+            except SourceFailure as budget_error:
+                # 总预算/停止仍拥有错误分类；连接阶段事实随该错误保留。
+                budget_error.diagnostic=error.diagnostic;raise
+            raise error from None
         except BaseException:
             self.close();raise
 
@@ -52,9 +61,9 @@ class BaostockClient:
         body=split.join([method,*arguments]);head=split.join([self.constants.BAOSTOCK_CLIENT_VERSION,request_type,str(len(body)).zfill(10)])
         message=(head+body).encode('utf8');wire=message+split.encode()+str(zlib.crc32(message)).encode()+b'\n'
         if len(wire)>65536:raise SourceFailure('pb_request_bytes')
+        received=bytearray()
         try:
             self.socket.settimeout(remaining());self.socket.sendall(wire)
-            received=bytearray()
             while not received.endswith(TRAILER):
                 self.socket.settimeout(remaining())
                 chunk=self.socket.recv(min(65536,self.budget.response_bytes-len(received)+1))
@@ -63,7 +72,12 @@ class BaostockClient:
                 if len(received)+len(chunk)>self.budget.response_bytes:raise SourceFailure('response_budget_exceeded')
                 received.extend(chunk)
         except (OSError,TimeoutError):
-            remaining();raise SourceFailure('pb_transport_unavailable') from None
+            try:remaining()
+            except SourceFailure as exc:
+                self._diagnose(exc,request_type,len(received));raise
+            exc=SourceFailure('pb_transport_unavailable');self._diagnose(exc,request_type,len(received));raise exc from None
+        except SourceFailure as exc:
+            self._diagnose(exc,request_type,len(received));raise
         remaining()
         raw=bytes(received);identity=self.fetch.objects.put(raw)
         self.fetch.records.append(dict(sha256=identity,source_host='baostock',kind='provider_wire',status=200,
@@ -95,6 +109,15 @@ class BaostockClient:
         if len(parts)<4 or parts[0]!='0' or parts[2]!=method or parts[3]!='anonymous':
             raise SourceFailure('pb_provider_response')
         return parts
+
+    @staticmethod
+    def _diagnose(error,request_type,received_bytes):
+        """首份回包失败与后续表查询失败分别标识；有限原字节仍沿原归档。"""
+        error.diagnostic=dict(
+            provider='baostock',  # 固定公开供应商标识，与具体业务source_id分别记录。
+            stage='login_response' if request_type=='00' else 'table_response',  # 当前登录或后续协议回包阶段。
+            request_type=request_type,  # 官方SDK两位协议请求码；00为登录，45为股票表。
+            received_bytes=received_bytes)  # 当前请求已接收的原始字节数；0表示首字节尚未取得。
 
     def table(self,kind,start=None,end=None):
         settings={'stock_basic':('45','query_stock_basic',('code','type','ipoDate','outDate')),

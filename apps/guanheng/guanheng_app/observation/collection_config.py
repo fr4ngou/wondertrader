@@ -13,7 +13,7 @@ KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmon
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
-    'input_manifest','input_sha256','input_directory','bse_verify_disclosures'}
+    'input_manifest','input_sha256','input_directory','bse_verify_disclosures','date_policy'}
 
 
 def _need(value):
@@ -92,8 +92,11 @@ def validate_configuration(value):
         and not h.replace('.','').isdigit() for h in hosts))
     schedule=value['schedule']
     _need(type(schedule) is dict and {'timezone','times','poll_seconds'}<=set(schedule)
-        and set(schedule)<={'timezone','times','poll_seconds','start_date'})
-    _need(schedule['timezone']=='Asia/Shanghai' and schedule['times']==['09:00'])
+        and set(schedule)<={'timezone','times','poll_seconds','start_date','date_policy'})
+    from .schedule_policy import valid_schedule_times
+    _need(schedule['timezone']=='Asia/Shanghai' and valid_schedule_times(schedule['times']))
+    _need('date_policy' not in schedule or schedule['date_policy']=='source-aware-v1')
+    _need(len(schedule['times'])==1 or schedule.get('date_policy')=='source-aware-v1')
     _need(type(schedule['poll_seconds']) in (int,float) and 1<=schedule['poll_seconds']<=60)
     if 'start_date' in schedule:
         _need(date.fromisoformat(schedule['start_date']).isoformat()==schedule['start_date'])
@@ -109,6 +112,11 @@ def validate_configuration(value):
     for source in value['sources']:
         _need(type(source) is dict and {'id','kind'}<=set(source) and not set(source)-SOURCE_FIELDS
             and type(source['kind']) is str and source['kind'] in KINDS)
+        if schedule.get('date_policy')=='source-aware-v1':
+            _need(source.get('date_policy') in ('calendar-day','cn-closed-day','hk-closed-day'))
+            markets=('cn','hk') if source['date_policy']=='hk-closed-day' else ('cn',)
+            _need(all(value['models'].get('calendars',{}).get(market,{}).get('kind')=='official-exchange-calendar/v1' for market in markets))
+        else:_need('date_policy' not in source)
         identity=source['id'];_need(type(identity) is str and re.fullmatch('[a-zA-Z0-9_.-]{1,100}',identity) and identity not in identities)
         identities.add(identity)
         for key in ('url','referer'):

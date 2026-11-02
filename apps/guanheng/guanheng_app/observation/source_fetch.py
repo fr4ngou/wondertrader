@@ -9,8 +9,9 @@ from urllib.parse import urlsplit
 
 class SourceFailure(Exception):
     """固定错误码；公开回执不包含供应商原文、URL或部署配置。"""
-    def __init__(self, code):
+    def __init__(self, code, *, diagnostic=None):
         self.code = code
+        self.diagnostic = diagnostic  # 来源适配器提供的固定阶段与计数；不携带原文、凭据或私有连接。
         super().__init__(code)
 
 

@@ -12,17 +12,24 @@ from time import monotonic
 MAX_DECODE_BYTES = 256 * 1024 * 1024
 
 
-def validate_stock_partitions(objects,index,assets,deadline=None):
+def _validation_version(key,part):
+    """回执中的PB领域校验范围；当前索引和历史版本均按内容身份登记。"""
+    return dict(dataset_id=key,  # 股票分区业务ID，固定包含市场及年份。
+        sha256=part['sha256'],  # 该历史/当前不可变Parquet版本的完整内容摘要。
+        rows=part['rows'])  # 此版本已完整核验的行数，单位为股票日记录。
+
+
+def validate_stock_partitions(objects,index,assets,deadline=None,*,validated_assets=None):
     """Stream the registered stock-string Parquet contract before head publication."""
     from .contracts import ObservationError
     import pyarrow as pa
     import pyarrow.compute as pc
     import pyarrow.parquet as pq
     required=['date','code','pbMRQ','tradestatus','parent_sha256']
-    total=0
+    total=0;reusable=set();changed=set();reused=[];validated=[]
     try:
         registered={}
-        for asset in assets.values():
+        for asset_id,asset in assets.items():
             if asset.get('group')!='standard.stock-pb':continue
             key=asset['dataset_id'];identity_match=re.fullmatch(r'stock-pb\.(sh|sz)\.(\d{4})',key)
             if not identity_match or asset['market']!=identity_match.group(1) or asset['media_type']!='application/vnd.apache.parquet' or asset['dataset_version']!=asset['sha256']:
@@ -34,6 +41,10 @@ def validate_stock_partitions(objects,index,assets,deadline=None):
             if identity in registered and registered[identity]!=part:
                 raise ValueError('registered stock asset declarations conflict')
             registered[identity]=part
+            # 仅发布层提供同根已验前代；任一登记字段变化都重新读验完整分区。
+            if validated_assets is not None and validated_assets.get(asset_id)==asset:reusable.add(identity)
+            else:changed.add(identity)
+        reusable-=changed
         if index is None:
             if registered:raise ValueError('registered stock assets require their current index')
             return dict(stock_partitions=0,stock_rows=0)
@@ -57,6 +68,9 @@ def validate_stock_partitions(objects,index,assets,deadline=None):
             market,year=part['market'],part['year']
             if market not in ('sh','sz') or key!='stock-pb.'+market+'.'+str(year) or part.get('format')!='parquet':
                 raise ValueError('partition identity mismatch')
+            identity=(key,part['sha256'])
+            if identity in reusable:
+                reused.append(_validation_version(key,part));continue
             # Preserve dictionary encoding: repeated long provider strings must not expand per row.
             source=pq.ParquetFile(io.BytesIO(objects.get(part['sha256'])),read_dictionary=required,thrift_string_size_limit=16*1024*1024,thrift_container_size_limit=100000)
             if source.metadata.num_rows>2000000 or source.metadata.num_columns>64:
@@ -94,10 +108,15 @@ def validate_stock_partitions(objects,index,assets,deadline=None):
                 if invalid(columns['parent_sha256'],lambda values:pc.invert(pc.is_in(values,value_set=parents))):
                     raise ValueError('stock partition parent mismatch')
             if count!=part['rows']:raise ValueError('decoded stock row count mismatch')
+            validated.append(_validation_version(key,part))
     except ObservationError:raise
     except (ValueError,KeyError,TypeError,OSError,pa.ArrowException) as exc:
         raise ObservationError('invalid_stock_partition','股票PB标准分区格式、行数或来源字段校验失败',503) from exc
-    return dict(stock_partitions=len(index['partitions']),stock_rows=total)
+    result=dict(stock_partitions=len(index['partitions']),stock_rows=total)
+    if validated_assets is not None:
+        result.update(reused_stock_versions=reused,  # 原登记元数据完全相同的历史/当前PB分区版本与其已验行数。
+            read_validated_stock_versions=validated)  # 本次完整核字段、行数、市场/年份及来源父引用的新增/变化版本。
+    return result
 
 
 

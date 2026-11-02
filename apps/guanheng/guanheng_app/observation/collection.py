@@ -13,7 +13,7 @@ from .refresh_models import merge,market_models,spread_and_bond,attach_sse_refer
 from .daily_context import attach_daily_context
 from .calendars import admit_calendars
 from .metadata import asset_contract,computation_identity
-from .publication import validate_manifest
+from .publication import validate_manifest,VALIDATION_CONTRACT
 from .query import ObservationReader,parquet_bytes
 from .storage import digest,encode
 from .stock_partitions import extend_daily_partitions
@@ -47,22 +47,28 @@ def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=N
         if window_key:
             from .schedule_policy import window_as_of
             now=now if now is not None else datetime.now(timezone.utc)
-            if window_as_of(window_key,now)!=as_of:
+            if window_as_of(window_key,now,config['schedule'],config['models'])!=as_of:
                 raise ObservationError('invalid_schedule_window','观察窗口与来源日期不一致',422)
             try:
                 attempt=reader.repository.reserve_window_attempt(window_key,now,config['max_window_attempts'],config['retry_seconds'],
-                    deadline=deadline,cancelled=cancelled)
+                    deadline=deadline,cancelled=cancelled,schedule=config['schedule'])
             except ObservationError as exc:
                 if exc.code=='write_outcome_unknown':
                     return dict(status='attempt_unknown',window_key=window_key,error_code=exc.code)
                 raise
             if attempt['status']!='reserved':return attempt
         return _refresh(reader,config,as_of=as_of,deadline=deadline,source_ids=source_ids,
-            window_key=window_key,attempt=attempt,cancelled=cancelled,
+            window_key=window_key,attempt=attempt,cancelled=cancelled,now=now,
             fetcher_factory=fetcher_factory,market_client_factory=market_client_factory)
 
 
-def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancelled,fetcher_factory,market_client_factory):
+def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancelled,fetcher_factory,market_client_factory,now=None):
+    from .schedule_policy import source_as_of,local_now
+    # 计划补跑使用原窗口时点；手动历史刷新保留显式日期，当日刷新使用真实时钟。
+    observed_now=local_now(now if now is not None else datetime.now(timezone.utc))
+    cutoff=datetime.fromisoformat(window_key) if window_key else observed_now
+    if not window_key and as_of<observed_now.date().isoformat():
+        cutoff=datetime.fromisoformat(as_of+'T23:59:00+08:00')
     limits=config['budget']
     # 编码/校验在原D前结束，为同一目录事务或失败回执保留收束时间。
     # 收束仍服从调用者原D；短预算按比例保留，最长5秒。
@@ -103,12 +109,16 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             fetch=fetcher_factory(reader.objects,config['allowed_hosts'],timeout=timeout,budget=budget)
             observed=source_observation_dates(datasets,definitions,source.get('datasets',[]))
             existing=[row['date'] for key in source.get('tables',[]) for row in tables.get(key,[])]
-            last=max(observed+existing) if observed or existing else as_of
-            start,end=source_window(last,as_of,source,config)
+            effective=source_as_of(source,as_of,config,cutoff,check=budget.remaining)
+            last=max(observed+existing) if observed or existing else effective
+            start,end=source_window(last,effective,source,config)
             if source['kind']=='wondertrader':
                 # 完整重取原表覆盖范围；所有量窗口改用同一A来源，不混用旧供应商量。
-                start=min(existing) if existing else start;end=as_of
-            receipt.update(requested_start=start,requested_end=end)
+                start=min(existing) if existing else start;end=effective
+            # effective_as_of是本来源截止日；requested_end仍可受既有分批上限约束。
+            receipt.update(requested_start=start,requested_end=end,
+                effective_as_of=effective,  # YYYY-MM-DD：本来源按窗口时点及所选日历得到的有效查询截止。
+                date_policy=source.get('date_policy','legacy'))  # 本来源日期口径；legacy表示沿调用者原as_of。
             if source['kind']=='wondertrader':
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=market_history(fetch,source,start,end,market_client_factory)
@@ -131,9 +141,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 if key in BREADTH_METRICS:
                     prepared_definitions[key]=admit_definition(key,definitions.get(key),old,rows)
                 if source.get('replace_tables'):
-                    if key in datasets or not {r['date'] for r in old if r['date']<=as_of}<={r['date'] for r in rows}:
+                    if key in datasets or not {r['date'] for r in old if r['date']<=effective}<={r['date'] for r in rows}:
                         raise SourceFailure('market_existing_coverage_missing')
-                    prepared[key],changes=merge([],rows)
+                    # 补跑旧窗口保留已接纳的更晚真实行；替换仅覆盖本次请求截止以内。
+                    prepared[key],changes=merge([r for r in old if r['date']>effective],rows)
                 else:prepared[key],changes=merge(old,rows,tenor=definitions.get(key,{}).get('axis_type')=='tenor')
                 revisions.extend(dict(metric_id=key,**item) for item in changes);count+=len(rows)
             raw_manifest=reader.objects.put(encode(fetch.records),kind='standard')
@@ -152,6 +163,8 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             successes+=1
         except Exception as exc:
             receipt.update(status='failed',error_code=exc.code if isinstance(exc,(SourceFailure,ObservationError)) else 'source_parse_failed')
+            # diagnostic仅在适配器有固定阶段证据时出现；缺项表示未提供该类诊断，不推定成功。
+            if isinstance(exc,SourceFailure) and exc.diagnostic is not None:receipt['diagnostic']=exc.diagnostic
         finally:
             if fetch is not None:
                 try:
@@ -212,7 +225,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         register_standard_assets(reader.objects,candidate)
         candidate['computation_identity']=computation_identity()
         candidate['source_configuration_sha256']=digest(encode(config));candidate['published_at']=run['completed_at'];candidate['parent_snapshot']=previous
-        validate_manifest(reader,candidate,work_deadline);finalization.remaining()
+        candidate['validation_contract']=VALIDATION_CONTRACT
+        run['validation']=validate_manifest(reader,candidate,work_deadline,previous_snapshot=previous)
+        finalization.remaining()
         run['completed_at']=candidate['published_at']=_now()
         run.update(status='partial' if any(r['status']=='failed' for r in receipts) else 'success',current_snapshot=digest(encode(candidate)))
         if window_key:run['window_complete']=True

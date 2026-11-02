@@ -282,10 +282,10 @@ class SnapshotRepository:
             db.execute('INSERT INTO window_attempts VALUES(?,1,?) ON CONFLICT(window_key) DO UPDATE SET attempts=attempts+1,attempted_at=excluded.attempted_at',
                 (window,receipt['started_at']))
 
-    def reserve_window_attempt(self,key,now,maximum,retry_seconds,*,deadline=None,cancelled=None):
+    def reserve_window_attempt(self,key,now,maximum,retry_seconds,*,deadline=None,cancelled=None,schedule=None):
         """持采集lease时、网络前登记；崩溃仍留下有限尝试，不依赖展示回执。"""
         from .schedule_policy import window_as_of
-        window_as_of(key,now)
+        window_as_of(key,now,schedule)
         if (type(maximum) is not int or not 1<=maximum<=8
                 or type(retry_seconds) not in (int,float) or not 1<=retry_seconds<=3600):
             raise ObservationError('invalid_window_attempt','观察窗口尝试预算无效',422)
@@ -410,10 +410,12 @@ class SnapshotRepository:
         fields={'enabled','state','phase','last_heartbeat','heartbeat_max_age_seconds','schedule','error_code'}
         if type(status) is not dict or set(status)!=fields:raise ValueError('scheduler fields')
         enabled=status['enabled'];maximum=status['heartbeat_max_age_seconds'];schedule=status['schedule']
+        from .schedule_policy import valid_schedule_times
         if (type(enabled) is not bool or status['state']!=('running' if enabled else 'stopped')
                 or status['phase'] not in (('waiting','collecting','archiving') if enabled else ('stopped',))
                 or type(maximum) not in (int,float) or not 0<maximum<=660
-                or schedule!={'timezone':'Asia/Shanghai','times':['09:00']} or status['error_code'] is not None
+                or type(schedule) is not dict or set(schedule)!={'timezone','times'}
+                or schedule.get('timezone')!='Asia/Shanghai' or not valid_schedule_times(schedule.get('times')) or status['error_code'] is not None
                 or type(status['last_heartbeat']) is not str or len(status['last_heartbeat'])>64):
             raise ValueError('scheduler identity')
         when=datetime.fromisoformat(status['last_heartbeat'])
