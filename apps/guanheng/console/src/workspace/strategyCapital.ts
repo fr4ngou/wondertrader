@@ -20,17 +20,17 @@ export type StrategyCapital = {
   currency: 'CNY'
   /** 本份观察实际采用的资金基准，须与策略详情中的基准一致。 */
   baseline: CapitalBaseline
-  /** 原CTA回调的估值截止时间，含时区；页面刷新保持该原时间。 */
+  /** WT首次初始化或原CTA回调的估值截止时间，含时区；页面刷新保持该原时间。 */
   observed_at: string
   /** 券商持仓查询结果的原接收时间，含时区。 */
   position_observed_at: string
-  /** 市值使用券商持仓数量和当次原CTA价格的来源声明。 */
-  market_value_source: 'broker-position+raw-CTA-price'
+  /** 市值使用券商持仓和原CTA价格，或首次初始化的真实QMT快照；两种来源均由WT声明。 */
+  market_value_source: 'broker-position+raw-CTA-price' | 'broker-position+raw-QMT-snapshot'
   /** WT原生发布的本次运行损益，包含其原费用口径；允许负值。 */
   native_pnl_cny: string
   /** WT发布的策略总资产，包含现金和库存市值。 */
   nav_cny: string
-  /** WT按本次券商持仓与原CTA价格发布的库存市值。 */
+  /** WT按券商持仓与market_value_source声明的报价发布的库存市值，单位元。 */
   market_value_cny: string
   /** WT发布的策略现金余额；允许负值，与可用资金分开显示。 */
   cash_balance_cny: string
@@ -88,7 +88,8 @@ export function validateCapitalFields(value: Record<string, unknown>): void {
     || !['account_available_cny','account_frozen_cash_cny'].every(key => capital[key] === null || amount(capital[key]))
     || !(capital.account_source_sha256 === null || typeof capital.account_source_sha256 === 'string' && /^[a-f0-9]{64}$/.test(capital.account_source_sha256))
     || capital.cash_constraint_scope !== 'account-wide-conservative-limit'
-    || capital.market_value_source !== 'broker-position+raw-CTA-price' || capital.historical_return_pct !== null) {
+    || !['broker-position+raw-CTA-price', 'broker-position+raw-QMT-snapshot'].includes(String(capital.market_value_source))
+    || capital.historical_return_pct !== null) {
     throw new Error('策略资金格式无效，请重新读取')
   }
 }

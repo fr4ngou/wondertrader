@@ -36,7 +36,8 @@ def project_capital(value, origin, *, runtime_state='ready'):
         'cash_constraint_scope', 'historical_return_pct'}
     _need(type(value) is dict and set(value) == fields and value['schema'] == 'guanheng.strategy-capital-observation.v1'
         and value['currency'] == 'CNY' and project_baseline(value['baseline']) == origin
-        and value['market_value_source'] == 'broker-position+raw-CTA-price'
+        # 首次加载可由当前QMT快照估值；后续沿CTA原报价，两个来源都由WT明确声明。
+        and value['market_value_source'] in ('broker-position+raw-CTA-price', 'broker-position+raw-QMT-snapshot')
         and value['historical_return_pct'] is None and type(value['account_observation_qualified']) is bool
         and value['cash_constraint_scope'] == 'account-wide-conservative-limit')
     amounts = {k: _amount(value[k]) for k in ('native_pnl_cny','nav_cny','market_value_cny','cash_balance_cny')}
