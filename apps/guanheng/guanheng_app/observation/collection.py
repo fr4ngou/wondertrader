@@ -123,8 +123,14 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=market_history(fetch,source,start,end,market_client_factory)
             elif source['kind']=='ashare_public':
+                # 同批成功Baostock的原字符串表已归档；公开全A组合沿同一原件继续，减少重复网络取数。
+                admitted=[]
+                stock_sources={item['id'] for item in config['sources'] if item['kind']=='baostock'}
+                for earlier in receipts:
+                    if earlier['source_id'] in stock_sources and earlier.get('status')=='success':
+                        admitted.extend(json.loads(reader.objects.get(earlier['source_manifest'])))
                 updates=public_ashare_history(reader,fetch,source,start,end,
-                    retry_seconds=config['retry_seconds'],max_attempts=config['max_window_attempts'])
+                    retry_seconds=config['retry_seconds'],max_attempts=config['max_window_attempts'],admitted_records=admitted)
             elif source['kind']=='qmt_t2108':
                 updates=t2108_history(fetch,source,start,end,calendar=config['models'].get('calendars',{}).get('cn'))
             elif source['kind']=='financial_annual':

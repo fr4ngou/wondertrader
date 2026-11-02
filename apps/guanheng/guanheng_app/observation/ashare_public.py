@@ -1,7 +1,7 @@
 """公开日终来源、定日原件归档与原refresh之间的适配。"""
 from datetime import date, datetime, time, timedelta, timezone
 
-from .ashare_source import _clock, _decode, _need, _pages, bse_numbers, normalize, validate_daily
+from .ashare_source import _clock, _decode, _need, _pages, bse_numbers, normalize, validate_daily, FIELDS
 from .contracts import ObservationError
 from .baostock_source import BaostockClient
 from .bse_universe import LIST_API, LIST_PAGE, MAPPING, _Mapping, _day
@@ -10,6 +10,7 @@ from .ashare_pool import current_pool
 from .provider_reports import report_pages
 from .source_fetch import BoundedContentStore,CollectionBudget,Fetcher,SourceFailure
 from .storage import digest, encode
+from .provider_tables import load_table
 
 ZONE=timezone(timedelta(hours=8))
 QUOTE_API='https://www.bse.cn/nqhqController/nqhq_en.do'
@@ -42,11 +43,46 @@ class ObjectCapture:
 
 class Archive:
     """原runs记录尝试和成功原件锚；采集lease由原refresh或服务调用者持有。"""
-    def __init__(self,reader,fetch,source,*,retry_seconds=60,max_attempts=8,now=None):
+    def __init__(self,reader,fetch,source,*,retry_seconds=60,max_attempts=8,now=None,admitted_records=()):
         self.reader,self.fetch,self.source=reader,fetch,source
         self.now=now or datetime.now(timezone.utc)
         self.retry_seconds,self.max_attempts=retry_seconds,max_attempts
         self.policy=digest(encode(source))
+        self.admitted_records=admitted_records  # 同批先前成功Baostock来源的原件记录；保持原SHA及真实抓取时间。
+
+    def stock_input(self,kind,day):
+        """同一Baostock事实只采一次；优先本批成功原件，再读已发布PB原件。
+
+        证券表须不早于目标日实际取得，并按上市/退市区间取day的成员；
+        日线须每行属于day。原件先核SHA和字符串
+        合同。没有合格原件时调用者继续原网络入口，不把旧日数据改日期。
+        """
+        records=list(self.admitted_records)
+        _version,manifest=self.reader.snapshot()
+        item=manifest['datasets'].get('pb_shsz_daily',{})
+        # freshness允许为空；首次采集尚无前代来源回执，仍可消费本批原件。
+        for receipt in (item.get('definition',{}).get('freshness') or {}).get('source_results',[]):
+            if receipt.get('status')=='success' and receipt.get('source_manifest'):
+                captured=_decode(self.fetch.objects.get(receipt['source_manifest']))
+                _need(type(captured) is list,'ashare_source_schema')
+                records.extend(captured)
+        required=('code','type','ipoDate','outDate') if kind=='stock_basic' else tuple(FIELDS)
+        for record in records:
+            self.fetch.budget.remaining()
+            if (record.get('kind')!=kind or record.get('source_host')!='baostock'
+                    or not isinstance(record.get('retrieved_at'),str)):continue
+            received=_clock(record['retrieved_at'])
+            if kind=='stock_basic' and received.astimezone(ZONE).date().isoformat()<day:continue
+            table=load_table(self.fetch.objects.get(record['sha256']),required,check=self.fetch.budget.remaining)
+            value=dict(fields=table.fields,rows=table.rows)
+            if kind=='stock_daily_batch':
+                position=table.fields.index('date')
+                if not table.rows or any(row[position]!=day for row in table.rows):continue
+                validate_daily(value,day,self.fetch.budget.remaining)
+            if not any(row.get('kind')==kind and row.get('sha256')==record['sha256'] for row in self.fetch.records):
+                self.fetch.records.append(dict(record))
+            return value
+        return None
 
     def receipts(self,operation,day,**filters):
         return self.reader.repository.source_receipts(operation,self.source['id'],day,
@@ -174,9 +210,11 @@ class Archive:
 
     def security_part(self,day):
         fetch=self.fetch
-        with BaostockClient(fetch,fetch.timeout) as client:
-            fields,values=client.table('stock_basic')
-        basic=dict(fields=fields,rows=values)
+        basic=self.stock_input('stock_basic',day)
+        if basic is None:
+            with BaostockClient(fetch,fetch.timeout) as client:
+                fields,values=client.table('stock_basic')
+            basic=dict(fields=fields,rows=values)
         basic_sha=next(row['sha256'] for row in reversed(fetch.records) if row['kind']=='stock_basic')
         mapping=_Mapping(fetch.budget.remaining)
         mapping.feed(fetch.get(MAPPING,referer=LIST_PAGE,session_handoff=True).decode('utf-8'))
@@ -198,10 +236,14 @@ class Archive:
 
     def daily_part(self,day):
         fetch=self.fetch
-        with BaostockClient(fetch,fetch.timeout) as client:
-            fields,values=client.table('stock_daily_batch',day)
+        table=self.stock_input('stock_daily_batch',day)
+        if table is None:
+            with BaostockClient(fetch,fetch.timeout) as client:
+                fields,values=client.table('stock_daily_batch',day)
+            table=dict(fields=fields,rows=values)
+        fields,values=table['fields'],table['rows']
         _need(bool(values),'pb_day_not_published')
-        validate_daily(dict(fields=fields,rows=values),day,fetch.budget.remaining)
+        validate_daily(table,day,fetch.budget.remaining)
         _need('date' in fields and all(row[fields.index('date')]==day for row in values),'pb_date_mismatch')
         receipt=next(row for row in reversed(fetch.records) if row['kind']=='stock_daily_batch')
         return self.describe(encode(dict(fields=fields,rows=values)),receipt['retrieved_at'])
@@ -255,9 +297,10 @@ class Archive:
         return self.create(day)
 
 
-def history(reader,fetch,source,start,end,*,retry_seconds=60,max_attempts=8,now=None):
+def history(reader,fetch,source,start,end,*,retry_seconds=60,max_attempts=8,now=None,admitted_records=()):
     """读取闭合交易日及窗口内归档；升级口径用原有父原件完整重算。"""
-    archive=Archive(reader,fetch,source,retry_seconds=retry_seconds,max_attempts=max_attempts,now=now)
+    archive=Archive(reader,fetch,source,retry_seconds=retry_seconds,max_attempts=max_attempts,now=now,
+        admitted_records=admitted_records)
     day=archive.closed_day(end)
     packet,rows=archive.get(day)
     by_day={day:rows}
