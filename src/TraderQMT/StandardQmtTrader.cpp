@@ -1731,17 +1731,13 @@ struct StandardQmtTrader::Impl {
   for(const auto* field:{"classification","entrust_id","user_tag"}){
    require(view.HasMember(field)&&view[field].IsString(),"qmt_standard_event_identity_field");append(qmt_host_codec::text(view[field]));
   }
-  std::string token;
-  for(const auto* name:account_fields::identity_fields){
-   // 补查使用真实query Remark；OrderRef只作诊断，旧完整事件保持原双字段规则。
-   if(mapped.query_provenance&&name==account_fields::order_ref)continue;
-   require(view.HasMember(name)&&view[name].IsObject()&&view[name].HasMember("value"),"qmt_standard_event_identity_scalar");
-   const auto& scalar=view[name]["value"];
-   if(scalar.IsString()){
-    auto current=qmt_host_codec::text(scalar);if(valid_qmt_sdk_order_token(current)){
-     require(token.empty()||token==current,"qmt_standard_event_token_conflict");token=std::move(current);
-    }
-   }
+  // 身份覆盖已沿原Remark完成lookup；交付签名沿同一来源，OrderRef保持券商诊断语义。
+  const auto* name=account_fields::remark;
+  require(view.HasMember(name)&&view[name].IsObject()&&view[name].HasMember("value"),"qmt_standard_event_identity_scalar");
+  const auto& scalar=view[name]["value"];std::string token;
+  if(scalar.IsString()){
+   auto current=qmt_host_codec::text(scalar);
+   if(valid_qmt_sdk_order_token(current))token=std::move(current);
   }
   append(token);
   if(!value.is_trade){
