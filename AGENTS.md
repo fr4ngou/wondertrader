@@ -25,7 +25,7 @@
 | 工作 | 必须读取 |
 |---|---|
 | 功能、修复、重构与代码评审 | [开发流程](docs/development/workflow.md)、[代码规范](docs/development/coding.md)、[验证规范](docs/development/verification.md) |
-| 新增接口、生命周期或复杂逻辑注释 | [注释规范](docs/development/comments.md) |
+| 新增或修改接口、结构体/数据类/DTO字段、协议字段、生命周期或复杂逻辑 | [注释规范](docs/development/comments.md)，数据模型的每个字段同步中文注释 |
 | 编写方案、改变模块职责或数据归属 | [方案规范](docs/development/design.md)、[系统架构](docs/architecture/overview.md) |
 | 文档、模块说明、规格或证据维护 | [文档规范](docs/development/documentation.md) |
 | 构建、依赖、测试工具链 | [构建手册](docs/runbooks/build.md) |
