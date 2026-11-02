@@ -1,4 +1,5 @@
 import { fetchReadJson } from '../api'
+import { validateCapitalFields, type CapitalFields } from './strategyCapital'
 
 export const runtimeLabels = {
   initializing: '正在准备目标', selling: '正在调整卖出目标', buying: '正在调整买入目标',
@@ -15,10 +16,10 @@ export type RuntimePosition = { symbol: string; target_weight: number | null; th
 export type StrategyRuntime = { schema_version: 'guanheng.strategy-runtime.v1'; read_only: true; observed_at: string;
   runtime_state?: string;
   execution_state?: 'not_started';
-  state: 'unconfigured' | 'waiting' | 'available'; strategy: null | {
+  state: 'unconfigured' | 'waiting' | 'available'; strategy: null | (CapitalFields & {
     display_name: string; strategy_version: '1.1.2'; status: keyof typeof runtimeLabels; status_label: string;
     decision_at: string | null; broker_observed_at: string | null; broker_position_qualified: false;
-    execution_position_qualified?: boolean; positions: RuntimePosition[] } }
+    execution_position_qualified?: boolean; positions: RuntimePosition[] }) }
 const symbols = ['159780.SZ', '510050.SH', '510300.SH', '510500.SH', '512100.SH', '515080.SH', '588000.SH', '589000.SH']
 const record = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v)
 const time = (v: unknown) => typeof v === 'string' && v.length <= 64 && /(Z|[+-]\d{2}:\d{2})$/.test(v) && Number.isFinite(Date.parse(v))
@@ -54,6 +55,7 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
       || typeof row.broker_sellable === 'number' && (typeof row.broker_quantity !== 'number' || row.broker_sellable > row.broker_quantity)) return invalid()
     seen.add(row.symbol)
   }
+  validateCapitalFields(s)
   return data as StrategyRuntime
 }
 

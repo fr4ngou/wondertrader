@@ -1,0 +1,12 @@
+.strategy-capital { border-block: 1px solid var(--line, #e4eaf2); margin-block: 16px; padding-block: 16px; }
+.strategy-capital header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; }
+.strategy-capital h4 { margin: 0; font-size: 15px; }
+.strategy-capital header > span, .strategy-capital time, .strategy-capital-note { font-size: 13px; color: var(--text-secondary, #5b6778); }
+.strategy-capital time { margin-left: auto; }
+.strategy-capital-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 14px; margin-block: 16px; }
+.strategy-capital-facts > div { padding: 12px; background: var(--surface-muted, #f7f9fc); border-radius: 6px; min-width: 0; }
+.strategy-capital-facts dt { color: var(--text-secondary, #5b6778); font-size: 13px; }
+.strategy-capital-facts dd { margin: 8px 0 0; font-size: 23px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.strategy-capital-facts [data-tone="profit"] dd { color: #d34b50; }
+.strategy-capital-facts [data-tone="loss"] dd { color: #138b66; }
+@media (max-width: 600px) { .strategy-capital time { margin-left: 0; width: 100%; } }

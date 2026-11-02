@@ -1,9 +1,10 @@
 import { fetchReadJson } from '../api'
 import { validateAccountOverview, type AccountOverview } from './accountApi'
 import { validateStrategyRuntime, type StrategyRuntime } from './strategyRuntimeApi'
+import { validateCapitalFields, type CapitalFields } from './strategyCapital'
 
 export type OptionalFact = { value: string | number | null; reason: string | null }
-export type StrategyDetails = {
+export type StrategyDetails = CapitalFields & {
   schema_version: 'guanheng.strategy-details.v1'; read_only: true; observed_at: string
   strategy: { strategy_id: 'resonance-regime-v1'; strategy_version: '1.1.2'; display_name: string }
   assignment: { scope: 'current-account-inventory'; label: string; reason: string }
@@ -43,6 +44,7 @@ export function validateStrategyDetails(v: unknown): StrategyDetails {
   if (v.account !== null) validateAccountOverview(v.account)
   if (v.calculation !== null) validateStrategyRuntime({schema_version:'guanheng.strategy-runtime.v1',read_only:true,
     observed_at:v.observed_at,state:'available',strategy:v.calculation})
+  validateCapitalFields(v)
   return v as StrategyDetails
 }
 export async function fetchStrategyDetails(signal: AbortSignal) {

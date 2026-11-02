@@ -7,6 +7,7 @@ import './operations.css'
 import { FinancialValue } from './FinancialValue'
 import { StatusBadge } from './StatusBadge'
 import { Link } from 'react-router-dom'
+import { StrategyCapitalSummary } from './StrategyCapitalSummary'
 
 type DetailsReadView = { current: Details; account: AccountReadView | undefined }
 const queryKey = ['independent-strategy-details']
@@ -39,6 +40,13 @@ export default function StrategyDetails() {
   const positionGroup = query.data?.account?.complete.position ?? currentGroups?.position
   const account = moneyGroup?.status === 'complete' ? moneyGroup.rows[0]?.fields : undefined
   const positions = positionGroup?.status === 'complete' ? positionGroup.rows : undefined
+  const hasRunFacts = data && [data.execution.started_at, data.execution.duration_seconds, data.returns.cumulative_pct].some(fact => fact.value !== null)
+  const runFacts = data ? <dl className="operations-facts">
+    <div><dt>策略开始时间</dt><dd>{data.execution.started_at.value === null ? '尚未取得' : clock(String(data.execution.started_at.value))}<details className="compact-details"><summary>说明</summary><small>{data.execution.started_at.reason}</small></details></dd></div>
+    <Fact name="运行时长" fact={data.execution.duration_seconds} unit="秒" />
+    {!data.capital_baseline ? <Fact name="策略预算（元）" fact={data.budget_cny} unit="元" /> : null}
+    <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" />
+  </dl> : null
   return <section className="surface-card strategy-compact" aria-label="策略实际详情">
     <div className="operations-heading"><h3>当前持仓与运行</h3><button disabled={query.isFetching} onClick={()=>void query.refetch()}>{query.isFetching?'正在读取详情…':'刷新策略详情'}</button></div>
     {query.isError ? <p role="alert">{query.error.message}{data?'。当前保留上次成功结果和原数据时间。':''}</p> : null}
@@ -46,12 +54,8 @@ export default function StrategyDetails() {
     {data ? <>
       {query.isFetching ? <p role="status">正在刷新，当前显示上次成功详情。</p> : null}
       <div className="compact-status-strip" role="status"><StatusBadge state={data.execution.state} label={data.execution.label} /><small>数据时间 {clock(groupTime(positionGroup))}</small><Link to="/account">查看券商账户</Link></div>
-      <dl className="operations-facts">
-        <div><dt>策略开始时间</dt><dd>{data.execution.started_at.value === null ? '尚未取得' : clock(String(data.execution.started_at.value))}<details className="compact-details"><summary>说明</summary><small>{data.execution.started_at.reason}</small></details></dd></div>
-        <Fact name="运行时长" fact={data.execution.duration_seconds} unit="秒" />
-        <Fact name="策略预算（元）" fact={data.budget_cny} unit="元" />
-        <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" />
-      </dl>
+      <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
+      {!data.capital_baseline || hasRunFacts ? runFacts : <details className="compact-details"><summary>运行与收益</summary>{runFacts}</details>}
       <details className="compact-details"><summary>资金与运行说明</summary><p>{data.execution.reason}</p>
         <p>全账户资金单独展示在账户页。</p><p>资金查询时间：{clock(groupTime(moneyGroup))}</p>
         {currentGroups?.account.status !== 'complete' && moneyGroup?.status === 'complete' ? <p>本轮资金未更新，当前保留上次成功资金及原查询时间。</p> : null}

@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { validateStrategyDetails } from './strategyDetailsApi'
 import account from './account-v2.fixture.json'
 import type { AccountOverviewV2, AccountRow } from './accountApi'
+import type { CapitalBaseline, StrategyCapital } from './strategyCapital'
 
 const missing = (reason:string)=>({value:null,reason})
 const fixture = ()=>({schema_version:'guanheng.strategy-details.v1',read_only:true,observed_at:'2026-11-01T01:00:00Z',
@@ -70,4 +71,41 @@ test('新一轮局部资金持仓失败沿原账户投影保留成功批和原�
  expect(await screen.findByText('本轮持仓未更新，当前保留上次成功持仓及原查询时间。')).toBeVisible()
  expect(screen.getByText('本轮资金未更新，当前保留上次成功资金及原查询时间。')).toBeInTheDocument()
  expect(screen.getByRole('region',{name:'策略当前持仓'})).toBeVisible()
+})
+
+function capitalFixture() {
+ const baseline:CapitalBaseline={schema:'guanheng.current-capital-baseline.v1',total_cny:'1000000',source:'用户确认当前策略总资本',
+  baseline_at:'2026-11-01T01:00:00+00:00',historical_initial_capital_cny:null}
+ const capital:StrategyCapital={schema:'guanheng.strategy-capital-observation.v1',currency:'CNY',baseline,
+  observed_at:'2026-11-01T01:05:00+00:00',position_observed_at:'2026-11-01T01:04:00+00:00',market_value_source:'broker-position+raw-CTA-price',
+  native_pnl_cny:'500',nav_cny:'1000500',market_value_cny:'350000',cash_balance_cny:'650500',spendable_cash_cny:'600000',
+  account_observation_qualified:true,account_observed_at:'2026-11-01T01:04:30+00:00',account_valid_until:'2026-11-01T01:10:00+00:00',
+  account_available_cny:'198000000',account_frozen_cash_cny:'10000',account_source_sha256:'a'.repeat(64),
+  cash_constraint_scope:'account-wide-conservative-limit',historical_return_pct:null}
+ return {...fixture(),capital_baseline:baseline,capital}
+}
+
+test('策略资金展示WT同批资产余额和本次盈亏，全账户现金保持独立',async()=>{
+ const value=capitalFixture();expect(validateStrategyDetails(value).capital).toEqual(value.capital)
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(value)));mount()
+ const funds=await screen.findByRole('region',{name:'策略资金'})
+ expect(within(funds).getByText('100.05万')).toHaveAttribute('title','1000500元')
+ expect(within(funds).getByText('65.05万')).toBeVisible()
+ expect(within(funds).getByText('60万')).toBeVisible()
+ expect(within(funds).getByText('35万')).toBeVisible()
+ expect(within(funds).getByText('500')).toHaveAttribute('title','500元')
+ expect(funds).not.toHaveTextContent('198000000')
+ expect(screen.queryByText('策略预算（元）')).not.toBeInTheDocument()
+ expect(screen.queryByText('0%')).not.toBeInTheDocument()
+})
+
+test('可用资金未知保留原资产与来源时间，不以账户余额或零代替',async()=>{
+ const value=capitalFixture();value.capital.account_observation_qualified=false;value.capital.spendable_cash_cny=null
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(value)));mount()
+ const funds=await screen.findByRole('region',{name:'策略资金'})
+ expect(within(funds).getByText('待更新')).toBeVisible()
+ expect(within(funds).getByText('100.05万')).toBeVisible()
+ expect(within(funds).getByText('65.05万')).toBeVisible()
+ expect(funds.querySelector('time')).toHaveAttribute('datetime',value.capital.observed_at)
+ expect(()=>validateStrategyDetails({...value,capital:{...value.capital,spendable_cash_cny:'198000000'}})).toThrow('策略资金格式无效')
 })
