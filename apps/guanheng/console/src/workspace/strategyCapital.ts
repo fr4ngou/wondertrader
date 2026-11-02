@@ -1,18 +1,64 @@
 /** WT发布的策略资金；读取端只校验和展示，不重算本金、净值或可用现金。 */
 export type CapitalBaseline = {
-  schema: 'guanheng.current-capital-baseline.v1'; total_cny: string; source: string; baseline_at: string
+  /** WT资金基准协议版本，决定下列字段的解释方式。 */
+  schema: 'guanheng.current-capital-baseline.v1'
+  /** 本次启用的总资本，含现有库存；单位元，精确十进制字符串。 */
+  total_cny: string
+  /** WT保存的基准声明来源，用于区分用户分配与其他资金来源。 */
+  source: string
+  /** WT首次启用此基准的原时间，含时区；正常重启沿用。 */
+  baseline_at: string
+  /** 旧系统历史初始本金未迁移，null表示未知。 */
   historical_initial_capital_cny: null
 }
+
+/** 金额均为人民币元的精确十进制字符串；零为已知零，null为来源未提供或当前不可用。 */
 export type StrategyCapital = {
-  schema: 'guanheng.strategy-capital-observation.v1'; currency: 'CNY'; baseline: CapitalBaseline
-  observed_at: string; position_observed_at: string; market_value_source: 'broker-position+raw-CTA-price'
-  native_pnl_cny: string; nav_cny: string; market_value_cny: string; cash_balance_cny: string
-  spendable_cash_cny: string | null; account_observation_qualified: boolean
-  account_observed_at: string | null; account_valid_until: string | null
-  account_available_cny: string | null; account_frozen_cash_cny: string | null; account_source_sha256: string | null
-  cash_constraint_scope: 'account-wide-conservative-limit'; historical_return_pct: null
+  /** WT资金观察协议版本。 */
+  schema: 'guanheng.strategy-capital-observation.v1'
+  /** 所有金额的币种，本协议固定为人民币。 */
+  currency: 'CNY'
+  /** 本份观察实际采用的资金基准，须与策略详情中的基准一致。 */
+  baseline: CapitalBaseline
+  /** 原CTA回调的估值截止时间，含时区；页面刷新保持该原时间。 */
+  observed_at: string
+  /** 券商持仓查询结果的原接收时间，含时区。 */
+  position_observed_at: string
+  /** 市值使用券商持仓数量和当次原CTA价格的来源声明。 */
+  market_value_source: 'broker-position+raw-CTA-price'
+  /** WT原生发布的本次运行损益，包含其原费用口径；允许负值。 */
+  native_pnl_cny: string
+  /** WT发布的策略总资产，包含现金和库存市值。 */
+  nav_cny: string
+  /** WT按本次券商持仓与原CTA价格发布的库存市值。 */
+  market_value_cny: string
+  /** WT发布的策略现金余额；允许负值，与可用资金分开显示。 */
+  cash_balance_cny: string
+  /** 经账户约束核定的策略可用现金；账户缺失、过期或停止时为null。 */
+  spendable_cash_cny: string | null
+  /** 原账户观察是否仍满足本次可用资金计算条件；由WT及读取投影判定。 */
+  account_observation_qualified: boolean
+  /** 原账户批次查询完成时间，含时区；尚未取得时为null。 */
+  account_observed_at: string | null
+  /** 原账户观察的有效截止，含时区；没有原观察时为null。 */
+  account_valid_until: string | null
+  /** 券商全账户可用现金上限，作为策略现金约束；未取得为null。 */
+  account_available_cny: string | null
+  /** 券商全账户冻结现金，作为保守约束；未取得为null，不补零。 */
+  account_frozen_cash_cny: string | null
+  /** 原完整账户观察正文的SHA256；没有该正文时为null。 */
+  account_source_sha256: string | null
+  /** 冻结现金及可用上限的作用域为全账户，不表示分配给本策略。 */
+  cash_constraint_scope: 'account-wide-conservative-limit'
+  /** 旧系统历史累计收益率未迁移，null表示未知。 */
+  historical_return_pct: null
 }
-export type CapitalFields = { capital_baseline?: CapitalBaseline | null; capital?: StrategyCapital | null }
+export type CapitalFields = {
+  /** WT发布的运行资本基准；旧协议可省略，尚未发布时为null。 */
+  capital_baseline?: CapitalBaseline | null
+  /** 与基准同源的策略资金观察；旧协议可省略，尚未发布时为null。 */
+  capital?: StrategyCapital | null
+}
 
 const record = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v)
 const amount = (v: unknown) => typeof v === 'string' && v.length <= 128 && /^-?\d+(?:\.\d+)?$/.test(v) && Number.isFinite(Number(v))
