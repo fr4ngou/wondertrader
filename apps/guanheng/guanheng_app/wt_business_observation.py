@@ -140,7 +140,7 @@ def observe_account(configuration,deadline):
 
 def observe_strategy(configuration,deadline):
     strategies,_reference,state=read_business(configuration,deadline)
-    projected=project_strategy(dict(schema='guanheng.configured-cta-observation.v1',strategies=strategies)) if strategies is not None else None
+    projected=project_strategy(dict(schema='guanheng.configured-cta-observation.v1',strategies=strategies),runtime_state=state) if strategies is not None else None
     _check(deadline)
     result=dict(state='available' if projected else 'waiting' if configuration else 'unconfigured',
                 strategy=projected,runtime_state=state)

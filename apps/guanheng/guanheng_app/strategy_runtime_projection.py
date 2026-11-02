@@ -45,7 +45,7 @@ def _observation(value):
     return observed
 
 
-def project_strategy(value):
+def project_strategy(value, *, runtime_state='ready'):
     """仅复制业务白名单，不重算策略、数量、费用或券商资金。输入来自原发布边界。"""
     _require(type(value) is dict and set(value) == {'schema', 'strategies'}
              and value['schema'] == 'guanheng.configured-cta-observation.v1')
@@ -117,8 +117,12 @@ def project_strategy(value):
                 seen.add(symbol)
                 rows[symbol].update(broker_quantity=quantity, broker_sellable=sellable)
     definition = strategy_catalog()['strategies'][0]
+    from .strategy_capital_projection import project_baseline, project_capital
+    capital_origin = project_baseline(report.get('capital_baseline'))
+    capital = project_capital(report.get('capital'), capital_origin, runtime_state=runtime_state)
     return dict(display_name=definition['display_name'], strategy_version=definition['strategy_version'],
                 status=status, status_label=_LABELS[status], decision_at=decision_at,
                 broker_observed_at=broker_at, broker_position_qualified=False,
-                execution_position_qualified=execution_qualified, positions=list(rows.values()))
+                execution_position_qualified=execution_qualified, positions=list(rows.values()),
+                capital_baseline=capital_origin, capital=capital)
 

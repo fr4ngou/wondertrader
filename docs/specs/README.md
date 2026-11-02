@@ -1,3 +1,5 @@
+- [策略资金独立只读消费](strategy-capital-observation.md)：原WT资金发布、当前基准、来源时间和账户/策略范围，运行恢复资格独立。
+
 - [观察状态原子发布与失败诊断](observation-status-publication.md)：合法旧状态读者与心跳并行、原失败语义和有限安全诊断。
 
 - [独立观衡Web生命周期](observer-web-lifecycle.md)：隐藏启动、正常停止与重启，沿原App读取与关闭流程，保持WT独立。

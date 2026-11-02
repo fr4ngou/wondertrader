@@ -62,7 +62,7 @@ def observe_details(settings, configuration, deadline):
         try:
             strategies, _reference, _state = read_business(configuration, deadline)
             if strategies is not None:
-                strategy = project_strategy(dict(schema='guanheng.configured-cta-observation.v1', strategies=strategies))
+                strategy = project_strategy(dict(schema='guanheng.configured-cta-observation.v1', strategies=strategies),runtime_state=_state)
                 report = strategies.get('resonance-regime-v1') if strategy else None
         except (ValueError, OSError, TimeoutError, KeyError, TypeError):
             strategy_reason = '策略计算结果本次读取失败，账户数据保持独立。'
@@ -70,7 +70,9 @@ def observe_details(settings, configuration, deadline):
     if runtime_error:
         execution.update(state='unavailable', label='策略状态暂不可用', reason='本次WT运行状态读取失败，请重新读取。')
     budget = _missing('当前没有可读取的WT策略预算；账户可用资金归账户所有。')
-    if report and (report.get('outcome') or {}).get('state'):
+    if strategy and strategy.get('capital_baseline'):
+        budget = dict(value=strategy['capital_baseline']['total_cny'], reason=None)
+    elif report and (report.get('outcome') or {}).get('state'):
         # project_strategy已通过原NSQ构造器核验同一state；预算仅复制原policy值。
         try:
             amount = Decimal(report['outcome']['state']['policy']['initial_capital_cny'])
@@ -84,6 +86,8 @@ def observe_details(settings, configuration, deadline):
             reason='按用户确认展示当前账户持仓；历史开仓和成交记录不迁移。'),
         execution=execution, account=account, account_reason=account_reason,
         calculation=strategy, calculation_reason=strategy_reason, budget_cny=budget,
+        capital_baseline=None if strategy is None else strategy.get('capital_baseline'),
+        capital=None if strategy is None else strategy.get('capital'),
         returns=dict(cumulative_pct=_missing('缺少本次策略起始本金、期间现金流及连续净值基准，累计收益率暂不可计算。')))
 
 
