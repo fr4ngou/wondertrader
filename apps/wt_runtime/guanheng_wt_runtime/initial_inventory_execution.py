@@ -26,12 +26,12 @@ from .managed_local_process import _duration, _inspect, _json, _path, _read, _re
 @dataclass(frozen=True)
 class InitialInventoryStartupConfig:
     """来源引用和准备根；秘密仍由原连接的环境变量持有，价格单位沿SDK校验。"""
-    state_root: Path
-    account: AccountObservationConfig
-    market: object
-    max_age_seconds: float
-    identity: str
-    capital: object = None
+    state_root: Path  # 本次初始准备的E盘绝对目录；由配置指定，首次独占创建，恢复只读复用，不是金融账本根。
+    account: AccountObservationConfig  # 当前券商四查询的原部署配置；必填，原Scan owner负责查询及资源关闭。
+    market: object  # 只读行情连接配置映射；含地址、令牌环境变量名及秒/字节预算，不保存令牌正文或客户资源。
+    max_age_seconds: float  # 当前库存和标价的最大有效时长，单位秒、范围(0,3600]；来自显式配置，不能以0表示未知。
+    identity: str  # 完整启动配置规范字节的SHA256；绑定准备输入及恢复，必填，不代表事实新鲜度。
+    capital: object = None  # 可选只读当前资本声明：total_cny单位CNY且含库存、source为来源；None保持原模板资本语义。
 
     @classmethod
     def from_dict(cls, value):

@@ -33,10 +33,10 @@ _KINDS = {'host': ('qmt_read', 'qmt_history_preparation'),
 @dataclass(frozen=True)
 class ComponentConfig:
     """原部署descriptor及原字节SHA；kind选择固定组件，不接受代码入口注入。"""
-    kind: str
-    descriptor: str
-    sha256: str
-    wait_for_source: bool = False
+    kind: str  # 已登记组件工厂类型；来自运行配置的非空标识，不接受任意代码入口。
+    descriptor: str  # 该组件部署描述的绝对文件路径；来自运行配置，必填，组件owner按其协议消费。
+    sha256: str  # 部署描述原字节SHA256；由配置提供，必填，用于绑定已审材料，不代表运行状态。
+    wait_for_source: bool = False  # 执行组件是否等待原来源就绪；默认False沿原启动方式，仅execution可显式启用。
 
     def __post_init__(self):
         _path(self.descriptor)
@@ -48,10 +48,10 @@ class ComponentConfig:
 @dataclass(frozen=True)
 class RuntimeConfig:
     """唯一运行实例的不可变配置；启动/关闭预算为整套组件共享秒数。"""
-    instance_id: str
-    components: tuple[tuple[str, ComponentConfig], ...]
-    startup_seconds: float
-    stop_seconds: float
+    instance_id: str  # 运行实例的规范UUID文本；来自显式配置，必填，跨正常重启保持同一实例身份。
+    components: tuple[tuple[str, ComponentConfig], ...]  # 按固定依赖序排列的(组件名,配置)不可变元组；必填，实际进程归Runtime拥有。
+    startup_seconds: float  # 整套组件共享的启动预算，单位秒、范围(0,600]；来自配置，不能按组件重复计时。
+    stop_seconds: float  # 整套组件共享的关闭预算，单位秒、范围(0,120]；来自配置，0或缺失不表示无限等待。
 
     def __post_init__(self):
         _require(type(self.instance_id) is str and str(UUID(self.instance_id)) == self.instance_id)

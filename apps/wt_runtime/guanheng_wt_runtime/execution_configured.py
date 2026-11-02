@@ -92,13 +92,13 @@ def _restore_quantity_state(value):
 @dataclass(frozen=True)
 class RetainedRuntimeInput:
     """固定当前决策输入；本金显式，实际周期来源由接入owner核实。"""
-    request: object
-    policy: object
-    fee_reserve_cny: str | None
-    fee_source: str | None
-    market_manifest_source: str
-    schema: str = 'guanheng.retained-cta-input.v1'
-    capital_baseline: dict | None = None
+    request: object  # 原策略核RetainedInput值对象；由冻结输入解析，持有规则/行情/周期及时点，必填且不持有资源。
+    policy: object  # 原NSQ QuantityPolicy；由显式配置解析，资本为CNY、现金ETF数量为股/份，必填。
+    fee_reserve_cny: str | None  # 新买入组的费用预留，CNY十进制字符串；None表示未知，0表示明确无需预留。
+    fee_source: str | None  # 上述费用预留的来源标识；来自冻结输入，None表示来源未知，不是已知零费用。
+    market_manifest_source: str  # 冻结行情清单的非空来源标识；不代替各批行情的实际来源时间或摘要。
+    schema: str = 'guanheng.retained-cta-input.v1'  # 固定输入协议版本；默认沿原格式，缺失时仍由解析器拒绝。
+    capital_baseline: dict | None = None  # 首次启用的当前总资本基准，含库存；None沿旧资本配置，存在时正常恢复复用原值。
 
     @classmethod
     def from_dict(cls, value):

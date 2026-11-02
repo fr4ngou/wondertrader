@@ -37,11 +37,11 @@ class InitialInventoryPreparation:
     baseline_at是本次新运行时间，opened_at保持空，真实旧开仓时间不在合同内。原P23消费
     native_input，原Configured消费runtime_input；后续状态由原WT与KV持有。
     """
-    runtime_input: bytes
-    native_input: bytes | None
-    source_sha256: str
-    baseline_at: datetime
-    position_count: int
+    runtime_input: bytes  # 原RetainedRuntimeInput的规范JSON字节；本准备结果拥有，调用者负责写入固定输入文件。
+    native_input: bytes | None  # 原P23库存初始化JSON字节；None表示空库存走fresh路径，非未知持仓。
+    source_sha256: str  # 规范化当前库存事实的SHA256；含数量/可卖/标价来源，不代表旧成交流水身份。
+    baseline_at: datetime  # 本次首次启用UTC时点，必须带时区；原周期和盈亏从此建立，恢复不重置。
+    position_count: int  # 非空库存证券条目数，单位项，范围0..8；0表示已知空仓，不是来源未知。
 
 
 def prepare_initial_inventory(template, facts, *, now, uptime_ms, capital=None):
@@ -115,8 +115,11 @@ def prepare_initial_inventory(template, facts, *, now, uptime_ms, capital=None):
         from .strategy_capital import current_capital
         declared = current_capital(capital)
         policy = replace(policy, initial_capital_cny=declared['total_cny'], capital_source=declared['source'])
-        origin = dict(schema='guanheng.current-capital-baseline.v1', **declared,
-                      baseline_at=now.isoformat(), historical_initial_capital_cny=None)
+        origin = dict(
+            schema='guanheng.current-capital-baseline.v1',  # 固定当前资本基准协议版本。
+            **declared,  # total_cny为含库存的CNY十进制资本，source为声明来源；二者均经current_capital核准。
+            baseline_at=now.isoformat(),  # 首次启用的UTC ISO8601时点；由本次准备调用提供，后续恢复保留。
+            historical_initial_capital_cny=None)  # 旧历史本金，单位CNY；固定未知，不把当前资本或0当历史事实。
     runtime = replace(template, request=request, policy=policy, capital_baseline=origin)
     raw = canonical_bytes(runtime, max_bytes=16*1024*1024)
     native = None

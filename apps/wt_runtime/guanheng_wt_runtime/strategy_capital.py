@@ -21,12 +21,18 @@ def current_capital(value):
     total = number(value['total_cny'], 'current_total_capital')
     _require(rational(total) > 0)
     text(value['source'], 'capital_source')
-    return dict(total_cny=total, source=value['source'])
+    return dict(
+        total_cny=total,  # 当前策略总资本，含库存；CNY十进制字符串，来自显式声明，必填且大于0。
+        source=value['source'])  # 资本声明的来源标识；非空文本，不代表券商历史本金或查询时点。
 
 
 def baseline(value, policy=None):
     _require(type(value) is dict and set(value) == {
-        'schema', 'total_cny', 'source', 'baseline_at', 'historical_initial_capital_cny'}
+        'schema',  # 当前资本基准的协议版本；固定非空文本，由准备入口写入。
+        'total_cny',  # 含初始库存的当前总资本；CNY十进制字符串，来自显式配置，必填且大于0。
+        'source',  # 当前总资本的声明来源；非空文本，与数量policy的来源一致。
+        'baseline_at',  # 首次启用时点；带时区ISO8601字符串，准备入口写入UTC，恢复时保留。
+        'historical_initial_capital_cny'}  # 迁入前的历史本金，单位CNY；当前固定None表示未知，不能按0解释。
         and value['schema'] == 'guanheng.current-capital-baseline.v1'
         and value['historical_initial_capital_cny'] is None)
     result = dict(value, **current_capital({k: value[k] for k in ('total_cny', 'source')}))
@@ -40,16 +46,21 @@ def baseline(value, policy=None):
 @dataclass(frozen=True)
 class AccountCash:
     """原账户现金约束，绝不作为策略资本来源；冻结现金不与保证金/冻结佣金相加。"""
-    available_cny: str
-    frozen_cash_cny: str
-    observed_at: str
-    source_sha256: str
+    # 四个字段均必填；没有成功来源时由整个AccountCash对象的None表达未知。
+    available_cny: str  # 券商账户可用资金；CNY十进制字符串，来自原account批m_dAvailable，0为已知零。
+    frozen_cash_cny: str  # 券商账户冻结现金；CNY十进制字符串，来自同批m_dFrozenCash，0为已知零。
+    observed_at: str  # 原account批execution_finished_at；带时区ISO8601字符串，沿来源时点保留，不取读取时间。
+    source_sha256: str  # 完整NAP观察帧原字节的SHA256；必填，用于绑定来源，不能代替资金新鲜度。
 
 
 class AccountCashReader:
     """只读原NAP当前定位和同一完整原帧；失败保留最后值及原接收时点。"""
     def __init__(self, value, max_age):
-        _require(type(value) is dict and set(value) == {'path', 'config_sha256', 'account', 'environment'})
+        _require(type(value) is dict and set(value) == {
+            'path',  # 原账户owner的current.json绝对路径；由运行配置接线，必填，不归本读取器写入。
+            'config_sha256',  # 原Scan配置字节SHA256；由部署描述提供，必填，用于核对同一查询来源。
+            'account',  # 明确配置的账户身份；必填敏感文本，仅用于核绑定，不传播至资金展示字段。
+            'environment'})  # 账户环境标识；来自原Scan绑定，必填，防止模拟与真实账户混接。
         self.path = Path(value['path'])
         _require(self.path.is_absolute() and self.path.name == 'current.json')
         self.binding, self.max_age, self.last = dict(value), max_age, None
@@ -140,16 +151,25 @@ def observe_capital(origin, pnl, market_value, observed_at, account, qualified, 
     if account is not None and qualified:
         spendable = min(max(Fraction(0), cash-rational(account.frozen_cash_cny)),
                         rational(account.available_cny))
-    return dict(schema='guanheng.strategy-capital-observation.v1', currency='CNY',
-        baseline=origin, observed_at=observed_at, native_pnl_cny=_decimal(pnl),
-        position_observed_at=position_observed_at, market_value_source='broker-position+raw-CTA-price',
-        nav_cny=_decimal(nav), market_value_cny=_decimal(market_value), cash_balance_cny=_decimal(cash),
-        spendable_cash_cny=None if spendable is None else _decimal(spendable),
-        account_observation_qualified=bool(qualified),
-        account_observed_at=None if account is None else account.observed_at,
+    # 金额统一为CNY精确十进制字符串，不强制分位舍入；None表示来源未知，数值0表示已知零。
+    return dict(
+        schema='guanheng.strategy-capital-observation.v1',  # 资金观察协议版本；固定非空文本。
+        currency='CNY',  # 本观察所有金额的币种；固定人民币，不进行汇率换算。
+        baseline=origin,  # 首次准备owner拥有的当前资本基准；必填，恢复沿原对象内容复用。
+        observed_at=observed_at,  # 本次CTA回调估值截止；带时区ISO8601，不冒充账户批次的原时点。
+        native_pnl_cny=_decimal(pnl),  # 新运行以来原WT flag0损益；含原WT费用，未迁入旧历史盈亏。
+        position_observed_at=position_observed_at,  # 券商P原接收时点；带时区ISO8601，None表示调用方未提供。
+        market_value_source='broker-position+raw-CTA-price',  # 市值来源口径；实际券商数量乘原CTA未复权报价。
+        nav_cny=_decimal(nav),  # 当前净值；原资本基准加原WT新运行损益，含当前库存价值。
+        market_value_cny=_decimal(market_value),  # 当前实际库存市值；数量为股/份，报价为CNY/股或份。
+        cash_balance_cny=_decimal(cash),  # 策略现金余额；净值减实际库存市值，允许负值，不取账户总现金。
+        spendable_cash_cny=None if spendable is None else _decimal(spendable),  # 保守可用现金；受账户冻结/可用限制，失效为None。
+        account_observation_qualified=bool(qualified),  # 原账户来源当前是否合格且未过期；False时禁止用旧值授可用资金。
+        account_observed_at=None if account is None else account.observed_at,  # 原account批完成时间；无成功来源为None，失效保留旧时间。
         account_valid_until=None if account is None else (
-            datetime.fromisoformat(account.observed_at)+timedelta(seconds=max_age_seconds)).isoformat(),
-        account_available_cny=None if account is None else account.available_cny,
-        account_frozen_cash_cny=None if account is None else account.frozen_cash_cny,
-        account_source_sha256=None if account is None else account.source_sha256,
-        cash_constraint_scope='account-wide-conservative-limit', historical_return_pct=None)
+            datetime.fromisoformat(account.observed_at)+timedelta(seconds=max_age_seconds)).isoformat(),  # 原账户时间加配置有效秒数；无来源为None。
+        account_available_cny=None if account is None else account.available_cny,  # 原全账户可用资金；无成功来源为None，失效保留原值。
+        account_frozen_cash_cny=None if account is None else account.frozen_cash_cny,  # 原全账户冻结现金；无来源为None，非策略专属冻结额。
+        account_source_sha256=None if account is None else account.source_sha256,  # 原NAP帧SHA256；无成功来源为None，失效保持来源身份。
+        cash_constraint_scope='account-wide-conservative-limit',  # 账户级保守上限标识；没有按策略分摊账户冻结额。
+        historical_return_pct=None)  # 迁入前历史收益率，单位%；固定None表示未知，不由新运行净值倒算。

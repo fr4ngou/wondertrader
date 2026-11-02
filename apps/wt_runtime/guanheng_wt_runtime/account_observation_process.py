@@ -29,13 +29,13 @@ def _utc():
 @dataclass(frozen=True)
 class AccountObservationConfig:
     """descriptor只选择原生材料、刷新和预算；凭据沿原Scan环境变量。"""
-    installation: Path
-    scan: AccountScanConfig
-    control_root: Path
-    refresh_seconds: float
-    startup_seconds: float
-    stop_seconds: float
-    native_sha256: tuple[tuple[str, str], ...]
+    installation: Path  # 固定账户组件安装绝对目录；来自部署描述，原生映像由本owner验证，必填。
+    scan: AccountScanConfig  # 原四查询配置值对象；绑定账户/环境、来源和总截止，不在此复制凭据或账户金融事实。
+    control_root: Path  # E盘控制根绝对路径；由账户owner租约保护，保存分代观察及current引用，必填。
+    refresh_seconds: float  # 两轮扫描之间的等待秒数，范围(0,3600]；来自部署描述，不代表来源有效期。
+    startup_seconds: float  # 本组件启动共享预算，单位秒、范围(0,60]；来自部署描述，必填。
+    stop_seconds: float  # 本组件关闭预算，单位秒、上限120；至少覆盖Scan总预算加2秒，来源为部署描述。
+    native_sha256: tuple[tuple[str, str], ...]  # 安装清单的(相对文件名,SHA256)不可变对；逐一核固定Scan/Trader字节，必填。
 
     @classmethod
     def from_path(cls, path, expected_sha256):
@@ -132,9 +132,13 @@ class AccountObservationProcess:
             stream.flush()
         replace_status(temporary, self._directory / 'observation.json')
         # 固定定位只发布当前owner引用；金融正文和各批原时间仍归原observation文件。
-        reference = dict(schema='guanheng.account-observation-reference.v1', control_id=self._control_id,
-            config_sha256=scan.configuration_sha256, pid=os.getpid(), path=str(self._directory/'observation.json'),
-            ready_path=str(self._directory/'ready.json'))
+        reference = dict(
+            schema='guanheng.account-observation-reference.v1',  # 固定定位协议版本；仅引用原观察正文。
+            control_id=self._control_id,  # 本代owner的UUID文本；由启动入口分配，必填，与分代目录同名。
+            config_sha256=scan.configuration_sha256,  # 原Scan配置SHA256；核同一账户来源，必填，不代表观测时点。
+            pid=os.getpid(),  # 本代发布owner的Windows进程ID；必填正整数，不能单独证明当前存活。
+            path=str(self._directory/'observation.json'),  # 本代原始观察帧绝对路径；正文/原时间归账户owner，消费者只读。
+            ready_path=str(self._directory/'ready.json'))  # 同代ready收据绝对路径；由同owner拥有，必填，不授金融新鲜度。
         pointer = self.config.control_root / ('.current.'+str(uuid4()))
         with pointer.open('xb') as stream:
             stream.write(json.dumps(reference, separators=(',', ':')).encode('utf8')); stream.flush()
