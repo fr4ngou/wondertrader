@@ -1,3 +1,5 @@
+- [独立观衡Web生命周期](observer-web-lifecycle.md)：隐藏启动、正常停止与重启，沿原App读取与关闭流程，保持WT独立。
+
 - [QMT分钟来源日线](qmt-minute-source-daily.md)：原WT聚合、逐日标签准入、未知量单位及保留既有日仓的只读接续。
 
 - [独立市场更新角色的行情连接](observation-update-connection.md)：显式私有连接、凭据隔离、无凭据停止及原监督生命周期。

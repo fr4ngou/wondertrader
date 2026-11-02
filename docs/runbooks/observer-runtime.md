@@ -27,7 +27,7 @@
 & "$newRoot/runtime/app/venv/Scripts/python.exe" -I -B -m guanheng_app --port 18120 --static-directory "$newRoot/payload/spa"
 ```
 
-地址为http://127.0.0.1:18120/dashboard；端口可以显式更换。关闭该观衡终端会停止页面服务；WT按独立操作手册启停。WT停止后观衡保留最近一次原结果及其时间，并展示停止状态。
+地址为http://127.0.0.1:18120/dashboard；端口可以显式更换。前台运行适用于交互诊断；隐藏常驻运行使用下方本机维护入口。WT按独立操作手册启停。WT停止后观衡保留最近一次原结果及其时间，并展示停止状态。
 
 更新时保留旧安装、外部读取配置和个人目录，将新包安装至另一全新目录；正常关闭旧观衡，再用新解释器和新SPA启动，核账户/行情/个人观察。回退时正常关闭新观衡，重新使用旧解释器和旧SPA，沿用同一外部配置及个人目录。具体合格回退版本、数据兼容范围和可读取的报告模式以该次交付记录为准；旧版本尚未支持的新报告模式需要使用支持该模式的已验证安装查看。旧托管App需要另行迁移。两个版本并行占用同一个人目录会触发独占保护。
 
@@ -38,3 +38,46 @@
 当前a68的T2108采用新方法/2；a66对新字段的数据读取和21字段CSV已验证，其中文方法说明仍适用于/1。回退a66时，正常停止本数据根的独立观察监督和Web，使用原观察CLI的restore将current切至升级前已验证兼容的/1快照，再启动旧解释器和旧SPA。restore携带本次当前快照expected-current，冲突时核对原指针；沿同一目录lease、完整校验和CAS执行。升级前的快照身份、来源配置、独立服务部署和已完成窗口须保留；回退读取并不修改窗口尝试或完成事实。新/2快照与内容对象继续保存，CSV可固定原版本导出；/2的人用页面使用a68查看。恢复a68时重新采用保留的新快照，并使用同一最终a68安装和相应服务配置。行情、账户及个人目录沿原外部事实保持，具体原件和验证入口见[当前连续性证据](../evidence/2026-10-31-observer-a68-continuity.md)。
 
 独立调度功能与真实自然窗口分别验收。使用原service.now接缝的QA时钟可证明窗口选择、失败保旧/恢复、Web关闭期间发布和同日重启不重复；该验证不改变Windows时钟，也不授新的真实自然09观察或未来每日来源资格。固定原件索引只授该批消费，后续日期需要来源owner提供实际新输入及其内容身份。受控验证的重试上限和批次截止单独记录，原现场政策与失败窗口保持。
+
+
+## 隐藏 Web 的启动、查询、正常停止与重启
+
+独立交付包中的 `observer-web.py` 管理一个明确版本的 Web。它使用安装好的 App、Uvicorn 和 App 原有关闭流程；WT、行情通信和市场更新角色继续各自运行。Windows 自带的 PowerShell/CIM 只负责隐藏创建 Web 进程，维护命令随即退出。运行期只有该 Web 的解释器及 Windows venv 启动器。
+
+先创建私有控制目录和外部读取配置。读取配置 JSON 的键为原有 `GUANHENG_…` 环境名，值均为字符串；将部署中实际需要的 WT 只读定位、行情连接、市场观察根、个人观察目录等放在这个文件。未列出的继承环境会被清除。凭据保留在私有配置文件，命令行只传文件路径。配置目录采用当前用户已有的访问保护。
+
+另存 `web-profile.json`，其模式如下；替换所有示例路径、版本、摘要和端口为安装收据中的实际值。`pythonw` 是已安装 App 角色解释器，`static_directory` 是同一安装的 SPA。Windows 打包应用可能将 LocalAppData 映射到自己的目录，使用安装收据的实际绝对路径。维护命令与 Web 分别核配置摘要和 App 版本；Web 找不到 SPA 时会报告失败。
+
+```json
+{
+  "schema": "guanheng.observer-web.v1",
+  "pythonw": "E:/example/observer/runtime/app/venv/Scripts/pythonw.exe",
+  "pythonw_sha256": "替换为该文件的SHA256",
+  "app_version": "替换为安装的guanheng-app版本",
+  "static_directory": "E:/example/observer/payload/spa",
+  "control_root": "E:/example/private/web-control",
+  "host": "127.0.0.1",
+  "port": 18120,
+  "environment_file": "E:/example/private/web-reading.json",
+  "environment_sha256": "替换为读取配置文件的SHA256",
+  "startup_seconds": 30,
+  "stop_seconds": 45
+}
+```
+
+`startup_seconds` 和 `stop_seconds` 是本次操作的有限总等待预算。停止预算应覆盖部署中最长的在途只读请求及 App 原有清理预算。使用 CPython 3.12 x64 运行维护命令；可用已安装 App 的 `python.exe`，维护命令自身只用标准库。
+
+```powershell
+& $python -I -B "$package/observer-web.py" start --profile $profile
+& $python -I -B "$package/observer-web.py" status --profile $profile
+& $python -I -B "$package/observer-web.py" stop --profile $profile
+& $python -I -B "$package/observer-web.py" restart --profile $profile
+```
+
+成功启动返回 `ready` 和该代 PID、控制 ID。重复 start 返回同一运行代。正常停止通过本机控制文件请求 Uvicorn 退出，沿 App lifespan 关闭读取池和个人观察 Owner。只有 `shutdown_complete=true`、两个读取池线程数为零、Web 解释器和 venv 启动器的 OS 退出码均为 0，才返回 `closed`；重复 stop 保留同一证明。该入口没有运维 HTTP 写接口。
+
+`failed` 表示已有明确错误；`unknown` 表示本次截止或身份/退出证据尚不完整。保留控制目录中的 `instance.json`、本代 `ready/closed/failure/exit.json` 和 `web.log`，按原控制 ID 查询；维护入口保持原实例，避免未知启动产生第二个 Web。若启动已经超时且随后取得同代 ready，status 可以接续确认并由 stop 正常关闭。CIM 本身超时而未取得启动器 PID 时需核对该代回执和 OS 进程身份后处理，不自动重发启动。入口提供本地用户级管理，不能阻止同一 Windows 用户主动改写控制资料。
+
+重启同版使用原 profile；外部读取配置与个人目录保持。升级或回退时，先用旧 profile 正常 stop 并保留 closed 证据，再为新版本创建新的 profile 和控制目录，引用新安装的解释器与 SPA，沿用原读取配置及个人目录。修改 profile 会改变运行身份，因此运行期间保留原 profile 供 stop 使用。版本切换只处理 Web，WT 和市场更新角色继续独立运行。
+
+该入口只管理经它启动的 Web。已有直接 `pythonw -m guanheng_app` 启动的实例没有这些控制回执，须由其原 Owner 正常退出后，再迁到本入口；本工具不会附着到任意 PID 或强杀旧实例。

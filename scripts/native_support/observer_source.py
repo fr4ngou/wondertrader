@@ -16,8 +16,9 @@ from . import system_runtime as files
 
 CONFIG = 'config/observer-source.json'
 TEMPLATE = 'scripts/runtime_templates/observer-install.py'
+WEB_TEMPLATE = 'scripts/runtime_templates/observer-web.py'
 SUPPORT = ('scripts/observer_source.py', 'scripts/native_support/observer_source.py',
-           'scripts/native_support/role_artifact_composition.py', TEMPLATE,
+           'scripts/native_support/role_artifact_composition.py', TEMPLATE, WEB_TEMPLATE,
            'config/python-build-dependencies.json', 'docs/runbooks/observer-runtime.md',
            'tests/integration/qmt_shm_account/scan/runtime_identity.py',
            'tests/integration/qmt_shm_account/scan/fixture_control.py', *files.TOOL_FILES)
@@ -168,6 +169,7 @@ def build(root: Path, work: Path, *, python: Path, backend: Path, wheelhouse: Pa
         target = package / 'tools' / name;target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(root / name, target)
     shutil.copyfile(root / TEMPLATE, package / 'observer-install.py')
+    shutil.copyfile(root / WEB_TEMPLATE, package / 'observer-web.py')
     shutil.copyfile(root / 'docs/runbooks/observer-runtime.md', package / 'README.md')
     manifest = dict(schema='guanheng.observer-runtime.v1', development=True,
         role_manifest_sha256=composed['manifest_sha256'],
