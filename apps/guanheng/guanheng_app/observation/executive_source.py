@@ -10,6 +10,7 @@ from .provider_reports import report_pages
 from .source_fetch import SourceFailure
 from .stock_universe import shsz_listings, listed_codes
 from .storage import digest, encode
+from .provider_tables import parse_json
 from .executive_models import rows_for_metrics
 from .financial_source import REPORT as COMPANY_REPORT
 from .security_identity import company_id as _company, security_code as _security, canonical as _canonical_security, report_rows, security_type
@@ -198,7 +199,10 @@ def executive_changes(fetch, config, start, end):
     if scope == 'ashare':
         from .bse_universe import listings as bse_universe
         bse_listings, aliases, bse_sha = bse_universe(fetch, config['bse_history'], as_of=end,
-            minimum=config['minimum_bse_universe'])
+            minimum=config['minimum_bse_universe'],verify_disclosures=config.get('bse_verify_disclosures',False))
+        fetch.budget.remaining()
+        confirmed_through=parse_json(fetch.objects.get(bse_sha))['verified_through']
+        fetch.budget.remaining()
         listings.update(bse_listings)
     periods = tuple(f'{year}-12-31' for year in config['reports'])
     _need(all(period < end for period in periods), 'identity_report_not_completed')
@@ -217,7 +221,7 @@ def executive_changes(fetch, config, start, end):
         for row, universe in zip(calculated, universes):
             bse_count = sum(code.startswith('bj.') for code in universe['members'])
             row.update(bse_market_count=bse_count, shsz_market_count=row['market_stock_count']-bse_count,
-                universe_confirmed_through=config['bse_history']['verified_through'])
+                universe_confirmed_through=confirmed_through)
             universe.update(source_bse_sha256=bse_sha, bse_market_count=bse_count,
-                history_confirmed_through=config['bse_history']['verified_through'])
+                history_confirmed_through=confirmed_through)
     return {**rows_for_metrics(calculated, scope=scope), 'source.executive_'+scope+'_universe': universes}

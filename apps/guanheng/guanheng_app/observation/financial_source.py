@@ -7,8 +7,7 @@ import re
 
 from .baostock_source import BaostockClient
 from .source_fetch import SourceFailure
-from .stock_universe import shsz_listings, listed_codes
-from .storage import digest, encode
+from .financial_universe import universes_for_reports
 from .provider_reports import report_pages
 
 
@@ -125,50 +124,30 @@ def annual_values(rows, members, period, as_of, *, check=lambda: None, metrics=N
     return output
 
 
-def annual_reports(fetch, config, start, end):
-    """显式年度列表独立于日线窗口；一次原证券表供所有年度共用。"""
+def annual_reports(fetch, config, start, end, *, admitted_rows=()):
+    """取当次可得财报；成员由单一年度事实准备层提供，已准入事实按年核同。"""
     from .financial_models import METRICS as DEFINITIONS
-    with BaostockClient(fetch, min(fetch.timeout, config.get('timeout_seconds', fetch.timeout))) as client:
-        fields, basic = client.table('stock_basic')
-        listings = shsz_listings(fields, basic, check=fetch.budget.remaining)
-    if len(listings) < config['minimum_universe']:
-        raise SourceFailure('financial_universe_incomplete')
-    basic_sha = next((r['sha256'] for r in reversed(fetch.records) if r.get('kind')=='stock_basic'), None)
-    if basic_sha is None:
-        raise SourceFailure('financial_universe_parent_missing')
-    scope=config.get('scope','shsz');aliases={};bse_sha=None;bse_listings={}
+    scope=config.get('scope','shsz')
     fields_by_metric=METRICS if scope=='shsz' else ASHARE_METRICS
-    if scope=='ashare':
-        from .bse_universe import listings as bse_universe
-        bse_listings,aliases,bse_sha=bse_universe(fetch,config['bse_history'],as_of=end,
-            minimum=config['minimum_bse_universe'])
-        listings.update(bse_listings)
+    periods=[f'{year}-12-31' for year in config['reports']]
+    facts=universes_for_reports(fetch,config,periods,end,admitted_rows,basic_client=BaostockClient)
     selected = set(config['datasets']) & set(DEFINITIONS)
     output = {key: [] for key in sorted(selected)}
     universes = []
-    for year in config['reports']:
+    for period in periods:
         fetch.budget.remaining()
-        period = f'{year}-12-31'
-        if period >= end:
-            raise SourceFailure('financial_report_not_completed')
-        members = listed_codes(listings, period, check=fetch.budget.remaining)
-        if not members:
-            raise SourceFailure('financial_universe_empty')
+        fact=facts[period];universe=fact['row'];members=set(universe['members'])
         rows = report_pages(fetch, config['url'], report=REPORT, columns=COLUMNS,
             filters=f'(REPORT_DATE=\'{period}\')(SECURITY_TYPE_CODE in ("058001001","058001008"))',
             sort='SECUCODE', max_pages=config['max_pages'])
         calculated = annual_values(rows, members, period, end, check=fetch.budget.remaining,
-            metrics=fields_by_metric,aliases=aliases)
+            metrics=fields_by_metric,aliases=fact['aliases'])
         if scope=='ashare':
             bse_count=sum(member.startswith('bj.') for member in members)
             for row in calculated.values():
                 row.update(bse_market_count=bse_count,shsz_market_count=len(members)-bse_count,
-                    universe_confirmed_through=config['bse_history']['verified_through'])
+                    universe_confirmed_through=universe['history_confirmed_through'])
         for key in selected:
             output[key].append(calculated[key])
-        universe=dict(date=period, market_count=len(members), members=sorted(members),
-            universe_version=digest(encode(dict(date=period, codes=sorted(members)))), source_basic_sha256=basic_sha)
-        if bse_sha:universe.update(source_bse_sha256=bse_sha,bse_market_count=bse_count,
-            history_confirmed_through=config['bse_history']['verified_through'])
-        universes.append(universe)
+        universes.append(dict(universe))
     return {**output, 'source.financial_'+scope+'_universe': universes}

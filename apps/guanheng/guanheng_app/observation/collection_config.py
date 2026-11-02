@@ -13,7 +13,7 @@ KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmon
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
-    'input_manifest','input_sha256','input_directory'}
+    'input_manifest','input_sha256','input_directory','bse_verify_disclosures'}
 
 
 def _need(value):
@@ -163,6 +163,9 @@ def validate_configuration(value):
                 _bse_history(source.get('bse_history'),hosts)
             else:_need(not {'bse_history','minimum_bse_universe'} & set(source))
         elif {'scope','bse_history','minimum_bse_universe'} & set(source):_need(False)
+        if 'bse_verify_disclosures' in source:
+            _need(source['kind']=='executive_changes' and source.get('scope')=='ashare'
+                and type(source['bse_verify_disclosures']) is bool)
         if source['kind']=='financial_annual':
             from .financial_models import METRICS
             years=source.get('reports')

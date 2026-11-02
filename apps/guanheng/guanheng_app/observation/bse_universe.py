@@ -46,14 +46,18 @@ class _Mapping(HTMLParser):
             self.row=None
 
 
-def listings(fetch, history, *, as_of, minimum):
-    """当前全页+已核退出公告重建区间；超过历史资料核验日明确停止采用。
+def listings(fetch, history, *, as_of, minimum, verify_disclosures=False):
+    """当前全页+已核退出公告重建区间；缺省沿静态核验截止采用。
 
-    history由显式采集配置持有事实和公告摘要。原公告重新捕获并核同摘要，
-    所有原件及派生区间进入原来源对象链，上市日计入、摘牌日退出。
+    history由配置owner持有区间和公告摘要；verify_disclosures=True时，
+    超出seed截止须完整复核官方终止上市公告，成功才延长本次原件资格，
+    原seed保持。新公司/新公告或登记变化交owner核验，失败保留旧结果。
+    原退出公告仍重取并核同SHA；原件及区间进入同次来源链，上市日计入、
+    摘牌日退出。本函数只生成候选，调用者拥有最终发布及失败保旧事务。
     """
     check=fetch.budget.remaining;check()
-    if not history['market_open']<=as_of<=history['verified_through']:
+    if type(verify_disclosures) is not bool:raise SourceFailure('bse_history_policy')
+    if as_of<history['market_open'] or (as_of>history['verified_through'] and not verify_disclosures):
         raise SourceFailure('bse_history_coverage_expired')
     current={};total=pages=None;page=0
     while pages is None or page<pages:
@@ -95,6 +99,10 @@ def listings(fetch, history, *, as_of, minimum):
         aliases[old]=new;mapped_dates[new]=first
         if new in current and current[new]!=first:raise SourceFailure('bse_mapping_date_conflict')
     if not aliases:raise SourceFailure('bse_mapping_empty')
+    qualification=None
+    if as_of>history['verified_through']:
+        from .bse_history_verification import verify_history
+        history,qualification=verify_history(fetch,history,as_of,aliases)
     market_open=history['market_open']
     result={'bj.'+code:(max(market_open,first),'') for code,first in current.items()}
     for interval in history['exits']:
@@ -111,6 +119,7 @@ def listings(fetch, history, *, as_of, minimum):
         market_open=market_open,verified_through=history['verified_through'],
         current_count=len(current),aliases=aliases,
         intervals={code:list(value) for code,value in sorted(result.items())},history=history)
+    if qualification:provenance['history_verification_sha256']=qualification
     identity=fetch.objects.put(encode(provenance))
     fetch.records.append(dict(kind='bse_listing_intervals',sha256=identity,source_host='www.bse.cn',status=200))
     return result,aliases,identity

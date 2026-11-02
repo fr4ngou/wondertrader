@@ -1,5 +1,7 @@
 # 架构与决策
 
+- [ADR-0022 年末成员事实与财报更新分责](adr/0022-admitted-year-end-membership.md)：复用已准入成员及原件身份，财报刷新与成员修订分别拥有。
+
 - [ADR-0016 WT运行与观衡只读服务独立部署](adr/0016-independent-wt-runtime-and-observer.md)：WT拥有通信、采集、策略与交易生命周期，观衡独立发布和只读消费。
 
 - [ADR-0015 独立观察快照与目录所有权](adr/0015-observation-snapshot-owner.md)：本地不可变对象、事务CAS及跨进程采集lease。

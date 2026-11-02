@@ -1,3 +1,5 @@
+- [QMT分钟来源日线](qmt-minute-source-daily.md)：原WT聚合、逐日标签准入、未知量单位及保留既有日仓的只读接续。
+
 - [独立市场更新角色的行情连接](observation-update-connection.md)：显式私有连接、凭据隔离、无凭据停止及原监督生命周期。
 
 - [观衡人工验收修复与视觉重设计](observer-acceptance-repair.md)：OAR-01至09，搜索、历史/广度、中文金额、账户/策略/报告、运行接线和先选图后实施的UI重设计。

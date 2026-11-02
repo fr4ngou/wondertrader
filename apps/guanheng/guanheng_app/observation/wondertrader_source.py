@@ -20,7 +20,8 @@ def history(fetch, config, start, end, client_factory):
                 retrieved_at=datetime.now(timezone.utc).isoformat(),media_type='application/json'))
             if response['status']['code']!='Ok':raise SourceFailure('market_source_unavailable')
             data=response['data'];metadata=data['metadata'];volume_unit=metadata['volume_unit']
-            if volume_unit not in ('share','lot'):raise SourceFailure('market_volume_unit_unknown')
+            # 来源日线允许未知量单位；价格和原量照实归档，量指标单独核资格。
+            if volume_unit not in ('share','lot','unknown'):raise SourceFailure('market_volume_unit_invalid')
             if unit is not None and unit!=volume_unit:raise SourceFailure('market_volume_unit_changed')
             unit=volume_unit
             for bar in data['bars']:

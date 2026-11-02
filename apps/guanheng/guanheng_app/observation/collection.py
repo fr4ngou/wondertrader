@@ -28,7 +28,7 @@ from .ashare_public import history as public_ashare_history
 from .breadth_trends import attach_trends, attach_benchmark
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
-    marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,financial_annual=annual_reports,
+    marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,
     executive_changes=executive_changes,ashare_snapshot=ashare_history)
 
 
@@ -117,6 +117,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                     retry_seconds=config['retry_seconds'],max_attempts=config['max_window_attempts'])
             elif source['kind']=='qmt_t2108':
                 updates=t2108_history(fetch,source,start,end,calendar=config['models'].get('calendars',{}).get('cn'))
+            elif source['kind']=='financial_annual':
+                key='source.financial_'+source.get('scope','shsz')+'_universe'
+                updates=annual_reports(fetch,source,start,end,admitted_rows=tables.get(key,()))
             else:updates=PARSERS[source['kind']](fetch,source,start,end)
             allowed=set(source.get('tables',[]))|set(source.get('datasets',[]))
             if set(updates)-allowed:raise SourceFailure('unregistered_source_output')

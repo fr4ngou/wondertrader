@@ -1,6 +1,7 @@
 """同一公开报表服务的完整分页；保留来源计数、原字节及原绝对截止。"""
 from decimal import Decimal
 import json
+import re
 
 from .source_fetch import SourceFailure
 
@@ -11,12 +12,20 @@ def report_pages(fetch, url, *, report, columns, filters, sort, max_pages,
 
     金额适配器在JSON边界选择Decimal，避免先经二进制浮点损失原十进制值。
     只有服务明确返回success及零计数时，allow_empty才授予已知空结果。
+    sort为逗号分隔的唯一字段名，各字段统一升序；具体来源负责选择稳定的
+    唯一排序组合并核业务身份。排序字段与方向的数量在本适配器统一对齐。
     """
+    fields=sort.split(',') if type(sort) is str else []
+    if (not fields or not 1<=len(sort)<=1024
+            or any(re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,127}',field) is None for field in fields)
+            or len(set(fields))!=len(fields)):
+        raise SourceFailure(error_prefix+'_sort')
+    order=1 if len(fields)==1 else ','.join('1' for field in fields)
     expected, rows = None, []
     for page in range(1, max_pages+1):
         fetch.budget.remaining()
         raw = json.loads(fetch.get(url, dict(reportName=report, columns=columns, filter=filters,
-            sortColumns=sort, sortTypes=1, pageNumber=page, pageSize=500, source='WEB', client='WEB')),
+            sortColumns=sort, sortTypes=order, pageNumber=page, pageSize=500, source='WEB', client='WEB')),
             parse_float=Decimal if decimal_numbers else float)
         result = raw.get('result')
         if raw.get('success') is not True or type(result) is not dict:

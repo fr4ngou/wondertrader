@@ -37,9 +37,16 @@ def comparison_model(tables, datasets, definitions, config):
     base=config['base_date']; own_activity={}
     calendars, calendar_metadata = comparison_calendars(tables, markets, config)
     for symbol,table in markets.items():
-        prior=[]; activity={}
+        prior=[]; activity={}; previous_unit=None
         for day,row in sorted(table.items()):
             if day not in calendars['hk' if symbol.startswith('hk') else 'cn']: continue
+            # 显式unknown只影响量指标，价格与原量继续可读。保留既有未带
+            # 单位字段的归档口径；已声明单位变更时重新积累同单位预热窗口。
+            unit=row.get('provider_volume_unit')
+            if unit=='unknown':
+                activity[day]=None;prior=[];previous_unit=unit;continue
+            if unit!=previous_unit:prior=[]
+            previous_unit=unit
             volume=row['provider_volume']; activity[day]=volume/statistics.mean(prior[-20:]) if len(prior)>=20 and statistics.mean(prior[-20:])>0 else None
             prior.append(volume)
         own_activity[symbol]=activity
@@ -50,15 +57,18 @@ def comparison_model(tables, datasets, definitions, config):
         row=dict(old.get(day,dict(date=day,available_at=None)))
         for symbol,prefix in [('sh000001','a'),('hkHSCEI','hscei'),('hkHSI','hsi'),('hkHSTECH','hstech')]:
             value=markets.get(symbol,{}).get(day); first=markets.get(symbol,{}).get(base)
-            if value and first:
-                row.update({prefix+'_close':value['close'],prefix+'_rebased':100*value['close']/first['close'],prefix+'_provider_volume':value['provider_volume'],prefix+'_activity':own_activity[symbol].get(day)})
+            # 同日价格、原量和量窗口属于本日事实；固定基价只决定重定基列。
+            # 独立赋值会清除旧快照中已失去本轮资格的量活跃度。
+            if value:
+                row.update({prefix+'_close':value['close'],prefix+'_provider_volume':value['provider_volume'],prefix+'_activity':own_activity[symbol].get(day)})
+                if first:row[prefix+'_rebased']=100*value['close']/first['close']
         result.append(row)
     datasets['crossmarket.hk_a']=result
-    definition=definitions['crossmarket.hk_a']; definition['definition_version']='crossmarket-official-own-trading-days/3'
+    definition=definitions['crossmarket.hk_a']; definition['definition_version']='crossmarket-official-own-trading-days/4'
     definition['market_calendars']=calendar_metadata
     definition['comparison_modes']=['fixed_base','window_return','raw_panels']
     for line in definition['lines']:
-        if line['key'].endswith('_activity'): line['formula']='当日同源量字段 / 各市场自身此前20个实际交易日均量'
+        if line['key'].endswith('_activity'): line['formula']='当日同源量字段 / 各市场自身此前20个同单位实际交易日均量；显式unknown单位时为空'
 
 def market_models(tables, datasets, definitions, config,as_of):
     attach_pcr_context(tables,datasets,definitions,config.get('pcr_underlyings',{}))
@@ -138,8 +148,11 @@ def spread_and_bond(tables,datasets,config):
     datasets['bond.erp_rank756']=sorted(old.values(),key=lambda r:r['date'])
 
 def attach_sse_reference(tables,datasets):
+    """同次最终化统一填入期货、基差及估值参考；原源覆盖外归档值保持。"""
     reference={row['date']:row['close'] for row in tables.get('market.sh000001',[])}
-    for metric in ('pb_shsz_daily','pb_all','pb_sw_daily','spread_sw','cffex_if','cffex_ih','cffex_ic','cffex_im'):
+    for metric in ('pb_shsz_daily','pb_all','pb_sw_daily','spread_sw',
+                   'cffex_if','cffex_ih','cffex_ic','cffex_im',
+                   'basis_if','basis_ih','basis_ic','basis_im'):
         for row in datasets.get(metric,[]):
             if row['date'] in reference:row['sse_reference']=reference[row['date']]
 

@@ -29,3 +29,9 @@ Reader、缓存、owner和关闭实现共用。LRU以证券+周期为键，总ba
 ## DSH5 来源单位修订
 
 某字段单位的提升须绑定官方接口定义、本机SDK/适配版本、证券范围、请求周期/复权/日期及原始返回身份，明确直接声明与本机接口映射的证据级别。价格、成交量和成交额独立核实，数值关系一致仅作为佐证。以新dataset_version及新manifest/数据根发布修订，旧原始响应、CSV、profile和已成功数据根保持可追溯；逐字段回读必须证明源值未变。lot的证券数量解释记录在本批证据中，不能将ETF份额统一称为股票股数。日线接口的证据不改变旧DAT或全推profile。单位完善本身不授完整覆盖、闭合/可获知时刻及实盘资格。
+
+## DSH6 完整来源分钟标签的原生聚合
+
+已有QMT分钟仓可以按[分钟来源日线规格](qmt-minute-source-daily.md)准入完整标签日，并调用原WT Helper按日聚合、原schema3导入及Reader回读。dataset_version明确为qmt-native-session-daily.v1，原分钟收据、DSB、chunks、profile和逐日排除原因留在独立PROVENANCE.json；QMT原日线及聚合日线分别登记唯一证券+周期路由。聚合标签完整仍保持coverage unknown、源分钟边界及量额单位，不提升实际交易日历或历史知晓时刻资格。
+
+来源日线的unknown量单位保持原值并允许只读价格消费；观察适配器继续拒绝跨窗口单位变化。量活跃度对显式unknown日输出null并重新积累同单位预热，原量字段保持可核。既有未带单位字段的归档保持原来源口径。本规则不改账户、执行和标准MarketBar准入。
