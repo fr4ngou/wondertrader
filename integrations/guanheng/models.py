@@ -44,13 +44,13 @@ class Capability:
 
 @dataclass(frozen=True)
 class SourceSession:
-    provider: str  # 实际行情提供者；公开指数保留BaoStock或Tencent身份。
+    provider: str  # 实际行情提供者；公开指数保留BaoStock、Tencent或CSI身份。
     instance_id: str  # 来源实例身份，最多128字符；不代表当前连接已在线。
     session_id: str  # 原捕获或冻结批次身份，最多128字符。
     generation: int  # 原来源代际，非零uint64；不随查询次数递增。
 
     def __post_init__(self):
-        if self.provider not in ("Qmt", "Tdx", "BaoStock", "Tencent"):
+        if self.provider not in ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI"):
             raise ValueError("未知行情来源")
         if any(not isinstance(v, str) or not v or len(v) > 128 for v in (self.instance_id, self.session_id)):
             raise ValueError("来源实例或会话不合格")

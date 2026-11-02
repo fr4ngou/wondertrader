@@ -88,6 +88,10 @@ def market_models(tables, datasets, definitions, config,as_of):
     if markets.get('sh000300'):
         old=datasets.get('csi300_daily.reference',[])
         datasets['csi300_daily.reference']=merge(old,[dict(r,available_at=None) for r in markets['sh000300'].values()])[0]
+        # 来源适配保留量的原单位声明；参考图同步登记元数据，unknown继续表示未核实。
+        definitions['csi300_daily.reference']['field_schema']['provider_volume_unit']=dict(
+            label='来源成交量单位',unit='文本',required=False,nullable=True,value_kind='source_metadata',
+            source='原market.sh000300单位声明',formula='原值转交；unknown表示单位未核实',missing='旧记录未声明时留空')
     comparison_model(tables,datasets,definitions,config)
     if {'sh000001','hkHSCEI'}<=set(markets):
         base=config['base_date']

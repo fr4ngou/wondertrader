@@ -116,6 +116,8 @@ class MarketChartSourceLabelSource(MarketModel):
 
 class MarketChartSourceDateSource(MarketChartSourceLabelSource):
     """1.6日期标签保留来源日线；00:00标签不授闭合或知晓时间资格。"""
+    # 日线原提供者或已核分段组合；分钟与快照仍沿各自原合同。
+    provider: Literal["Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "Mixed"]
     source_minute_boundary: Literal["unknown"]
     chart_minute_boundary: Literal["source_date"] = "source_date"
     timestamp_semantics: Literal["source_date"] = "source_date"

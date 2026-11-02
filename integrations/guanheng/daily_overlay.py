@@ -134,10 +134,15 @@ class DailyOverlayMarket:
             self.close()
             raise
 
-    def _native(self, path, security, metadata, count=None):
+    def _native(self, path, security, metadata, count=None, *, decoding_version=None, expected_identity=None):
         raw = _read(path,self._max_file)
         content = hashlib.sha256(raw).hexdigest()
+        if expected_identity is not None:
+            _require(content == expected_identity)
         kwargs = {k:metadata[k] for k in ('qualification','dataset_version','source_license','period','price_unit','volume_unit','amount_unit','minute_boundary','value_semantics','timestamp_semantics','adjustment','factor_version','timezone')}
+        if decoding_version is not None:
+            # 自有复合DSB已经逐来源准入；不再用首段DAT计数布局解释其他来源。
+            kwargs['dataset_version'] = decoding_version
         header = SourceHistoryMetadata(source=SourceSession(**metadata['source']),content_id=content,expected_count=count,**kwargs)
         code, exchange = security.split('.')[1],security.split('.')[0]
         history = self._reader.read_source_file(path,code+('.SH' if exchange=='SSE' else '.SZ'),header)
@@ -150,7 +155,7 @@ class DailyOverlayMarket:
         entry = self._entries[security]
         path = self._archive_root / entry['path']
         metadata = entry['provenance'][0]['metadata']
-        bars, content = self._native(path,security,metadata,entry['rows'])
+        bars, content = self._native(path,security,metadata,entry['rows'],decoding_version='wt-daily-native-archive.v1',expected_identity=entry['sha256'])
         _require(content == entry['sha256'] and bars[0]['date'] == entry['first'] and bars[-1]['date'] == entry['last'])
         rows = {}
         for part in entry['provenance']:

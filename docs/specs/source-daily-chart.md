@@ -8,6 +8,8 @@
 
 ## 图表合同
 
+日线读取兼容SDK0.16已核的公开指数提供者BaoStock、Tencent、CSI及分段组合Mixed，原Qmt/Tdx身份保持。图表仅转交SDK核验后的来源、集合内容身份及未知单位；公开提供者扩展仅适用于来源日期日线，原分钟和快照合同保持。复合来源的逐段提供者、原件身份及数值资格由SDK与数据侧归档持有，不能统一标成QMT。来源单位unknown继续unknown。
+
 日线采用schema1.6、period/source_period=1d、derived=false，source_bar_count为返回条数。周/月采用schema1.8、period=1w或1mo、source_period=1d、derived=true，source_bar_count记录实际参与本次聚合的日线根数。自然周按ISO周分组，自然月按公历年月分组；每组open取首根、high取最大、low取最小、close取末根、volume求和，标签使用该组最后一个实际交易日。首尾不完整周期按实际覆盖保留，不生成缺失交易日。native_source明确value_semantics=source、timestamp_semantics=source_date、chart_minute_boundary=source_date、source_minute_boundary=unknown，保留provider、dataset_version、content_id、qualification、coverage=Unknown、timezone、原价/量/额单位。沿原date逐日构造上海00:00的标签再以UTC传输；as_of表示末条来源日期标签，用户界面显示最新交易日，实际闭合/可获知时间归内部诊断与策略准入。源status非Ok、身份/周期/顺序/数量/时间/非有限值/OHLC范围错误、未知响应和来源断开均返回去敏中文不可用结果；期间无旧图或旧末日期。
 
 1.4 canonical分钟和1.5 source分钟保持各自时间边界；1.6绑定日线来源语义；1.8绑定日线来源及自然周期派生语义。日线原metadata period、source_date、selection与请求一致；空missing_dates不证明完整日历覆盖。金额单位原metadata保留，现有图表仍只展示OHLC与成交量。
