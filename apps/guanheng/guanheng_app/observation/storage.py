@@ -55,7 +55,8 @@ def _atomic_replace(path, body):
             stream.write(body)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(name, path)
+        # 心跳读者可持有旧文件；复用存储层统一替换原语，保留完整旧/新快照。
+        replace_readable_file(name, path)
     finally:
         Path(name).unlink(missing_ok=True)
 

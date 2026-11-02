@@ -50,10 +50,31 @@ class StopController:
         return self.monitor.join_until(deadline)
 
 
+def _failure_metadata(error,stage):
+    """仅保存有限异常身份与代码位置；正文、路径、配置和来源响应不进入诊断。"""
+    chain=[];seen=set();remaining_frames=4
+    def code(value):return value if type(value) is int and 0<=value<=0xffffffff else None
+    while error is not None and id(error) not in seen and len(chain)<3:
+        seen.add(id(error));frames=[];frame=error.__traceback__
+        while frame is not None:
+            module=frame.tb_frame.f_globals.get('__name__','')
+            if module.startswith('guanheng_app.'):
+                frames.append(dict(module=module[:96],function=frame.tb_frame.f_code.co_name[:64],line=frame.tb_lineno))
+                frames=frames[-4:]
+            frame=frame.tb_next
+        frames=frames[-remaining_frames:] if remaining_frames else []
+        remaining_frames-=len(frames)
+        chain.append(dict(error_type=type(error).__name__[:64],
+            errno=code(getattr(error,'errno',None)) if isinstance(error,OSError) else None,
+            winerror=code(getattr(error,'winerror',None)) if isinstance(error,OSError) else None,frames=frames))
+        error=error.__cause__ or (None if error.__suppress_context__ else error.__context__)
+    return dict(stage=stage,observed_at=datetime.now(timezone.utc).isoformat(),exceptions=chain)
+
+
 def serve(configuration,expected_sha256,directory,control_id,*,now=lambda:datetime.now(timezone.utc)):
     """主线程独占调度/采集；now仅为可注入时钟，正式CLI固定系统UTC。"""
     _require(str(UUID(control_id))==control_id and directory.name==control_id)
-    _sha(expected_sha256);stop=None;created=False;error=None;joined=False;stage='configuration'
+    _sha(expected_sha256);stop=None;created=False;error=None;joined=False;stage='configuration';diagnostic=None
     def publish(name,value):
         raw=encode(value);_require(0<len(raw)<=4096)
         temporary=directory/(name+'-'+str(uuid4())+'.tmp')
@@ -76,15 +97,23 @@ def serve(configuration,expected_sha256,directory,control_id,*,now=lambda:dateti
         run(reader,config,stop,now=now,on_ready=ready,market_client_factory=market_client_factory())
         if stop.error or stop.deadline is None:error=stop.error or 'stop_missing'
     except ObservationError as exc:
-        error=exc.code
-    except BaseException:
-        error=stage
+        error=exc.code;diagnostic=_failure_metadata(exc,stage)
+    except BaseException as exc:
+        error=stage;diagnostic=_failure_metadata(exc,stage)
     finally:
         if stop is not None:
             joined=stop.close()
             if not joined or stop.deadline is not None and time.monotonic()>=stop.deadline:error=error or 'close'
         if created:
             identity=dict(control_id=control_id,pid=os.getpid(),configuration_sha256=expected_sha256)
+            if error is not None and diagnostic is None:
+                diagnostic=_failure_metadata(None,'shutdown')
+            if diagnostic is not None:
+                try:
+                    publish('diagnostic.json',dict(schema='guanheng.observation-diagnostic.v1',**identity,**diagnostic))
+                except BaseException:
+                    # 诊断发布失败保留原失败结果，不能把未知关闭改成成功。
+                    pass
             if error is None and joined:
                 publish('closed.json',dict(schema='guanheng.observation-closed.v1',status='stopped',
                     scheduler_closed=True,monitor_joined=True,error_code=None,**identity))

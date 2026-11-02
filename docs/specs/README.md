@@ -1,3 +1,5 @@
+- [观察状态原子发布与失败诊断](observation-status-publication.md)：合法旧状态读者与心跳并行、原失败语义和有限安全诊断。
+
 - [独立观衡Web生命周期](observer-web-lifecycle.md)：隐藏启动、正常停止与重启，沿原App读取与关闭流程，保持WT独立。
 
 - [QMT分钟来源日线](qmt-minute-source-daily.md)：原WT聚合、逐日标签准入、未知量单位及保留既有日仓的只读接续。
