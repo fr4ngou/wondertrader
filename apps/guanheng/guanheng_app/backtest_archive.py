@@ -423,6 +423,42 @@ class BacktestArchive:
         finally:
             self._lock.release()
 
+    def visual(self, run_id, receipt_sha, deadline, *, ledger=False, day=None, offset=0, limit=50):
+        """曲线辅助与日期明细复用完整原件校验、同一锁/预算；不写归档。"""
+        from .backtest_visuals import native_tables, build_visuals
+        read = _Read(deadline)
+        _require(self._lock.acquire(blocking=False), '归档正在读取，请稍后重试', 429)
+        try:
+            directory, value, digest = self._load(read, run_id, receipt_sha)
+            result_raw = read.raw(directory / 'result.json', 32 * 1024 * 1024)
+            request, admitted, report, session = self._originals(read, directory, value, result_raw=result_raw)
+            result = _json(result_raw, 32 * 1024 * 1024, deadline)
+            trades, positions = native_tables(read, directory, value, result)
+            if ledger:
+                dates = {row['trading_date'] for row in report['records']}
+                _require(day is None or day in dates, '该报告没有所选日期', 404)
+                filtered = [row for row in trades or [] if day is None or row['date'] == day]
+                capture = next((row.get('capture') for row in report['records'] if row['trading_date'] == day), None)
+                response = {'schema': 'nbw-ledger-v1', 'run_id': run_id, 'receipt_sha256': digest,
+                    'report_sha256': value['report_sha256'], 'date': day,
+                    'positions_available': positions is not None and capture is not None,
+                    'positions': [row for row in positions or [] if row['date'] == day],
+                    'trades_available': trades is not None, 'total': len(filtered), 'offset': offset,
+                    'trades': filtered[offset:offset + limit]}
+            else:
+                performance = build_performance(receipt=value, receipt_sha256=digest, request=request, session=session,
+                    report=report, admitted=admitted, check=read.check)
+                response = build_visuals(performance, trades, check=read.check)
+            _require(len(_wire(response)) <= MAX_RESPONSE, '日期明细超出响应容量')
+            read.check()
+            return response
+        except ArchiveError:
+            raise
+        except (Exception, SystemExit):
+            raise ArchiveError() from None
+        finally:
+            self._lock.release()
+
     def compare(self, left_run_id, left_receipt_sha, right_run_id, right_receipt_sha, deadline):
         """两次完整原件读取串行共用一次绝对D；一份失败即整对拒绝。"""
         read = _Read(deadline)

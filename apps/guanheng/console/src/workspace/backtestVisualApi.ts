@@ -1,0 +1,90 @@
+import { fetchBacktestReadJson, type ArchiveEntry, tradingDate } from './backtestApi'
+import { boundedBacktestTree, invalidBacktest, isObject } from './backtestV2'
+
+export type Visuals = {
+  /** 完成归档的运行身份，与请求一致。 */ run_id: string
+  /** 完成收据SHA256，隔离报告切换。 */ receipt_sha256: string
+  /** 原报告SHA256。 */ report_sha256: string
+  /** 版本化只读投影。 */ schema: 'nbw-visuals-v1'
+  /** 原生成交CSV已适配；false表示未知而非零成交。 */ trades_available: boolean
+  /** 交易日、日收益%、回撤负百分比、买/卖/其他成交笔数；收益未知为null。 */ points: [number, number | null, number | null, number, number, number][]
+}
+export type Holding = {
+  /** 上海交易日YYYYMMDD。 */ date: number
+  /** WT原证券代码。 */ symbol: string
+  /** 日末份数，原CSV十进制文本。 */ quantity: string
+  /** 累计已实现盈亏（元），未扣费用。 */ realized_cny: string
+  /** 持仓浮盈亏（元），未扣费用。 */ floating_cny: string
+}
+export type Trade = {
+  /** 原CSV行序号，稳定区分同分钟多笔。 */ index: number
+  /** 上海交易日YYYYMMDD。 */ date: number
+  /** 上海时间YYYYMMDDHHmm。 */ time: string
+  /** 原WT证券代码。 */ symbol: string
+  /** 按原方向/开平映射；无法映射保留unknown。 */ side: 'buy' | 'sell' | 'unknown'
+  /** 原多空方向。 */ direction: string
+  /** 原开平标识。 */ action: string
+  /** 成交价（元），原十进制文本。 */ price: string
+  /** 成交份数，原十进制文本。 */ quantity: string
+  /** 本笔费用（元），原十进制文本。 */ fee_cny: string
+}
+export type Ledger = {
+  /** 版本化只读明细。 */ schema: 'nbw-ledger-v1'
+  /** 请求运行身份。 */ run_id: string
+  /** 请求收据摘要。 */ receipt_sha256: string
+  /** 原报告摘要。 */ report_sha256: string
+  /** 所选交易日；null查询所有成交。 */ date: number | null
+  /** 当日日末资金与持仓原件已知；false不能显示空仓。 */ positions_available: boolean
+  /** 非零日末持仓；空数组与可用性联合解释。 */ positions: Holding[]
+  /** 原成交表可读且已适配。 */ trades_available: boolean
+  /** 当前日期筛选后的全部成交笔数。 */ total: number
+  /** 当前页起始序号。 */ offset: number
+  /** 最多50笔原始成交。 */ trades: Trade[]
+}
+const decimal = (v: unknown): v is string => typeof v === 'string' && v.length <= 512 && /^-?\d+(?:\.\d+)?$/.test(v)
+const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 512 && !/[\u0000-\u001f]/.test(v)
+const nullableNumber = (v: unknown) => v === null || typeof v === 'number' && Number.isFinite(v)
+const count = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0 && Number(v) <= 65536
+function keys(v: Record<string, unknown>, expected: string) {
+  const names = expected.split(' ')
+  if (Object.keys(v).length !== names.length || names.some(name => !Object.hasOwn(v, name))) invalidBacktest()
+}
+function identity(v: unknown, e: ArchiveEntry) {
+  if (!isObject(v) || v.run_id !== e.run_id || v.receipt_sha256 !== e.receipt_sha256 || v.report_sha256 !== e.report_sha256) invalidBacktest()
+  return v
+}
+/** 使用既有31秒HTTP预算；响应绑定完成收据，不触发回测或交易。 */
+export async function fetchVisuals(entry: ArchiveEntry, signal?: AbortSignal): Promise<Visuals> {
+  const v = identity(await fetchBacktestReadJson<unknown>(`/v1/ui/backtest/archive/${entry.run_id}/visuals?receipt_sha256=${entry.receipt_sha256}`, '回测图表', signal), entry)
+  boundedBacktestTree(v)
+  keys(v, 'schema run_id receipt_sha256 report_sha256 trades_available points')
+  if (v.schema !== 'nbw-visuals-v1' || typeof v.trades_available !== 'boolean' || !Array.isArray(v.points) || v.points.length !== entry.record_count) invalidBacktest()
+  let previous = 0
+  for (const row of v.points) {
+    if (!Array.isArray(row) || row.length !== 6 || !tradingDate(row[0]) || row[0] <= previous || !nullableNumber(row[1]) || !nullableNumber(row[2]) || row.slice(3).some(n => !count(n))) invalidBacktest()
+    previous = row[0]
+  }
+  return v as Visuals
+}
+/** 指定日期查询日末持仓和当日交易；null查询全体成交分页。 */
+export async function fetchLedger(entry: ArchiveEntry, day: number | null, offset: number, signal?: AbortSignal): Promise<Ledger> {
+  if (day !== null && !tradingDate(day) || !count(offset)) invalidBacktest()
+  const query = new URLSearchParams({ receipt_sha256: entry.receipt_sha256, offset: String(offset) })
+  if (day !== null) query.set('day', String(day))
+  const v = identity(await fetchBacktestReadJson<unknown>(`/v1/ui/backtest/archive/${entry.run_id}/ledger?${query}`, '持仓与交易', signal), entry)
+  boundedBacktestTree(v)
+  keys(v, 'schema run_id receipt_sha256 report_sha256 date positions_available positions trades_available total offset trades')
+  if (v.schema !== 'nbw-ledger-v1' || v.date !== day || v.offset !== offset || !count(v.total) || typeof v.positions_available !== 'boolean' || typeof v.trades_available !== 'boolean'
+    || !Array.isArray(v.positions) || v.positions.length > 4096 || !Array.isArray(v.trades) || v.trades.length > 50 || v.trades.length !== Math.min(50, Math.max(0, Number(v.total) - offset))) invalidBacktest()
+  for (const p of v.positions) {
+    if (!isObject(p) || p.date !== day || !text(p.symbol) || !decimal(p.quantity) || !decimal(p.realized_cny) || !decimal(p.floating_cny)) invalidBacktest()
+    keys(p, 'date symbol quantity realized_cny floating_cny')
+  }
+  let previous = -1
+  for (const t of v.trades) {
+    if (!isObject(t) || !count(t.index) || Number(t.index) <= previous || !tradingDate(t.date) || day !== null && t.date !== day || !text(t.time) || !/^\d{12}$/.test(t.time) || Number(t.time.slice(0, 8)) !== t.date
+      || !text(t.symbol) || !['buy', 'sell', 'unknown'].includes(String(t.side)) || !text(t.direction) || !text(t.action) || !decimal(t.price) || !decimal(t.quantity) || !decimal(t.fee_cny)) invalidBacktest()
+    keys(t, 'index date time symbol side direction action price quantity fee_cny'); previous = Number(t.index)
+  }
+  return v as Ledger
+}

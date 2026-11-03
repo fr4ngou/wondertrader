@@ -11,6 +11,7 @@ const destinations = [
   { id: 'market', label: '行情', icon: CandlestickChart },
   { id: 'observation', label: '市场观察', icon: Activity },
   { id: 'strategies', label: '策略', icon: Lightbulb },
+  { id: 'backtests', label: '回测', icon: BarChart3 },
   { id: 'account', label: '账户', icon: UserRound },
   { id: 'orders', label: '交易记录', icon: ReceiptText },
   { id: 'operations', label: '系统状态', icon: ServerCog },

@@ -98,7 +98,7 @@ wheels = [
 
 [[package]]
 name = "guanheng-app"
-version = "0.1.0a104+chartlabel.1"
+version = "0.1.0a105+btvisual.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

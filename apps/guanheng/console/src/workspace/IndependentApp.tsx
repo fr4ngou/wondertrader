@@ -9,6 +9,7 @@ import { ObserverLayout } from './ObserverLayout'
 const MinuteWorkspace = lazy(() => import('./MinuteWorkspace'))
 const AccountWorkspace = lazy(() => import('./AccountWorkspace'))
 const StrategyWorkspace = lazy(() => import('./StrategyWorkspace'))
+const BacktestWorkspace = lazy(() => import('./BacktestWorkspace'))
 const OperationsWorkspace = lazy(() => import('./OperationsWorkspace'))
 const ObservationShell = lazy(() => import('../observation/ObservationShell'))
 const navigation = [
@@ -55,7 +56,7 @@ export default function IndependentApp() {
             <Route path="/strategies" element={<StrategyWorkspace />} />
             <Route path="/operations" element={<OperationsWorkspace />} />
             <Route path="/portfolio" element={<StrategyTabRedirect tab="holdings" />} />
-            <Route path="/backtests" element={<StrategyTabRedirect tab="backtests" />} />
+            <Route path="/backtests" element={<BacktestWorkspace />} />
             {['/research/*', '/news/*'].map(path => <Route path={path} element={<Navigate to="/market" replace />} key={path} />)}
             <Route path="/grafana/*" element={<Navigate to="/operations" replace />} />
             <Route path="/audit" element={<Navigate to="/operations" replace />} />
