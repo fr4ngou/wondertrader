@@ -14,6 +14,16 @@ function mount() {
 }
 const response = (v: unknown) => new Response(JSON.stringify(v))
 
+test('WT只读分析状态正常展示且保留券商持仓', async () => {
+  const data = structuredClone(fixture) as StrategyRuntime
+  data.strategy!.status = 'observing'
+  data.strategy!.status_label = '分析运行中'
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(data))); mount()
+  await screen.findByText('分析运行中')
+  expect(screen.getByRole('row', { name: '510050.SH策略结果' })).toHaveTextContent('200')
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
 test('页面仅显示券商实际持仓，目标与理论明细退出展示', async () => {
   const data = structuredClone(fixture)
   data.strategy.positions[1].broker_quantity = 700
