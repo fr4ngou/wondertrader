@@ -47,3 +47,5 @@
 - [ADR-0020 批量分析来源身份](adr/0020-batch-analysis-source-identity.md)：单原SDK批次与证券投影分别记录，复用原认证、截止及消费回收。
 
 - [ADR-0023 执行恢复准入](adr/0023-execution-recovery-admission.md)：正常/故障依据及兼容发行分别核验，原金融owner与命令身份保持。
+
+- [ADR-0024 Host HTTP read retirement](adr/0024-host-http-read-retirement.md): Host/Native lifetime ownership and immutable terminal accounting.

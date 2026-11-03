@@ -636,7 +636,11 @@ public:
             || text(value["read_profile_body_sha256"]) != text(value["binding"]["capability_sha256"]))
             return fail(ErrorCode::StaleSession, "qmt_trade_binding_changed");
         const auto& read_limits = value["limits"];
-        if (!keys(read_limits, {"max_request_bytes", "max_result_bytes", "max_http_request_bytes", "max_http_response_bytes"})
+        const bool http_retention=read_limits.IsObject()&&read_limits.HasMember("http_read_retention");
+        std::uint32_t http_lifetime=0;
+        if (!(http_retention?keys(read_limits,{"max_request_bytes","max_result_bytes","max_http_request_bytes","max_http_response_bytes","http_read_retention"})
+                :keys(read_limits,{"max_request_bytes","max_result_bytes","max_http_request_bytes","max_http_response_bytes"}))
+            ||(http_retention&&!read_retention_capability(read_limits["http_read_retention"],http_lifetime))
             || !integer(read_limits["max_result_bytes"], 8192, result_capacity)
             || !integer(read_limits["max_request_bytes"], 1, command_capacity)
             || !integer(read_limits["max_http_request_bytes"], 8192, 4194304)

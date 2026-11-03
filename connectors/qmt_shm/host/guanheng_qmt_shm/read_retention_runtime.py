@@ -89,3 +89,10 @@ class RetainedReadRuntime(HostReadRuntime):
 
 class RetainedTradingRuntime(RetainedReadRuntime, HostTradingRuntime):
     """只读票据门面叠加原交易运行器；交易请求及 control worker 沿原路径。"""
+
+
+class HttpRetainedTradingRuntime(RetainedTradingRuntime):
+    """HTTP能力与原Source SDK能力分开声明；派发、结果与金融路径复用原owner。"""
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self._limits=dict(self._limits,http_read_retention=dict(self.journal.retention_capability))

@@ -90,6 +90,13 @@ def _validate_launch_configuration(config, *, credentials, trading, policy_regis
         if bulk:
             raise ValueError('read retirement requires an independent read owner')
         accepted=tuple(fields|{'read_retention'} for fields in accepted)
+    if type(config) is dict and 'http_read_retention' in config:
+        # 仅交易Host的HTTP结果生命周期；不加入agent_settings或Source profile。
+        if not trading or 'read_retention' in config:
+            raise ValueError('HTTP read retirement requires a distinct v4 Host capability')
+        from guanheng_qmt_shm_agent.read_retention import retention
+        retention(config['http_read_retention'])
+        accepted=tuple(fields|{'http_read_retention'} for fields in accepted)
     if type(config) is not dict or set(config) not in accepted:
         raise ValueError('managed Host config has missing or unsupported fields')
     config=decode(canonical(config))

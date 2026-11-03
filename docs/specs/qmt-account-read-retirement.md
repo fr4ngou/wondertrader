@@ -31,3 +31,13 @@ v4复用同一金融Journal文件，新增的读取责任元数据与read_operat
 先跑普通安装与原Native真实主链：正式v3/v4 Host+实际3.6.8/WinSHM账户SDK替身→原QmtHostAccountClient及Scan/标准Factory，固定原容量跨过连续扫描上限，记录实际四查询数量和占用高水位；成功确认后Host读责任保持有界。v4同时保留原金融命令/事件原件，读取回收前后逐行/摘要一致，金融SDK不因回收新增。
 
 主链后只做必要默认、unknown/同ID无重发、确认前/后失败、截止/停止及Host重开/既有金融Journal保留回归。新Native组件、账户工具、Host/Agent普通wheel和完整依赖同批形成可由SRI消费的固定交接。真实QMT、生产、跨日/Source冷重启及整个系统资格分别验收。
+
+## AAR6 Host HTTP拥有的读取消费模式
+
+为沿用现有Source正文与SDK能力，v4交易Host可显式配置http_read_retention，形状复用read_retention的schema/max_lifetime_ms，二者互斥。此能力仅出现在已认证read-binding的limits.http_read_retention，不进入Agent配置、完整Source profile、binding capability SHA或SDK请求正文。默认省略保持原模式。
+
+Native同批账户客户端识别该HTTP能力，复用原v1票据、内容UUIDv5、retained提交、lookup及consumed。receipt仍保存原Source profile/SHA；v4票据独立核原Host epoch、完整原请求和内容ID。公开resume只有原票据lookup能力，不能制造新POST令牌。首票据期限取配置上限与调用剩余D的较小值；Host在首次事务内按票据原D收紧排队期限。
+
+新模式复用RetainedTradingJournal原回收条件、金融proof保护和同事务消费确认，附属身份同时固定HTTP能力及Source profile。旧无票据读行、原ID、正文、结果、金融命令/事件/关联均保留。仅该显式模式将不可变terminal且已有结果的读行按实际原正文/结果长度加原元数据上限计费；在途、无结果等仍按最大预留计费，不改既有reserved_bytes或金融额度。max_records与max_journal_bytes保持原配置，新成功消费且原票据结束的读取按原规则回收，使连续读取保持有界。
+
+验收先以原满额库的隔离副本确认：旧行/ID/结果/金融原件逐字保持、默认原模式拒绝超额、显式HTTP模式可准入且不改Source字节；实际Native/Host/WinSHM与SDK替身连续查询跨过小容量上限，确认占用有界。再核原票据未知、金融proof、关闭及同账完整主链；原Source和实地权限按真实资格分别登记。

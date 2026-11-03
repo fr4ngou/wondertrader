@@ -18,6 +18,8 @@ class ReconnectingTradingService(ReconnectingReadService):
         self._first_fault = None
         self._missing_response = None  # 本次服务首个404的固定诊断，跨运输代际保留，至关闭后发布。
         super().__init__(*args, **kwargs)
+        if 'http_read_retention' in decode(self._configuration):
+            self.read_retention_enabled=True  # 仅HTTP门面能力，原Source profile/SHA保持。
 
     def request(self, request):
         response = super().request(request)

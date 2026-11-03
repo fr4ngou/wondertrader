@@ -11,6 +11,14 @@ std::string text(const rapidjson::Value&);
 bool string(const rapidjson::Value&, std::size_t maximum = 128);
 bool field(const rapidjson::Value&, const char*, std::size_t maximum = 128);
 bool keys(const rapidjson::Value&, std::initializer_list<const char*>);
+// Host或Source-profile显式声明的同一保留预算；schema固定，期限为100..300000整数毫秒。
+inline bool read_retention_capability(const rapidjson::Value& value,std::uint32_t& lifetime)
+{
+    if(!keys(value,{"schema","max_lifetime_ms"})||!field(value,"schema")
+        ||text(value["schema"])!="qmt.read-retention.v1"||!value["max_lifetime_ms"].IsUint()
+        ||value["max_lifetime_ms"].GetUint()<100||value["max_lifetime_ms"].GetUint()>300000)return false;
+    lifetime=value["max_lifetime_ms"].GetUint();return true;
+}
 bool hex(const rapidjson::Value&, std::size_t);
 bool uuid(const rapidjson::Value&);
 std::string encode(const rapidjson::Value&);

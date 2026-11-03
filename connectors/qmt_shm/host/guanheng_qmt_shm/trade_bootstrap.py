@@ -81,6 +81,12 @@ def _build_trade_runtime(config, policies, public, credentials, *, business_cloc
         from .bulk_clock import WindowsBulkUptimeClock
         journal_type, runtime_type = RetainedTradingJournal, RetainedTradingRuntime
         journal_extra = {'retention_clock': WindowsBulkUptimeClock()}
+    elif 'http_read_retention' in config:
+        from .read_retention_journal import HttpRetainedTradingJournal
+        from .read_retention_runtime import HttpRetainedTradingRuntime
+        from .bulk_clock import WindowsBulkUptimeClock
+        journal_type,runtime_type=HttpRetainedTradingJournal,HttpRetainedTradingRuntime
+        journal_extra={'retention_clock':WindowsBulkUptimeClock(),'http_retention':config['http_read_retention']}
     from .journal import construct_journal
     journal = construct_journal(journal_type, Path(config['journal_path']), config['route'],failed_owners=failed_owners,
         max_records=config['max_records'], max_result_bytes=config['max_result_bytes'],

@@ -628,7 +628,8 @@ bool request(const QmtBoundReceipt& receipt,Document& body,Document& pin,QmtBoun
         Document ticket,original;std::uint32_t lifetime=0,execution=0;unsigned days=0,rows=0;std::size_t bytes=0;AccountLimits account;
         if(!parse(receipt.retention_ticket_json,ticket,256)||retained_id(body,ticket)!=text(body["request_id"])
             ||text(ticket["epoch"])!=text(pin["host_instance_id"])
-            ||!parse(receipt.read_profile_body,original,4096)||!retained_profile(original,lifetime)||!lifetime
+            ||!parse(receipt.read_profile_body,original,4096)||!retained_profile(original,lifetime)
+            ||(!lifetime&&profile!=QmtBoundProfile::AccountV4)
             ||signed_http_sha256(receipt.read_profile_body)!=text(pin["capability_sha256"])
             ||(profile==QmtBoundProfile::FullTickRetainedV6
                 ?!profile_v6(original,receipt.read_result_capacity,execution,true)
@@ -777,7 +778,9 @@ public:
             ||!base_control(profile["control_profile"])))
             return fail(ErrorCode::IoError,"qmt_host_profile_invalid");
         const auto& limits=value["limits"];
-        if(!keys(limits,{"max_request_bytes","max_result_bytes","max_http_request_bytes","max_http_response_bytes"}))return fail(ErrorCode::IoError,"qmt_host_limits_invalid");
+        const bool http_retention=limits.IsObject()&&limits.HasMember("http_read_retention");
+        if(!(http_retention?keys(limits,{"max_request_bytes","max_result_bytes","max_http_request_bytes","max_http_response_bytes","http_read_retention"})
+            :keys(limits,{"max_request_bytes","max_result_bytes","max_http_request_bytes","max_http_response_bytes"})))return fail(ErrorCode::IoError,"qmt_host_limits_invalid");
         for(auto key:{"max_request_bytes","max_result_bytes","max_http_request_bytes","max_http_response_bytes"})
             if(!limits[key].IsUint64())return fail(ErrorCode::IoError,"qmt_host_limits_invalid");
         const auto req=limits["max_request_bytes"].GetUint64(),res=limits["max_result_bytes"].GetUint64();
@@ -802,6 +805,9 @@ public:
         }else if(!history())execution_ms=profile["execution_timeout_ms"].GetUint();
         std::uint32_t next_retention=0;
         if((account()||retained_snapshot())&&!retained_profile(profile,next_retention))return fail(ErrorCode::IoError,"qmt_host_profile_invalid");
+        if(http_retention&&(profile_kind!=QmtBoundProfile::AccountV4||next_retention
+            ||!read_retention_capability(limits["http_read_retention"],next_retention)))
+            return fail(ErrorCode::IoError,"qmt_host_http_retention_invalid");
         retention_lifetime=next_retention;
         profile_body=std::move(profile_bytes);request_cap=static_cast<std::size_t>(req);result_cap=static_cast<std::size_t>(res);
         http_request_cap=static_cast<std::size_t>(hreq);http_response_cap=static_cast<std::size_t>(hres);return {};
@@ -1247,8 +1253,9 @@ QmtHistoryPreparation QmtBoundReadCore::create_prepared(const std::string& argum
         Document pin,ticket;ticket.SetObject();
         if(!parse(impl_->pin,pin,4096))return reject(fail(ErrorCode::Conflict,"qmt_host_binding_invalid"));
         add(ticket,"schema","qmt.read-ticket.v1");add(ticket,"epoch",text(pin["host_instance_id"]));
-        const auto now=retention_now();if(!now||now>(1ULL<<53)-1-impl_->retention_lifetime)return reject(fail(ErrorCode::Unavailable,"qmt_read_retention_clock_invalid"));
-        ticket.AddMember("expires_ms",now+impl_->retention_lifetime,ticket.GetAllocator());
+        const auto now=retention_now();const auto lifetime=std::min(impl_->retention_lifetime,until.remaining());
+        if(!now||lifetime<100||now>(1ULL<<53)-1-lifetime)return reject(fail(ErrorCode::Unavailable,"qmt_read_retention_clock_invalid"));
+        ticket.AddMember("expires_ms",now+lifetime,ticket.GetAllocator());
         const auto retained=retained_id(body,ticket);if(retained.empty())return reject(fail(ErrorCode::Unavailable,"qmt_host_crypto_unavailable"));
         body["request_id"].SetString(retained.data(),static_cast<rapidjson::SizeType>(retained.size()),a);
         token->receipt_.retention_ticket_json=encode(ticket);

@@ -18,15 +18,20 @@ class _RetainedJournal:
     schema_tables = BoundReadJournal.schema_tables | {'read_retention_identity', 'read_retention'}
     _allow_legacy_initialization = False
 
-    def __init__(self, *args, clock, **kwargs):
+    def __init__(self, *args, clock, http_retention=None, **kwargs):
         profile = kwargs['read_profile']
-        self.retention_capability = retention(profile['read_retention'])
+        self.retention_capability = retention(profile['read_retention'] if http_retention is None else http_retention)
         self.retention_clock = clock
         self._ticket_context = threading.local()
-        self._retention_identity = canonical(dict(schema='qmt.read-journal-retention.v1',
+        identity=dict(schema='qmt.read-journal-retention.v1',
             profile=profile, max_records=kwargs['max_records'],
             max_request_bytes=kwargs['max_request_bytes'], max_result_bytes=kwargs['max_result_bytes'],
-            max_journal_bytes=kwargs['max_journal_bytes']))
+            max_journal_bytes=kwargs['max_journal_bytes'])
+        if http_retention is not None:
+            if profile.get('read_profile_version')!='qmt.read-profile.v4' or 'read_retention'in profile:
+                raise ValueError('distinct HTTP-only v4 retention required')
+            identity.update(schema='qmt.http-read-journal-retention.v1',http_read_retention=self.retention_capability)
+        self._retention_identity = canonical(identity)
         # 此标志只覆盖构造，数据库原事务持有文件 owner 后才校验，避免 TOCTOU。
         self._retention_opening = True
         super().__init__(*args, **dict(kwargs, **self._base_clock_arguments(clock)))
@@ -215,8 +220,10 @@ class RetainedTradingJournal(_RetainedJournal, HostTradingJournal):
         return {'clock': self._retained_business_clock}
 
     def _event_record_arguments(self, read_profile):
+        if 'read_retention'not in read_profile:
+            return {}  # HTTP能力不改变原事件profile身份，不声明一条虚假的profile迁移。
         previous = dict(read_profile)
-        del previous['read_retention']
+        previous.pop('read_retention',None)
         return {'previous_read_profile': previous}
 
     def _read_held_by_financial_proof(self, db, rid):
@@ -231,5 +238,27 @@ class RetainedTradingJournal(_RetainedJournal, HostTradingJournal):
         if super()._historical_read_profile_matches(binding):
             return True
         previous = self.admission_profile
+        if 'read_retention'not in previous:return False
         del previous['read_retention']
         return binding['capability_sha256'] == digest(canonical(previous))
+
+
+class HttpRetainedTradingJournal(RetainedTradingJournal):
+    """显式Host HTTP消费能力；旧原件保持，终态按实际不可变正文计费。"""
+    def __init__(self,*args,http_retention,**kwargs):
+        super().__init__(*args,http_retention=retention(http_retention),**kwargs)
+    @staticmethod
+    def _used(db):
+        # 原终态不可覆写；只有读行计费收敛，金融表/原reserved_bytes/旧ID和正文不改。
+        from .bound import MAX_METADATA_BYTES
+        return db.execute('''SELECT COALESCE(SUM(CASE WHEN state='terminal' AND result IS NOT NULL
+            THEN length(body)+length(result)+? ELSE reserved_bytes END),0) FROM read_operations''',
+            (MAX_METADATA_BYTES,)).fetchone()[0]
+
+    def _admit_new_bound(self, request, queue_timeout_ms):
+        # UTC先采、uptime后采；事务/采样等待只收紧票据原D，Source仍接原SDK正文。
+        import time
+        from guanheng_qmt_shm_agent.read_retention import now_ms
+        utc=time.time();value=self._ticket_context.value
+        end=utc+(value['expires_ms']-now_ms(self.retention_clock))/1000
+        return min(super()._admit_new_bound(request,queue_timeout_ms),end)
