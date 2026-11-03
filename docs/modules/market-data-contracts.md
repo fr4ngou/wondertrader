@@ -16,6 +16,18 @@
 
 采集入口与线程见[全推流](qmt-quote-stream.md)，WT聚合/归档见[原生DataKit](wondertrader-datakit.md)，查询见[独立行情服务](market-service.md)。既有HTTP实验/Reader候选与最终原生复用的状态沿[原生收敛方案](../migration/native-market-integration-plan.md)登记，不能由源码存在宣布已部署。
 
+## 日线事实的来源区分
+
+日线周期和不复权声明共同保留，但它们不能单独证明两份日线来自同一种原件。
+
+| 日线事实 | 生成与读取 | 时点及比较边界 |
+|---|---|---|
+| 券商原生日线 | `get_market_data_ex(period='1d', dividend_type='none', fill_data=False, subscribe=False)`，沿原回包归档及原生读回 | 请求结束日期与实际返回末日分别记录；前复权分析使用同源成对参考和因子 |
+| WT收盘快照 | 原Writer保存缓存tick的价格、日内高低及累计量额，收盘CSV由日线适配读取 | `wt-native-snapshot-daily.v1`及内容SHA标识原件；当前CSV没有原tick动作时刻，文件修改时间不代表最后行情时刻 |
+| WT原生日线存储 | 原`his/day`归档及已声明Loader读取 | 原数据来源、聚合方式和单位沿sidecar/元数据；原生文件格式本身不改变来源事实 |
+
+两类原价出现差异时，先核实际路由、原件SHA、复权、累计字段和来源时点。原件保留各自数值；回测按同一已声明来源构建完整窗口。由快照和券商日线分别得到的收盘价、成交量和成交额，可以在回放前已经不同；精确尾tick是否缺失或供应商何时修订，需要当日带时标原行情证明，不能从收盘CSV或文件修改时间推定。
+
 ## 来源与状态
 
 [ProviderTypes](../../src/GuanhengCommon/ProviderTypes.h)的SourceSession保存provider、instance_id、session_id、generation，表达一次源会话。Capability保存supported、qualification、reason；Status保存code/reason。连接状态、数据覆盖和运行资格分别表达。
