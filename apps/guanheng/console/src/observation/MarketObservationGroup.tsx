@@ -109,7 +109,7 @@ export function MarketObservationGroup({catalog,metric,board,range,parameters,on
     <p className="observation-note">统一日期和光标；每条线保留自己的真实观察日及缺口。{board==='breadth'&&'RANA沿原千倍净上涨比例，MSI以19/39期EMA差累计。'}</p>
     {queries.map((query,index)=><ReadNotice key={ids[index]} label={catalog.datasets.find(item=>item.id===ids[index])?.label||metricName(ids[index])} query={query} />)}
     {ids.filter(id=>!registered.has(id)).map(id=><p key={id} role="status">{metricName(id)} 尚未取得可用结果。</p>)}
-    {group?<div className="market-group-layout"><ObservationChart definition={group.definition} rows={group.rows} history={history.data} range={range}
+    {group?<div className="market-group-layout"><ObservationChart definition={group.definition} rows={group.rows} history={history.data} historyLabel="上证指数导航" range={range}
       hidden={[]} focus="both" mode="fixed_base" activity="all" onRange={onRange}/>
       <aside className="market-group-stats" aria-label="本组最新真实观察">{cards.map(card=><section key={card.title}><h3>{card.title}</h3>{card.items.map(([id,field,label])=>{
         const series=data.get(id);const row=series?.rows.at(-1);const unit=series?.definition.field_schema[field]?.unit;const number=row?.[field]

@@ -102,8 +102,9 @@ export function chartOptions(definition: Definition, input: Row[], hidden: strin
     legend: { bottom: 4, type: 'scroll', data: lines.map(line => line.name), selected:Object.fromEntries(definition.lines.map(line=>[line.name,!hidden.includes(line.key)])), textStyle: { fontSize: 11 } } }
 }
 
-export function ObservationChart({ definition, rows, history, range, hidden, focus, mode, activity, onRange, onHidden }: {
+export function ObservationChart({ definition, rows, history, historyLabel = '完整历史', range, hidden, focus, mode, activity, onRange, onHidden }: {
   definition: Definition; rows: Row[]; history?: History; range: Range; hidden: string[]; focus: string; mode: string; activity: string; onRange: (range: Range) => void; onHidden?: (hidden:string[])=>void
+  historyLabel?: string // 导航数据的真实身份；组合图传基准名称，省略时表示当前指标的完整历史。
 }) {
   const plot = useRef<HTMLDivElement>(null); const navigator = useRef<HTMLDivElement>(null)
   const callback = useRef(onRange); callback.current = onRange
@@ -143,6 +144,6 @@ export function ObservationChart({ definition, rows, history, range, hidden, foc
     onPointerDown={event => event.currentTarget.focus({ preventScroll: true })}
     onKeyDown={event => { if (definition.axis_type === 'tenor' || !history) return; const next = keyboardRange(event.key, range, history.coverage); if (next) { event.preventDefault(); event.stopPropagation(); callback.current(next) } }}>
     <div ref={plot} style={definition.panel_groups?{height:definition.panel_groups.length*190+70}:undefined} className={'observation-chart'+(definition.board==='pcr' && focus==='both' ? ' observation-chart-pcr' : '')} />
-    {definition.axis_type !== 'tenor' && (history ? <><div ref={navigator} className="observation-history" /><p className="observation-note">完整历史：{history.coverage.start} — {history.coverage.end} · {history.raw_count}条；拖选主图选日期，↑放大 ↓缩小 ←前移 →后移</p></> : <p className="observation-note">历史导航暂不可用，当前日期内的图表仍可查看。</p>)}
+    {definition.axis_type !== 'tenor' && (history ? <><div ref={navigator} className="observation-history" /><p className="observation-note">{historyLabel}：{history.coverage.start} — {history.coverage.end} · {history.raw_count}条；拖选主图选日期，↑放大 ↓缩小 ←前移 →后移</p></> : <p className="observation-note">历史导航暂不可用，当前日期内的图表仍可查看。</p>)}
   </div>
 }
