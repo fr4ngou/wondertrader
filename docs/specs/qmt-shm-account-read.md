@@ -23,7 +23,7 @@ sequenceDiagram
     UI->>Scan: 固定部署来源，单轮有限观察
     Scan->>WT: 正常初始化，登录和原四查询
     WT->>Worker: 固定datatype值任务
-    Worker->>Host: 绑定校验，内存原请求身份，唯一POST
+    Worker->>Host: 绑定校验，原请求身份及绝对D，单次持久受理
     Host->>Agent: 认证SHM，只读operation
     Agent->>Agent: 三参数SDK，白名单投影，同截止finalizer
     Agent-->>Host: 原结果bytes，observation=null
@@ -90,7 +90,9 @@ Agent按datatype封闭白名单复制字段；dict与SDK对象遵守同表，每
 
 使用现有失败终态source_shape_invalid/source_value_invalid/result_too_large/qmt_call_failed/execution_timeout/owner_required/invalid_request；错误消息固定中文，不含私有账号或原始异常。失败data=null、observation=null，零SPI交付。停止、线程归属、回调排空、join及超期保留依赖沿原只读插件owner，不新增第二个关闭状态机。
 
-C++账户门面复用BoundReadCore唯一认证codec及create→submit_once→原ID GET路径。create生成不可复制的一次令牌；原receipt（原请求ID/op/body字节、摘要、语义及B）只在本轮活进程的有限内存中保留。submit_once只消费一次令牌，unknown按Core既有有界条件核查原UUID，不自动重POST、无限resume或回退终端HTTP。prepare/create失败时零POST；最终仍unknown时本轮失败，关闭后续新查询准入，不能将unknown改成“未执行”。
+C++账户门面复用BoundReadCore唯一认证codec及create→submit_once→原ID GET路径。create生成不可复制的一次令牌；原receipt（原请求ID/op/body字节、摘要、语义及B）只在本轮活进程的有限内存中保留。submit_once只消费一次令牌。无保留票据的账户读取在首个POST之前，将原调用剩余截止投影为同机GetTickCount64绝对毫秒，放入Host专用HTTP外层execution_deadline_uptime_ms；原SDK请求正文不变。Host以该截止收紧首次排队期限，重复原字节/ID继续返回同一记录并保留首次期限。
+
+若首个POST运输结果不确定，原GET得到完整、标准unknown_operation的404，仍在该submit_once原D内时允许一次原HTTP正文/ID/B/绝对截止的再投递。Host原事务查重负责单次持久受理和单次SDK执行。公开receipt继续只有原ID续查能力；resume、已过原D、其他404或不完整响应均不触发再投递。具体原ID未确认时返回SubmissionUnknown并保留原身份，不将404改成永久接口故障或“未执行”。prepare/create失败零POST；不回退终端HTTP。
 
 每轮必须新进程、新TraderAdapter及插件实例；每阶段只交付一次SPI。丢失进程后不恢复上一轮客户端查询、不加载旧批次，不将旧数据赋给新scan_id。父owner确认旧子树已回收后，后续明确刷新可创建新的scan_id、Adapter和原请求ID，取得新的只读观察。原Host可能已经执行旧读取；其Journal继续保存原派发/终态，晚结果只关联原请求。产品页面在失败或刷新时保留原时间的上次成功结果，按[NAC-R7](native-account-console.md#nac-r7-中文用户入口)分别标注本轮失败和旧批；后端新结果仍按本轮产生，不合并前轮持仓/委托/成交统计。四批实际执行时点与SDK缓存限制保持可见。
 
@@ -128,7 +130,7 @@ Python Agent3.6.8标准库、Host锁版本包、C++客户端/插件/Scan完整CR
 | QAR-R2 | 注入替身独立记录线程/精确3参数/四datatype；请求越权和初始化关闭零调用；SDK/转换/编码晚回同截止失败 |
 | QAR-R3 | 三B/原bytes/SHA/范围/空list/None/account多行/来源冲突等契约与实际SHM闭环 |
 | QAR-R4 | 对象和dict等价、getter一次、未知敏感字段零读取、137/19持仓、各不同Q/F/U、资金及原金额/时间，原Adapter sink独立oracle |
-| QAR-R5 | 每个预算及联合边界、一次token/POST、活进程unknown仅原GET；进程死亡旧轮失败、实际回收后新Adapter/新ID新观察；晚回/切代零重复SPI、无客户端收据目录、Host容量及回调关闭异常 |
+| QAR-R5 | 每个预算及联合边界、一次token/单次持久受理及SDK执行；首个POST运输未知后，标准unknown_operation只在原submit_once/D内原字节再投递至多一次，Host按原绝对截止准入且去重不续期；公开receipt/resume仍仅原GET；其他404、原D结束保留未知。进程死亡旧轮失败、实际回收后新Adapter/新ID新观察；晚回/切代零重复SPI、无客户端收据目录、Host容量及回调关闭异常 |
 | QAR-R6 | 固定原Adapter四批实际SPI、晚回/join/父死亡/单总截止、v3→IPC v2→DTO2.0→中文页正常/空/异常/分页 |
 | QAR-R7 | 新非editable安装、完整原生包搬迁、旧树缺席、独立full审查、同身份实际用户入口；真实SDK资格单列 |
 

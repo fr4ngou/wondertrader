@@ -4,6 +4,7 @@
 状态提交先于派发，结果与原channel身份同事务保存后才允许ACK。
 """
 from __future__ import annotations
+import math
 import time
 from guanheng_qmt_shm_agent.protocol import canonical, decode, identity
 from .bound import binding, digest, b64, validate_response, SCHEMA, MAX_METADATA_BYTES
@@ -108,8 +109,13 @@ class BoundReadJournal(HostReadJournal):
         return validate_response(value,max_result_bytes=self.max_result_bytes,
             control_version=self.binding_control_version,request=request)
 
-    def submit_bound(self, body, admitted_binding, *, queue_timeout_ms, deadline=None):
+    def submit_bound(self, body, admitted_binding, *, queue_timeout_ms, deadline=None, queue_expires_at=None):
+        # 可选UTC秒上界在HTTP入口由原同机D投影；域/事务锁等待不重新授予首次排队期限。
+        # None沿原策略排队期限，已有同ID记录始终保持首次持久值。
         self._finish_deadline(deadline)
+        if queue_expires_at is not None and (type(queue_expires_at) not in (int,float)
+                or not math.isfinite(queue_expires_at)):
+            raise ValueError('original read queue expiry must be finite')
         if not isinstance(body,bytes) or len(body)>self.max_request_bytes:
             raise ValueError('original request bytes required')
         if type(queue_timeout_ms) is not int or not 1 <= queue_timeout_ms <= 300000:
@@ -134,6 +140,8 @@ class BoundReadJournal(HostReadJournal):
                     or self._used(db)+reservation>self.max_journal_bytes):
                 raise JournalFull('communication Journal admission capacity exhausted')
             expires=self._admit_new_bound(raw_request,queue_timeout_ms)
+            if queue_expires_at is not None:
+                expires=min(expires,queue_expires_at)
             self._finish_deadline(deadline)
             db.execute('''INSERT INTO read_operations
                 (request_id,operation_id,request_sha256,body,state,expires_at,queued_at,admitted_binding,reserved_bytes)

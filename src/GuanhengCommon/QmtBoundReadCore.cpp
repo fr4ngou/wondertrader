@@ -869,11 +869,14 @@ public:
         if(!until.remaining())return fail(ErrorCode::Timeout,"qmt_host_deadline");
         pin=std::move(observed);source=std::move(identity);ready=true;++prepare_generation;return {};
     }
-    QmtBoundResult follow(QmtBoundResult output,SignedHttpDeadline& until,SignedHttpResult response,bool get,RequestControl* request_control=nullptr)
+    QmtBoundResult follow(QmtBoundResult output,SignedHttpDeadline& until,SignedHttpResult response,bool get,
+        RequestControl* request_control=nullptr,const std::string* original_wire=nullptr)
     {
         // 身份/receipt/unknown诊断在I/O前已分配；后续异常仍返回这些原值。
         try {
         const auto& receipt=output.receipt;Document body,b;
+        // 只有原submit_once首POST运输未知进入的GET可再投一次；公开resume没有原wire能力。
+        const bool redelivery_allowed=original_wire&&get;bool redelivered=false;
         auto failure=[&](Status status){output.result.status=std::move(status);return std::move(output);};
         if(!request(receipt,body,b,profile_kind))return failure(fail(ErrorCode::InvalidInput,"qmt_host_receipt_invalid"));
         // 当前已认证账户能力要求显式原票据；公开receipt删字段不能绕过消费交接。
@@ -904,6 +907,30 @@ public:
                 response=http.exchange("GET","/internal/v1/bound-results/"+request_id,{},until,http_response_cap);
             }
             observe(response);
+            if(account()&&get&&response.code==404&&response.response_complete
+                &&response.status.code==ErrorCode::NotSupported&&response.status.reason=="qmt_http_endpoint_unavailable"){
+                Document missing;
+                if(parse_bounded_qmt_json(response.body,missing,8192,4096)
+                    &&keys(missing,{"error_code","error_message"})&&field(missing,"error_code")
+                    &&text(missing["error_code"])=="unknown_operation"&&string(missing["error_message"],4096)){
+                    // 缺记录仍是原结果未知。原调用内以同B/ID/body/绝对D再投，Host事务去重；不续D。
+                    if(!redelivery_allowed||redelivered||until.remaining()<100)
+                        return failure(fail(ErrorCode::SubmissionUnknown,"qmt_host_result_unknown"));
+                    auto checked=verify(until,receipt.binding_json,request_control);
+                    if(!checked.ok())return failure(checked);
+                    if(request_control){
+                        checked=request_control->gate(http,until,control,QmtAccountReadStage::Submit);
+                        if(!checked.ok())return failure(checked);
+                    }
+                    redelivered=true;get=false;
+                    response=http.exchange("POST","/internal/v1/bound-operations/"+operation,*original_wire,until,http_response_cap);
+                    if(!response.status.ok()&&response.delivery_unknown){
+                        observe(response);
+                        return failure(fail(ErrorCode::SubmissionUnknown,"qmt_host_result_unknown"));
+                    }
+                    continue;
+                }
+            }
             if(!response.status.ok())return failure(response.status);
             if(response.code!=200&&response.code!=202)return failure(signed_http_error(response.code));
             Document value;
@@ -1248,6 +1275,7 @@ QmtHistoryResult QmtBoundReadCore::submit_prepared(std::unique_ptr<QmtPreparedHi
     impl_->last_page={};impl_->last_error.clear();impl_->last_account_data.clear();
     // Copy the recoverable identity before any network operation. Consumption of
     // unique_ptr is irreversible; receipt has no submit API and resumes via GET.
+    // 原submit_once内部的缺登记再投仅沿本次原wire及绝对D，未向receipt增加提交能力。
     Document body,b;
     if(token->owner_!=impl_->token_owner||token->generation_!=impl_->prepare_generation||!impl_->ready
         ||!request(token->receipt_,body,b,impl_->profile_kind)||token->receipt_.binding_json!=impl_->pin
@@ -1266,6 +1294,14 @@ QmtHistoryResult QmtBoundReadCore::submit_prepared(std::unique_ptr<QmtPreparedHi
         Document ticket;if(!parse(token->receipt_.retention_ticket_json,ticket,1024))return reject(fail(ErrorCode::InvalidInput,"qmt_host_receipt_invalid"));
         outer.AddMember("ticket",Value(ticket,outer.GetAllocator()),outer.GetAllocator());
     }
+    const bool original_account_deadline=impl_->account()&&token->receipt_.retention_ticket_json.empty();
+    if(original_account_deadline){
+        const auto now=retention_now();const auto remaining=until.remaining();
+        if(!now||remaining<100||now>(1ULL<<53)-1-remaining)
+            return reject(fail(ErrorCode::Unavailable,"qmt_account_original_deadline_invalid"));
+        // HTTP外层只约束Host排队；原SDK请求正文、ID、摘要和来源能力保持原件。
+        outer.AddMember("execution_deadline_uptime_ms",now+remaining,outer.GetAllocator());
+    }
     const auto wire=encode(outer);
     if(wire.size()>impl_->http_request_cap)return reject(fail(ErrorCode::Backpressure,"qmt_host_http_request_capacity"));
     token.reset();
@@ -1278,7 +1314,8 @@ QmtHistoryResult QmtBoundReadCore::submit_prepared(std::unique_ptr<QmtPreparedHi
         unsigned expected=1;if(bound_test_fault.compare_exchange_strong(expected,0))throw std::bad_alloc();
 #endif
         const bool get=!response.status.ok()&&response.delivery_unknown&&(response.code==0||response.code==200||response.code==202);
-        out.bound=impl_->follow(std::move(out.bound),until,std::move(response),get,request_control);
+        out.bound=impl_->follow(std::move(out.bound),until,std::move(response),get,request_control,
+            original_account_deadline?&wire:nullptr);
         if(out.bound.result.status.ok())out.page=std::move(impl_->last_page);
         out.remote_error_code=std::move(impl_->last_error);
     }catch(...){if(request_control)request_control->failed();out.bound.result.status.code=ErrorCode::SubmissionUnknown;out.bound.result.data_json.clear();}

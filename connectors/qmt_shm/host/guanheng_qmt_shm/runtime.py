@@ -306,11 +306,23 @@ class HostReadRuntime:
             execution_ms,queue_ms=self._operation_policies[operation]
             if request['timeout_ms']>execution_ms:
                 return error(400,'invalid_arguments')
+            queue_expires_at=None  # 仅新账户读取HTTP声明原D；None保留旧调用参数与排队语义。
+            if 'execution_deadline_uptime_ms' in value:
+                from guanheng_qmt_shm_agent.trade_clock import SharedUptimeClock
+                # 同机原D由发送者在首POST前冻结；重投只缩短首次排队，原记录查重不改期。
+                utc_sample=time.time()  # 先采UTC秒再读同机uptime；采样间暂停只会收紧原D。
+                remaining=value['execution_deadline_uptime_ms']-SharedUptimeClock().milliseconds()
+                if remaining<=0:
+                    return error(408,'request_timeout')
+                queue_expires_at=utc_sample+remaining/1000
             with self._binding_lock:
                 if (not self.connected.is_set() or self.admission_stopped or self._binding_bytes is None
                         or value['binding_sha256']!=digest(self._binding_bytes)):
                     return error(409,'source_binding_changed')
-                rid=self.journal.submit_bound(body,decode(self._binding_bytes),queue_timeout_ms=queue_ms)
+                options=dict(queue_timeout_ms=queue_ms)
+                if queue_expires_at is not None:
+                    options['queue_expires_at']=queue_expires_at
+                rid=self.journal.submit_bound(body,decode(self._binding_bytes),**options)
             self._control.notify_read()
             return self.bound_result(rid)
         except JournalConflict:

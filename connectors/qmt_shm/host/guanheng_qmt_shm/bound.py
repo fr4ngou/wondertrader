@@ -89,7 +89,8 @@ def decode_submission(raw, *, max_http_bytes, max_request_bytes, profile, operat
         raise ProtocolError('bound HTTP request exceeds capacity')
     value=decode(raw)
     fields={'schema_version','binding_sha256','request_body_b64','request_body_sha256'}
-    if not isinstance(value,dict) or set(value)!=fields or value['schema_version']!=SCHEMA:
+    if (not isinstance(value,dict) or not fields <= set(value) <= fields|{'execution_deadline_uptime_ms'}
+            or value['schema_version']!=SCHEMA):
         raise ProtocolError('invalid bound read request')
     metadata_bytes(value,'request_body_b64')
     sha256_text(value['binding_sha256']);sha256_text(value['request_body_sha256'])
@@ -100,6 +101,11 @@ def decode_submission(raw, *, max_http_bytes, max_request_bytes, profile, operat
     validate_read_request(request,profile,max_result_bytes=max_result_bytes)
     if request['operation_id']!=operation:
         raise ProtocolError('request path differs')
+    if 'execution_deadline_uptime_ms' in value:
+        end=value['execution_deadline_uptime_ms']
+        # 此绝对毫秒只约束Host首次排队；不进入原SDK正文或重写来源能力。
+        if operation!='account.trade_detail' or type(end)is not int or not 1<=end<=2**53-1:
+            raise ProtocolError('invalid original account read deadline')
     return value,body,request
 
 

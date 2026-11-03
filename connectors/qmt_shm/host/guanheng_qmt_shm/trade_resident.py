@@ -1,4 +1,6 @@
 """显式交易产品复用原常驻管理器；单代交易/Journal仍由原工厂拥有。"""
+import hashlib
+import time
 from guanheng_qmt_shm_agent.protocol import canonical, decode
 from guanheng_qmt_shm_agent.read_capabilities import validate_read_profile
 from guanheng_qmt_shm_agent.trade_capabilities import validate_trade_profile_binding
@@ -14,7 +16,43 @@ class ReconnectingTradingService(ReconnectingReadService):
 
     def __init__(self, *args, **kwargs):
         self._first_fault = None
+        self._missing_response = None  # 本次服务首个404的固定诊断，跨运输代际保留，至关闭后发布。
         super().__init__(*args, **kwargs)
+
+    def request(self, request):
+        response = super().request(request)
+        if response.status_code == 404:
+            # 只复制已认证DTO的固定操作、原请求身份和摘要；诊断不改变原响应/截止或重发请求。
+            try:
+                operations = {'bound.result', 'bound.submit', 'trade.events', 'trade.result',
+                    'trade.lookup', 'trade.cancel_lookup', 'retention.lookup', 'retention.consumed'}
+                if request.operation not in operations:
+                    return response
+                code = None
+                if len(response.content) <= 4096:
+                    value = decode(response.content)
+                    if type(value) is dict:
+                        code = value.get('error_code')
+                known = {'unknown_operation', 'unknown_stream', 'unknown_command', 'unknown_order',
+                    'read_result_unconfirmed', 'read_ticket_ended_unretained'}
+                record = dict(
+                    operation=request.operation,  # 固定内部路由类别，不保存任意URL或查询字符串。
+                    http_status=404,  # 原响应状态；保留业务未知与运输失败的区别。
+                    error_code=code if type(code) is str and code in known else 'other',  # 允许的固定错误类别。
+                    request_id=getattr(request, 'request_id', None),  # 原DTO已准入的读取ID，缺失表示该路由无此字段。
+                    body_sha256=hashlib.sha256(request.body).hexdigest(),  # 原请求正文摘要；账户、凭据及明细不出正文。
+                    observed_monotonic_ns=time.monotonic_ns())  # 同机单调时钟纳秒，仅用于关联运行日志。
+                with self._condition:
+                    if self._missing_response is None:
+                        self._missing_response = record
+            except Exception:
+                pass  # 附属诊断失败仍返回原业务响应，错误分类和生命周期保持原语义。
+        return response
+
+    @property
+    def missing_response_snapshot(self):
+        with self._condition:
+            return None if self._missing_response is None else dict(self._missing_response)
 
     @staticmethod
     def _reason(value):
