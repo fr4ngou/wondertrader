@@ -217,3 +217,4 @@
 - [沪深北日终广度与换手](observer-ashare-day.md)：同日原件、统一stock_day、停牌换手资格、固定包消费与持续来源边界。
 
 - [执行故障核查恢复](execution-fault-recovery.md)：自有恢复准入、固定前后发行身份交接、原状态及资本观察。
+- [WT日常启停与当前实例发现](wt-service-control.md)：正常启停、同账接续、显式持续运行及独立观衡跟随当前代。

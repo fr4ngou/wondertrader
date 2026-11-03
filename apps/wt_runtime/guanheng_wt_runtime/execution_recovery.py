@@ -82,6 +82,16 @@ def _business(value):
     return value
 
 
+def _same_business(left, right):
+    """比较持仓模型；有限/持续运行时长独立于金融事实，原配置原件仍完整核验。"""
+    left, right = copy.deepcopy(left), copy.deepcopy(right)
+    for value in (left, right):
+        duration = value['budget']['run_ms']
+        _require(type(duration) is int and (duration == 0 or 1000 <= duration <= 86400000))
+        value['budget'].pop('run_ms')
+    return left == right
+
+
 def _market_sources(marker):
     """只读来源声明；秘密只以环境变量名出现，连接固定本机服务。"""
     def endpoint(value):
@@ -130,7 +140,7 @@ def execution_permission_origin_configuration(native, *, deadline=float('inf'), 
     for key in ('writes_enabled','base_url','binding_id','binding_sha256','instance_id','key_id_env','hmac_secret_env'):
         _require((key in old) == (key in current))
         if key in old:current[key] = copy.deepcopy(old[key])
-    _require(before == after)
+    _require(_same_business(before, after))
     return execution_permission_origin_configuration(origin,deadline=deadline,depth=depth+1)
 
 
@@ -188,10 +198,11 @@ def market_origin_configuration(native, *, deadline=float('inf')):
         for name in ('input_file','input_sha256','capital_account','capital_market'):
             if name in current:previous[name]=current[name]
             else:previous.pop(name,None)
-    _require(before==after)
+    _require(_same_business(before, after))
     if preparing:
-        after['recovery']=copy.deepcopy(native['recovery'])
-        return after
+        # 库存BASELINE绑定原模型投影；预算取已验原件，实际执行仍使用本代run_ms。
+        before['recovery']=copy.deepcopy(native['recovery'])
+        return before
     return origin
 
 
@@ -206,7 +217,7 @@ def compatible_business_configuration(current, previous, *, deadline=float('inf'
         for value in (before,after):
             parameters=value['strategies'][0]['parameters']['python_strategy']
             for name in ('input_file','input_sha256','capital_account','capital_market'):parameters.pop(name,None)
-    return before==after
+    return _same_business(before, after)
 
 
 def predecessor_configuration(native, *, deadline=float('inf')):

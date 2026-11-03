@@ -243,7 +243,17 @@ bool settled(const guanheng::StandardQmtRecoveryV1& value){
     return value.query_first&&value.submissions_closed&&!value.open_group&&!value.unresolved_children
         &&!value.pending_commands&&!value.unsafe;
 }
-// 自有恢复准入仅归一化显式开关与运输引用；原账户、模型、账根及所有其他字段相同。
+// 运行时长属于进程生命周期；原配置SHA仍完整核验，持仓模型比较仅去除此字段。
+bool same_business(const rj::Value& left,const rj::Value& right){
+    rj::Document before,after;before.CopyFrom(left,before.GetAllocator());after.CopyFrom(right,after.GetAllocator());
+    for(auto* value:{&before,&after}){
+        const auto& budget=member(*value,"budget");need(budget.IsObject());
+        const auto duration=number(budget,"run_ms",0,86400000);need(duration==0||duration>=1000);
+        (*value)["budget"].RemoveMember("run_ms");
+    }
+    return before==after;
+}
+// 自有恢复准入归一化显式开关与运输引用；原账户、模型、账根继续逐项核验。
 rj::Document permission_model(const rj::Value& config,unsigned depth=0){
     rj::Document current;current.CopyFrom(config,current.GetAllocator());current.RemoveMember("recovery");
     if(!current.HasMember("execution_permission_origin"))return current;
@@ -261,7 +271,7 @@ rj::Document permission_model(const rj::Value& config,unsigned depth=0){
         need(selected.HasMember(key)==old.HasMember(key));
         if(old.HasMember(key))selected[key].CopyFrom(old[key],current.GetAllocator());
     }
-    need(current==before);return permission_model(original,depth+1);
+    need(same_business(current,before));return permission_model(original,depth+1);
 }
 
 // 显式只读市场引用回投原业务模型；原金融、账户及执行字段继续逐项核验。
@@ -326,7 +336,7 @@ rj::Document market_model(const rj::Value& config){
     absolute(text(publication,"status_file"));absolute(text(publication,"cache_root"));
     if(publication.HasMember("source_root"))absolute(text(publication,"source_root"));
     parameters.RemoveMember("market_window");daily.RemoveMember("publication");daily.RemoveMember("adjustment");
-    need(current==original);return original;
+    need(same_business(current,original));return original;
 }
 
 // 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
@@ -346,7 +356,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     const auto prior_sha=text(transition,"predecessor_configuration_sha256",64);need(sha(prior_raw)==prior_sha);
     auto prior_config=parse(prior_raw);prior_config.RemoveMember("recovery");
     rj::Document identity;identity.CopyFrom(current,identity.GetAllocator());identity.RemoveMember("recovery");
-    need(market_model(prior_config)==market_model(identity));
+    need(same_business(market_model(prior_config),market_model(identity)));
     const auto previous=absolute(text(transition,"predecessor_control_directory"));physical(previous);
     const bool initialization_abort=transition.HasMember("initialization_abort");
     need(!initialization_abort||(!fs::exists(previous/"ready.json")&&!transition.HasMember("restoration")));
@@ -385,7 +395,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
             &&sha(read(origin/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64));
         auto source=parse(source_raw);need(member(member(source,"trader"),"writes_enabled").IsFalse()
             &&member(member(current,"trader"),"writes_enabled").IsFalse());
-        source.RemoveMember("recovery");need(market_model(source)==market_model(identity));
+        source.RemoveMember("recovery");need(same_business(market_model(source),market_model(identity)));
         const auto terminal=parse(read(origin/"closed.json",4096));
         const auto source_ready=parse(read(origin/"ready.json",4096));
         need(text(source_ready,"schema")=="guanheng.execution.ready.v1"&&text(source_ready,"control_id")==origin.filename().string()
@@ -454,7 +464,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
                 const auto snapshot_raw=read(snapshot_owner/"execution.json",256*1024);
                 need(sha(snapshot_raw)==text(snapshot,"predecessor_configuration_sha256",64)
                     &&sha(read(snapshot_owner/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64)
-                    &&market_model(parse(snapshot_raw))==market_model(current));
+                    &&same_business(market_model(parse(snapshot_raw)),market_model(current)));
             }else need(member(origin,"files")==member(transition,"state_files"));
         }else{
             const auto failure=parse(read(previous/"failure.json",4096));same_origin(failure);
@@ -727,7 +737,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         }
         const auto& budget=member(cfg,"budget");keys(budget,{"start_ms","stop_ms","run_ms"});
         const auto start_until=started+std::chrono::milliseconds(number(budget,"start_ms",1000,60000));
-        stop_ms=number(budget,"stop_ms",1000,60000);const auto run_ms=number(budget,"run_ms",1000,86400000);
+        stop_ms=number(budget,"stop_ms",1000,60000);const auto run_ms=number(budget,"run_ms",0,86400000);
+        need(run_ms==0||run_ms>=1000); // 0持续运行至原stop；正数保留有限运行语义。
         auto check_start=[&]{need(Clock::now()<start_until);need(!health||health(health_user)==0);};
         if(cfg.HasMember("takeover")){
             need(recovery_enabled);const auto& selection=cfg["takeover"];keys(selection,{"input_file","input_sha256"});
@@ -813,7 +824,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         lifecycle_started=true;
         publish_lifecycle(control,"lifecycle-started.json","guanheng.execution.started.v1",id,expected_sha,false);
         auto ready=receipt("guanheng.execution.ready.v1",id,expected_sha,false);publish(control/"ready.json",ready);stage="runtime";
-        const auto run_until=Clock::now()+std::chrono::milliseconds(run_ms);
+        const auto run_until=run_ms?Clock::now()+std::chrono::milliseconds(run_ms):Clock::time_point::max();
         bool stop_seen=false,stop_decoded=false;
         int last_read_waiting=-1;unsigned read_transitions=0;
         auto next_read_publish=Clock::time_point::min();

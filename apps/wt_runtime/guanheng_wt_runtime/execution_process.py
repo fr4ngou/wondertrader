@@ -106,8 +106,11 @@ class ExecutionProcessConfig:
         _require(_library_files(installation) <= set(files))
         budget = config['budget']
         _require(type(budget) is dict and set(budget) == {'start_ms', 'stop_ms', 'run_ms'})
-        for name, maximum in (('start_ms', 60000), ('stop_ms', 60000), ('run_ms', 86400000)):
+        for name, maximum in (('start_ms', 60000), ('stop_ms', 60000)):
             _require(type(budget[name]) is int and 1000 <= budget[name] <= maximum)
+        # 运行时长属于进程生命周期：0由用户明确选择持续运行，正常stop仍沿原预算。
+        duration = budget['run_ms']
+        _require(type(duration) is int and (duration == 0 or 1000 <= duration <= 86400000))
         recovery_mode = None
         if 'recovery' in config:
             selection = config['recovery']
