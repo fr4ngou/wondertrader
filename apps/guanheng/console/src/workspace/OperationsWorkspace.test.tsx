@@ -4,19 +4,21 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import OperationsWorkspace from './OperationsWorkspace'
 import {fetchWtRuntime, type WtRuntimeObservation} from './wtRuntimeApi'
 import {fetchOperations} from './operationsApi'
+import {fetchWtInstances, type WtInstances} from './wtInstancesApi'
 import {operationsFixture} from './operations.fixture'
 
 vi.mock('./wtRuntimeApi',()=>({fetchWtRuntime:vi.fn()}))
-vi.mock('./wtInstancesApi',()=>({fetchWtInstances:(signal:AbortSignal)=>fetchWtRuntime(signal).then(value=>({
- schema_version:'guanheng.wt-instances.v1',read_only:true,observed_at:value.observed_at,
- instances:[{...value,scope_id:'a'.repeat(64),label:'WT'}]}))}))
+vi.mock('./wtInstancesApi',()=>({fetchWtInstances:vi.fn()}))
 vi.mock('./operationsApi',()=>({fetchOperations:vi.fn()}))
 const clients: QueryClient[]=[]
 const runtime: WtRuntimeObservation={schema_version:'guanheng.wt-runtime-observation.v1',read_only:true,
  observed_at:'2026-10-30T01:20:00Z',published_at:'2026-10-30T01:19:58Z',state:'available',
  reason:'以下为WT最近发布的状态；当前存活、来源连接和策略执行结果需分别核实。',
  runtime:{state:'ready',label:'基础就绪',ready:true,components:[{name:'history',display_name:'历史查询',state:'ready',label:'基础就绪',ready:true,pending:true,forced:false}]}}
-beforeEach(()=>{vi.mocked(fetchOperations).mockResolvedValue(operationsFixture);vi.mocked(fetchWtRuntime).mockResolvedValue(runtime)})
+const instances=(value:WtRuntimeObservation):WtInstances=>({schema_version:'guanheng.wt-instances.v1',read_only:true,
+ observed_at:value.observed_at,instances:[{...value,scope_id:'a'.repeat(64),label:'WT'}]})
+beforeEach(()=>{vi.mocked(fetchOperations).mockResolvedValue(operationsFixture);vi.mocked(fetchWtRuntime).mockResolvedValue(runtime)
+ vi.mocked(fetchWtInstances).mockImplementation(async signal=>instances(await fetchWtRuntime(signal)))})
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.resetAllMocks()})
 function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}});clients.push(client);render(<QueryClientProvider client={client}><OperationsWorkspace/></QueryClientProvider>)}
 
@@ -48,9 +50,10 @@ test('WT失败保留成功结果和原时间，行情查询独立读取，恢复
 })
 
 test('CURRENT返回单实例失败时保留旧组件和原发布时间，失败状态持续显示，恢复后替换',async()=>{
- vi.mocked(fetchWtRuntime).mockResolvedValueOnce(runtime)
-  .mockResolvedValueOnce({...runtime,state:'unavailable',reason:'此WT实例读取失败',published_at:null,runtime:null})
-  .mockResolvedValue({...runtime,runtime:{...runtime.runtime!,state:'closed',label:'已停止',ready:false}})
+ const unavailable=instances(runtime)
+ unavailable.instances[0]={...unavailable.instances[0],state:'unavailable',reason:'此WT实例读取失败',published_at:null,runtime:null}
+ vi.mocked(fetchWtInstances).mockResolvedValueOnce(instances(runtime)).mockResolvedValueOnce(unavailable)
+  .mockResolvedValue(instances({...runtime,runtime:{...runtime.runtime!,state:'closed',label:'已停止',ready:false}}))
  mount()
  const card=await screen.findByRole('region',{name:'WT运行状态'})
  const refresh=screen.getByRole('button',{name:'重新读取状态'})
