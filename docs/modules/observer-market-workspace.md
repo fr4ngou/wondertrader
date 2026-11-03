@@ -35,3 +35,10 @@
 原`providers.sgx`继续拥有CN产品日历史解析，官方全CN合约未平仓/当日成交及异常非整手值规则保持。该路只写`sgx_a50_daily`。同kind下显式datasets选择`sgx_a50_monthly`时进入`sgx_reports.monthly`，以独立source_id和报告游标读取公开appconfig→官网月报目录→原PDF，分别按月末持仓表、整月成交表的A50行及本期月份列取数。报告页码随PDF实际位置登记；原`basis_points`、历史首次可知时间保持未知为空。
 
 两路使用独立游标，原日频最新日不会遮住较早月末；同一原Fetcher、内容归档、批次deadline、collection lease、CAS和调度继续拥有生命周期。月报复用采集闭包已有pypdf，构建/版本/registry保持。原档案中的历史审计与方法定义保留，当前自动生产资格由来源配置及freshness回执说明；来源实际最新期次与本机检查时间分别表达。合同及容量沿[IMO-R22](../specs/independent-market-observation.md#imo-r22-sgx-a50日频与月报持续接续)。
+
+
+## 乐咕全A市值/GDP页面快照
+
+`legulegu_gdp.history`只拥有valuation_marketcap_gdp_latest。原Fetcher公开客户端直接读取原HTML指标卡，核三组标签/万亿单位、更新日和说明段日期/百分数以及“上一年度全年GDP”说明。市值与GDP保留页面显示值；ratio只将页面发布百分数除以100。GDP年份按页面上年定义和观察年份减1登记；字段来源不是本地宏观模型。
+
+原collection负责快照合并、来源存证及CAS；重复旧日不覆盖已有沪深300来源字段，新日未取到同日参考则留空。只保存真正取到的日期，points保持，daily_ready=false及连续历史缺口保持。该指标的说明/公式/采集状态随本轮回执更新，旧数值和方法身份保持；原observed/月末模型以及source.gdp_annual继续各自职责。合同沿[IMO-R23](../specs/independent-market-observation.md#imo-r23-乐咕全a市值gdp页面快照持续生产)。

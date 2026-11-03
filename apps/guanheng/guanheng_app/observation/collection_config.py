@@ -9,7 +9,7 @@ from urllib.parse import urlsplit,parse_qsl
 from .contracts import ObservationError
 
 KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmoney','shenwan','irs',
-         'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance'}
+         'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance','legulegu_gdp'}
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
@@ -144,6 +144,12 @@ def validate_configuration(value):
                 and source.get('window_mode')=='report_latest'
                 and type(source.get('max_pages')) is int and 3<=source['max_pages']<=20)
             _need(not {'input_manifest','input_sha256','input_directory','symbols','replace_tables','scope','bse_history','params','referer'} & set(source))
+        elif source['kind']=='legulegu_gdp':
+            # 只接原全A页面快照，月末模型和observed归属保持独立。
+            _need(source.get('datasets')==['valuation_marketcap_gdp_latest'] and not source.get('tables')
+                and source.get('url')=='https://legulegu.com/stockdata/marketcap-gdp'
+                and source.get('window_mode')=='report_latest')
+            _need(not {'input_manifest','input_sha256','input_directory','symbols','replace_tables','scope','bse_history','params','referer','derived_metrics'} & set(source))
         elif source['kind']=='legulegu_pb':
             # 固定原报告值口径；配置不接受其他市场或独立计算器的输出身份。
             _need(source.get('datasets')==['pb_all'] and not source.get('tables')

@@ -28,10 +28,11 @@ from .ashare_public import history as public_ashare_history
 from .breadth_trends import attach_trends, attach_benchmark
 from .legulegu_source import history as legulegu_history
 from .nfra_source import history as nfra_history
+from . import legulegu_gdp
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,
-    executive_changes=executive_changes,ashare_snapshot=ashare_history,legulegu_pb=legulegu_history,nfra_insurance=nfra_history)
+    executive_changes=executive_changes,ashare_snapshot=ashare_history,legulegu_pb=legulegu_history,nfra_insurance=nfra_history,legulegu_gdp=legulegu_gdp.history)
 
 
 def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=None,cancelled=None,
@@ -216,6 +217,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             finalization.remaining();definition=definitions[key]
             relevant=[r for r in receipts if any(s['id']==r['source_id'] and key in s.get('datasets',[])+s.get('derived_metrics',[])+s.get('tables',[]) for s in config['sources'])]
             if relevant:definition['freshness']=dict(last_checked_at=run['completed_at'],source_results=relevant,loaded_end=rows[-1]['date'] if rows else None)
+            if key==legulegu_gdp.METRIC:legulegu_gdp.update_definition(definition,rows,relevant,run['completed_at'])
             old=manifest['datasets'].get(key,dict(parents=[]))
             universe_table=definition.get('universe_table')
             if universe_table in tables:

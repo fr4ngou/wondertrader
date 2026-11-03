@@ -1,0 +1,17 @@
+{
+  "source": "https://legulegu.com/stockdata/marketcap-gdp",
+  "current_retrieved_at": "2026-11-03",
+  "old_archive_source_ref": "legu_buffett.html",
+  "old_archive_sha256": "d381f2f245de35a86901ca42994f432be16ab187b9c2acf465f1b8263cef7d45",
+  "usage": "internal research; no redistribution qualification",
+  "files": [
+    {
+      "file": "page-20261016.html",
+      "sha256": "d381f2f245de35a86901ca42994f432be16ab187b9c2acf465f1b8263cef7d45"
+    },
+    {
+      "file": "page-20261102.html",
+      "sha256": "90e9ef495a7f0d54c3c0c44b5a8b6b5ab0b65c735460ba3b7f3ee6042b5b4547"
+    }
+  ]
+}

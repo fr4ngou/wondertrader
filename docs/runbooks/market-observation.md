@@ -140,3 +140,12 @@ $ObservationDeploymentSha = (Get-FileHash -LiteralPath $ObservationDeployment -A
 官网appconfig提供公开CMS版本，目录按官方英文月份标题识别统计月，PDF当月列/整数合约数与表身份核对后由原refresh发布。月报目录日期、文件元数据时间及公告广播时间属于独立事实，保留原件；available_at仍表示未确认的历史首次可知时间。日频接口新一天未返回、或目录尚无新月报时保留原值及真实期次，不按本机日期伪造。
 
 先核回执与原捕获SHA。sgx_monthly_response/configuration表示公开配置或目录结构变化；sgx_monthly_pagination/listing_coverage_incomplete表示分页漂移、重复或容量未覆盖所需起点；sgx_monthly_report_identity/table_schema/contract_quantity表示产品、年月、文件、列或整手数量不符；sgx_monthly_pdf_*表示原PDF格式、加密或字节/页/文本容量失败。沿原来源失败保旧，核原件及声明后再恢复，不用累计列、去年同期或日频数字替代。现场更新角色及新增来源配置由Root沿原发行流程接收。
+
+
+## 乐咕市值/GDP当前页面接续
+
+在原来源配置追加legulegu.marketcap_gdp，kind=legulegu_gdp，url固定https://legulegu.com/stockdata/marketcap-gdp，datasets只含valuation_marketcap_gdp_latest，window_mode=report_latest，date_policy=cn-closed-day。主机legulegu.com复用PB声明，原模型、计划和预算保持；不声明observed、monthly或GDP源表为该来源输出。版本/构建/registry和现场角色由Root统一接收。
+
+原公开HTML已经含当期三项数字，只用原Fetcher客户端读取；无需额外API认证或新依赖。公开页面指标卡日期决定观察日，ratio为其百分数÷100，市值/GDP的万亿展示值各自保存。页面舍入导致三数不能精确反算时保留原发布值。未取得的历史、首次可知时间和新快照同日指数保持缺项。既有归档及新的实际观察点形成离散快照，不从原单点重建连续曲线。
+
+查看来源回执及原件SHA。legu_gdp_page_schema/identity表示缺项、重复、标签/单位或日期/百分数不一致；legu_gdp_market_scope表示全A市场范围说明改变；legu_gdp_denominator_definition表示页面GDP解释改变；legu_gdp_page_capacity为字节/嵌套/节点文本超限；legu_gdp_page_values为非有限或非法数值。HTTP失败沿原错误码处理，来源失败保留旧current和事实，不以其他市值范围、宏观分母或历史插值替代。
