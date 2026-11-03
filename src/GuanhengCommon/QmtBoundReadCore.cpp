@@ -855,9 +855,16 @@ public:
         add(body,"request_body_sha256",signed_http_sha256(output.receipt.request_body));
         add(body,"result_body_sha256",signed_http_sha256(output.native_result_json));
         auto response=http.exchange("POST","/internal/v1/read-results/"+output.result.request_id+"/consumed",encode(body),until,16384);
+        // 本进程已持有并验完原结果。完整410确认消费责任已经结束，须先解释业务
+        // 回复再处理运输层的通用错误分类，避免重复确认把正常回收变成硬故障。
+        if(response.response_complete&&response.code==410){
+            Document gone;
+            if(parse(response.body,gone,16384)&&keys(gone,{"error_code","error_message"})
+                &&field(gone,"error_code")&&text(gone["error_code"])=="read_result_unretained"
+                &&string(gone["error_message"],4096))return {};
+        }
         if(!response.status.ok())return response.status;
         Document value;if(!parse(response.body,value,16384))return fail(ErrorCode::IoError,"qmt_read_consumed_invalid");
-        if(response.code==410&&field(value,"error_code")&&text(value["error_code"])=="read_result_unretained")return {};
         if(response.code!=200)return signed_http_error(response.code);
         if(!keys(value,{"schema","request_id","consumed","retained"})||!value["retained"].IsBool()||!field(value,"schema")||text(value["schema"])!="qmt.read-consumed-result.v1"
             ||!field(value,"request_id")||text(value["request_id"])!=output.result.request_id||!value["consumed"].IsBool()||!value["consumed"].GetBool())
@@ -913,6 +920,16 @@ public:
                 response=http.exchange("GET","/internal/v1/bound-results/"+request_id,{},until,http_response_cap);
             }
             observe(response);
+            // 认证Host保留在途、未知和未消费结果。原账户票据查询收到这个完整410，
+            // 表示旧读取责任结束，供owner开始新一轮查询；它不提供任何账户事实。
+            // 交易命令及其它410仍保持原错误语义。
+            if(account()&&!receipt.retention_ticket_json.empty()&&response.response_complete&&response.code==410){
+                Document gone;
+                if(parse(response.body,gone,16384)&&keys(gone,{"error_code","error_message"})
+                    &&field(gone,"error_code")&&text(gone["error_code"])=="read_ticket_ended_unretained"
+                    &&string(gone["error_message"],4096))
+                    return failure(fail(ErrorCode::Unavailable,"qmt_read_ticket_ended_unretained"));
+            }
             if(account()&&get&&response.code==404&&response.response_complete
                 &&response.status.code==ErrorCode::NotSupported&&response.status.reason=="qmt_http_endpoint_unavailable"){
                 Document missing;

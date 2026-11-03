@@ -71,3 +71,12 @@ EFR-20：已准入原状态、在发布ready前启动失败的后继，可在tra
 EFR-21：同账权限交接显式提供execution_permission_origin={schema:"guanheng.execution-permission-origin.v1",file,sha256}。file为实际前代execution.json绝对路径，sha256固定其原字节；两代writes_enabled须为不同布尔值。兼容比较仅将trader.writes_enabled/base_url/binding_id/binding_sha256/instance_id/key_id_env/hmac_secret_env七项还原到前代。其余业务字段、账户、模型、费用、资本基准和金融根逐项保持。原启动截止内最多16跳，支持后续停写及兼容发行。Native独立复核同一归一化，含该标记的record_clean模式拒绝。原进程退出、正常关闭或故障核查、金融文件摘要、当前券商查询、未知命令责任、准确安装与实际解释器入口身份继续核验。标记只表达兼容来源；Source、Host和Trader的写权限及风险检查各守原职责。
 
 原账离线准备器保持原output_directory、initial_inventory.state_root和资本声明，固定实际前代control/configuration，生成独立通信配对及启用写权限的候选。准备器只写新候选目录，owner启动、Source替换、原金融状态写入、现场transition生成及新基准创建均由各自真实生命周期拥有。现场transition在实际正常关闭后，以后继角色解释器及已审Native安装生成。NAP新鲜度、自然交易窗口与SDK替身证据分别登记资格。
+
+
+## 已结束账户读取的回收结果
+
+显式账户票据的原ID lookup收到认证Host完整410/read_ticket_ended_unretained时，Common返回Unavailable/qmt_read_ticket_ended_unretained。Host对在途、未知及未消费结果仍保留原记录；该状态只结束旧读取责任，不提供账户数据。标准交易插件归还该原读取的槽和内存，沿既有刷新流程发起新一轮账户查询。其它410、绑定冲突、无法确认的原结果以及全部交易命令继续沿原核查／失败语义。
+
+本进程已验证并持有原终态后，consumed收到完整410/read_result_unretained表示消费交接已完成。先校验该业务回复，再解释通用HTTP错误；正文不完整、错误类别或形状不符均保留真实失败。读取回收不会清理历史行情、金融状态或未决委托。
+
+验证状态见[账户读取回收状态修正](../evidence/2026-11-03-account-read-ended.md)，现场恢复与隔离验证分别登记。

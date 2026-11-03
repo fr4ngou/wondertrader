@@ -1320,12 +1320,18 @@ struct StandardQmtTrader::Impl {
    &&envelope.IsObject()&&envelope.HasMember("dispatch_binding")&&envelope["dispatch_binding"].IsNull()
    &&envelope.HasMember("result_binding")&&envelope["result_binding"].IsNull();
  }
+ static bool ended_retained_read(const Completion& value) {
+  // Common仅在原账户票据及完整Host回复校验通过后发布此状态。
+  // 结束读取责任不代表查询成功，也不授予重发下单或撤单的权限。
+  return value.status.code==ErrorCode::Unavailable
+   &&value.status.reason=="qmt_read_ticket_ended_unretained";
+ }
  static bool settled_read(const Completion& value) {
-  return value.read_not_dispatched||(value.account.bound.result.terminal
+  return value.read_not_dispatched||ended_retained_read(value)||(value.account.bound.result.terminal
    &&value.account.bound.result.remote_ok&&value.status.ok());
  }
  static bool temporary_read(const Completion& value) {
-  if(value.read_not_dispatched)return true;
+  if(value.read_not_dispatched||ended_retained_read(value))return true;
   if(value.status.ok())return Clock::now()>=value.deadline&&!value.event_page.gap;
   const auto& status=value.status;
   if(status.code==ErrorCode::Timeout||status.code==ErrorCode::SubmissionUnknown)return true;
@@ -1356,7 +1362,7 @@ struct StandardQmtTrader::Impl {
   if(value.resume_read){
    auto found=held_reads.find(value.id);require(found!=held_reads.end(),"qmt_standard_original_read_missing");
    if(settled_read(value)){
-    held_reads.erase(found); // 完整原正文、身份及确认都已准入；旧观察不跨D交付。
+    held_reads.erase(found); // 原结果已收到或Host确认旧票据结束；旧观察不跨D交付。
    }else {
     if(!temporary_read(value)){fail(value.status);return true;}
     found->second.charge=result_charge;result_charge=0;found->second.inflight=false;
@@ -1367,7 +1373,7 @@ struct StandardQmtTrader::Impl {
   }
   if(!temporary_read(value))return false;
   const bool pending=(value.kind==Kind::Query||value.kind==Kind::EventQuery)
-    &&value.query_step>=QueryStep::SubmitEntered&&!value.account.bound.result.terminal;
+    &&value.query_step>=QueryStep::SubmitEntered&&!value.account.bound.result.terminal&&!ended_retained_read(value);
   if(pending){
    HeldRead held;held.receipt=std::move(value.account.bound.receipt);
    if(held.receipt.request_body.empty())held.receipt=std::move(value.saved_receipt);
