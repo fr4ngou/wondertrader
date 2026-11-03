@@ -1,0 +1,61 @@
+{
+  "as_of": "2026-11-03",
+  "sources": [
+    "https://www.pbc.gov.cn/jinrongshichangsi/147160/147173/2026102618103714639/index.html",
+    "https://www.chinawealth.com.cn/lc_lcsj/lcbg/202610/t20261021_855467147.html",
+    "https://www.cninfo.com.cn/new/hisAnnouncement/query"
+  ],
+  "files": [
+    {
+      "file": "pbc-market-directory.html",
+      "sha256": "f2905739bbc2f582141e4bf8de43c7af0e6f3c7461e0742283f032167aedf208",
+      "kind": "original_public_html"
+    },
+    {
+      "file": "pbc-market-september.html",
+      "sha256": "0682ea61449c0105fedf6dcd75bae7893aa8b73d4c25c384ec42221fdc222a38",
+      "kind": "original_public_html"
+    },
+    {
+      "file": "wealth-directory.html",
+      "sha256": "52e7a468e138273d71a428ec613d924f07532687e90f4ded5b37e38e860997a7",
+      "kind": "original_public_html"
+    },
+    {
+      "file": "wealth-q3.html",
+      "sha256": "06052fd42923fd7f52a2630d959c3f739b9f547ee4127153328b31eaa09ee4c7",
+      "kind": "original_public_html"
+    },
+    {
+      "file": "citic-h1-report-excerpts.json",
+      "sha256": "384e27f593dcd5f735d49808185477d180a9c8ebbdc15c390fa782677917a6a8",
+      "source_pdf_sha256": "df83d43874a9173a3100e4f5296be06e877ed4107b98aabdb2b2f120f5f30fc7",
+      "kind": "selected_original_pdf_text"
+    },
+    {
+      "file": "citic-last-excerpts.json",
+      "sha256": "2969f42a20cb38f878ba269360b8320caa072101ed9b9fb02188b83e921169cf",
+      "source_pdf_sha256": "531dbee773c1dc0eade98d3fd92bf58ecdf4c04aecbf25a8c4f25c64afd790a0",
+      "kind": "selected_original_pdf_text"
+    },
+    {
+      "file": "citic-annual-2025-excerpts.json",
+      "sha256": "daefbc1a4883330ac9c3b4886b47f58b4a54cb620a9a2f3b349ff528dc044a64",
+      "source_pdf_sha256": "438f2a53dcf4bf0569b6783b51674aae25076d23d53198b08cf7b539e14003c2",
+      "kind": "selected_original_pdf_text"
+    },
+    {
+      "file": "citic-annual-2024-excerpts.json",
+      "sha256": "96aef917b32c4062a7dd64cbe7b872f1fc681cf642ac1a07786b209a5197358a",
+      "source_pdf_sha256": "27ee61ad5296d8f200861692af538a7db034aadf770ba0ae67f736d4e693d50d",
+      "kind": "selected_original_pdf_text"
+    },
+    {
+      "file": "wealth-q3-report.txt",
+      "sha256": "9b6a0da36f8762bc7484644375129b51773afcb6bd3f9f89ef3b8b14fe3adbf9",
+      "source_pdf_sha256": "aa12a7a2c9873ad2dff2b10d3659a797bbb04118fae2389a05cc2e86b31085f0",
+      "kind": "original_pdf_text"
+    }
+  ],
+  "real_pdf_parser_evidence": "E:/workspace/wondertrader-qa/institution-data-20261103-001/MAIN-RESULT.json"
+}

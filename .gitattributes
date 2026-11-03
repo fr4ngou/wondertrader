@@ -22,3 +22,5 @@ src/ParserQMTHostV6/** -text
 # 公开原件样本保留末尾空格，保持原捕获字节及摘要。
 tests/fixtures/observation/sgx/*.txt whitespace=-blank-at-eol
 tests/fixtures/observation/legu-gdp/*.html whitespace=-blank-at-eol
+tests/fixtures/observation/institutions/*.html whitespace=-blank-at-eol
+tests/fixtures/observation/institutions/*.txt whitespace=-blank-at-eol

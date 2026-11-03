@@ -1,0 +1,910 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:wb="http://open.weibo.com/wb">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0,user-scalable=yes">
+    <title>
+        中国理财网-
+        中国银行业理财市场季度报告（2026年三季度）
+    </title>
+    <script>
+            var myLocation = '首页>理财数据>理财报告';
+    </script>
+</head>
+
+<body>
+    <div id="warp">
+
+        <!-- 公共网站头部导航+logo+搜索 -->
+        <link rel="stylesheet" type="text/css" href="/images/basic.css">
+<link rel="stylesheet" type="text/css" href="/images/video-js.min.css">
+<link rel="stylesheet" type="text/css" href="/images/index.css">
+<link rel="stylesheet" type="text/css" href="/images/column.css">
+<link rel="stylesheet" type="text/css" href="/images/ics.css">
+<script type="text/javascript" src="/images/jquery-3.7.1.min.js"></script>
+<script type="text/javascript" src="/images/echarts.js"></script>
+<script type="text/javascript" src="/images/visitor.min.js"></script>
+<script type="text/javascript" src="/images/jQuery.peSlider.js"></script>
+<script type="text/javascript" src="/images/VerificationInput.js"></script>
+<script type="text/javascript" src="/images/MSClass.js"></script>
+<script type="text/javascript" src="/images/jquery.cookie.js"></script>
+<script type="text/javascript" src="/images/js-cookie.js"></script>
+<script type="text/javascript" src="/images/crypto-js.min.js"></script>
+<script type="text/javascript" src="/images/ics.js"></script>
+
+<!-- 将当前访客量备份到数据库 -->
+<script type="text/javascript">
+    function verifyWords(obj) {
+        var result = isWords(obj);
+        if (result) {
+            var inputvalue = obj.value;
+            var newValue = "";
+            for (var i = 0; i < inputvalue.length; i++) {
+                newValue += ToCDB(inputvalue[i]);
+            }
+            if (!inputvalue && inputvalue != "" && inputvalue.length > 0) {
+                $("#searchValue").val(newValue);
+                isWords(obj);
+            }
+        }
+    }
+
+    // 全角转换为半角
+    function ToCDB(str) {
+        var tmp = "";
+        for (var i = 0; i < str.length; i++) {
+            if (str.charCodeAt(i) == 12288) {
+                tmp += String.fromCharCode(str.charCodeAt(i) - 12256);
+                continue;
+            }
+            if (str.charCodeAt(i) > 65280 && str.charCodeAt(i) < 65375) {
+                tmp += String.fromCharCode(str.charCodeAt(i) - 65248);
+            } else {
+                tmp += String.fromCharCode(str.charCodeAt(i));
+            }
+        }
+        return tmp
+    }
+
+    function collect() {
+        var url = document.URL;
+        var title = document.title;
+        var ua = navigator.userAgent.toLowerCase();
+        if (ua.indexOf("360se") > -1) {
+            alert("您的浏览器不支持,请按 Ctrl+D 手动收藏!");
+        } else if (ua.indexOf("msie 8") > -1) {
+            //window.external.AddToFavoritesBar(url, title); //IE8
+            alert("您的浏览器不支持,请按 Ctrl+D 手动收藏!");
+        } else if (document.all) {
+            try {
+                window.external.addFavorite(url, title);
+            } catch (e) {
+                alert('您的浏览器不支持,请按 Ctrl+D 手动收藏!');
+            }
+        } else if (window.sidebar) {
+            try {
+                window.sidebar.addPanel(title, url, "");
+            } catch (e) {
+                alert('您的浏览器不支持,请按 Ctrl+D 手动收藏!');
+            }
+        } else {
+            alert('您的浏览器不支持,请按 Ctrl+D 手动收藏!');
+        }
+    }
+
+    function submitForm() {
+        if (searchForm1.searchValue.value == "" || searchForm1.searchValue.value == "请输入关键字") {
+            alert("请填写搜索关键字！");
+            searchForm1.searchValue.focus();
+            return false;
+        }
+        var obj = searchForm1.searchValue;
+        var result = isWords(obj);
+        //alert("result:"+result);
+        if (!result) {
+            searchForm1.searchValue.value = "";
+            searchForm1.searchValue.focus();
+            return false;
+        }
+
+        var strs = obj.value.split("");
+        if (strs.length > 36) {
+            alert("长度不能超过36位字符");
+            searchForm1.searchValue.value = "";
+            return false;
+        }
+        searchForm1.submit();
+    }
+
+    $(function () {
+        $("#sethome").click(function (callback) {
+            var aUrls = document.URL.split("/");
+            var vDomainName = "http://" + aUrls[2] + "/";
+            vDomainName = vDomainName.substring(0, vDomainName.lastIndexOf(":")) + "/zzlc/";
+            try {
+                this.style.behavior = 'url(#default#homepage)';
+                callback(vDomainName);
+            } catch (e) {
+                if (window.netscape) {//ff
+                    try {
+                        netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
+                        var prefs = Components.classes['@mozilla.org/preferences-service;1'].getService(Components.interfaces.nsIPrefBranc);
+                        prefs.setCharPref('browser.startup.homepage', vDomainName);
+                    } catch (e) {
+                        alert("此操作被浏览器拒绝！\n请在浏览器地址栏输入“about:config”并回车\n然后将[signed.applets.codebase_principal_support]设置为'true'");
+                    }
+                } else {
+                    alert('您的浏览器暂时不支持该功能!');
+                }
+            }
+        });
+    });
+
+    $("#searchValue").change(function () {
+        $("#searchValue").val(searchForm1.searchValue.value.toUpperCase())
+    });
+
+</script>
+<div class="common-webTitle">
+    <div class="common-head">
+      <div class="wealthLogo">
+        <a href="https://www.chinawealth.com.cn" target="_parent">
+            <img class="wealthWeblogo" src="/images/logo.jpg" alt="" />
+        </a>
+        <a class="logo-title" href="https://www.chinawealth.com.cn/lc_gywm/wzjs/wzjj/" target="_blank">国家金融监督管理总局指定-全国银行业理财产品信息查询网站</a>
+      </div>
+      <div class="head-containter">
+        <div class="head-search">
+          <input type="text" placeholder="请输入关键字" class="searchValue" />
+          <span class="searchIcon" onclick="searchFn()">
+            <img class="searchPic" src="/images/search.png" alt="" />
+          </span>
+        </div>
+        <div class="head-link">
+          <span class="link-infomation login">登录</span>
+          <span class="link-infomation register">注册</span>
+          <span class="link-infomation userName" style="display: none;border: none;padding: 0 0 0 20px;">xxx，欢迎来到中国理财网！</span>
+          <span class="link-infomation quit" style="display: none;">[退出]</span>
+          <span id="sethome" class="link-infomation">设为首页</span>
+          <span class="link-infomation" onclick="collect()">加入收藏</span>
+        </div>
+      </div>
+    </div>
+</div>
+<div class="common-navigation">
+    <div class="navigation-container">
+        
+            
+        
+            
+        
+            
+        
+            
+                <div class="navigation-item">
+                    <a class="navigation-content" href="https://www.chinawealth.com.cn/lcw_sy/">首页</a>
+                    
+                </div>
+            
+        
+            
+                <div class="navigation-item">
+                    <a class="navigation-content" href="https://www.chinawealth.com.cn/lc_fyygz/">法律与规则</a>
+                    
+                        <div class="navigation-dropdown dropdownDis">
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_fyygz/flfg/">
+                                        法律法规
+                                    </a>
+                                
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_fyygz/bmgz/">
+                                        部门规章
+                                    </a>
+                                
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_fyygz/ywgz/">
+                                        业务规则
+                                    </a>
+                                
+                            
+                        </div>
+                    
+                </div>
+            
+        
+            
+                <div class="navigation-item">
+                    <a class="navigation-content" href="/lcweb/management/proScreen">理财产品</a>
+                    
+                </div>
+            
+        
+            
+                <div class="navigation-item">
+                    <a class="navigation-content" href="https://www.chinawealth.com.cn/lc_xwzx/">新闻资讯</a>
+                    
+                        <div class="navigation-dropdown dropdownDis">
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_xwzx/xwgg/">
+                                        通知公告
+                                    </a>
+                                
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_xwzx/lchydt/">
+                                        监管与行业动态
+                                    </a>
+                                
+                            
+                        </div>
+                    
+                </div>
+            
+        
+            
+                <div class="navigation-item">
+                    <a class="navigation-content" href="https://www.chinawealth.com.cn/lc_lcsj/">理财数据</a>
+                    
+                        <div class="navigation-dropdown dropdownDis">
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_lcsj/lcbg/">
+                                        理财报告
+                                    </a>
+                                
+                            
+                        </div>
+                    
+                </div>
+            
+        
+            
+                <div class="navigation-item">
+                    <a class="navigation-content" href="https://www.chinawealth.com.cn/lc_lckt/">理财课堂</a>
+                    
+                        <div class="navigation-dropdown dropdownDis">
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_lckt/lcsp/">
+                                        理财视频
+                                    </a>
+                                
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_lckt/lcpx/">
+                                        理财培训
+                                    </a>
+                                
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_lckt/lczs/">
+                                        理财知识
+                                    </a>
+                                
+                            
+                                
+                            
+                        </div>
+                    
+                </div>
+            
+        
+            
+        
+            
+                <div class="navigation-item">
+                    <a class="navigation-content" href="https://www.chinawealth.com.cn/lc_gywm/">关于我们</a>
+                    
+                        <div class="navigation-dropdown dropdownDis">
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_gywm/zxjs/">
+                                        中心介绍
+                                    </a>
+                                
+                            
+                                
+                                    <a class="nav-dropItem" href="https://www.chinawealth.com.cn/lc_gywm/wzjs/">
+                                        网站介绍
+                                    </a>
+                                
+                            
+                        </div>
+                    
+                </div>
+            
+        
+            
+        
+            
+        
+            
+        
+            
+        
+            
+        
+            
+        
+            
+        
+            
+        
+            
+        
+            
+        
+    </div>
+</div>
+
+<script type="text/javascript">
+  $.ajaxSetup({
+    headers:{
+      'Accept' : '*/*',
+      'Content-Type':'application/json;charset=UTF-8'
+    }
+  })
+
+  $('.navigation-item').each(function() {
+    $(this).mouseover(function() {
+        $(this).children('.navigation-dropdown').removeClass('dropdownDis')
+    })
+    $(this).mouseout(function() {
+        $(this).children('.navigation-dropdown').addClass('dropdownDis')
+    })
+  })
+
+  // 搜索
+  function searchFn() {
+    //点击埋点
+    Tracker.click('', { bizType: 'Pay', ext: { location: '站内搜索', infoTitle: '' } });     
+    if($(".head-search .searchValue").val() == ""){
+      alert("请填写搜索关键字！")
+      $(".head-search .searchValue").focus()
+      return false;
+    }
+    if($(".head-search .searchValue").val().length > 36){
+      alert("长度不能超过36位字符")
+      $(".head-search .searchValue").val('')
+      return false
+    }
+    const searchValue = encodeURIComponent($(".head-search .searchValue").val())
+    const href = 'https://www.chinawealth.com.cn/lcweb/seek/search' + '?keyword=' + searchValue
+    window.open(href,'_blank')
+  }
+
+  $('.searchValue').keypress(function(e){
+    // 监听回车键
+    if(e.keyCode === 13){
+      searchFn()
+    }
+  })
+
+	getToken()
+	//获取登录后的用户名及token
+	function getToken(){
+		//获取单点登录返回的授权码code
+		const params = new URLSearchParams(window.location.search)
+		const code = params.get('code')
+		if(code && !Cookies.get('Lcw-Token')){
+      let data = {code,redirectUri:'https://www.chinawealth.com.cn'}//加密前数据
+      // let encryptData = encryptRequest(data)//加密后数据
+			$.ajax({
+				url:'/lcw-fe-service/token/getToken',
+				type:'post',
+				data: JSON.stringify(data),
+        contentType:'application/json;charset=UTF-8',
+        dataType:'json',
+				success:function(res){
+          // (res&&res.body&&res.body.exts&&res.body.exts.result&&res.body.exts.result.code == 200 && res&&res.body&&res.body.exts&&res.body.exts.result&&res.body.exts.result.data)
+					if(res && res.code == 200 && res.data){
+						const {access_token,userName,userId} = res.data
+						// $.cookie('Lcw-Token',access_token,{path:'/'})
+						// $.cookie('Lcw-LoginName',userName,{path:'/'})
+						// $.cookie('loginCode',code,{path:'/'})
+						// $.cookie('Lcw-UserId',userId,{path:'/'})
+            Cookies.set('Lcw-Token',access_token,{
+              sameSite: 'Strict',
+              secure: true
+            })
+            Cookies.set('Lcw-LoginName',userName,{
+              sameSite: 'Strict',
+              secure: true
+            })
+            Cookies.set('loginCode',code,{
+              sameSite: 'Strict',
+              secure: true
+            })
+            Cookies.set('Lcw-UserId',userId,{
+              sameSite: 'Strict',
+              secure: true
+            })
+						$('.login').hide()
+						$('.register').hide()
+						$('.userName').show()
+						$('.quit').show()
+						islogin()
+					}else{
+						$('.login').show()
+						$('.register').show()
+						$('.userName').hide()
+						$('.quit').hide()
+            window.location.replace('https://www.chinawealth.com.cn')
+						alert(res.msg)
+						clearLogin()//防止登录失败后点击登录按钮，一直跳转不到登录页
+					}
+				},
+				error:function(){
+					$('.login').show()
+					$('.register').show()
+					$('.userName').hide()
+					$('.quit').hide()
+					alert('登录失败，请稍后再试')
+					clearLogin()//防止登录失败后点击登录按钮，一直跳转不到登录页
+				}
+			})
+		}else{
+			islogin()	
+		}
+	}
+	//是否已登录
+	function islogin() {
+    let data = {'userCode': Cookies.get('Lcw-UserId') || '' }//加密前数据
+    // let encryptData = encryptRequest(data)//加密后数据
+		$.ajax({
+			url:'/lcw-fe-service/userInfo/getUserInfo',
+			type:'post', 
+      data: JSON.stringify(data),  
+      contentType:'application/json;charset=UTF-8',
+      headers:{
+        Authorization:'Bearer ' + Cookies.get('Lcw-Token'),
+        qyzToken:Cookies.get('Lcw-Token'),
+        'user-id':Cookies.get('Lcw-UserId'),
+        loginName:Cookies.get('Lcw-LoginName'),
+      },
+			success:function(res){
+        // const code = res&&res.body&&res.body.exts&&res.body.exts.result&&res.body.exts.result.code == 200 
+        // const data = res&&res.body&&res.body.exts&&res.body.exts.result&&res.body.exts.result.data
+        const code = res && res.code == 200 
+        const data = res && res.data
+				if(code && !data){//未登录
+					$('.login').show()
+					$('.register').show()
+					$('.userName').hide()
+					$('.quit').hide()
+				}else if(code && data){//已登录
+					$('.login').hide()
+					$('.register').hide()
+					$('.userName').show()
+					$('.quit').show()		
+					const {userName} = res.data
+          Cookies.set('Lcw-UserName',userName,{
+            sameSite: 'Strict',
+            secure: true
+          })
+					// $.cookie('Lcw-UserName',userName,{path:'/'})
+					$('.userName').html('<span style="color:#b20b1f">' + userName + '</span>，欢迎来到中国理财网！')
+				}else{
+					clearLogin()//防止token过期，单点登录状态还在，需请求退出单点登录（偶发现象）
+					clearCookie()
+					$('.login').show()
+					$('.register').show()
+					$('.userName').hide()
+					$('.quit').hide()	
+				}
+			},
+			error:function(){
+				clearLogin()
+				clearCookie()
+				$('.login').show()
+				$('.register').show()
+				$('.userName').hide()
+				$('.quit').hide()
+			}
+		})
+    }
+	
+	//登录操作
+  $('.login').click(function(){
+    let ssoUrl = 'https://wsso.chinabond.com.cn' + '/oauth/authorize'
+    ssoUrl = ssoUrl + ('?' + queryString({
+			client_id: 'chinawealth',
+			response_type: 'code',
+			scope: 'all',
+			redirect_uri: 'https://www.chinawealth.com.cn'
+    }))
+    window.location.href = ssoUrl
+	})
+	// 注册
+	$('.register').click(function(){
+		window.location.href = 'https://www.chinawealth.com.cn/lcweb/sign/register'
+	})
+	// 退出操作---，清除cookie数据、跳到登录页
+	$('.quit').click(function(){      
+		clearLogin()   
+		clearCookie()
+	})
+	//清除cookie数据
+	function clearCookie(){
+		// 获取所有 cookie
+		const cookies = document.cookie.split(';')
+		// 遍历每个 cookie, 删除它们
+		for(let i = 0; i < cookies.length; i++){
+			const cookie = cookies[i].trim();
+			if(cookie){
+				const [name] = cookie.split('=')
+				$.removeCookie(name, { path: '/'})
+			}
+		}
+
+		// 清除localStorage和sessionStorage
+		localStorage.clear()
+		sessionStorage.clear()
+	}
+	//单点登录退出
+	function clearLogin(){
+		const redirectUri = 'https://www.chinawealth.com.cn'
+		const token = Cookies.get('Lcw-Token')
+		const url = 'https://wsso.chinabond.com.cn/oauth/remove/token?redirectUri=' + redirectUri + '&clientId=chinawealth&token=' + token
+		if(token){
+      window.location.replace(url)
+    }
+	}
+
+	// 对象转成&拼接参数
+	function queryString(params){
+		let str = ''
+		for(let key in params){
+			str += key + '=' +params[key] + '&'
+		}
+		return str.substr(0,str.length-1)
+	}
+
+    //点击用户名
+    $('.userName').click(function(){
+        window.location.href = 'https://www.chinawealth.com.cn/lcweb/sign/user'
+    })
+
+    //请求数据
+    function requestData(params){
+      let extsObj = Object.assign({}, params, {
+        'userCode': Cookies.get('Lcw-UserId') || ''
+      })
+      let data = {
+        header:{
+          'sendSysname': 'lcw-fe-front',
+          'recvSysname': true,
+          'msgType': 'lcw-fe-front.html',
+          'msgId': 'lcw-fe-front32432490121b69cafgwe470ea68565023424hld31',
+          'sendTime': new Date().toLocaleString(),
+          'exts': {},
+        },
+        body:{
+          version: '1.1',
+          trnsType: 'lcw-fe-front.html',
+          trnsId: 'lcw-fe-front32432490121b69cafgwe470ea68565023424hld31',
+          exts: extsObj
+        }
+      }
+      if(Cookies.get('Lcw-Token')){
+        data.header.exts = {
+          loginName: Cookies.get('Lcw-LoginName'),
+        }
+      }
+      return data
+  }
+</script>
+
+        <!--main-->
+        <div class="main">
+            <div style="display:none">
+            </div>
+            <div class="area">
+                <span class="area_home"></span>
+                <script>
+                    if ('理财数据' == "首页") {
+                        document.write('<a href="../../" title="理财数据" class="CurrChnlCls">理财数据</a>&nbsp;&gt;&nbsp;<a href="../" title="理财报告" class="CurrChnlCls">理财报告</a>');
+                    } else {
+                        document.write('<a href="../../../" title="首页" class="CurrChnlCls">首页</a>><a href="../../" title="理财数据" class="CurrChnlCls">理财数据</a>><a href="../" title="理财报告" class="CurrChnlCls">理财报告</a>');
+                    }
+                </script>
+            </div>
+
+            <div class="news_left">
+                <div class="news_xq">
+
+                    <h4 title="中国银行业理财市场季度报告（2026年三季度）" class="news_tit">
+                        中国银行业理财市场季度报告（2026年三季度）
+                    </h4>
+                    <input type="hidden" value="中国银行业理财市场季度报告（2026年三季度）" id="fullTitle" />
+                    <!--news_tit end-->
+                    <div class="news_zs">
+                        发布时间：
+                        2026-10-21&nbsp;&nbsp;文章来源：
+                        银行理财登记中心&nbsp;&nbsp;
+                        作者：&nbsp;&nbsp;&nbsp;&nbsp;
+                        字体：<a href="javaScript:void(0)" onclick="javaScript:doZoom(16)">大</a>
+                        <a href="javaScript:void(0)" onclick="javaScript:doZoom(14)">中</a>
+                        <a href="javaScript:void(0)" onclick="javaScript:doZoom(12)">小</a>
+                    </div>
+                    <!--news_zs end-->
+                    <div class="news_con" id="news_con">
+                        <div class="view TRS_UEDITOR trs_paper_default trs_word"><div class="trs_import_zehf9q"><p style="margin-top:0pt; margin-bottom:8pt; text-indent:28pt; line-height:31pt"><span style="font-family:仿宋_GB2312; font-size:14pt">银行业理财登记托管中心发布</span><span style="font-family:仿宋_GB2312; font-size:14pt; color:#323232">《中国银行业理财市场季度报告（2026年三季度）》，对2026年三季度银行业理财市场情况进行统计分析。内容详见附件。</span></p></div><p><br/></p></div>
+                    </div>
+                    <!--news_con end-->
+                    
+                            <div class="news_down">
+                                <div class="news_dtit">附件下载</div>
+                                <ul class="news_dlist">
+                                    
+                                        <li class='file-list' data-recurl='./P020261021528431241365.pdf' data-sourceName='P020261021528431241365.pdf' data-download='中国银行业理财市场季度报告（2026年三季度）.pdf' data-sern='1' data-othertion='1'>
+                                        </li>
+                                        <script>
+                                            $(".file-list").each(function(i, ele){
+                                                var recurl = $(ele).data("recurl");
+                                                var sourceName = $(ele).data("sourcename");
+                                                var download = $(ele).data("download");
+                                                var sern = $(ele).data("sern");
+                                                var othertion = $(ele).data("othertion")
+
+                                                var html= '<a href="' + recurl + '"' + ' sourceName="' + sourceName + '"' + ' download="' + download + '"' + '>' + sern + '.' + download + '[点击下载]</a>';
+
+                                                var html2= '<a href="' + recurl + '"' + 'target="_blank">' + sern + '.' + download + '[点击预览]</a>';
+
+                                                if (othertion === 1) {
+                                                    $(ele).html(html2)
+                                                } else {
+                                                    $(ele).html(html)
+                                                }
+                                            })
+                                        </script>
+                                    
+                                </ul>
+                            </div>
+                        
+                        
+                    
+                </div>
+                <!--news_xq end-->
+            </div>
+            <!--news_left end-->
+            <div class="news_right">
+                <div class="news_radv">
+                    
+                        <li>
+                            
+                                <img width="100%" src="../../../lcw_gggl/lc_lbgg/202404/W020240423649021683473.bmp" />
+                            
+                        </li>
+                    
+                </div>
+                <!--news_radv end-->
+                <div class="common-information">
+                    <h2>最新信息</h2>
+                    <ul>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">1</span>
+                                <a class="commonInfo-title" href="../202607/t20260728_855246750.html"
+                                    title="中国银行业理财市场半年报告（2026年上）" target="_blank">
+                                    中国银行业理财市场半年报告（2026年上）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">2</span>
+                                <a class="commonInfo-title" href="../202604/t20260417_855024813.html"
+                                    title="中国银行业理财市场季度报告（2026年一季度）" target="_blank">
+                                    中国银行业理财市场季度报告（2026年一季度）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">3</span>
+                                <a class="commonInfo-title" href="../202601/t20260123_854907322.html"
+                                    title="中国银行业理财市场年度报告（2025年）" target="_blank">
+                                    中国银行业理财市场年度报告（2025年）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">4</span>
+                                <a class="commonInfo-title" href="../202510/t20251023_854802809.html"
+                                    title="中国银行业理财市场季度报告（2025年三季度）" target="_blank">
+                                    中国银行业理财市场季度报告（2025年三季度）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">5</span>
+                                <a class="commonInfo-title" href="../202507/t20250725_854715485.html"
+                                    title="中国银行业理财市场半年报告（2025年上）" target="_blank">
+                                    中国银行业理财市场半年报告（2025年上）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">6</span>
+                                <a class="commonInfo-title" href="../202504/t20250423_854612912.html"
+                                    title="中国银行业理财市场季度报告（2025年一季度）" target="_blank">
+                                    中国银行业理财市场季度报告（2025年一季度）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">7</span>
+                                <a class="commonInfo-title" href="../202501/t20250117_854505702.html"
+                                    title="中国银行业理财市场年度报告（2024年）" target="_blank">
+                                    中国银行业理财市场年度报告（2024年）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">8</span>
+                                <a class="commonInfo-title" href="../202407/t20240730_853852590.html"
+                                    title="中国银行业理财市场半年报告（2024年上）" target="_blank">
+                                    中国银行业理财市场半年报告（2024年上）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">9</span>
+                                <a class="commonInfo-title" href="../202404/t20240423_853749816.html"
+                                    title="中国银行业理财市场年度报告（2023年）" target="_blank">
+                                    中国银行业理财市场年度报告（2023年）
+                                </a>
+                            </li>
+                        
+                            <li class="commonInfo-item">
+                                <span class="commonInfo-serialNum">10</span>
+                                <a class="commonInfo-title" href="../202404/t20240423_853694154.html"
+                                    title="中国银行业理财市场半年报告（2023年上）" target="_blank">
+                                    中国银行业理财市场半年报告（2023年上）
+                                </a>
+                            </li>
+                        
+                    </ul>
+                </div>
+            </div>
+            <!--news_right end-->
+            <div class="clear"></div>
+        </div>
+        <!--底部-->
+        <!-- 公共网站底部 -->
+        <div class="common-footer">
+    <div class="footer-container">
+      <div class="footer-infomation">
+        <div class="web-statement">©版权所有：中央国债登记结算有限责任公司</div>
+        <a class="web-statement" style="display: block;color: #666666;" href="https://beian.miit.gov.cn" target="_black">京ICP备17016011号-6</a>
+        <div class="web-statement">
+          <a class="archivalInfo" style="color: #666666;" href="http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11010202008656" target="_blank">
+            <img src="https://www.chinawealth.com.cn/images/beian.png" alt="" />
+            京公网安备11010202008656号
+          </a>
+          <span class="archivalInfo">
+            <img src="https://www.chinawealth.com.cn/images/Chinawealth-IPV6.png" width="30" height="15" alt="" />
+            本网站支持IPV6访问
+          </span>
+        </div>
+        <div class="web-statement">本网站展示的内容仅可用于个人或机构自身基于非商业目的使用，未经我方许可，</div>
+        <div class="web-statement">任何人不得以商业目的使用本网站的任何内容，具体请见网站声明页面。</div>
+      </div>
+      <div class="wealthQRcode">
+        <img src="https://www.chinawealth.com.cn/images/weixinok.png" alt="" />
+      </div>
+    </div>
+</div>
+<script type="text/javascript" src="/images/uaParserJS.js"></script>
+<script type="text/javascript">
+    var myselfIndex = window.location.pathname; 
+    var myInfoTitle = "";
+    if (myselfIndex.lastIndexOf(".html") > 0 && myselfIndex.search("index") < 0){
+        myInfoTitle = myselfIndex.substring(myselfIndex.lastIndexOf("_") + 1,myselfIndex.lastIndexOf("."));
+        }
+        //只统计网站大标题
+        if (myLocation.indexOf("中国理财网") != -1) {
+            myLocation = "理财网首页";
+        }else if (myLocation.indexOf("首页>首页") != -1) {
+            myLocation = "理财网首页";
+        }else if (myLocation.indexOf("个人养老金") != -1) {
+            myLocation = "个人养老金";
+        }else if (myLocation.indexOf("法律与规则") != -1) {
+            myLocation = "法律与规则";
+        }else if (myLocation.indexOf("新闻资讯") != -1) {
+            myLocation = "新闻资讯";
+        }else if (myLocation.indexOf("理财数据") != -1) {
+            myLocation = "理财数据";
+        }else if (myLocation.indexOf("理财课堂") != -1) {
+            myLocation = "理财课堂";
+        }else if (myLocation.indexOf("关于我们") != -1) {
+            myLocation = "关于我们";
+        }else if (myLocation.indexOf("养老金融") != -1) {
+        myLocation = "养老金融";
+        }else if (myLocation.indexOf("交换平台") != -1) {
+        myLocation = "交换平台";
+        }else if (myLocation.indexOf("理财直联") != -1) {
+        myLocation = "理财直联";
+        }else if (myLocation.indexOf("程序下载") != -1) {
+        myLocation = "程序下载";
+        }else if (myLocation.indexOf("创新业务") != -1) {
+        myLocation = "创新业务";
+        }else if (myLocation.indexOf("金融教育宣传周") != -1) {
+        myLocation = "金融教育宣传周";
+        }else if (myLocation.indexOf("金融教育宣传月") != -1) {
+            myLocation = "金融教育宣传月";
+        }else {
+            myLocation = "";
+        }
+        
+    const parser = new UAParser()
+    const result = parser.getResult() 
+    // 统计访问量
+    window._to = {
+        server: 'https://maf.chinabond.com.cn:8093/loggw/webLog.do',
+        appId: '08442C8231724',
+        workspaceId: 'default',
+        h5version: '1.0.0',
+        userId: Cookies.get('Lcw-UserId') || '',
+        bizScenario: '',
+        mtrDebug: true,
+        extendParams: {
+            location: myLocation,
+            infoTitle: myInfoTitle,
+            loginName: Cookies.get('Lcw-LoginName') || '',
+            browser: result.browser.name ? result.browser.name + "/" +result.browser.version : ''
+        }
+    };
+
+</script>
+<script type="text/javascript" src="https://www.chinawealth.com.cn/images/mPaaS.min.js"></script>
+<script type="text/javascript" src="/images/work.js"></script>
+    </div>
+
+    <script type="text/javascript">
+        function doZoom(size) {
+            //获取正文div
+            var contentZoom = document.getElementById("news_con");
+            if (!contentZoom) return;
+
+            //获取正文中的table
+            var TableTag = document.getElementById("news_con").getElementsByTagName("TABLE");
+            if (!TableTag) return;
+
+            //改变正文中的字体大小
+            contentZoom.style.fontSize = size + 'px';
+            //如果正文中包括table，则改变table中的字体大小
+            if (TableTag.length > 0) {
+                for (var k = 0; k < TableTag.length; k++) {
+                    TableTag[k].style.fontSize = size + "px";
+                }
+            }
+
+            let spanTag = document.getElementById("news_con").getElementsByTagName("span");
+            if (spanTag.length > 0) {
+                for (let j = 0; j < spanTag.length; j++) {
+                    spanTag[j].style.fontSize = size + "px";
+                }
+                
+            } else {
+                let pTag = document.getElementById("news_con").getElementsByTagName("p");
+                if (pTag.length > 0) {
+                    for (let i = 0; i < TableTag.length; i++) {
+                        pTag[i].style.fontSize = size + "px";
+                    }
+                }
+            }
+        }
+
+    </script>
+</body>
+
+
+
+
+</html>

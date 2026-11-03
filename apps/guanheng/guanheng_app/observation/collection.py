@@ -29,10 +29,13 @@ from .breadth_trends import attach_trends, attach_benchmark
 from .legulegu_source import history as legulegu_history
 from .nfra_source import history as nfra_history
 from . import legulegu_gdp
+from . import institution_reports, bond_mtm
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,
-    executive_changes=executive_changes,ashare_snapshot=ashare_history,legulegu_pb=legulegu_history,nfra_insurance=nfra_history,legulegu_gdp=legulegu_gdp.history)
+    executive_changes=executive_changes,ashare_snapshot=ashare_history,legulegu_pb=legulegu_history,nfra_insurance=nfra_history,legulegu_gdp=legulegu_gdp.history,
+    pbc_custody=institution_reports.pbc_custody,wealth_allocation=institution_reports.wealth_allocation,
+    citic_broker=institution_reports.citic_broker,chinabond_wealth=bond_mtm.history)
 
 
 def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=None,cancelled=None,
@@ -201,6 +204,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         table_parents.update({key:value for key,value in candidate.get('source_table_parents',{}).items() if key.endswith('_official_calendar')})
         market_models(tables,datasets,definitions,config['models'],as_of)
         spread_and_bond(tables,datasets,config['models']);attach_sse_reference(tables,datasets)
+        bond_mtm.extend(tables,datasets,check=finalization.remaining)
+        if bond_mtm.TABLE in tables and bond_mtm.METRIC in definitions:
+            bond_mtm.update_definition(definitions[bond_mtm.METRIC])
         mapping=config['models'].get('daily_context',{})
         if 'valuation_marketcap_gdp_observed' in datasets:
             datasets['valuation_marketcap_gdp_observed']=merge(datasets['valuation_marketcap_gdp_observed'],datasets.get('valuation_marketcap_gdp_monthly',[]))[0]
@@ -218,11 +224,20 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             relevant=[r for r in receipts if any(s['id']==r['source_id'] and key in s.get('datasets',[])+s.get('derived_metrics',[])+s.get('tables',[]) for s in config['sources'])]
             if relevant:definition['freshness']=dict(last_checked_at=run['completed_at'],source_results=relevant,loaded_end=rows[-1]['date'] if rows else None)
             if key==legulegu_gdp.METRIC:legulegu_gdp.update_definition(definition,rows,relevant,run['completed_at'])
+            if key in ('bond.custody','holdings_wealth','holdings_broker') and relevant and any(
+                    source['kind'] in ('pbc_custody','wealth_allocation','citic_broker')
+                    and key in source.get('datasets',[]) for source in config['sources']):
+                institution_reports.update_definition(key,definition,rows,relevant,run['completed_at'])
+            if key==bond_mtm.METRIC and bond_mtm.TABLE in tables and relevant:
+                institution_reports.update_definition(key,definition,rows,relevant,run['completed_at'])
             old=manifest['datasets'].get(key,dict(parents=[]))
             universe_table=definition.get('universe_table')
             if universe_table in tables:
                 definition['universe_version']=reader.objects.put(parquet_bytes(tables[universe_table]),kind='standard')
             context_parents=table_parents.get('market.'+mapping[key]['symbol'],[]) if key in mapping else []
+            if key==bond_mtm.METRIC and bond_mtm.TABLE in tables:
+                context_parents=[*context_parents,*[parent for name in
+                    (bond_mtm.TABLE,'source.csi_all','market.sh000001') for parent in table_parents.get(name,[])]]
             input_parents=[candidate['datasets'][name]['partition'] for name in definition.get('input_metrics',[])]
             candidate['datasets'][key]=admit_dataset(reader.objects,definition,rows,[*([old['partition']] if 'partition' in old else []),*old['parents'],*context_parents,*input_parents,
                 *[r['source_manifest'] for r in relevant if r.get('source_manifest')]])

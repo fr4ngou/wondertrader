@@ -9,7 +9,8 @@ from urllib.parse import urlsplit,parse_qsl
 from .contracts import ObservationError
 
 KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmoney','shenwan','irs',
-         'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance','legulegu_gdp'}
+         'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance','legulegu_gdp',
+         'pbc_custody','wealth_allocation','citic_broker','chinabond_wealth'}
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
@@ -137,6 +138,23 @@ def validate_configuration(value):
                     and type(source.get('input_sha256')) is str and re.fullmatch('[a-f0-9]{64}',source['input_sha256']))
             _need(source.get('datasets')==[METRIC] and source.get('tables')==[UNIVERSE])
             _need(not {'url','referer','symbols','replace_tables','window_mode','scope','bse_history'} & set(source))
+        elif source['kind'] in ('pbc_custody','wealth_allocation','citic_broker','chinabond_wealth'):
+            from . import institution_reports, bond_mtm
+            # 修复原报告数值入口，范围和URL固定；各自报告游标不被其它机构最新日遮盖。
+            url,metrics,tables={
+                'pbc_custody':(institution_reports.PBC_URL,['bond.custody'],[]),
+                'wealth_allocation':(institution_reports.WEALTH_URL,['holdings_wealth'],[]),
+                'citic_broker':(institution_reports.CITIC_URL,['holdings_broker'],[]),
+                'chinabond_wealth':(bond_mtm.URL,[],[bond_mtm.TABLE]),
+            }[source['kind']]
+            _need(source.get('url')==url and source.get('datasets',[])==metrics
+                and source.get('tables',[])==tables and source.get('window_mode')=='report_latest')
+            _need(source.get('overlap_days')==0)
+            _need(not {'input_manifest','input_sha256','input_directory','symbols','replace_tables','scope','bse_history','params','referer','reports'} & set(source))
+            if source['kind']=='citic_broker':
+                _need(type(source.get('max_pages')) is int and 1<=source['max_pages']<=8)
+            else:_need('max_pages' not in source)
+            _need(source.get('derived_metrics',[])==([bond_mtm.METRIC] if source['kind']=='chinabond_wealth' else []))
         elif source['kind']=='nfra_insurance':
             # 固定官方原寿险/财险口径；季度窗口沿原报告游标，分页容量显式登记。
             _need(source.get('datasets')==['holdings_life','holdings_property'] and not source.get('tables')
