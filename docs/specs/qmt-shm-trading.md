@@ -377,3 +377,10 @@ lookup结果可在写关闭或当前断连时读取，供原ID核查；不自动
 
 
 R19观察失联收尾补充（2026-11-03）：原peer已关闭、Future已retired且成功观察reply已完整领取时，status/trade.stream、page/trade.events.persist、ack/trade.events.ack三个非金融poll阶段可在明确未入域且原D到期，或域Future已经结束并返回TimeoutError时放弃本轮观察调度。完整原job/reply/Future保留在本代，不发送运输ACK或源业务ACK、不重做事务、不改首次D；事务提交结果以原Journal为准，原持久ACK意图及源端未确认事件保留供同Journal认证连续性接续。_poll_drained保持false，不授源排空。提交未知、运行中、其他错误和金融trade槽继续原保护；管理关闭仍join域/I/O，晚截止继续失败。此规则不改变读命令、委托或撤单的结果保存与核查边界。
+
+
+## 只读终态持久超时后的原身份关闭核查
+
+原只读finish任务必须保留完整payload、Future和原持久截止。正常路径在持久确认后沿原ACK推进；发生TimeoutError后，关闭线程先join唯一域，再在同一原关闭截止内查询该原UUID/请求正文摘要/operation/dispatch binding。Journal已经保存完整一致结果时保持原字节；仍为executing时仅沿原interrupt_bound转为原请求中断终态。原请求、SDK和持久截止均不延长，不重新提交finish，不补源ACK。Future和原值仍由关闭对象保留作证据。
+
+该核查只接受完成且未取消的只读finish TimeoutError，并保持原peer已退役。运行中、非Timeout、身份/原终态内容冲突及未核清的结果继续保留原owner并报告关闭失败。交易claim/finish/unknown及Source事件ACK路径保持原有责任。常驻服务只有确认整代物理资源和Journal关闭后才接续同Journal的新运输代际。故障快照分别记录只读commit是否存在、是否完成及固定异常类别，避免仅凭交易jobs=0误判域已无只读责任。

@@ -1,6 +1,7 @@
 """原base control调度：持久派发在发送前，原终态与来源提交后才ACK。"""
 from __future__ import annotations
 import base64
+import hashlib
 from datetime import datetime, timezone
 import threading
 import time
@@ -17,6 +18,8 @@ class HostControlLoop:
         self.active,self.read_future=None,None
         self._read_scan,self._read_commit=None,None
         self._read_finish=None
+        self._read_commit_payload=None  # 原finish全文和原持久截止；与Future一起保留到确认完成。
+        self._abandoned_read_commit=None  # 关闭时核清的原只读任务；保留Future/原值，不补源ACK。
         self._read_wake=threading.Event();self._read_wake.set()
         self._wake=runtime._wake
         self.domain_failed=False
@@ -56,6 +59,7 @@ class HostControlLoop:
         if self._read_commit is not None and self._read_commit.done():
             self._domain_result(self._read_commit)
             self._read_commit=None
+            self._read_commit_payload=None
             # 先消除active再ACK；收据丢失不能用中断覆盖已提交成功。
             self.active=None
             if self.read_future is not None:
@@ -122,6 +126,7 @@ class HostControlLoop:
             # 背压保留同一结果与原D，后续tick重试不重新take源结果。
             return
         self._read_commit=future
+        self._read_commit_payload=payload
         self._read_finish=None
 
     def notify_read(self):
@@ -157,6 +162,45 @@ class HostControlLoop:
     def request_close(self):
         self.peer.close();self._domain.request_close()
 
+    def _reconcile_timed_out_read_finish(self, deadline):
+        """原域已join后核同一请求；已落盘原值保留，未落盘沿原中断终态收束。
+
+        这是关闭责任核查预算，不延长原请求/SDK/结果持久D，不重新提交finish。
+        无法核清、非Timeout或身份冲突时保留原任务，继续原失败语义。
+        """
+        future,payload,active=self._read_commit,self._read_commit_payload,self.active
+        if (future is None or not future.done() or future.cancelled()
+                or not isinstance(future.exception(),TimeoutError) or payload is None or active is None
+                or payload['request_id']!=active[0]
+                or self.read_future is not None and not self.read_future.retired):
+            return False
+        rid=active[0];request=decode(active[1]);journal=self.runtime.journal
+        record=journal.get_bound(rid,deadline=deadline)
+        if (record is None or record['dispatch_binding']!=self.binding
+                or record['operation_id']!=request['operation_id']
+                or record['request_body_sha256']!=hashlib.sha256(active[1]).hexdigest()):
+            return False
+        if record['state']=='terminal':
+            expected=canonical(payload['result'])
+            if (record['result_binding']!=self.binding or record['result_body_b64'] is None
+                    or base64.b64decode(record['result_body_b64'],validate=True)!=expected):
+                return False
+            outcome='original_result_already_terminal'
+        elif record['state']=='executing':
+            journal.interrupt_bound(rid,request['operation_id'],deadline=deadline)
+            outcome='original_request_interrupted'
+        else:
+            return False
+        self._abandoned_read_commit={
+            'future':future,  # 原域任务及原异常对象；已经完成且域已join。
+            'payload':payload,  # 原结果及原持久截止，保持原对象内容。
+            'active':active,  # 原请求ID/请求字节及原SDK时限，不改变提交身份。
+            'reply_future':self.read_future,  # 原运输Future；关闭退役，未补发ACK。
+            'outcome':outcome}  # 只读终态核查结论，不代表源业务排空或金融完成。
+        self._read_commit=self._read_commit_payload=None
+        self.active=self.read_future=None
+        return True
+
     def close(self, deadline):
         self.request_close()
         self._domain.close(max(0,deadline-time.monotonic()))
@@ -167,7 +211,9 @@ class HostControlLoop:
                                              deadline=min(deadline,pending['deadline']))
             self._read_finish=None;self.active=None
         if self._read_commit is not None:
-            self._domain_result(self._read_commit)
+            try:self._domain_result(self._read_commit)
+            except TimeoutError:
+                if not self._reconcile_timed_out_read_finish(deadline):raise
             self.active=None
         elif self.active is not None:
             records.append(self.active)

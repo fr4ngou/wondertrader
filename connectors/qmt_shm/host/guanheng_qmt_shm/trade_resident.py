@@ -36,6 +36,12 @@ class ReconnectingTradingService(ReconnectingReadService):
                     for kind in ('transport', 'authentication_or_protocol', 'configuration', 'journal', 'fault')}
                 categories.update(('startup_timeout', 'manager_start_unconfirmed', 'retirement_unconfirmed'))
                 stage = None if control is None else control._poll_stage
+                read_future = None if control is None else control._read_commit
+                read_done = read_future is not None and read_future.done()
+                read_failure = None
+                if read_done and not read_future.cancelled():
+                    read_error = read_future.exception()
+                    read_failure = self._reason(None if read_error is None else type(read_error).__name__)
                 self._first_fault = dict(category=category if category in categories else 'other',
                     cleanup=bool(cleanup), generation=self._generation,
                     runtime_failure=self._reason(None if runtime is None else runtime.failure),
@@ -43,7 +49,10 @@ class ReconnectingTradingService(ReconnectingReadService):
                     runtime_interruption=self._reason(None if runtime is None else runtime.interruption_failure),
                     poll_stage=stage if stage in stages else None,
                     domain_jobs=0 if control is None else len(control._jobs),
-                    runtime_present=runtime is not None)
+                    runtime_present=runtime is not None,
+                    read_commit_present=read_future is not None,  # 原只读持久任务是否仍保留；与交易jobs分开。
+                    read_commit_done=read_done,  # 原Future是否完成，区分域仍运行和已结束异常。
+                    read_commit_failure=read_failure)  # 原Future固定异常类别；不输出结果或账户正文。
         # 诊断只捕获纯值；管理器、停止和原截止行为仍由父实现执行。
         super()._fault(category, cleanup=cleanup)
 
