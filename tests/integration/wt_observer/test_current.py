@@ -1,17 +1,68 @@
 """CURRENT原子换代经原SDK/App实际读取；文件均为隔离fixture，无WT进程操作。"""
 import json
+from pathlib import Path
+import sys
 from time import monotonic
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
-from test_account_publication import published as account_publication
-from test_business import publication as strategy_publication
+ROOT = Path(__file__).resolve().parents[3]
+sys.path[:0] = [str(ROOT/'apps/guanheng'), str(ROOT/'integrations')]
 from guanheng_app.app import create_app
 from guanheng_app.settings import ConsoleSettings
 from guanheng_app.wt_runtime_observation import RuntimeObservationConfig, resolve_runtime_configuration
 from guanheng_market_client.runtime_status import replace_status
+
+FIXTURES = Path(__file__).with_name('current-fixtures')
+
+
+@pytest.fixture
+def account_publication(tmp_path):
+    # 冻结的原SDK替身NAP样本，来源沿旧account-publication.fixture；无真实账户。
+    value = json.loads((FIXTURES/'account.json').read_bytes())
+    folder = tmp_path/value['control_id']; folder.mkdir()
+    identity = {key:value[key] for key in ('control_id','config_sha256','pid')}
+    ready = dict(schema='guanheng.account-observation.ready.v1', **identity)
+    reference = dict(schema='guanheng.account-observation-reference.v1', path=str(folder/'observation.json'),
+        ready_path=str(folder/'ready.json'), **identity)
+    runtime = dict(schema='guanheng.wt-runtime-status.v1',control_id=str(uuid4()),instance_id=str(uuid4()),
+        configuration_sha256='a'*64,pid=value['pid'],state='ready',ready=True,
+        components=dict(account_observation=dict(pid=value['pid'],state='ready',ready=True,pending=False,
+            forced=False,account_observation=reference)))
+    files = dict(runtime=tmp_path/'status.json',ready=folder/'ready.json',publication=folder/'observation.json')
+    values = dict(runtime=runtime,ready=ready,publication=value)
+    def write():
+        for key,path in files.items(): publish(path,values[key])
+    write()
+    settings = ConsoleSettings(account_source='wt_account_publication',wt_status_file=str(files['runtime']),
+        wt_control_id=runtime['control_id'],wt_instance_id=runtime['instance_id'],wt_configuration_sha256='a'*64)
+    return settings,values,files,write
+
+
+@pytest.fixture
+def strategy_publication(tmp_path):
+    # 原retained-observation SDK替身报告；业务值与NAP样本分属各自发布者。
+    control,instance,execution = str(uuid4()),str(uuid4()),str(uuid4())
+    folder = tmp_path/execution; folder.mkdir()
+    identity = dict(control_id=execution,config_sha256='b'*64,pid=777)
+    reference = dict(schema='guanheng.execution-observation-reference.v1',path=str(folder/'strategies.json'),
+        ready_path=str(folder/'ready.json'), **identity)
+    runtime = dict(schema='guanheng.wt-runtime-status.v1',control_id=control,instance_id=instance,
+        configuration_sha256='a'*64,pid=555,state='ready',ready=True,
+        components=dict(execution=dict(state='ready',ready=True,pending=True,forced=False,pid=777,business_observation=reference)))
+    ready = dict(schema='guanheng.execution.ready.v1',closed=False, **identity)
+    result = dict(schema='guanheng.configured-cta-observation.v2',
+        strategies={'resonance-regime-v1':json.loads((FIXTURES/'strategy.json').read_bytes())}, **identity)
+    files = dict(runtime=tmp_path/'status.json',ready=folder/'ready.json',result=folder/'strategies.json')
+    values = dict(runtime=runtime,ready=ready,result=result)
+    def write():
+        for key,path in files.items(): publish(path,values[key])
+    write()
+    settings = ConsoleSettings(wt_status_file=str(files['runtime']),wt_control_id=control,
+        wt_instance_id=instance,wt_configuration_sha256='a'*64)
+    return settings,values,files,write
 
 
 def publish(path, value):
