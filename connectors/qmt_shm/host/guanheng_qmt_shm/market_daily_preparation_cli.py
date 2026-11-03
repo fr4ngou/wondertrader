@@ -18,7 +18,8 @@ def _reason_code(error):
         'read_retention_capacity_rejected', 'read_original_request_unresolved',
         'read_original_request_pending', 'read_consumption_unconfirmed',
         'read_original_terminal_unknown', 'read_original_terminal_failure',
-        'read_transport_unresolved', 'market_daily_cache_no_qualified_observations'}
+        'read_transport_unresolved', 'market_daily_cache_no_qualified_observations',
+        'read_new_request_budget_exhausted'}
     value = str(error)
     return value if value in known else 'read_pending_unspecified' if isinstance(error, RetainedReadPending) else 'read_failure_unspecified'
 

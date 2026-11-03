@@ -41,3 +41,5 @@ CLI传入完整已解析配置；该配置只有原端点、key_id、秘密环�
 v2请求的mode=cache-first由同一个MarketDailyPreparation.run分派。原BatchAnalysisSource先读cache；纯值资格/缺口计划由market_daily_cache.py拥有，协议版本`t2108.ashare/2`；HPR执行复用原同一准备器，回读仍进入原capture。cache、PLAN、QUALITY均保存原件摘要。v1旧目录继续先全准备，不能用新模式替旧结果改资格。
 
 QUALITY区分全池已核与全池合格：部分覆盖保留实际缺口、源时间和分类，completed只说明本次原责任/回读完成。源数值/身份错误直接交原失败类，不生成缓存下载特判。完整字段及范围规则唯一见MDP6。
+
+新v2经Batch/HPR把30秒外部新请求准入余量交给原RetainedReadClient；检查在当前绑定之后、原请求plan/新槽之前，已有槽仍原ID续核。默认0保留其他消费者。固定未准入原因由操作owner记录阶段paused；真实Pending/Unknown保持责任，不作为普通预算暂停吞掉。

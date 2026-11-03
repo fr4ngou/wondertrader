@@ -179,8 +179,9 @@ def run_cache_first(owner,request,directory,*,deadline,max_preparations,on_progr
     cache_request=dict(capture,
         capture_id=str(uuid.uuid5(uuid.UUID(capture['capture_id']),'cache-first-observation')))  # 由原外层capture_id确定性派生的初读ID；与最终回读ID分开，同根恢复不换身份。
     cache=directory/'cache'
-    if not(cache/'manifest.json').exists():owner.batch.capture(cache_request,cache,deadline=deadline)
+    if not(cache/'manifest.json').exists():owner.batch.capture(cache_request,cache,deadline=deadline,minimum_new_request_seconds=30)
     quality=assess(cache);_original(directory/'CACHE-QUALITY.json',quality);plan=_plan(quality,request);_original(directory/'PLAN.json',plan)
+    # v2仅给新准入保留完整30秒外部预算；既有slot的SDK截止与原ID由Client保持。
     tasks=plan['tasks'];records=[]
     if tasks:
         client=RetainedReadClient(owner.factory(),lifetime_ms=30000);binding_file=directory/'HPR-BINDING.json';metadata=owner._pinned(client,binding_file,'qmt.read-profile.v6',OPERATION,deadline)
@@ -190,7 +191,7 @@ def run_cache_first(owner,request,directory,*,deadline,max_preparations,on_progr
         existing=[t for t in tasks if(directory/'preparation'/('%06d.json'%t['index'])).exists()];fresh=[t for t in tasks if t not in existing]
         selected=existing+fresh[:max_preparations]if max_preparations is not None else tasks
         items=[(t['index'],t['symbol'],t['start_date'],t['end_date'],directory/'preparation'/('%06d.json'%t['index']))for t in selected]
-        records=owner._prepare_items(items,directory,metadata,scope,deadline,on_progress,len(tasks))
+        records=owner._prepare_items(items,directory,metadata,scope,deadline,on_progress,len(tasks),minimum_new_request_seconds=30)
         if len(records)!=len(tasks):
             progress=dict(
                 schema=SCHEMA,  # v2流程进度格式；不重标旧v1进度。
@@ -202,7 +203,7 @@ def run_cache_first(owner,request,directory,*,deadline,max_preparations,on_progr
             _save(directory/'PROGRESS.json',progress);return progress
         final=directory/'capture';final_binding=final/'BINDING.json';_original(final_binding,batch)
         owner._pinned(owner.batch.client,batch_binding,'qmt.read-profile.v8','market.market_data',deadline)
-        if not(final/'manifest.json').exists():owner.batch.capture(capture,final,deadline=deadline)
+        if not(final/'manifest.json').exists():owner.batch.capture(capture,final,deadline=deadline,minimum_new_request_seconds=30)
     else:final=cache  # 无副作用时初次实际缓存捕获即最终观察，避免重复SDK读取。
     quality=assess(final);_original(directory/'QUALITY.json',quality)
     if quality['eligible_count']==0:raise RetainedReadFailure('market_daily_cache_no_qualified_observations')

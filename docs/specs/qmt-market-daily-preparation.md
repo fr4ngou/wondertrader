@@ -92,3 +92,12 @@ MDP6新增持久字段（日期均为原市场日YYYYMMDD；实收时间沿原�
 | RESULT.coverage_qualified / eligible_count / required_preparations / qualification | 全池合格布尔值、实读合格数、原计划区间数、原数据口径版本。其他字段沿原结果定义。 |
 
 MDP6字段声明旁逐项保留中文说明：QUALITY引用当次原捕获/实收时刻，PLAN固定初次缓存缺口，PROGRESS只表示阶段准备责任，RESULT表示最终实读封存。计数分别标明证券只数、记录条数、任务项数或批次份数；市场日YYYYMMDD、SDK止日、带时区实收时间与本地UTC封存时间分别声明。空数组、0、None及False按各字段原义保留，完成阶段不替代数据覆盖资格。此注释补充保持原Python AST及请求/slot/材料责任。
+
+
+## MDP7 v2新请求准入余量
+
+仅v2显式把minimum_new_request_seconds=30传给原批捕获和原HPR执行器，再沿原RetainedReadClient的新slot分支执行。单位为外部单调观察截止剩余秒数，默认0保留v1及其他消费者行为。检查位于当前绑定认证之后、transport.plan及slot落盘之前；不足30秒时返回固定read_new_request_budget_exhausted，不生成新ID/SDK正文/票据/slot。已有slot绕过新准入检查，始终沿原ID/票据/已派发deadline核查及保存/consumed。原SDK单次上限、ticket、Host、容量、吞吐及结果未知分类保持。
+
+CLI保持原Pending退出协议，以固定原因明确表示本阶段停止新准入。监督owner仅对该确定的未准入原因记录admission-paused并在原绝对总截止内续阶段，复用同根已有slot；其他Pending/失败仍停止。整个原CLI可串行包含初读、本阶段HPR和最终回读，外部阶段观察预算应覆盖整条链，不能把单个子阶段预算当整次run预算。阶段延长不修改既有短deadline或Unknown原件，独立后继观察以新业务身份明确登记。
+
+HPR单次原call_deadline最多scope时限，外部新准入余量应比较整次CLI观察截止：内部new_request_observation_deadline参数传外部单调截止秒值，缺省沿原deadline；它只用于新准入判断，不扩大原call_deadline、SDK deadline或票据。两个截止的职责分别保留。

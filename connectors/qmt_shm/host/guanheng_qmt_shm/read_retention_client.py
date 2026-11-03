@@ -164,7 +164,8 @@ class RetainedReadClient:
                 or value['admitted_binding'] != record['binding']):
             raise ValueError('retained_read_result_source_changed')
 
-    def read(self, operation, arguments, slot, *, deadline, expected_binding=None):
+    def read(self, operation, arguments, slot, *, deadline, expected_binding=None, minimum_new_request_seconds=0, new_request_observation_deadline=None):
+        """minimum_new_request_seconds为新槽准入所需外部剩余秒数；默认0保持旧消费者；new_request_observation_deadline为外部单调截止秒值，缺省沿deadline，已有槽不受新准入门限影响。"""
         slot = Path(slot)
         if expected_binding is not None:
             expected_binding = bound.binding(expected_binding)
@@ -173,12 +174,19 @@ class RetainedReadClient:
                 if slot.exists():
                     record = json.loads(slot.read_bytes())
                 else:
+                    # 只有尚未准入的新观察才受余量限制；没有生成ID、票据或slot时可正常暂停。
+                    observation_deadline=deadline if new_request_observation_deadline is None else new_request_observation_deadline
+                    if minimum_new_request_seconds and observation_deadline-time.monotonic() < minimum_new_request_seconds:
+                        raise RetainedReadPending('read_new_request_budget_exhausted')
                     self._wait_capacity(deadline)
                     # 新slot是一项新观察，必须准入当前认证；父目录BINDING归业务owner，
                     # 保留其原值用于整次capture一致性，不能拿它替代当前Host身份。
                     metadata = self._binding(deadline)
                     if expected_binding is not None and metadata['binding'] != expected_binding:
                         raise RetainedReadBindingChanged('read_source_binding_changed')
+                    # 当前绑定/容量核验可能消耗观察时间，生成原SDK正文前再次检查完整余量。
+                    if minimum_new_request_seconds and observation_deadline-time.monotonic() < minimum_new_request_seconds:
+                        raise RetainedReadPending('read_new_request_budget_exhausted')
                     record = self.transport.plan(operation, arguments, metadata, deadline)
                     capability = retention(record['profile'].get('read_retention'))
                     expires = now_ms(self.clock) + min(self.lifetime_ms, capability['max_lifetime_ms'])
@@ -264,8 +272,10 @@ class RetainedReadClient:
         except (RetainedReadPending, RetainedReadFailure):
             raise
 
-    def prepare(self, operation, arguments, slot, *, deadline, expected_binding=None):
+    def prepare(self, operation, arguments, slot, *, deadline, expected_binding=None, minimum_new_request_seconds=0, new_request_observation_deadline=None):
         """HPR 与普通读取共用原身份和结果持久交接，不生成重试请求。"""
         if operation != 'market.history_prepare':
             raise ValueError('history preparation operation required')
-        return self.read(operation, arguments, slot, deadline=deadline, expected_binding=expected_binding)
+        return self.read(operation, arguments, slot, deadline=deadline, expected_binding=expected_binding,
+            minimum_new_request_seconds=minimum_new_request_seconds,
+            new_request_observation_deadline=new_request_observation_deadline)

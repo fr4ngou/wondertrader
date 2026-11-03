@@ -146,8 +146,8 @@ class MarketDailyPreparation:
         return current
 
 
-    def _prepare_items(self, items_to_prepare, directory, metadata, scope, deadline, on_progress, total):
-        """同一原HPR执行器；items为序号/证券/授权起止日/唯一slot，日期为YYYYMMDD。"""
+    def _prepare_items(self, items_to_prepare, directory, metadata, scope, deadline, on_progress, total, *, minimum_new_request_seconds=0):
+        """同一原HPR执行器；items日期为YYYYMMDD；新槽外部余量单位秒，默认0保留v1，v2显式30。"""
         def prepare(item):
             i, symbol, start, end, slot = item
             # 原策略每100ms最多推进一项重SDK；并行外部观察沿同一节拍等待，
@@ -182,7 +182,7 @@ class MarketDailyPreparation:
             call_deadline = min(deadline,time.monotonic()+scope['total_timeout_ms']/1000.)
             while True:
                 try:
-                    result = observe(lambda:client.prepare(OPERATION,args,slot,deadline=call_deadline,expected_binding=metadata['binding']),call_deadline)
+                    result = observe(lambda:client.prepare(OPERATION,args,slot,deadline=call_deadline,expected_binding=metadata['binding'],minimum_new_request_seconds=minimum_new_request_seconds,new_request_observation_deadline=deadline),call_deadline)
                     break
                 except RetainedReadPending as error:
                     # 并发容量预检并不预留Host条目。仅明确未受理的503允许原ID重交，

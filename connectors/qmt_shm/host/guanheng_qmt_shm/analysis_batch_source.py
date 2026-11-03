@@ -34,7 +34,8 @@ class BatchAnalysisSource:
     def __init__(self, transport, *, lifetime_ms=30000):
         self.client = RetainedReadClient(transport, lifetime_ms=lifetime_ms)
 
-    def capture(self, request, directory, *, deadline, on_result=None):
+    def capture(self, request, directory, *, deadline, on_result=None, minimum_new_request_seconds=0):
+        """新请求准入余量单位为秒；默认0沿旧调用，已有slot始终按原ID续核。"""
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         original = directory/'REQUEST.json'
@@ -67,7 +68,7 @@ class BatchAnalysisSource:
                 batch_id = '%04d-%s' % (index, adjustment)
                 slot = directory/'slots'/(batch_id+'.json')
                 returned = self.client.read('market.market_data', args, slot, deadline=deadline,
-                    expected_binding=metadata['binding'])
+                    expected_binding=metadata['binding'], minimum_new_request_seconds=minimum_new_request_seconds)
                 reply = returned['reply']
                 data = reply['data']
                 if (data['schema'] != RESULT_SCHEMA or data['adjustment'] != adjustment

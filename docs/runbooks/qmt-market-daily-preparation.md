@@ -33,4 +33,6 @@ Host、Agent与Core以已验组合的精确wheel锁选择。CLI内部使用有�
 
 按cache→PLAN→原HPR slots→capture回读→QUALITY→RESULT核事实。尾日补齐从实际缓存尾日次日起；暖机仅补此前缺口，不重下已足窗口。HPR call_returned与QUALITY数据资格分别展示。Pending继续同根原ID，修订外部作业预算应记录原计划不足，不能改旧SDK截止。部分质量不得写成全市场100%；最终ready仍由原消费发布器依据原包验证。
 
-v1目录继续用v1请求收尾；旧已完成或未知HPR回执按原Client恢复，不换ID。新模块的source CAS只覆盖自有Python与上述规格/模块/手册；安装/运行使用隔离候选，正在运行的Host/生产者包及共享配置保持。小量真实验证前binding变化或来源身份未确认时停止副作用，交清阻断；全A材料只准备，不自动执行。
+v1目录继续用v1请求收尾；旧已完成或未知HPR回执按原Client恢复，不换ID。新模块的source CAS只覆盖自有Python与上述规格/模块/手册；安装/运行使用隔离候选，正在运行的Host/生产者包及共享配置保持。小量真实验证前binding变化或来源身份未确认时停止副作用，交清阻断；全市场实际执行沿已授权范围由来源owner管理，观察消费端保持只读。
+
+v2独立后继可在明确保留旧Unknown后建立新观察身份。整次CLI的初读→本阶段准备→最终回读共用一个外部阶段D；观察预算应覆盖整条链。阶段预算与max_preparations由来源owner的执行计划指定，总绝对截止沿原责任继承；新准入不足30秒的固定read_new_request_budget_exhausted仅作阶段paused续接，既有槽原ID/SDK截止保持。其他Pending仍交回原责任。
