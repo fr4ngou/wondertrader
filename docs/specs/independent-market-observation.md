@@ -245,3 +245,18 @@ XLS沿`xlrd==2.0.2`读取原工作表，限定2MiB、单表、四列及100行，
 验收：官方最新披露期次与两类原数值核对；真实原件到隔离CAS、普通安装API/JSON导出；已有历史和其他70组/源表/股票分区逐项保持；后继季度自动识别、同次重复、错误单位/分组/比例/附件、分页不足/漂移、截止及缺依赖保旧。部署和版本切换由系统发布owner另行接收。
 
 本项开发及隔离安装证据见[保险配置持续生产验收](../evidence/2026-11-03-insurance-allocation-continuation.md)，正式部署与未来自然披露分别登记。
+
+
+## IMO-R22 SGX A50日频与月报持续接续
+
+状态：accepted / development-qualified。原`sgx.a50`继续消费SGX CN产品历史接口的全合约持仓/当日成交，原非整数源值留空及原值/状态规则保持。新增独立`sgx.a50.monthly`来源，复用原sgx kind，以单独报告游标消费官方月报；两路分立以免日频最新日遮掉较早月末。原字段、手单位及方法定义版本、原历史和其余70组保持。
+
+月报沿官网公开appconfig取得CMS版本与已准入的api2.sgx.com内容服务，使用官网market_statistics_reports_list查询并核分页/总数/顺序/标题/期次，读取同记录的官方PDF链接。依赖复用已有pypdf、Fetcher、归档和原总预算；不修改WT、构建、版本和registry，不新增服务或数据库。配置只追加一个月频来源、必要官方主机、原report_latest和显式max_pages；原计划和预算保持。
+
+月频`oi`来自Equity Index Futures Month-End Open Interest表中SGX FTSE China A50 Index Futures当月列；`volume`来自Equity Index Futures Volume同产品当月列，为整月成交。季度累计、年累计、上年同期及单日日频末值均不作为当月数值。列名与报告标题决定年月，PDF页码动态识别且输出原oi_page/volume_page，report_file沿sgx_YYYYMM.pdf；basis_points及历史首次可知时间available_at沿原未知值为空。官网CMS日历日期与文件元数据时间只用于本轮来源截止核对及原件存证，不声称首次披露时刻。报告字节/对象/页数/文本以及翻页服从显式容量和原截止。
+
+官网未公布新日或新月时保留真实期次及缺口，不承诺未经核实的固定发布延迟。最新期次由本轮真实接口/官网列表确认；公告时间和CMS文件元数据分别解释。任何列、产品、单位口径或分页身份不明均失败保旧。
+
+验收：真实官方日频、月报数字→原refresh/CAS→普通安装API与JSON导出；两组全部旧行及定义版本、其余70组、源表与股票分区保持；后继月自动发现、动态列/页码、日/月隔离游标、整数/缺值规则、未来披露、分页漂移/不足、截止及失败恢复回归。Source/Data/配置CAS及中文维护材料交Root接收，实际角色部署和未来自然发布另验。
+
+本项开发、真实原件及隔离安装证据见[SGX A50持续来源验收](../evidence/2026-11-03-sgx-a50-continuation.md)，自然新日/月报及正式角色另验。

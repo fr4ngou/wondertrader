@@ -19,3 +19,5 @@ src/TraderQMT/** -text
 src/TraderQMTReadOnly/** -text
 src/ReaderGuanhengRealtime/** -text
 src/ParserQMTHostV6/** -text
+# PDF原件提取样本保留末尾空格，保持原捕获字节及摘要。
+tests/fixtures/observation/sgx/*.txt whitespace=-blank-at-eol

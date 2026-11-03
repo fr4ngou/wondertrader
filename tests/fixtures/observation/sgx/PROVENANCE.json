@@ -1,0 +1,36 @@
+{
+  "source": "SGX public CN history and official market-statistics CMS",
+  "retrieved_at": "2026-11-03",
+  "usage": "internal research; no redistribution qualification",
+  "appconfig_projection": "only CMS_VERSION and CMS_API_URL retained from original public configuration",
+  "files": [
+    {
+      "file": "appconfig.json",
+      "sha256": "cef76e809263d29b7d8555eca1c41f2dde234019404c4de2e8073a2fea867acf"
+    },
+    {
+      "file": "daily-latest.json",
+      "sha256": "1f95776f5567067be0b4d252d6c466f8ce5b3e4e3df582bbf4ff64e5bfb78ff4"
+    },
+    {
+      "file": "monthly-list.json",
+      "sha256": "61cfec827e27e907d91c3da1d46d434576080cf8ce5f49ce8c54e9e85bce0bd8"
+    },
+    {
+      "file": "oi-page.txt",
+      "sha256": "dd4cb3ad16541d328ef90107d7d772e580cdc1813370910332fd8e28c00f0369"
+    },
+    {
+      "file": "sgx-202609.pdf",
+      "sha256": "b603eacba9b8135bf6949813c0e03e95bbdbe2190111082198ea7fad24612286"
+    },
+    {
+      "file": "volume-continuation.txt",
+      "sha256": "abd170d769846c90b163f44525be690172cbc1f2ecde5f29a3c5764a0035204c"
+    },
+    {
+      "file": "volume-page.txt",
+      "sha256": "cd72f018b65358cdd0828c89ee0655c6f63c142e24caad4cde03e1d5bbb11ef1"
+    }
+  ]
+}

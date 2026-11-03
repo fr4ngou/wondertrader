@@ -1,0 +1,6 @@
+{
+  "CMS_VERSION": "9c3e9f7f03300303a53a580b5a7e760732e5a320",
+  "endpoints": {
+    "CMS_API_URL": "https://api2.sgx.com/content-api"
+  }
+}

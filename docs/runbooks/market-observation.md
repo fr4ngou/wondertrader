@@ -131,3 +131,12 @@ $ObservationDeploymentSha = (Get-FileHash -LiteralPath $ObservationDeployment -A
 原`nfra.disclosures`来源选择`kind=nfra_insurance`，保留原两组datasets及官网url，配置`window_mode=report_latest,max_pages=8`。用固定采集闭包包含的`xlrd==2.0.2`读取官方XLS，依赖与SHA沿原注册锁。沿原独立更新计划运行；季度未披露期间保留上次季度，不用月度经营表代替资金配置。切换配置和制品由原发布流程接收，页面无需新增服务。
 
 先查来源回执及原列表/详情/附件SHA。`nfra_listing_coverage_incomplete`表示配置页数内尚未覆盖所需起点，应核官网分页和原截止后调整页数，允许3至20；`nfra_response_schema`表示列表/详情身份、附件或排序发生变化；`nfra_workbook_schema`表示单位、机构分组、列或比例核对失败；`nfra_xls_dependency_missing`需重建包含固定可选依赖的独立更新角色。失败沿原刷新保留已发布值；维护人员核原件，不手工复制金额或补未披露季度。
+
+
+## SGX A50日频与月报维护
+
+保留原`sgx.a50`日频来源。单独追加`sgx.a50.monthly`，kind仍为sgx、url为`https://www.sgx.com/config/appconfig.json`、datasets仅`sgx_a50_monthly`、window_mode为report_latest、max_pages为4、date_policy为calendar-day；允许官方www.sgx.com及api2.sgx.com，原计划、预算及日频接口保持。两组分别推进统计期次，月成交量不消费日频末值。
+
+官网appconfig提供公开CMS版本，目录按官方英文月份标题识别统计月，PDF当月列/整数合约数与表身份核对后由原refresh发布。月报目录日期、文件元数据时间及公告广播时间属于独立事实，保留原件；available_at仍表示未确认的历史首次可知时间。日频接口新一天未返回、或目录尚无新月报时保留原值及真实期次，不按本机日期伪造。
+
+先核回执与原捕获SHA。sgx_monthly_response/configuration表示公开配置或目录结构变化；sgx_monthly_pagination/listing_coverage_incomplete表示分页漂移、重复或容量未覆盖所需起点；sgx_monthly_report_identity/table_schema/contract_quantity表示产品、年月、文件、列或整手数量不符；sgx_monthly_pdf_*表示原PDF格式、加密或字节/页/文本容量失败。沿原来源失败保旧，核原件及声明后再恢复，不用累计列、去年同期或日频数字替代。现场更新角色及新增来源配置由Root沿原发行流程接收。

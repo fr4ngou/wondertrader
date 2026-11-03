@@ -1,0 +1,29 @@
+15
+SGX Monthly Market Statistics September 2026
+Derivatives Market Volume By Contract Types
+Equity Index Futures Volume
+FY2026 Q4 FY2027 Q1 Jul 2026 Aug 2026 Sep 2026 FYTD 2027 CYTD 2026 Sep 2025 YoY%
+SGX FTSE Philippines NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX FTSE Saudi Arabia NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX FTSE Taiwan Index Futures 4,624,489 3,763,292 1,561,693 1,148,087 1,053,512 3,763,292 13,417,076 1,401,042 -25%
+SGX FTSE Taiwan NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX FTSE Thailand Index Futures 0 0 0 0 0 0 0 0 0%
+SGX FTSE Thailand NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX FTSE Vietnam 30 Index Futures 99,822 75,296 26,279 26,346 22,671 75,296 302,957 25,992 -13%
+SGX FTSE Vietnam NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MCSCI Japan Mid Cap Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI AC ASEAN NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI AC Asia Pacific ex Japan Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI AC Asia Pacific ex Japan NTR (USD) Index Futures0 0 0 0 0 0 0 0 0%
+SGX MSCI AC Asia ex Japan Climate Action NTR (USD) 
+Index Futures 400 400 400 0 0 400 1,200 400 -100%
+SGX MSCI EAFE NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI Emerging Market Climate Action NTR (USD) 
+Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI Europe Climate Action NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI Europe NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI India 100 Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI India 100 NTR (USD) Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI India Banks Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI India IT Index Futures 0 0 0 0 0 0 0 0 0%
+SGX MSCI India Industrials Index Futures 0 0 0 0 0 0 0 0 0%

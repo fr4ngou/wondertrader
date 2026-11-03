@@ -28,3 +28,10 @@
 独立更新owner沿原`collection.refresh`调用`nfra_source.history`，只生产`holdings_life`及`holdings_property`；详情、列表及XLS原件经原Fetcher归档，原刷新负责合并、来源谱系和CAS发布。官方分组分别为人身险公司、财产险公司；原历史数据ID和字段不变。金额亿元、债券比重百分数，统计范围含独立和非独立账户；保险公司总计另含其他机构，不作为两个分组余额相加的校验值。详细准入及验收沿[IMO-R21](../specs/independent-market-observation.md#imo-r21-寿险与财险季度资金运用持续生产)。
 
 数值读取的采集可选依赖为`xlrd==2.0.2`，用于官方BIFF XLS原文件，BSD许可；来源为[PyPI固定发行](https://pypi.org/project/xlrd/2.0.2/)及[上游读取说明](https://xlrd.readthedocs.io/en/latest/)。依赖只在采集适配中延迟加载，页面只读入口不加载XLS；wheel SHA登记在原`observer-runtime-registry.lock`，完整离线更新角色沿原构建流程获取该依赖。
+
+
+## SGX A50日频与月报来源
+
+原`providers.sgx`继续拥有CN产品日历史解析，官方全CN合约未平仓/当日成交及异常非整手值规则保持。该路只写`sgx_a50_daily`。同kind下显式datasets选择`sgx_a50_monthly`时进入`sgx_reports.monthly`，以独立source_id和报告游标读取公开appconfig→官网月报目录→原PDF，分别按月末持仓表、整月成交表的A50行及本期月份列取数。报告页码随PDF实际位置登记；原`basis_points`、历史首次可知时间保持未知为空。
+
+两路使用独立游标，原日频最新日不会遮住较早月末；同一原Fetcher、内容归档、批次deadline、collection lease、CAS和调度继续拥有生命周期。月报复用采集闭包已有pypdf，构建/版本/registry保持。原档案中的历史审计与方法定义保留，当前自动生产资格由来源配置及freshness回执说明；来源实际最新期次与本机检查时间分别表达。合同及容量沿[IMO-R22](../specs/independent-market-observation.md#imo-r22-sgx-a50日频与月报持续接续)。

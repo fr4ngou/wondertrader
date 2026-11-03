@@ -154,6 +154,9 @@ def exchange_options(fetch,config,start,end):
     return result
 
 def sgx(fetch,config,start,end):
+    if config.get('datasets')==['sgx_a50_monthly']:
+        from .sgx_reports import monthly
+        return monthly(fetch,config,start,end)
     raw=json.loads(fetch.get(config['url'],dict(days='1y',category='futures',params='base-date,total-volume,open-interest')))
     if str(raw.get('meta',{}).get('code'))!='200': raise SourceFailure('sgx_schema_changed')
     rows=[]

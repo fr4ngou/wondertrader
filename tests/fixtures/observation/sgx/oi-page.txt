@@ -1,0 +1,29 @@
+28
+SGX Monthly Market Statistics September 2026
+Derivatives Market Open Interest By Contract Type
+Equity Index Futures Month-End Open Interest
+FY2026 Q4 FY2027 Q1 Jul 2026 Aug 2026 Sep 2026 Sep 2025 YoY%
+SGX FTSE Asia ex Japan ESG Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Asia ex Japan Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Asia ex Japan NTR (USD) Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Australia NTR (USD) Index Futures 0 0 0 0 0 0 0%
+SGX FTSE China A50 Index Futures 831,968 836,157 891,257 826,102 836,157 1,085,256 -23%
+SGX FTSE China H50 Index Futures 4,252 2,150 3,254 2,053 2,150 2,514 -14%
+SGX FTSE EM Asia ESG Index Futures 0 0 0 0 0 0 0%
+SGX FTSE EPRA Nareit Asia ex Japan Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Emerging Market Asia Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Emerging Market Asia NTR (USD) Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Emerging Market Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Emerging Market inc Korea Net Total Return (USD) 
+Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Emerging Markets ESG Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Emerging NTR (USD) Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Indonesia Index Futures 1,862 1,782 1,727 1,735 1,782 1,572 13%
+SGX FTSE Indonesia NTR (USD) Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Japan Blossom Index Futures 1,414 1,054 993 1,002 1,054 1,881 -44%
+SGX FTSE Japan NTR (USD) Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Malaysia Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Malaysia NTR (USD) Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Micro Taiwan Index Futures 580 680 578 325 680 2,470 -72%
+SGX FTSE New Zealand NTR (USD) Index Futures 0 0 0 0 0 0 0%
+SGX FTSE Philippines Index Futures 0 0 0 0 0 0 0%
