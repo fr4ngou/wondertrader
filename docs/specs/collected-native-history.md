@@ -33,3 +33,13 @@
 验收覆盖真实导出缺口→原生新根→原公开查询240标签、原239根逐值/SHA保持；另核默认、空列表、同值重叠、异值冲突、未登记证券、缺归档、partial构造释放及普通组件消费者。
 
 实现入口为采集归档适配器（外部历史/待归仓路径：`../../integrations/guanheng/collected_history.py`），接口复用来源服务（外部历史/待归仓路径：`../../integrations/guanheng/source_market_service.py`）及[原生历史](../../integrations/guanheng/native_history.py)。
+
+## CNH-R6 原生日线持续落盘与指数动态尾部
+
+沿WT-D03/D05/D06复用原DataKit、同步Writer、StateMonitor、DMB/DSB及`DailyOverlayMarket`。日线持续归档显式配置`writer.disableday=false`；同一数据根保持唯一Writer。常用指数集合由`config/market-collection-indices.json`维护，新增订阅合并到原QST集合，源端与接收端同步使用同一symbols及profile摘要。原股票、ETF、运输身份、队列预算、原值乘数和历史资料保持；指数品种标为IDX/category=90、禁止交易。完整GH源端正文由原源端所有者合并，QST配置增量不能替换其它通信路由。
+
+统一历史在原50指数静态归档外层显式启用`snapshots`，其symbols只含50指数；股票/ETF内层读取配置保持。每次查询按原收盘marker选择闭合日线，优先读取`his/day`中严格晚于静态归档末日的记录，缺日沿原有界快照读取。原生day历史不受64份快照扫描窗口限制。动态DSB在E盘私有临时副本解码，不取得Writer原文件写入权；文件变化返回明确Unavailable。一次配置切换后新增闭合日线按请求可见，后续每日运行沿原生命周期，无需每日打包或重启读取服务。
+
+固定归档的逐段来源、Mixed及原数量保持；动态尾部标明QMT累计快照派生来源，价格/量/额单位沿实际资格声明unknown。Tencent兼容金额0保留原来源，不能转称真实成交额。当天未闭合数据、缺失交易日与来源覆盖保持明确范围。
+
+验收：原固定制品加载原6982+50订阅并正常关闭；全部50原归档解码；使用真实历史原值，在同一Reader及运行中的隔离Writer下发布闭合日线后直接读到新增日期，逐值及Mixed分段保持；原股票/ETF配置保持，源端profile联合准入。自然开市50指数回调、当日收盘Writer落盘及后继日持续读取由现场所有者接收，隔离文件可见性证据分别标识。实施及命令见[持续日线手册](../runbooks/continuous-native-day.md)。

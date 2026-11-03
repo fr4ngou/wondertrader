@@ -24,6 +24,8 @@ supplements省略或空列表沿原路径。该接口只组合原生成功导入
 
 ## 部署及验证
 
+日线持续更新由现有`DailyOverlayMarket`承接：静态归档提供历史，原Writer的`his/day`及收盘marker提供动态闭合尾部。指数外层用segments保留Mixed，股票/ETF内层原dataset口径保持。`scripts/prepare_market_collection.py`离线生成50指数、原生日线开启和动态读取配置，不启动实例；源端完整GH仍由其所有者配对。日常运行复用原组件和文件，无新增持久服务、定时任务或行情数据库。字段、维护步骤及待开市资格见[持续日线手册](../runbooks/continuous-native-day.md)，合同沿[CNH-R6](../specs/collected-native-history.md#cnh-r6-原生日线持续落盘与指数动态尾部)。
+
 沿[WT历史服务手册](../runbooks/source-market-app.md)绑定新的源码组件、配置SHA和外部storage_root，旧导入库作为base。凭据仍在服务环境，源配置只有数据身份，不开启QMT下载、账户或交易。组件更新不复制或覆盖外部采集历史。
 
 独立补齐根的选择、导入和后继配置操作见[采集历史补齐手册](../runbooks/collected-history-supplements.md)。来源延迟、实时tick接收与最终归档缺口分别取证；缺少原tick留痕时保留触发原因未知。
