@@ -58,3 +58,37 @@ HPR call_returned仅证明原SDK函数返回。全部HPR确认后，原v8持久�
 至少40期所需的原读取窗口。工作流不创建定时任务，不逐轮强制重复多年下载。相同工作流
 完成后离线重读不再调用SDK；新观察使用新业务身份。正式安装、SDK替身、真实切片与
 全市场真实数据分别记录资格，合成数据不得进入真实指标。
+
+## MDP6 显式缓存优先观察
+
+新请求使用schema=`guanheng.market-daily-preparation.v2`并明确mode=`cache-first`；其余capture、preparation、source_association沿原结构。v1目录、原349类slot及结果保持原契约，新模式使用新的独占业务目录，不迁移、重标或覆盖旧请求。操作员总观察预算独立于请求身份，可以显式修订；已派发正文/票据/SDK截止保持，未知继续原ID。
+
+新模式先沿原v8捕获cache，保存完整原绑定、批次、结果、实收时间和consumed。按`t2108.ashare/2`实际数据口径核front_ratio：观察尾日等于capture.end_date、至少40条实际记录、最后40个close均有限且为正。none/front_ratio沿原请求end_date指定复权参考，保存原共同日期/basis；不伪造因子资格或历史首次可知。合法空/缺失、过期、暖机不足、非正价格及来源不可读分别列明。格式/身份或绑定错误保持失败，不能当缺数据去下载。
+
+只为实际缺口生成固定PLAN：暖机已足但尾日落后时，从原实际尾日的次日补到目标日；暖机不足时补授权起点到原最早缓存日的前一日，尾日缺口单独补；无缓存时才用完整授权窗口。缓存已足的范围不重复下载；需要修订的非正价格只补其有限日期区间。单次计划最多每证券三个有界区间，合并相交区间；准备范围始终在preparation授权窗口内。无法通过准备修复的分片/来源错误保留明确不可用状态。新PLAN及每个原slot唯一拥有一个调用，沿原HPR/v6/v3、原容量/并发/单SDK/票据规则推进。
+
+全部计划缺口责任确认后，沿原v8对全池实际回读到capture；初次缓存全池已足时，直接封存该次真实cache捕获，避免重复SDK读取。RESULT.capture明确记录最终捕获目录cache或capture。准备成功仅说明call_returned，最终QUALITY按原数据重算，不依据准备回执填就绪。所有证券都在质量清单中，部分覆盖按原T2108口径保留，full_coverage仅在全池合格时成立；没有合格观察时返回明确source_unavailable，不发布合格RESULT。正常完成封存原capture与QUALITY摘要，旧epoch/未知仍保留原ID。新命令暂停后复用原cache/PLAN/slot和请求，不再生成已尝试身份。
+
+MDP只拥有缓存观察/缺口编排与资格索引；原Host拥有通信责任、Agent拥有SDK、BatchAnalysisSource拥有原捕获，观衡仍拥有指标计算与ready发布。不得新增并行服务、定时器或另一套重试/Journal。完整全A执行须显式授权；工程验证先走至多同一小切片真实入口，再复用既有回归，不扩新测试矩阵。
+
+
+MDP6新增持久字段（日期均为原市场日YYYYMMDD；实收时间沿原带时区来源字符串）：
+
+| 对象/字段 | 定义与缺失语义 |
+|---|---|
+| REQUEST.schema / mode | 显式v2协议及cache-first编排选择，v1默认语义保持。 |
+| CACHE-QUALITY / QUALITY.schema / qualification | 本地质量索引版本及原T2108数据口径版本；不新增行情来源。 |
+| observation_date / minimum_rows / securities | 原capture.end_date、固定40期、原请求证券总数。 |
+| counts / eligible_count / full_coverage | 各互斥原因证券数、合格数、全池全部合格布尔值；零合格沿原不可用类。 |
+| rows[symbol].reason / eligible / status | 本地口径分类、合格布尔值、原front_ratio来源状态。 |
+| rows / first_date / last_date | 原前复权实际行数及首尾日；无数据日期为null，行数为0。 |
+| bad_close_dates / warmup_insufficient | 最后40行非正收盘日数组、原行数不足40布尔值。 |
+| source_received_at / adjustment / reference_end_date | 原front批次实收时刻、front_ratio、原请求复权参考尾日；不冒充首次可知时间。 |
+| original_common_basis / capture_sha256 | 原none/front共同尾日（无共同日为null）、完整原manifest字节摘要。 |
+| PLAN.schema / qualification / cache_sha256 / tasks | 计划版本、口径版本、初次实读摘要及固定有限准备区间数组。 |
+| tasks.index / symbol / start_date / end_date / reason | 原slot序号、证券、SDK允许起止日、缺口原因；一个任务对应一个原HPR责任。 |
+| PROGRESS.required_preparations / cache_eligible_count | 固定PLAN区间总数及初次缓存合格数；不表示下载次数或最终覆盖。 |
+| RESULT.mode / capture / quality_sha256 | 编排模式、最终捕获目录（cache或capture）、完整QUALITY字节摘要。 |
+| RESULT.coverage_qualified / eligible_count / required_preparations / qualification | 全池合格布尔值、实读合格数、原计划区间数、原数据口径版本。其他字段沿原结果定义。 |
+
+MDP6字段声明旁逐项保留中文说明：QUALITY引用当次原捕获/实收时刻，PLAN固定初次缓存缺口，PROGRESS只表示阶段准备责任，RESULT表示最终实读封存。计数分别标明证券只数、记录条数、任务项数或批次份数；市场日YYYYMMDD、SDK止日、带时区实收时间与本地UTC封存时间分别声明。空数组、0、None及False按各字段原义保留，完成阶段不替代数据覆盖资格。此注释补充保持原Python AST及请求/slot/材料责任。

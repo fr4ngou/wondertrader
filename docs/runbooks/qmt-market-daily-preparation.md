@@ -26,3 +26,11 @@ Host、Agent与Core以已验组合的精确wheel锁选择。CLI内部使用有�
 版本/位数、base_prefix及pip可用性。IDE或辅助工具的可变运行缓存保持其原用途；
 已发布实例使用独立的固定解释器路径。解释器变化时在新目录普通离线重装角色并核对
 模块/RECORD，不替换正在运行的实例。QMT内置Python及正式共享内存正文沿其独立版本记录。
+
+## cache-first新观察维护
+
+先核实际v8/HPR完整signed binding、原Source身份及维护owner；与并行分析窗口协调独占准备窗口。v2必须使用新业务根和显式mode=cache-first，capture/preparation日期窗口分别固定读取范围和允许准备范围。CLI入口及--seconds/--max-preparations沿原命令；max-preparations在v2计实际缺口区间数，不计已就绪证券。
+
+按cache→PLAN→原HPR slots→capture回读→QUALITY→RESULT核事实。尾日补齐从实际缓存尾日次日起；暖机仅补此前缺口，不重下已足窗口。HPR call_returned与QUALITY数据资格分别展示。Pending继续同根原ID，修订外部作业预算应记录原计划不足，不能改旧SDK截止。部分质量不得写成全市场100%；最终ready仍由原消费发布器依据原包验证。
+
+v1目录继续用v1请求收尾；旧已完成或未知HPR回执按原Client恢复，不换ID。新模块的source CAS只覆盖自有Python与上述规格/模块/手册；安装/运行使用隔离候选，正在运行的Host/生产者包及共享配置保持。小量真实验证前binding变化或来源身份未确认时停止副作用，交清阻断；全A材料只准备，不自动执行。

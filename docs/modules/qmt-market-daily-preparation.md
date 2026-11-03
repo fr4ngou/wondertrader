@@ -35,3 +35,9 @@ CLI传入完整已解析配置；该配置只有原端点、key_id、秘密环�
 [多证券示例](https://dict.thinktrader.net/innerApi/code_examples.html)通过循环调用该接口；
 批量get_market_data_ex用于回读。显式v3接收BJ格式；下载支持、真实缓存更新及停牌/上市
 导致的日期差异分别由实际回读和消费方核实。
+
+## 显式cache-first接缝
+
+v2请求的mode=cache-first由同一个MarketDailyPreparation.run分派。原BatchAnalysisSource先读cache；纯值资格/缺口计划由market_daily_cache.py拥有，协议版本`t2108.ashare/2`；HPR执行复用原同一准备器，回读仍进入原capture。cache、PLAN、QUALITY均保存原件摘要。v1旧目录继续先全准备，不能用新模式替旧结果改资格。
+
+QUALITY区分全池已核与全池合格：部分覆盖保留实际缺口、源时间和分类，completed只说明本次原责任/回读完成。源数值/身份错误直接交原失败类，不生成缓存下载特判。完整字段及范围规则唯一见MDP6。

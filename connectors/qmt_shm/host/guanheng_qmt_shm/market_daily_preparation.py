@@ -44,6 +44,17 @@ class MarketDailyPreparation:
         self.concurrency = concurrency
 
     def run(self, request, directory, *, deadline, max_preparations=None, on_progress=None, connection_identity=None):
+        """显式v2选择缓存优先；v1保持原请求、目录与回收契约，不迁移旧责任。"""
+        if type(request) is dict and request.get('schema') == 'guanheng.market-daily-preparation.v2':
+            from .market_daily_cache import run_cache_first
+            return run_cache_first(self, request, directory, deadline=deadline,
+                max_preparations=max_preparations, on_progress=on_progress,
+                connection_identity=connection_identity)
+        return self._run_v1(request, directory, deadline=deadline,
+            max_preparations=max_preparations, on_progress=on_progress,
+            connection_identity=connection_identity)
+
+    def _run_v1(self, request, directory, *, deadline, max_preparations=None, on_progress=None, connection_identity=None):
         """同目录续接原ID；完成包可离线复用，未知请求保留完整原责任。"""
         # 绝对D先准入，NaN/Inf/bool不会创建目录、slot或进入原ID等待。
         if type(deadline) not in (int, float):
@@ -88,21 +99,10 @@ class MarketDailyPreparation:
         first = RetainedReadClient(self.factory(), lifetime_ms=30000)
         # 首个下载前固定两端原认证。capture/BINDING仍归原BatchAnalysisSource；
         # 此处只提前准入相同原记录，续接变化在新SDK/新slot之前结束。
-        def pinned(client, path, version, operation):
-            with client.transport.rpc_budget(min(30., client.transport.timeout)):
-                current = client._binding(min(deadline, time.monotonic()+30.))
-            if current['profile']['read_profile_version'] != version:
-                raise ValueError('market_daily_source_profile')
-            if operation not in current['profile']['operation_profiles']:
-                raise ValueError('market_daily_source_operation')
-            if path.exists() and _load(path)['binding'] != current['binding']:
-                raise RetainedReadBindingChanged('market_daily_source_binding_changed')
-            return current
-
         binding_file = directory/'HPR-BINDING.json'
         batch_binding = directory/'capture/BINDING.json'
-        metadata = pinned(first, binding_file, 'qmt.read-profile.v6', OPERATION)
-        batch_metadata = pinned(self.batch.client, batch_binding, 'qmt.read-profile.v8', 'market.market_data')
+        metadata = self._pinned(first, binding_file, 'qmt.read-profile.v6', OPERATION, deadline)
+        batch_metadata = self._pinned(self.batch.client, batch_binding, 'qmt.read-profile.v8', 'market.market_data', deadline)
         descriptor = metadata['profile']['operation_profiles'][OPERATION]
         scope = descriptor['limits']
         if scope['schema_version'] != 'qmt.history-preparation-limits.v3':
@@ -115,8 +115,41 @@ class MarketDailyPreparation:
         fresh = [item for item in slots if not item[2].exists()]
         selected = existing + fresh[:max_preparations] if max_preparations is not None else slots
 
+        records = self._prepare_items(
+            [(i, symbol, start, end, slot) for i, symbol, slot in selected], directory,
+            metadata, scope, deadline, on_progress, len(symbols))
+        if len(records) != len(symbols):
+            progress = dict(schema=SCHEMA,state='paused',confirmed=len(records),total=len(symbols),
+                preparations=records,SDK_coverage='unconfirmed_until_v8_readback')
+            _save(directory/'PROGRESS.json',progress)
+            return progress
+        manifest = self.batch.capture(capture,directory/'capture',deadline=deadline,
+            on_result=(lambda *unused:on_progress(dict(stage='capture'))) if on_progress else None)
+        read_capture(directory/'capture')
+        result = dict(schema=SCHEMA,state='completed',preparations=records,
+            capture='capture/manifest.json',capture_sha256=hashlib.sha256((directory/'capture/manifest.json').read_bytes()).hexdigest(),
+            securities=len(symbols),batches=len(manifest['batches']),source_kind=capture['source_kind'],
+            generated_at=datetime.now(timezone.utc).isoformat(),coverage_qualified=False,
+            adjustment_qualified=False,closed_basis_qualified=False)
+        _save(completed,result)
+        return result
+
+    def _pinned(self, client, path, version, operation, deadline):
+        with client.transport.rpc_budget(min(30., client.transport.timeout)):
+            current = client._binding(min(deadline, time.monotonic()+30.))
+        if current['profile']['read_profile_version'] != version:
+            raise ValueError('market_daily_source_profile')
+        if operation not in current['profile']['operation_profiles']:
+            raise ValueError('market_daily_source_operation')
+        if path.exists() and _load(path)['binding'] != current['binding']:
+            raise RetainedReadBindingChanged('market_daily_source_binding_changed')
+        return current
+
+
+    def _prepare_items(self, items_to_prepare, directory, metadata, scope, deadline, on_progress, total):
+        """同一原HPR执行器；items为序号/证券/授权起止日/唯一slot，日期为YYYYMMDD。"""
         def prepare(item):
-            i, symbol, slot = item
+            i, symbol, start, end, slot = item
             # 原策略每100ms最多推进一项重SDK；并行外部观察沿同一节拍等待，
             # 避免四worker的20ms轮询超过原nonce窗口容量。业务/SDK截止保持。
             client = RetainedReadClient(self.factory(), lifetime_ms=30000, poll_seconds=.1, wait_for_active_capacity=True)
@@ -175,7 +208,7 @@ class MarketDailyPreparation:
             # 只保留原concurrency个在途项；首个未解责任后不再派发数千个后继。
             # 已经提交的原任务由executor在各自原D内完成，原slot/UUID保持。
             pending = set()
-            items = iter(selected)
+            items = iter(items_to_prepare)
             def submit_next():
                 item = next(items, None)
                 if item is not None:
@@ -190,7 +223,7 @@ class MarketDailyPreparation:
                     for record in completed_records:
                         records.append(record)
                         if on_progress is not None:
-                            on_progress(dict(stage='preparation',confirmed=len(records),total=len(symbols)))
+                            on_progress(dict(stage='preparation',confirmed=len(records),total=total))
                     for _ in done:
                         submit_next()
             except BaseException:
@@ -198,21 +231,7 @@ class MarketDailyPreparation:
                     future.cancel()
                 raise
         records.sort(key=lambda row:row['index'])
-        if len(records) != len(symbols):
-            progress = dict(schema=SCHEMA,state='paused',confirmed=len(records),total=len(symbols),
-                preparations=records,SDK_coverage='unconfirmed_until_v8_readback')
-            _save(directory/'PROGRESS.json',progress)
-            return progress
-        manifest = self.batch.capture(capture,directory/'capture',deadline=deadline,
-            on_result=(lambda *unused:on_progress(dict(stage='capture'))) if on_progress else None)
-        read_capture(directory/'capture')
-        result = dict(schema=SCHEMA,state='completed',preparations=records,
-            capture='capture/manifest.json',capture_sha256=hashlib.sha256((directory/'capture/manifest.json').read_bytes()).hexdigest(),
-            securities=len(symbols),batches=len(manifest['batches']),source_kind=capture['source_kind'],
-            generated_at=datetime.now(timezone.utc).isoformat(),coverage_qualified=False,
-            adjustment_qualified=False,closed_basis_qualified=False)
-        _save(completed,result)
-        return result
+        return records
 
     @staticmethod
     def _verify_preparations(directory, records):

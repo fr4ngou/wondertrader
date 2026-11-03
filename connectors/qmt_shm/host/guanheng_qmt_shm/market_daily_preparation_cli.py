@@ -18,7 +18,7 @@ def _reason_code(error):
         'read_retention_capacity_rejected', 'read_original_request_unresolved',
         'read_original_request_pending', 'read_consumption_unconfirmed',
         'read_original_terminal_unknown', 'read_original_terminal_failure',
-        'read_transport_unresolved'}
+        'read_transport_unresolved', 'market_daily_cache_no_qualified_observations'}
     value = str(error)
     return value if value in known else 'read_pending_unspecified' if isinstance(error, RetainedReadPending) else 'read_failure_unspecified'
 
@@ -51,7 +51,7 @@ def main(argv=None):
         print(json.dumps(dict(state='source_unavailable',reason_code=_reason_code(error),original_identity_preserved=True)))
         return 3
     print(json.dumps(dict(state=result['state'],securities=result.get('securities'),
-        confirmed=len(result['preparations']),actual_coverage_qualified=False)))
+        confirmed=len(result['preparations']),actual_coverage_qualified=result.get('coverage_qualified',False))))
     return 0
 
 
