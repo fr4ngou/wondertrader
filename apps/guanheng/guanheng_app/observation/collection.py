@@ -17,7 +17,7 @@ from .publication import validate_manifest,VALIDATION_CONTRACT
 from .query import ObservationReader,parquet_bytes
 from .storage import digest,encode
 from .stock_partitions import extend_daily_partitions
-from .wondertrader_source import history as market_history
+from .wondertrader_source import history as market_history, prepare_table as prepare_market_table
 from .breadth_models import METRICS as BREADTH_METRICS, admit_definition, prepare_definitions,attach_boards
 from . import financial_models, executive_models, t2108_models
 from .financial_source import annual_reports
@@ -139,33 +139,45 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             else:updates=PARSERS[source['kind']](fetch,source,start,end)
             allowed=set(source.get('tables',[]))|set(source.get('datasets',[]))
             if set(updates)-allowed:raise SourceFailure('unregistered_source_output')
-            prepared={};revisions=[];count=0;prepared_definitions={}
+            prepared={};revisions=[];count=0;prepared_definitions={};retained_dates={}
             for key,rows in updates.items():
-                budget.remaining();old=datasets.get(key,tables.get(key,[]))
+                # 来源配置决定事实所有者；同名只读指标投影不取得原源表写入权。
+                # market.sh000001同时有源表和页面投影，必须先更新原表再统一派生。
+                is_table=key in source.get('tables',[])
+                budget.remaining();old=tables.get(key,[]) if is_table else datasets.get(key,[])
                 if source['kind']=='qmt_t2108' and key==t2108_models.METRIC:
                     old=t2108_models.versioned_history(old,definitions[key]['definition_version'])
                 if key in BREADTH_METRICS:
                     prepared_definitions[key]=admit_definition(key,definitions.get(key),old,rows)
                 if source.get('replace_tables'):
-                    if key in datasets or not {r['date'] for r in old if r['date']<=effective}<={r['date'] for r in rows}:
+                    if not is_table:
                         raise SourceFailure('market_existing_coverage_missing')
-                    # 补跑旧窗口保留已接纳的更晚真实行；替换仅覆盖本次请求截止以内。
-                    prepared[key],changes=merge([r for r in old if r['date']>effective],rows)
+                    if source['kind']=='wondertrader':
+                        prepared[key],changes,retained=prepare_market_table(key,old,rows,effective)
+                        if retained:retained_dates[key]=retained
+                    else:
+                        if not {r['date'] for r in old if r['date']<=effective}<={r['date'] for r in rows}:
+                            raise SourceFailure('market_existing_coverage_missing')
+                        # 补跑旧窗口保留已接纳的更晚真实行；替换仅覆盖本次请求截止以内。
+                        prepared[key],changes=merge([r for r in old if r['date']>effective],rows)
                 else:prepared[key],changes=merge(old,rows,tenor=definitions.get(key,{}).get('axis_type')=='tenor')
                 revisions.extend(dict(metric_id=key,**item) for item in changes);count+=len(rows)
             raw_manifest=reader.objects.put(encode(fetch.records),kind='standard')
             definitions.update(prepared_definitions)
             if source['kind']=='qmt_t2108':definitions[t2108_models.METRIC]=t2108_models.definition()
             for key,rows in prepared.items():
-                if key in datasets:datasets[key]=rows
-                else:
+                if key in source.get('tables',[]):
                     tables[key]=rows
                     table_parents[key]=[raw_manifest,*([manifest['source_tables'][key]] if key in manifest.get('source_tables',{}) else [])]
+                else:datasets[key]=rows
             receipt.update(status='checked_disclosure' if source['kind']=='disclosure' else 'success' if count else 'no_new_observations',
                 observations=count,revisions=revisions,source_manifest=raw_manifest,
                 latest_period=max((row['date'] for rows in updates.values() for row in rows),default=None),
                 loaded_period=max(source_observation_dates(datasets,definitions,source.get('datasets',[]))+
                     [r['date'] for key in source.get('tables',[]) for r in tables.get(key,[])],default=last))
+            # 表ID→ISO交易日：原参考表已接纳、本次原生日线未返回而继续保留的日期。
+            # 字段缺省表示无需保留；不将旧观察重标成本次新采集。
+            if retained_dates:receipt['retained_dates']=retained_dates
             successes+=1
         except Exception as exc:
             receipt.update(status='failed',error_code=exc.code if isinstance(exc,(SourceFailure,ObservationError)) else 'source_parse_failed')

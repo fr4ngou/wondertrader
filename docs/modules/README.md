@@ -30,6 +30,7 @@
 
 | 模块 | 读取条件 |
 |---|---|
+| [指数观察背景](observation-index-background.md) | 来源表与同名只读投影归属、真实收盘缺口保留及18页背景对齐 |
 | [WT数据能力与限制](wondertrader-data-capabilities.md) | 原生存储/Servo/Reader、周期、复权、缓存及扩展选择 |
 | [WT策略与回测能力](wondertrader-strategy-capabilities.md) | 四引擎、宿主接线、调度、状态和回测撮合边界 |
 | [WT交易与执行能力](wondertrader-trading-capabilities.md) | 原生目标/执行算法、风控、现金股票、持久状态及恢复 |

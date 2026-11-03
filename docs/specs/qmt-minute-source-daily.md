@@ -24,6 +24,6 @@ QMD6：来源unknown量单位允许完整OHLC及原量归档，响应中的单�
 
 QMD7：原分钟→原Helper聚合→schema3/day DSB→原Reader→隔离WT history/source_market工厂→原MarketClient，8主指数和50清单逐项非空；日期和六字段与生成CSV全量相等，来源/周期/单位透传，同实例原分钟继续可读。覆盖不完整首日、内部缺分钟、可选09:30、重复/额外标签、输入SHA不符、未知量单位、单位变化、空查询和缺证券。WT正常关闭且其history子服务确认server/native关闭和OS exit0。001真实运行沿[首批证据](../evidence/2026-11-02-index-source-daily.md)；002根因修正与当前接入边界沿[后继证据](../evidence/2026-11-02-index-source-daily-002.md)。
 
-QMD8：全量聚合日仓可作为独立只读来源；接续既有完整WT目录时保留已有证券日线owner。当前保留000300.SH/000016.SH原日仓，仅为其它48项补路由；按原factory验证旧年份的返回和metadata保持。禁止用短聚合仓的base优先级遮住已有长历史。观察replace_tables继续要求原表日期全部在新响应中；覆盖不足时保留原表并明确market_existing_coverage_missing。单来源批次有任一表失败时保留该批全部原表；本规格不放宽完整替换、不拼接未分段注明来源的量序列、不删除旧表。
+QMD8：全量聚合日仓可作为独立只读来源；接续既有完整WT目录时保留已有证券日线owner。当前保留000300.SH/000016.SH原日仓，仅为其它48项补路由；按原factory验证旧年份的返回和metadata保持。禁止用短聚合仓的base优先级遮住已有长历史。观察中消费OHLC/量的行情表继续要求完整旧日期覆盖，覆盖不足明确market_existing_coverage_missing并保留该批原表。只消费收盘的`source.csi_all`沿[OBI收盘参考合同](independent-market-observation.md#obi5-独立采集与来源)按真实日期合并，保留已接纳的官方close-only旧行及谱系，不补造原生日线。该区别按消费字段定义，不放宽量序列的完整替换、不删除旧表。
 
 QMD9：上证参考在唯一attach_sse_reference责任层一次写入原cffex和四basis，主指标保持。复用已审REFERENCE-ORDER-CODE-001函数；同次最终化后参考一致，再次处理相同输入的数值保持，覆盖外原归档参考保留。
