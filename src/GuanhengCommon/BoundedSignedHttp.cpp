@@ -196,10 +196,14 @@ Status response_http_error(unsigned code,const std::string& body)
     auto status=http_error(code);
     if(status.reason!="qmt_http_remote_failure")return status;
     status.reason+=":"+std::to_string(code);
+    // Uvicorn在ASGI准入前的固定容量响应；只登记类别，不重试或复制远端正文。
+    if(code==503&&body=="Service Unavailable"){
+        status.reason+=":http_frontend_capacity";return status;
+    }
     rapidjson::Document value;
     if(body.size()<=65536&&parse_bounded_qmt_json(body,value,65536,1024)&&value.IsObject()){
         if(value.HasMember("error_code")&&value["error_code"].IsString()){
-            const char* fixed[]={"queue_full","strategy_stale","journal_unavailable","source_unavailable","order_source_unavailable","read_retention_capacity_exhausted"};
+            const char* fixed[]={"queue_full","strategy_stale","journal_unavailable","source_unavailable","order_source_unavailable","read_retention_capacity_exhausted","nonce_cache_full","capability_unavailable","journal_capacity_exhausted"};
             for(const auto* text:fixed)if(std::strcmp(value["error_code"].GetString(),text)==0){status.reason+=":"+std::string(text);break;}
         }else if(value.HasMember("schema_version")&&value["schema_version"].IsString()
             &&std::strcmp(value["schema_version"].GetString(),"qmt.trade-host-status.v2")==0)
@@ -404,6 +408,15 @@ void CALLBACK http_callback(HINTERNET, DWORD_PTR context, DWORD code, LPVOID inf
                 else
                 {
                     state->result.response_complete = true;
+                    // 完整受信响应的固定类别；只读绑定等待可使用，写命令不据此重发。
+                    if(state->result.code==503){
+                        rapidjson::Document value;
+                        if(state->result.body.size()<=65536
+                            &&parse_bounded_qmt_json(state->result.body,value,65536,1024)&&value.IsObject()
+                            &&value.HasMember("error_code")&&value["error_code"].IsString()
+                            &&std::strcmp(value["error_code"].GetString(),"strategy_stale")==0)
+                            state->result.failure.recovery=SignedHttpRecovery::SourceGenerationUnavailable;
+                    }
                     state->finish(state->result.code == 200 || state->result.code == 202 ? Status{} : response_http_error(state->result.code,state->result.body));
                 }
                 break;
@@ -603,6 +616,21 @@ SignedHttpResult BoundedSignedHttp::exchange(const char* method,const std::strin
     const auto status = check();
     if (!status.ok()) return local_http_result(status, SignedHttpStage::None);
     return impl_->exchange(method,target,body,deadline,response_limit);
+}
+SignedHttpResult BoundedSignedHttp::read_binding(SignedHttpDeadline& deadline,std::size_t response_limit,
+    const std::function<Status()>& gate)
+{
+    for(;;){
+        const auto admitted=gate();
+        if(!admitted.ok()){SignedHttpResult result;result.status=admitted;return result;}
+        auto result=exchange("GET","/internal/v1/read-binding",{},deadline,response_limit);
+        // 固定只读绑定类别才等待；原结果查询及所有POST保持单次身份。
+        if(!result.response_complete||result.failure.recovery!=SignedHttpRecovery::SourceGenerationUnavailable)
+            return result;
+        const auto remaining=deadline.remaining();
+        if(!remaining){result.status=failure(ErrorCode::Timeout,"qmt_host_source_reconnect_deadline");return result;}
+        std::this_thread::sleep_for(std::chrono::milliseconds((std::min)(remaining,25u)));
+    }
 }
 Status BoundedSignedHttp::drain_callbacks(std::uint32_t timeout_ms) noexcept
 {

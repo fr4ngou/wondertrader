@@ -45,6 +45,13 @@ class Facts(_Packed):
                 ('tdate', C.c_uint32), ('fund_pnl', C.c_double)]
 
 
+class CashBasis(_Packed):
+    _fields_ = [('size', C.c_uint32), ('version', C.c_uint32),  # 可选现金扩展结构大小与版本1。
+                ('realized_pnl_cny', C.c_double),  # WT原已实现盈亏，CNY。
+                ('fees_cny', C.c_double),  # WT原累计费用，CNY。
+                ('average_price_cny', C.c_double)]  # 证券原平均成本，CNY/份。
+
+
 class Position(_Packed):
     _fields_ = [('size', C.c_uint32), ('flags', C.c_uint32),
                 *[(key, C.c_double) for key in ('raw_position', 'raw_valid', 'enum_target')],
@@ -173,6 +180,13 @@ class FactsValue:
 
 
 @dataclass(frozen=True)
+class CashBasisValue:
+    realized_pnl_cny: float  # WT flag1原已实现盈亏，CNY。
+    fees_cny: float  # WT flag3原费用，CNY。
+    average_price_cny: float  # 当前证券原WT平均持仓成本，CNY/份。
+
+
+@dataclass(frozen=True)
 class PositionValue:
     flags: int
     raw_position: float
@@ -271,6 +285,16 @@ class CallbackContext:
         api = self._access();out = Facts();out.size = C.sizeof(out)
         self._ok(api.gh_ms_facts(self.event.epoch, C.byref(out)))
         return FactsValue(out.date, out.time, out.tdate, out.fund_pnl)
+
+    def cash_basis(self, code):
+        """同一回调借用原WT现金依据；缺扩展时只撤销资金观察资格。"""
+        api=self._access();function=getattr(api,'gh_ms_cash_basis',None)
+        if function is None:return None
+        out=CashBasis();out.size=C.sizeof(out);out.version=1
+        result=function(self.event.epoch,self._code(code),C.byref(out))
+        if result==-8:return None
+        self._ok(result)
+        return CashBasisValue(out.realized_pnl_cny,out.fees_cny,out.average_price_cny)
 
     def price(self, code):
         api = self._access();out = C.c_double()
@@ -427,6 +451,8 @@ class CtaRuntime:
         if self._state_abi:
             prototypes.update(gh_ms_state_read=[C.c_uint64, C.POINTER(C.c_char), C.c_uint32, C.POINTER(C.c_uint32)],
                               gh_ms_state_write=[C.c_uint64, C.c_char_p, C.c_uint32])
+        if getattr(api,'gh_ms_cash_basis',None) is not None:
+            prototypes['gh_ms_cash_basis']=[C.c_uint64,C.c_char_p,C.POINTER(CashBasis)]
         for name, parameters in prototypes.items():
             function = getattr(api, name);function.argtypes = parameters;function.restype = C.c_int32
         for binding in bindings:

@@ -182,7 +182,7 @@ bool history_profile(const Value& p,std::size_t result_cap,std::uint32_t& execut
     }
     return found&&maximum==p["execution_timeout_ms"].GetUint();
 }
-bool history_terminal(const Value& v,bool retained=false)
+bool history_terminal(const Value& v,bool retained=false,bool not_dispatched=false)
 {
     if(!keys(v,{"request_id","operation_id","ok","completed_at","result_sha256","data","error_code","error_message","observation",
         "request_admission_ms","queue_wait_ms","execution_ms","result_persistence_ms","response_wakeup_ms","response_handler_ms"})
@@ -193,6 +193,8 @@ bool history_terminal(const Value& v,bool retained=false)
     if(v["ok"].GetBool())return v["error_code"].IsNull()&&v["error_message"].IsNull();
     if(!v["data"].IsNull()||!field(v,"error_code",128)||!field(v,"error_message",1024))return false;
     const auto code=text(v["error_code"]);
+    // Host在派发前终结原请求；空派发/结果绑定证明SDK没有执行。
+    if(not_dispatched&&code=="source_binding_changed")return true;
     if(retained)for(auto known:{"preparation_not_executed","source_binding_changed","queue_full","invalid_arguments","capability_unavailable"})
         if(code==known)return true;
     for(auto known:{"invalid_request","owner_required","execution_timeout","queue_timeout","source_shape_invalid","source_value_invalid",
@@ -750,7 +752,10 @@ public:
         RequestControl* request_control=nullptr,QmtAccountReadStage stage=QmtAccountReadStage::Binding)
     {
         if(request_control){auto checked=request_control->gate(http,until,control,stage);if(!checked.ok())return checked;}
-        auto response=http.exchange("GET","/internal/v1/read-binding",{},until,16384);
+        auto response=http.read_binding(until,16384,[&]{
+            if(request_control)return request_control->gate(http,until,control,stage);
+            return stopped()?fail(ErrorCode::Pending,"qmt_account_interrupted"):Status{};
+        });
         if(!response.status.ok())return response.status;
         if(response.code!=200)return signed_http_error(response.code);
         Document value;
@@ -943,7 +948,7 @@ public:
                 ||text(native["request_id"])!=request_id||text(native["operation_id"])!=operation
                 ||!native.HasMember("ok")||!native["ok"].IsBool()||!native.HasMember("completed_at")||!completed_at(native["completed_at"])
                 ||!native.HasMember("result_sha256")||!hex(native["result_sha256"],64))return failure(fail(ErrorCode::IoError,"qmt_host_native_result_invalid"));
-            if((prepared_operation()||retained_snapshot())&&!history_terminal(native,!receipt.retention_ticket_json.empty()))return failure(fail(ErrorCode::IoError,"qmt_host_native_result_invalid"));
+            if((prepared_operation()||retained_snapshot())&&!history_terminal(native,!receipt.retention_ticket_json.empty(),value["dispatch_binding"].IsNull()&&value["result_binding"].IsNull()))return failure(fail(ErrorCode::IoError,"qmt_host_native_result_invalid"));
             output.result.terminal=true;output.result.remote_ok=native["ok"].GetBool();
             if(!output.result.remote_ok){
                 if((prepared_operation()||retained_snapshot())&&!value["dispatch_binding"].IsNull()&&!value["result_binding"].IsNull()){

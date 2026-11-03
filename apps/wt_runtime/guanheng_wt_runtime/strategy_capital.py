@@ -138,7 +138,8 @@ class AccountCashReader:
 
 
 def observe_capital(origin, pnl, market_value, observed_at, account, qualified, *, max_age_seconds=60,
-                    position_observed_at=None, market_value_source='broker-position+raw-CTA-price'):
+                    position_observed_at=None, market_value_source='broker-position+raw-CTA-price',
+                    cash_balance=None, price_observed_at=None):  # 独立原现金依据与原报价时间；均不冒充账户批次时间。
     """复用WT损益；现金余额=NAV−库存市值，账户冻结仅作保守现金约束。
 
     账户可用上限已经含券商冻结影响；以min合并，冻结现金只减一次。fee_reserve
@@ -147,7 +148,8 @@ def observe_capital(origin, pnl, market_value, observed_at, account, qualified, 
     origin = baseline(origin)
     _require(market_value_source in ('broker-position+raw-CTA-price', 'broker-position+raw-QMT-snapshot'))
     nav = rational(origin['total_cny']) + pnl
-    cash = nav - market_value
+    cash = nav - market_value if cash_balance is None else cash_balance
+    _require(cash == nav-market_value)
     spendable = None
     if account is not None and qualified:
         spendable = min(max(Fraction(0), cash-rational(account.frozen_cash_cny)),
@@ -158,6 +160,7 @@ def observe_capital(origin, pnl, market_value, observed_at, account, qualified, 
         currency='CNY',  # 本观察所有金额的币种；固定人民币，不进行汇率换算。
         baseline=origin,  # 首次准备owner拥有的当前资本基准；必填，恢复沿原对象内容复用。
         observed_at=observed_at,  # 本次CTA回调估值截止；带时区ISO8601，不冒充账户批次的原时点。
+        price_observed_at=price_observed_at,  # 所用报价最旧原事件时间；CTA无法提供时为None，不以读取时间替代。
         native_pnl_cny=_decimal(pnl),  # 新运行以来原WT flag0损益；含原WT费用，未迁入旧历史盈亏。
         position_observed_at=position_observed_at,  # 券商P原接收时点；带时区ISO8601，None表示调用方未提供。
         market_value_source=market_value_source,  # 市值来源；实际券商数量乘原CTA未复权报价，或首次原QMT快照，禁止历史收盘代替。
@@ -191,4 +194,5 @@ def refresh_account_constraint(value, reader, deadline):
             return value
     return observe_capital(value['baseline'],rational(value['native_pnl_cny']),rational(value['market_value_cny']),
         value['observed_at'],account,qualified,max_age_seconds=reader.max_age,
-        position_observed_at=value['position_observed_at'],market_value_source=value['market_value_source'])
+        position_observed_at=value['position_observed_at'],market_value_source=value['market_value_source'],
+        cash_balance=rational(value['cash_balance_cny']),price_observed_at=value.get('price_observed_at'))

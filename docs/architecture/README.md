@@ -45,3 +45,5 @@
 - [ADR-0019 Native报价快照消费](adr/0019-native-quote-snapshot-consumer.md)：进程内完整快照后确认消费，原身份未知保持。
 
 - [ADR-0020 批量分析来源身份](adr/0020-batch-analysis-source-identity.md)：单原SDK批次与证券投影分别记录，复用原认证、截止及消费回收。
+
+- [ADR-0023 执行恢复准入](adr/0023-execution-recovery-admission.md)：正常/故障依据及兼容发行分别核验，原金融owner与命令身份保持。

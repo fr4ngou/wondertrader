@@ -20,6 +20,13 @@ typedef struct GhMsStatus {
     int32_t failure;
     uint64_t callbacks,setters,owner_token;
 } GhMsStatus;
+typedef struct GhMsCashBasis {
+    uint32_t size; /* 调用方结构字节数；严格核sizeof。 */
+    uint32_t version; /* 可选现金依据ABI版本，当前1。 */
+    double realized_pnl_cny; /* 原WT flag1已实现盈亏，CNY。 */
+    double fees_cny; /* 原WT flag3累计费用，CNY。 */
+    double average_price_cny; /* 指定证券的原WT持仓平均成本，CNY/份；空仓为0。 */
+} GhMsCashBasis;
 #pragma pack(pop)
 
 // 配置线程在原工厂首次create前注册；同策略ID只注册一次，函数/user保持至进程退出。
@@ -34,6 +41,8 @@ GH_RT_API int32_t GH_RT_CALL gh_ms_health(void* user);
 GH_RT_API int32_t GH_RT_CALL gh_ms_facts(uint64_t epoch,GhRtFacts*);
 GH_RT_API int32_t GH_RT_CALL gh_ms_price(uint64_t epoch,const char*,double*);
 GH_RT_API int32_t GH_RT_CALL gh_ms_position(uint64_t epoch,const char*,GhRtPosition*);
+// 可选只读扩展；沿相同INIT/SCHEDULE epoch，不提供账户或交易副作用。
+GH_RT_API int32_t GH_RT_CALL gh_ms_cash_basis(uint64_t epoch,const char*,GhMsCashBasis*);
 GH_RT_API int32_t GH_RT_CALL gh_ms_bars(uint64_t epoch,const char*,const char*,uint32_t count,
     uint32_t main,GhRtBar*,uint32_t capacity,uint32_t* written);
 // 仅SCHEDULE完整执行向量；任何已开始的部分失败锁存并禁止后继setter。

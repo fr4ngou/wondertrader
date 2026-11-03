@@ -1,0 +1,43 @@
+# 执行故障核查恢复
+
+类型：规格与模块契约。状态：accepted / in-progress。适用范围：自有执行宿主、Python 配置与原状态加载；WT 核心保持原行为。主会话于 2026-11-02 确认实施。
+
+EFR-01：显式 recovery.mode=resume_reconciled 使用同一原 O/P/A 查询、自有委托收束、输出租约、WT load_data/load_userdata 与正常关闭流程。现有 record_clean/resume_clean 保持。恢复差异集中于首次准入依据。
+
+EFR-02：recovery.transition={file,sha256} 引用受控发行材料 guanheng.execution-recovery-transition.v1，文件容量 1 MiB。字段 predecessor_configuration、predecessor_configuration_sha256、predecessor_control_directory 定位上代实际配置与控制收据；predecessor_installation_sha256、successor_installation_sha256 绑定前后安装；predecessor_python_binding_sha256、successor_python_code_identity 绑定前后 Python；state_files 为原 stradata/userdata/portfolio JSON 相对路径→SHA256。字段均必填，路径为绝对路径、摘要为 SHA256；材料由部署者冻结并经当前配置摘要绑定，不包含账户凭据。
+
+EFR-03：原 owner 在上代 ready/failure/close-prepared 的控制 ID、PID、配置摘要相符，原 close-prepared.closed=true、ok=false 且上代进程已退出后，沿同根 OS 租约重验原状态集合和摘要。前后逻辑配置去掉 recovery 后保持相同；当前安装清单完整核验并匹配发行材料。上代安装身份沿已消费来源或上代核查收据核验。独立 cta-reconciled.v1 记录单次认领，原故障与正常关闭证明保持各自语义。状态变化或相同材料已认领时拒绝。
+
+正常关闭后的自有适配兼容发行使用同一 resume_reconciled 交接身份：完整核原 closed.v2 与 clean.v2、原文件/安装和实际退出，再沿原协议原子消费该次 clean。其收据 admission_kind=clean_transition；故障依据 admission_kind=fault_reconciled。原始正常/故障事实分别保存。每代 Native 自动保存 installation-identity.json；前代安装证据缺失时明确拒绝。
+
+EFR-04：Python 以原绑定文件集合计算前代代码身份，核后继完整绑定与发行身份；纯策略、NSQ、模型和解释器文件保持，允许交接自有运行适配及发行元数据。原 quantity-state.v1 沿前代身份、规范编码及原 NSQ 不变量完整读取，保存原序号、周期/止损、退出记忆；通过原 ctx 保存本代身份。原 R33 以当前券商事实重新规划执行数量阶段。模型兼容验证与发行追溯分别完成。
+
+EFR-05：订单与未知责任归原通信 owner。复用既有自有活动单识别、原命令核查、定向撤清和后继 P/A；人工或其他通道订单保持原归属。当前验收三写关闭且无新金融命令；产品准入核实际未决责任，历史委托数量不构成永久拒绝条件。查询不完整、未知提交或无法完成原收束时保留保护及原身份。
+
+EFR-06：首次成功恢复后原正常关闭生成现有 clean 证明，后继 resume_clean 使用本代状态身份。恢复材料和核查收据属于审计证据，WT 原金融文件与 KV 继续为唯一账本和策略状态。当前原基准及输入不重新准备。
+
+EFR-07：主链验收先复用已有 SDK 安装场景，再沿当前只读实际来源查询、恢复与资本发布；随后补根因回归、边界和独立审查。交付绑定源码 CAS、制品、实际四身份、基准及状态前后证据。
+
+EFR-08：首次只读估值与策略行情准入分别负责。当前原 MarketClient 返回有资格、来源时间已核且价格有限为正的最后快照时，闭市报价年龄不阻止原策略状态恢复。observed_at是实际完成本次估值的时间，必须晚于所用持仓观察；可选price_observed_at独立保留该批最早报价事件时间，CTA无法提供时为None。原快照全文保存在initial_market_observation。原CTA损益、持仓接收时间与当前账户批时间分别保留。策略行情/信号资格继续沿原闭合K线和分析输入准入，报价年龄不改变已知现金账事实。首代基准准备的行情有效期保持。
+
+现金依据复用原WT上下文flag1已实现盈亏、flag3费用和各证券原平均持仓成本，沿原借用期只读扩展gh_ms_cash_basis ABI1取得；原MS ABI和既有结构不变。CNY现货配置及实际券商数量与WT持仓一致时，现金=原资本+原已实现盈亏−原费用−原持仓成本。原资金账、完整估值关系和当前NAP账户约束共同核资格；已知现金与有效NAP可以发布原保守可用额，报价过期单独影响估值/证券交易时效。现金或估值依据暂缺时仅令capital不可用，原策略恢复和等待行情继续；原KV/投影保存失败仍沿原失败语义。资金观察成功后，账户续发使用原已知现金余额及原估值/报价时点，不按报价年龄撤销现金资格、不由页面补值。
+
+EFR-09：只有完整响应固定机器类别 503/strategy_stale 的只读 read-binding 在原请求截止内等待原 Source 重连。读取 owner 每轮检查原停止 gate。其他HTTP错误、原ID结果读取及所有POST保持原单次身份与责任。跨来源绑定变化需要整体读取代际交接；单独账户重绑不足以获得持续跨代运行资格，当前明确保留该缺口。
+
+EFR-10：报价暂不可取得时，resume_reconciled 可沿已绑定的前代配置/控制链读取最后合法原QMT快照。每跳核原配置SHA及相同业务配置，并限16跳与原启动截止；原观察的基准、持仓数量、周期、WT现金依据和损益须与本代原上下文完全一致。以当前数量重新估值时保留原price_observed_at及原快照全文，并记录原控制/文件SHA和原估值时刻；当前WT现金与NAP账户约束分别现取。缺原件、账/数量/周期变化或来源未合格时保留资金未知。该路径只复用原报价事实，不重建现金账，不授策略行情时效资格。
+
+EFR-11：连续运行的只读查询或事件读取遇到明确503、运输超时或同来源运输绑定变化时，进入读取等待，暂停新金融准入并保留原策略状态及进程。已进入SDK且结果未知的查询保留原UUID、完整绑定及原SDK请求截止，旧观察交付截止保持原值；后继仅以独立有限核查预算GET原结果，不重新提交SDK请求；原结果确定后再进行新的完整O/P/D/A观察。每轮运输及观察保持原有限截止，停止沿原gate和关闭预算。来源业务session、账户、认证、profile或数据合同冲突继续硬故障。等待状态沿原进程身份的私有read-status收据记录转换，旧观察时点保持原值。该可重建收据发布失败沿固定间隔重试，执行事实及退出语义保持。读取仍等待或原UUID未收束时，恢复检查标为unsafe，正常clean准入等待原责任完成；关闭截止耗尽继续保留失败收据和原Host Journal。
+
+材料生成器的 successor-python 必须为部署实际使用的解释器入口，绑定对应 venv 与基础解释器的实际文件摘要；CLI 的窗口模式不替代实际 owner 身份。
+
+模块入口：Python [execution_recovery](../../apps/wt_runtime/guanheng_wt_runtime/execution_recovery.py)、原 [execution_process](../../apps/wt_runtime/guanheng_wt_runtime/execution_process.py)、[configured](../../apps/wt_runtime/guanheng_wt_runtime/execution_configured.py)、[Native 准入](../../src/GuanhengExecution/CtaProcess.cpp)。关联原 [NRT](native-realtime-strategy.md) 的 R12/R33/R34；正常恢复唯一语义保持该正文。
+
+EFR-12：原账户读取Host在SDK派发前因运输绑定变化或排队超时形成合法失败终态时，Native完整核原请求/正文摘要、固定错误码及空dispatch_binding/result_binding，确认原SDK未执行并结清原责任。随后通过原读取代际准入新观察，来源业务session及profile检查保持；有派发绑定、坏正文或未知执行继续原核查/故障边界。该固定终态解码适用于已声明的普通账户读取协议，不能只在retained票据协议识别。
+
+EFR-13：账户资金约束线程每轮沿原有限预算读取权威NAP，即使金额相同或没有新K线也按原来源批次更新。可重建观察投影的锁等待、写后截止或Windows共享句柄等待耗尽，只结束本轮刷新；独占发布者清理本轮尚未提交的临时文件，保留最后成功投影及原来源时点，下一轮重新读取。原子替换是提交边界，成功后内存发布状态同步推进；随后到达截止不撤回已提交状态。已有外来pending、容量/数据错误和非共享类文件错误保持硬故障。原K线回调继续传播发布失败，金融保存及已发生setter保持原owner和失败语义。
+
+EFR-14：整树退出且原owner来不及发布关闭收据时，独立WT入口以显式record-process-loss核原ready、status、配置摘要、实例身份、原父/组件PID实际退出并取得原实例OS租约，记录owner-loss故障及当前faulted状态；components_closed=false表示原Job/线程join凭据缺失。原ready、原金融文件和通信Journal保留。执行恢复owner独立核原Native ready和配置摘要、原PID实际退出，独占发布guanheng.execution.owner-loss.v1，包含control_id/config_sha256/pid、原ready摘要、固定reason=process_lost、核查UTC时间及核查者PID；该记录仅证明进程已退出，关闭结果及退出码保持未知。
+
+显式resume_reconciled可沿该owner-loss作为第三类故障依据。Native在原输出租约内重核原ready字节摘要、完整身份、进程退出、两代安装/Python、原金融文件集合和当前券商O/P/A及原自有委托/未知责任。仅缺原正常closed/close-prepared/failure时接受该依据；现有正常/故障关闭语义保持。认领收据admission_kind=process_lost_reconciled，后继正常停止仍生成原clean。活进程、缺原件、身份/状态变化或当前责任未收束继续拒绝。过程不删除锁、重建基准、重发交易或生成正常关闭证明。
+
+EFR-15：首次Prepare/Login只读取来源绑定及事件上下文，尚未触发SDK账户/交易请求。固定暂不可用类别（完整503、运输超时）或成功完成值晚于本轮截止时，原任务名额先退役，再以同类新有界任务继续来源准备；原绑定的来源业务身份仍逐次核验，旧轮次不交付Connect/Login成功。首次客户端已经固定的绑定发生冲突时保持原硬故障，由整体启动重新核验；本项不授首次准备跨运输代际资格。启动外层总截止及停止gate继续有效，每轮保持原timeout_ms，硬身份/协议错误继续故障。已登录账户查询及已提交SDK请求继续EFR-11原ID核查语义；此首次准备续接不扩展金融重发权限。

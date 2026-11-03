@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <functional>
 #include <string>
 #include <rapidjson/document.h>
 
@@ -20,7 +21,7 @@ struct SignedHttpDeadline
 };
 // 固定运输事实仅由实际WinHTTP/EOF分支填写；默认不授事件读取恢复。
 // 所有字段均为值，复制/移动及回调异常兜底不分配内存。
-enum class SignedHttpRecovery { None, TransportInterrupted };
+enum class SignedHttpRecovery { None, TransportInterrupted, SourceGenerationUnavailable };
 enum class SignedHttpFailureOrigin { None, NativeTransport, IncompleteBody, RemoteHttp, Deadline, LocalOrProtocol };
 enum class SignedHttpStage { None, Setup, Send, Receive, Headers, Body, Wait };
 struct SignedHttpFailure
@@ -58,6 +59,8 @@ public:
     // response_limit=0沿配置上限；非零只能收紧本跳，在接收/Content-Length阶段执行。
     SignedHttpResult exchange(const char* method, const std::string& target,
         const std::string& body, SignedHttpDeadline& deadline,std::size_t response_limit=0);
+    // 新只读绑定等待原Source重连；调用方的停止gate每轮检查，原总截止保持。
+    SignedHttpResult read_binding(SignedHttpDeadline&,std::size_t,const std::function<Status()>& gate);
     Status drain_callbacks(std::uint32_t milliseconds) noexcept;
 private:
     class Impl;

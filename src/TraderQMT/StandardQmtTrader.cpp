@@ -185,17 +185,20 @@ struct StandardQmtTrader::Impl {
  enum class Kind { Prepare,Login,Query,Resolve,Insert,Cancel,EventPage,EventQuery,EventResolve,AuditOriginal };
  enum class QueryStep {None,Prepare,Create,ReceiptSaved,SubmitEntered,Returned};
  struct Task {
-  Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0;
+  Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0,read_generation=0; // 读取票据只跨线程传值，由worker拥有客户端。
   Clock::time_point deadline;OrderValue order;
   std::unique_ptr<QmtAccountIdentityPlan> plan;
+  bool resume_read=false;QmtBoundReceipt original_read; // 原SDK读取只续核原UUID，不重发POST。
   QmtTradeEventReadContext event_context;QmtTradeEventRequestBounds event_bounds;
   QmtTradeEventReadFailure event_failure;bool event_drain_only=false;
   std::size_t event_index=0,charge=0;std::string pending_key;
  };
  struct Completion {
-  Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0;
+  Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0,read_generation=0; // 读取票据只跨线程传值，由worker拥有客户端。
   Clock::time_point deadline;Status status;OrderValue order;
   QmtAccountResult account;QmtTradeResult trade;
+  bool resume_read=false; // 本完成值只核原读责任；终态不作为新的账户事实交付。
+  bool read_not_dispatched=false; // 原Host已确定派发前终结；不含SDK调用责任，不作为账户事实交付。
   // operation恒为真实调用/本地操作结果；交付跨D仅写独立固定code，发布锁内不分配。
   Status delivery_status;bool late=false,local_failure=false,local_stopped=false;
   QmtBoundReceipt saved_receipt;QmtAccountReadControlResult control_result;
@@ -289,7 +292,8 @@ struct StandardQmtTrader::Impl {
   QmtTradeEventPage page;QmtValidatedTradeEventPage validated;
   QmtTradeEventRequestBounds bounds;Clock::time_point deadline;
   std::unique_ptr<QmtAccountIdentityCandidate> candidate;
-  std::size_t index=0;std::uint64_t task_id=0;EventPhase phase=EventPhase::ReadInFlight;
+  std::size_t index=0;std::uint64_t task_id=0,read_generation=0; // 同一事件链固定原读取票据。
+  EventPhase phase=EventPhase::ReadInFlight;
   QueryEvidence query;std::string missing_event_row;QmtEventQueryIdentityBudget query_budget;
   std::size_t query_charge=0;
   Clock::time_point next_attempt_at;QmtTradeEventReadFailure last_transport;
@@ -312,6 +316,16 @@ struct StandardQmtTrader::Impl {
  // unknown只挡新insert；真实硬错/关闭独立挡全部写。解绑独立于可选事件配置。
  std::atomic<bool> unknown_fenced{false},hard_fault{false},audit_detached{false};
  std::atomic<bool> observation_reconciled{false};
+ std::atomic<bool> read_waiting{false}; // 暂不可用独立于硬错；原持仓/周期继续保留，新金融准入暂停。
+ struct HeldRead {
+  QmtBoundReceipt receipt; // 原请求正文、UUID、完整绑定和原profile，观察预算不改原SDK截止。
+  std::uint64_t generation=0; // 原worker读取代际票据，原结果确定后才释放。
+  unsigned stage=0; // 原账户数据类型；后继只调用resume，不重新调用SDK。
+  std::size_t charge=0; // 原查询银行转交，涵盖在途Task/Completion与原收据。
+  bool inflight=false; // 同一原UUID仅允许一个续核Task。
+ };
+ std::map<std::uint64_t,HeldRead> held_reads;
+
  bool audit_inflight=false,audit_source_ready=false;
  QmtTradeEventSource audit_source;
  std::uint64_t audit_cursor=0;
@@ -370,7 +384,7 @@ struct StandardQmtTrader::Impl {
  }
  void fence_unknown(){unknown_fenced=true;writes_blocked=true;}
  bool write_wait_stopped(Kind kind)const noexcept{return worker_stop.load()||submissions_closed.load()||(kind==Kind::Insert&&inserts_paused.load());}
- bool permits(Kind kind)const{return !submissions_closed&&!hard_fault&&!stop_requested&&(kind==Kind::Cancel||(!unknown_fenced&&!inserts_paused));}
+ bool permits(Kind kind)const{return !submissions_closed&&!hard_fault&&!stop_requested&&!read_waiting&&(kind==Kind::Cancel||(!unknown_fenced&&!inserts_paused));}
  bool audit_io()const{return !worker_stop&&!audit_detached;}
 
  static bool submission_key(const SubmissionKeyV1& key)noexcept
@@ -1211,12 +1225,13 @@ struct StandardQmtTrader::Impl {
    ||result.event_failure.stage==QmtTradeEventReadStage::Publish;
   if(result.status.ok()){
    const auto& original=task.event_context;
-   if(!same_event_source(current.source,original.source)||current.read_profile_body!=original.read_profile_body
+   if(current.source.session_id!=original.source.session_id||current.read_profile_body!=original.read_profile_body
     ||current.read_result_capacity!=original.read_result_capacity
     ||current.admitted_event_page_capacity<task.event_bounds.max_bytes){
     result.status=failure(ErrorCode::StaleSession,"qmt_standard_event_context_changed");event_local_failure(result);
    }else {
-    result.event_page=client.events(original.source,task.event_bounds.after_seq,task.event_bounds.limit,
+    result.event_context=current;
+    result.event_page=client.events(current.source,task.event_bounds.after_seq,task.event_bounds.limit,
      task.event_bounds.max_bytes,end,&result.event_failure,&event_control);
     result.status=result.event_page.status;
    }
@@ -1291,8 +1306,102 @@ struct StandardQmtTrader::Impl {
   if(!value.status.ok())return true;
   return value.kind==Kind::EventResolve&&(!value.resolved||!value.resolved->status().ok());
  }
+ // 只处理可确定的只读不可用；认证/账户/事件流/数据合同冲突继续原硬故障。
+ // 固定原终态+原Host空绑定共同证明SDK未进入；其余坏正文/身份错误保留原故障。
+ static bool read_not_dispatched(const Completion& value) {
+  const auto& bound=value.account.bound;
+  if(!bound.result.terminal||bound.result.remote_ok||bound.result.status.reason!="qmt_host_native_operation_failed")return false;
+  rapidjson::Document native,envelope;
+  if(!parse_bounded_qmt_json(bound.native_result_json,native,1048576,1048576)
+    ||!parse_bounded_qmt_json(bound.result.envelope_json,envelope,4194304,4194304))return false;
+  return native.IsObject()&&native.HasMember("error_code")&&native["error_code"].IsString()
+   &&(std::strcmp(native["error_code"].GetString(),"source_binding_changed")==0
+      ||std::strcmp(native["error_code"].GetString(),"queue_timeout")==0)
+   &&envelope.IsObject()&&envelope.HasMember("dispatch_binding")&&envelope["dispatch_binding"].IsNull()
+   &&envelope.HasMember("result_binding")&&envelope["result_binding"].IsNull();
+ }
+ static bool settled_read(const Completion& value) {
+  return value.read_not_dispatched||(value.account.bound.result.terminal
+   &&value.account.bound.result.remote_ok&&value.status.ok());
+ }
+ static bool temporary_read(const Completion& value) {
+  if(value.read_not_dispatched)return true;
+  if(value.status.ok())return Clock::now()>=value.deadline&&!value.event_page.gap;
+  const auto& status=value.status;
+  if(status.code==ErrorCode::Timeout||status.code==ErrorCode::SubmissionUnknown)return true;
+  if(status.code==ErrorCode::StaleSession)return status.reason=="qmt_host_binding_changed"
+    ||status.reason=="qmt_trade_binding_changed";
+  if(status.code!=ErrorCode::IoError&&status.code!=ErrorCode::Unavailable)return false;
+  // 完整503仅表达只读来源/容量不可用；不据此重发任何已进入SDK的POST。
+  return status.reason.compare(0,27,"qmt_http_remote_failure:503")==0
+    ||value.event_failure.http_status==503&&value.event_failure.response_complete
+    ||value.account.bound.result.http_status==503
+    ||status.reason=="qmt_host_result_unknown";
+ }
+ bool wait_read(Completion& value,TaskCredit& credit,std::size_t& result_charge) {
+  if(stop_requested||event_detached||!spi)return false;
+  if(!logged_in&&(value.kind==Kind::Prepare||value.kind==Kind::Login)
+     &&value.status.code!=ErrorCode::StaleSession&&temporary_read(value)){
+   // 首次准备只有绑定/事件上下文GET，原轮次已结束且没有SDK请求责任。
+   // 先归还名额，再沿原每轮D续接；初次已固定绑定冲突仍沿原故障边界。
+   // 外层启动总截止和stop负责最终收口，已登录读代际另沿原ID协议处理。
+   Task next;next.kind=value.kind;next.deadline=deadline();credit.retire();
+   if(enqueue(std::move(next))!=0)fail(failure(ErrorCode::Backpressure,"qmt_standard_connect_capacity"));
+   return true;
+  }
+  if(!logged_in)return false;
+  const bool ordinary=value.kind==Kind::Query||value.kind==Kind::Resolve;
+  const bool event=value.kind==Kind::EventPage||value.kind==Kind::EventQuery||value.kind==Kind::EventResolve;
+  if(!ordinary&&!event)return false;
+  if(value.resume_read){
+   auto found=held_reads.find(value.id);require(found!=held_reads.end(),"qmt_standard_original_read_missing");
+   if(settled_read(value)){
+    held_reads.erase(found); // 完整原正文、身份及确认都已准入；旧观察不跨D交付。
+   }else {
+    if(!temporary_read(value)){fail(value.status);return true;}
+    found->second.charge=result_charge;result_charge=0;found->second.inflight=false;
+    credit.transfer();
+   }
+   std::lock_guard<std::mutex> lock(mutex);observation_refresh_task=0;
+   observation_refresh_at=Clock::now()+std::chrono::milliseconds(event_poll_ms);cv.notify_all();return true;
+  }
+  if(!temporary_read(value))return false;
+  const bool pending=(value.kind==Kind::Query||value.kind==Kind::EventQuery)
+    &&value.query_step>=QueryStep::SubmitEntered&&!value.account.bound.result.terminal;
+  if(pending){
+   HeldRead held;held.receipt=std::move(value.account.bound.receipt);
+   if(held.receipt.request_body.empty())held.receipt=std::move(value.saved_receipt);
+   require(!held.receipt.request_body.empty()&&held_reads.size()<max_queue,"qmt_standard_original_read_receipt");
+   held.stage=value.stage;held.generation=value.read_generation;held.charge=result_charge;result_charge=0;
+   if(event_chain&&value.kind==Kind::EventQuery){held.charge=add_size(held.charge,event_chain->query_charge);event_chain->query_charge=0;}
+   require(held_reads.emplace(value.id,std::move(held)).second,"qmt_standard_original_read_duplicate");credit.transfer();
+  }
+  // worker仅保留成功Query票据供Resolve；晚D成功在此抑制交付后归还一次。
+  if(value.kind==Kind::Query&&!pending&&value.status.ok())release_read(value.read_generation);
+  if(value.kind==Kind::Resolve){
+   auto found=candidates.find(value.id);
+   if(found!=candidates.end()){const auto reserved=found->second.charge;candidates.erase(found);finish_charge(reserved);}
+  }
+  std::lock_guard<std::mutex> lock(mutex);
+  if(event&&event_chain){
+   require(!event_chain->candidate||value.kind==Kind::EventResolve,"qmt_standard_wait_event_borrow");
+   event_chain->candidate.reset();release_event_callback_locked();
+   if(!pending)release_read_locked(event_chain->read_generation?event_chain->read_generation:value.read_generation);
+   if(event_chain->query_charge)uncharge(event_chain->query_charge);
+   event_chain.reset();uncharge(chain_charge);chain_charge=0;read_cursor=handled_cursor;
+  }
+  read_waiting=true;query_flow_mask=0;observation_refresh_task=0;
+  observation_refresh_stage=3;observation_refresh_at=Clock::now()+std::chrono::milliseconds(event_poll_ms);
+  cv.notify_all();return true;
+ }
  void fence_terminal_event_locked(Completion& result)
  {
+  // 真实只读失败交owner等待/原ID续核；不在发布线程把暂不可用锁存为永久退出。
+  if(result.kind==Kind::EventQuery||result.kind==Kind::EventResolve){
+   result.late=Clock::now()>=result.deadline;
+   if(result.late&&result.delivery_status.ok())result.delivery_status.code=ErrorCode::Timeout;
+  }
+  if(logged_in&&!stop_requested&&!event_detached&&temporary_read(result))return;
   if(result.kind==Kind::EventQuery||result.kind==Kind::EventResolve){
    // 原operation永不覆写；同commit锁中的迟到状态只有固定code，不分配诊断文本。
    result.late=Clock::now()>=result.deadline;
@@ -1325,18 +1434,93 @@ struct StandardQmtTrader::Impl {
   // 两个客户端从构造到最终drain始终属于本worker；跨线程完成值没有WT地址。
   std::unique_ptr<QmtHostAccountClient> account;
   std::unique_ptr<QmtHostTradeClient> trade;
+  std::map<std::uint64_t,std::unique_ptr<ReadGeneration>> reads;
+  std::uint64_t next_read=0,active_read=0; // 当前认证运输代际；普通观察复用原客户端与HTTP owner。
+  QmtTradeEventReadContext read_origin;
+  // 固定实例/账户/profile与Source业务session。运输binding只属于该轮，不作为业务session。
+  auto same_read_source=[&](const QmtTradeEventReadContext& value) {
+   return !read_origin.source.session_id.empty()&&value.source.session_id==read_origin.source.session_id
+    &&value.read_profile_body==read_origin.read_profile_body
+    &&value.read_result_capacity==read_origin.read_result_capacity
+    &&value.admitted_event_page_capacity==read_origin.admitted_event_page_capacity;
+  };
+  auto callback_wait=[](Clock::time_point until) {
+   const auto left=std::chrono::duration_cast<std::chrono::milliseconds>(until-Clock::now()).count();
+   return left>0?static_cast<unsigned>((std::min<std::int64_t>)(left,100)):0u;
+  };
+  auto reap_reads=[&](Clock::time_point until) {
+   bool complete=true;
+   for(auto it=reads.begin();it!=reads.end();){
+    if(!it->second->released){++it;continue;}
+    auto& read=*it->second;
+    auto a=read.account?read.account->drain_callbacks(callback_wait(until)):Status{};
+    auto t=read.identity?read.identity->drain_callbacks(callback_wait(until)):Status{};
+    if(a.ok()&&t.ok()){
+     const auto held=read.charge;it=reads.erase(it);finish_charge(held);
+    }else {complete=false;++it;}
+   }
+   return complete;
+  };
+  auto open_read=[&](std::uint64_t& id,SignedHttpDeadline& end,
+      QmtTradeEventReadFailure* failure,const QmtAccountControl* control)->ReadGeneration& {
+   if(id){auto found=reads.find(id);require(found!=reads.end(),"qmt_standard_read_generation_missing");return *found->second;}
+   if(active_read){
+    auto& read=*reads.at(active_read);QmtTradeEventReadContext current;
+    auto status=read.identity->prepare_event_read_context(end,current,failure,control);
+    if(status.ok()){
+     if(!same_read_source(current))throw ReadGenerationFailure{
+         Status{ErrorCode::StaleSession,"qmt_standard_read_source_changed"}};
+     require(same_event_source(current.source,read.context.source),"qmt_standard_read_generation_binding_changed");
+     ++read.users;id=active_read;return read;
+    }
+    // 只在新观察尚无SDK请求时建立整代。原在途票据仍使用其精确B，不改绑。
+    if(status.code!=ErrorCode::StaleSession||status.reason!="qmt_trade_binding_changed")
+     throw ReadGenerationFailure{std::move(status)};
+   }
+   require(reads.size()<max_queue&&next_read!=(std::numeric_limits<std::uint64_t>::max)(),"qmt_standard_read_generation_capacity");
+   // 同时预留两客户端响应银行及有限认证快照；原队列总预算继续为唯一上限。
+   const auto reserved=add_size(times_size(http.max_response_bytes,2),65536);
+   {std::lock_guard<std::mutex> lock(mutex);require(charge(reserved),"qmt_standard_read_generation_capacity");}
+   std::unique_ptr<ReadGeneration> value;const auto created=++next_read;
+   try {
+    value.reset(new ReadGeneration);value->charge=reserved;
+    value->account.reset(new QmtHostAccountClient(http,expected.account,&account_control,QmtAccountReadVersion::V4));
+    value->identity.reset(new QmtHostTradeClient(http,expected));
+    reads.emplace(created,std::move(value));
+   }catch(...){finish_charge(reserved);throw;}
+   auto& read=*reads.at(created);
+   try {
+    auto status=read.identity->prepare_event_read_context(end,read.context,failure,control);
+    if(!status.ok())throw ReadGenerationFailure{std::move(status)};
+    if(!same_read_source(read.context))throw ReadGenerationFailure{
+        Status{ErrorCode::StaleSession,"qmt_standard_read_source_changed"}};
+   }catch(...){read.released=true;throw;}
+   if(active_read){auto& previous=*reads.at(active_read);if(!previous.users)previous.released=true;}
+   active_read=created;id=created;read.users=1;
+   return read;
+  };
   try {
    account.reset(new QmtHostAccountClient(http,expected.account,&account_control,QmtAccountReadVersion::V4));
    trade.reset(new QmtHostTradeClient(http,expected));
    for(;;){
     Task task;Completion* reserved=nullptr;
-    {std::unique_lock<std::mutex> lock(mutex);cv.wait(lock,[&]{return worker_stop.load()||!tasks.empty();});
+    {std::unique_lock<std::mutex> lock(mutex);cv.wait(lock,[&]{return worker_stop.load()||!tasks.empty()||!released_reads.empty();});
+     while(!released_reads.empty()){
+      auto found=reads.find(released_reads.front());
+      if(found!=reads.end()){
+       require(found->second->users>0,"qmt_standard_read_generation_ticket");
+       --found->second->users;if(!found->second->users&&found->first!=active_read)found->second->released=true;
+      }
+      released_reads.pop_front();
+     }
+     lock.unlock();reap_reads(Clock::now());lock.lock();
      if(worker_stop)break;
+     if(tasks.empty())continue;
      // 槽必须先于I/O取得；异常满环只在取任务之前等待，stop直接唤醒退出。
      cv.wait(lock,[&]{return worker_stop.load()||results.can_reserve();});if(worker_stop)break;
      auto& slot=results.reserve();reserved=&slot;task=take_task();
      slot.kind=task.kind;slot.stage=task.stage;slot.id=task.id;slot.generation=task.generation;
-     slot.deadline=task.deadline;slot.charge=task.charge;slot.event_index=task.event_index;}
+     slot.deadline=task.deadline;slot.charge=task.charge;slot.event_index=task.event_index;slot.read_generation=task.read_generation;slot.resume_read=task.resume_read;}
     Completion& result=*reserved;result.order=task.order;
     if(!communication_responsibility(result))
      result.capacity_reason="qmt_standard_result_capacity"; // 普通任务原512诊断预留内28 bytes；Audit/写始终空。
@@ -1354,22 +1538,57 @@ struct StandardQmtTrader::Impl {
       result.status=account->prepare(end);if(result.status.ok())result.status=events_enabled
        ?trade->prepare_event_read_context(end,result.event_context):trade->prepare(end);
       if(result.status.ok())result.status=pin_audit_source(*trade);
+      if(result.status.ok()){
+       QmtTradeEventReadContext context;
+       result.status=trade->prepare_event_read_context(end,context);
+       if(result.status.ok()){
+        if(read_origin.source.session_id.empty())read_origin=std::move(context);
+        else require(same_read_source(context),"qmt_standard_read_source_changed");
+       }
+      }
      }else if(task.kind==Kind::Query){
-      auto prepared=account->create_request(static_cast<QmtAccountDatatype>(task.stage),end);
-      result.status=prepared.status;if(result.status.ok()&&prepared.request){result.account=account->submit_once(std::move(prepared.request),end);result.status=result.account.bound.result.status;}
+      auto& read=open_read(result.read_generation,end,nullptr,&account_control);
+      if(task.resume_read){
+       result.query_step=QueryStep::SubmitEntered;
+       result.account=read.account->resume(task.original_read,end);
+       result.status=result.account.bound.result.status;
+      }else {
+      result.query_step=QueryStep::Prepare;
+      result.status=read.account->prepare(end);
+      if(!result.status.ok())throw ReadGenerationFailure{std::move(result.status)};
+      result.query_step=QueryStep::Create;
+      auto prepared=read.account->create_request(static_cast<QmtAccountDatatype>(task.stage),end);
+      result.status=prepared.status;
+      if(result.status.ok()&&prepared.request){
+       require(prepared.request->receipt().binding_json==read.context.source.binding_json
+        &&prepared.request->read_profile_body()==read.context.read_profile_body,"qmt_standard_read_generation_binding_changed");
+       result.saved_receipt=prepared.request->receipt();result.query_step=QueryStep::SubmitEntered;
+       result.account=read.account->submit_once(std::move(prepared.request),end);result.status=result.account.bound.result.status;
+       result.query_step=QueryStep::Returned;
+      }
+      }
      }else if(task.kind==Kind::EventQuery){
-      run_event_query(task,result,*account,end);
+      auto& read=open_read(result.read_generation,end,nullptr,&event_control);
+      run_event_query(task,result,*read.account,end);
      }else if(task.kind==Kind::Resolve||task.kind==Kind::EventResolve){
       if(task.kind!=Kind::EventResolve||event_local_gate(result,end)){
-       result.resolved=resolve_qmt_account_identity(std::move(task.plan),*trade);
+       auto& read=open_read(result.read_generation,end,nullptr,
+           task.kind==Kind::EventResolve?&event_control:&account_control);
+       result.resolved=resolve_qmt_account_identity(std::move(task.plan),*read.identity);
        if(task.kind==Kind::EventResolve){
          if(result.resolved)copy_operation_status(result,result.resolved->status());
          else {result.local_failure=true;result.status=fixed_failure(ErrorCode::IoError);}
         }else result.status=result.resolved?result.resolved->status():(events_enabled?fixed_failure(ErrorCode::IoError):failure(ErrorCode::IoError,"qmt_standard_identity_resolution_missing"));
       }
      }else if(task.kind==Kind::EventPage){
-      run_event_read(task,result,*trade,end);
+      if(event_control.stop_requested())event_stopped(result);
+      else {
+       auto& read=open_read(result.read_generation,end,&result.event_failure,&event_control);
+       run_event_read(task,result,*read.identity,end);
+      }
      }else run_write(task,result,*trade);
+    }catch(ReadGenerationFailure& failure){
+     result.status=std::move(failure.status);
     }catch(const std::bad_alloc&){
      if(task.kind==Kind::EventPage)event_local_failure(result);
      if(task.kind==Kind::EventQuery||task.kind==Kind::EventResolve){result.local_failure=true;result.status=fixed_failure(ErrorCode::IoError);}
@@ -1387,6 +1606,17 @@ struct StandardQmtTrader::Impl {
        result.status=events_enabled?fixed_failure(code):failure(code,"qmt_standard_worker_operation_failed");
       if(write){if(!result.insert_failure_confirmed)fence_unknown();else {hard_fault=true;writes_blocked=true;}}}
     }
+    result.read_not_dispatched=read_not_dispatched(result);
+    const bool held_query=task.kind==Kind::Query&&result.query_step>=QueryStep::SubmitEntered
+      &&!result.account.bound.result.terminal&&temporary_read(result);
+    if(result.read_generation&&(task.kind==Kind::Resolve||(task.kind==Kind::Query
+        &&(task.resume_read?settled_read(result):!result.status.ok()&&!held_query)))){
+     auto found=reads.find(result.read_generation);if(found!=reads.end()){
+      require(found->second->users>0,"qmt_standard_read_generation_ticket");
+      --found->second->users;if(!found->second->users&&found->first!=active_read)found->second->released=true;
+     }
+    }
+    reap_reads(Clock::now());
     // 写任务已在POST前预留2*C+原收据+4096，审计已预留完整Peak+Sigma。
     // 两类含不可丢事实的完成值沿原reserve交付，无追加预算/字符串复制/尺寸计算。
     std::size_t wanted=result.charge;
@@ -1398,6 +1628,7 @@ struct StandardQmtTrader::Impl {
      if(task.kind==Kind::EventPage||task.kind==Kind::EventResolve)wanted=512;
     }
     if(task.kind==Kind::EventPage||task.kind==Kind::EventQuery||task.kind==Kind::EventResolve)task.event_context={};
+    task.original_read={}; // 原收据副本先销毁，再按完成值寿命归还原银行。
     if(!publish(std::move(result),wanted)){publish_worker_failure();break;}
    }
   }catch(...){
@@ -1409,14 +1640,34 @@ struct StandardQmtTrader::Impl {
   while(!complete){
    Clock::time_point until;
    {std::unique_lock<std::mutex> lock(mutex);cv.wait(lock,[&]{return close_started;});until=close_deadline;}
-   auto remaining=std::chrono::duration_cast<std::chrono::milliseconds>(until-Clock::now()).count();
-   const auto wait=remaining>0?static_cast<std::uint32_t>((std::min<std::int64_t>)(remaining,100)):0;
-   auto a=account?account->drain_callbacks(wait):Status{};
-   auto t=trade?trade->drain_callbacks(wait):Status{};complete=a.ok()&&t.ok();
+   auto a=account?account->drain_callbacks(callback_wait(until)):Status{};
+   auto t=trade?trade->drain_callbacks(callback_wait(until)):Status{};
+   for(auto& read:reads)read.second->released=true;
+   const bool read_closed=reap_reads(until);complete=a.ok()&&t.ok()&&read_closed;
    if(!complete){std::unique_lock<std::mutex> lock(mutex);cv.wait_for(lock,std::chrono::milliseconds(10));}
   }
   account.reset();trade.reset();
   {std::lock_guard<std::mutex> lock(mutex);drained=true;worker_done=true;worker_live=false;}cv.notify_all();
+ }
+ // 网络客户端只存在于IO worker；Task/Completion和owner只持有有限数值票据。
+ // 一代覆盖整轮Query→Resolve或事件页全部续段，写命令客户端保持独立原身份。
+ struct ReadGenerationFailure {Status status; /* 原握手结果，逐值保留固定错误与停止语义。 */};
+ struct ReadGeneration {
+  std::unique_ptr<QmtHostAccountClient> account; // 本轮账户查询及原结果收束，仅worker使用。
+  std::unique_ptr<QmtHostTradeClient> identity; // 本轮只读身份/事件解析，不承接写命令。
+  QmtTradeEventReadContext context; // 同次完整认证来源、profile及资源上限。
+  std::size_t charge=0; // 原总预算内持有到全部HTTP回调排空。
+  unsigned users=0; // 当前仍借用该运输代际的查询/事件链票据，仅worker增减。
+  bool released=false; // owner已交还票据；网络资源仍由worker判定退役。
+ };
+ std::deque<std::uint64_t> released_reads; // owner到worker的有限退役票据，受max_queue约束。
+ void release_read_locked(std::uint64_t id) {
+  if(!id)return;
+  require(released_reads.size()<max_queue,"qmt_standard_read_release_capacity");
+  released_reads.push_back(id);cv.notify_all();
+ }
+ void release_read(std::uint64_t id) {
+  std::lock_guard<std::mutex> lock(mutex);release_read_locked(id);
  }
  std::thread worker;
  void remember(const AccountBatch& batch,unsigned stage,bool complete_query=false)
@@ -1526,28 +1777,41 @@ struct StandardQmtTrader::Impl {
    if(unknown_fenced)submission_refresh_after=Clock::now()+std::chrono::milliseconds(request_ms);}
  }
  bool observation_refresh_ready(Clock::time_point now)const {
-  return observation_refresh_ms&&active()&&logged_in&&spi&&query_flow_mask==15
+  return (read_waiting||observation_refresh_ms)&&active()&&logged_in&&spi&&(read_waiting||query_flow_mask==15)
    &&!submissions_closed&&!hard_fault&&!observation_refresh_task&&now>=observation_refresh_at;
  }
  Clock::time_point observation_refresh_wake(Clock::time_point until)const {
-  if(observation_refresh_ms&&active()&&logged_in&&spi&&query_flow_mask==15
+  if((read_waiting||observation_refresh_ms)&&active()&&logged_in&&spi&&(read_waiting||query_flow_mask==15)
      &&!submissions_closed&&!hard_fault&&!observation_refresh_task)
    return (std::min)(until,observation_refresh_at);
   return until;
  }
  void schedule_observation_refresh(){
   {std::lock_guard<std::mutex> lock(mutex);if(!observation_refresh_ready(Clock::now()))return;}
+  if(read_waiting&&!held_reads.empty()){
+   std::lock_guard<std::mutex> lock(mutex);auto& original=*held_reads.begin();if(original.second.inflight)return;
+   Task task;task.kind=Kind::Query;task.id=original.first;task.generation=generation;
+   task.stage=original.second.stage;task.read_generation=original.second.generation;
+   task.resume_read=true;task.original_read=original.second.receipt;task.deadline=deadline();task.charge=original.second.charge;
+   tasks.push_back(std::move(task));original.second.charge=0;original.second.inflight=true;
+   observation_refresh_task=original.first;cv.notify_all();return;
+  }
   Task task;task.kind=Kind::Query;task.stage=observation_refresh_stage;task.deadline=deadline();
   std::uint64_t id=0;const auto rc=enqueue(std::move(task),false,&id);
   std::lock_guard<std::mutex> lock(mutex);
   if(rc==0)observation_refresh_task=id;
-  else observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_refresh_ms);
+  else observation_refresh_at=Clock::now()+std::chrono::milliseconds(read_waiting?event_poll_ms:observation_refresh_ms);
  }
  void observation_refresh_applied(std::uint64_t task_id){
   std::lock_guard<std::mutex> lock(mutex);
   if(!observation_refresh_task||observation_refresh_task!=task_id)return;
   observation_refresh_task=0;
-  if(observation_refresh_stage==3){observation_refresh_stage=0;observation_refresh_at=Clock::now();}
+  if(read_waiting){
+   if(observation_refresh_stage==0){read_waiting=false;observation_refresh_stage=3;
+    observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_refresh_ms);}
+   else {observation_refresh_stage=observation_refresh_stage==3?1:observation_refresh_stage==1?2:0;
+    observation_refresh_at=Clock::now();}
+  }else if(observation_refresh_stage==3){observation_refresh_stage=0;observation_refresh_at=Clock::now();}
   else {observation_refresh_stage=3;observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_refresh_ms);}
   cv.notify_all();
  }
@@ -1680,7 +1944,7 @@ struct StandardQmtTrader::Impl {
  {
   if(stop_requested||event_detached||!event_chain||event_chain->phase!=EventPhase::PageReady
    ||event_chain->index!=event_chain->page.event_count)return false;
-  event_chain.reset();uncharge(chain_charge);chain_charge=0;
+  release_read_locked(event_chain->read_generation);event_chain.reset();uncharge(chain_charge);chain_charge=0;
   next_event_poll_at=now+std::chrono::milliseconds(event_poll_ms);cv.notify_all();return true;
  }
  void settle_completed_event_chain()
@@ -1772,7 +2036,7 @@ struct StandardQmtTrader::Impl {
   try {
    Task task;task.kind=Kind::EventQuery;task.stage=stage;task.generation=generation;
    task.id=credit.id;task.event_index=chain.index;task.deadline=chain.deadline;task.charge=512;
-   task.event_context=event_context;task.event_bounds=chain.bounds;
+   task.read_generation=chain.read_generation;task.event_context=event_context;task.event_bounds=chain.bounds;
    std::lock_guard<std::mutex> lock(mutex);
    require(control_charge==512&&!chain.query_charge,"qmt_standard_event_query_charge");
    if(stop_requested||event_detached||event_control.stop_requested()){
@@ -1815,7 +2079,7 @@ struct StandardQmtTrader::Impl {
   if(stop_requested||event_detached||event_control.stop_requested()||!spi)return;
   Task task;task.kind=Kind::EventResolve;task.stage=value.stage;task.generation=generation;
   task.id=credit.id;task.event_index=chain.index;task.deadline=chain.deadline;task.charge=512;
-  task.plan=std::move(begun.plan);task.event_context=event_context;task.event_bounds=chain.bounds;
+  task.plan=std::move(begun.plan);task.read_generation=chain.read_generation;task.event_context=event_context;task.event_bounds=chain.bounds;
   {
    std::lock_guard<std::mutex> lock(mutex);require(control_charge==512,"qmt_standard_event_control_accounting");
    if(stop_requested||event_detached||event_control.stop_requested())return;
@@ -1871,7 +2135,7 @@ struct StandardQmtTrader::Impl {
   require(begun.candidate&&begun.plan,"qmt_standard_event_begin_incomplete");
   Task task;task.kind=Kind::EventResolve;task.stage=kind=="order"?1:2;task.generation=generation;
   task.id=credit.id;task.deadline=chain.deadline;task.event_index=chain.index;task.plan=std::move(begun.plan);task.charge=512;
-  task.event_context=event_context;task.event_bounds=chain.bounds;
+  task.read_generation=chain.read_generation;task.event_context=event_context;task.event_bounds=chain.bounds;
   {std::lock_guard<std::mutex> lock(mutex);require(control_charge==512,"qmt_standard_event_control_accounting");
    tasks.push_back(std::move(task));control_charge=0;
    chain.candidate=std::move(begun.candidate);chain.task_id=credit.id;chain.phase=EventPhase::ResolveInFlight;}
@@ -1882,7 +2146,7 @@ struct StandardQmtTrader::Impl {
  {
   require(event_chain&&event_chain->task_id==result.id&&event_chain->phase==EventPhase::ReadInFlight,
    "qmt_standard_event_read_ticket");
-  auto& chain=*event_chain;
+  auto& chain=*event_chain;chain.read_generation=result.read_generation;
   require(!chain.candidate&&chain.page.page_json.empty()&&chain.index==0,"qmt_standard_event_retry_after_page");
   require(chain.attempts<chain.task_limit||!result.event_read_attempted,"qmt_standard_event_attempt_limit");
   if(result.event_read_attempted)++chain.attempts;
@@ -1914,6 +2178,13 @@ struct StandardQmtTrader::Impl {
   require(event_chain&&event_chain->task_id==result.id,"qmt_standard_event_page_ticket");
   auto& chain=*event_chain;SignedHttpDeadline end(chain.deadline);
   auto& page=result.event_page;
+  const auto& fresh=result.event_context;
+  require(fresh.source.session_id==event_context.source.session_id
+   &&fresh.read_profile_body==event_context.read_profile_body
+   &&fresh.read_result_capacity==event_context.read_result_capacity
+   &&fresh.admitted_event_page_capacity==event_context.admitted_event_page_capacity,"qmt_standard_read_source_changed");
+  // 该页尚未交付；认证逻辑session与资源合同保持，原index/cursor继续保留。
+  event_context=std::move(result.event_context);
   require(same_event_source(page.source,event_context.source)&&page.read_profile_body==event_context.read_profile_body
    &&page.read_result_capacity==event_context.read_result_capacity,"qmt_standard_event_page_source");
   auto status=validate_qmt_trade_event_page(page.page_json,page.source,chain.bounds,expected,event_context.admitted_limits,
@@ -1966,7 +2237,7 @@ struct StandardQmtTrader::Impl {
      require(charge(512),"qmt_standard_event_retry_capacity");
      try {
       Task task;task.kind=Kind::EventPage;task.id=next_task+1;task.generation=generation;task.deadline=chain.deadline;
-      task.event_context=event_context;task.event_bounds=chain.bounds;task.event_failure=chain.last_transport;
+      task.read_generation=chain.read_generation;task.event_context=event_context;task.event_bounds=chain.bounds;task.event_failure=chain.last_transport;
       task.event_drain_only=chain.drain_pending;task.charge=512;
       tasks.push_back(std::move(task));++next_task;++outstanding;++chain.read_tasks;
       chain.task_id=next_task;chain.phase=EventPhase::ReadInFlight;
@@ -2274,6 +2545,7 @@ int StandardQmtTrader::pump(std::uint32_t limit)
    x.callback_credit=&credit;
    ++delivered;
    const bool write=result.kind==Impl::Kind::Insert||result.kind==Impl::Kind::Cancel;
+   if(x.wait_read(result,credit,charge.n))continue;
    if(result.kind==Impl::Kind::EventQuery||result.kind==Impl::Kind::EventResolve){
     if(!x.receive_event_operation(result,false)){if(x.event_chain)x.event_chain->candidate.reset();continue;}
     if(result.kind==Impl::Kind::EventQuery)x.begin_event_query(result,credit,charge.n);
@@ -2328,7 +2600,7 @@ int StandardQmtTrader::pump(std::uint32_t limit)
     x.callback([&]{x.spi->onLoginResult(true,"QMT共享内存来源已连接",x.trading_date);});
    }else if(result.kind==Impl::Kind::Query){
     // 运输/generation/原D已核成功。解绑是正常抑制，不再访问Base或构造候选。
-    if(!x.spi)continue;
+    if(!x.spi){x.release_read(result.read_generation);continue;}
     require(x.spi&&x.spi->getBaseDataMgr(),"qmt_standard_base_data_missing");
     std::size_t reserve=x.identity_budget.max_total_bytes;
     if(x.events_enabled){
@@ -2351,7 +2623,7 @@ int StandardQmtTrader::pump(std::uint32_t limit)
      Impl::Candidate candidate;candidate.value=std::move(begun.candidate);candidate.deadline=result.deadline;candidate.charge=reserve;
      require(x.candidates.emplace(result.id,std::move(candidate)).second,"qmt_standard_candidate_duplicate");candidate_saved=true;
      Impl::Task task;task.kind=Impl::Kind::Resolve;task.stage=result.stage;task.id=result.id;task.generation=x.generation;
-     task.deadline=result.deadline;task.plan=std::move(begun.plan);task.charge=next_charge;
+     task.read_generation=result.read_generation;task.deadline=result.deadline;task.plan=std::move(begun.plan);task.charge=next_charge;
      {std::lock_guard<std::mutex> lock(x.mutex);x.tasks.push_back(std::move(task));}credit.transfer();x.cv.notify_all();
     }catch(...){
      if(candidate_saved)x.candidates.erase(result.id);
@@ -2459,7 +2731,7 @@ void StandardQmtTrader::release()
   require(x.drained,"qmt_standard_worker_drain_missing");lock.unlock();x.worker.join();
  }else {std::lock_guard<std::mutex> lock(x.mutex);x.worker_done=true;x.drained=true;}
  if(!x.retain_stopped_results(true))return;
- {std::lock_guard<std::mutex> lock(x.mutex);x.tasks.clear();x.results.clear();x.candidates.clear();
+ {std::lock_guard<std::mutex> lock(x.mutex);x.tasks.clear();x.results.clear();x.candidates.clear();x.held_reads.clear();
   if(!x.query_first)x.identities.clear();
   else for(auto it=x.identities.begin();it!=x.identities.end();){
    if(!it->second.group_id||it->second.observation==SubmissionObservation::None)it=x.identities.erase(it);else ++it;
@@ -2480,21 +2752,23 @@ int StandardQmtTrader::diagnostics(StandardQmtDiagnostics& out)const
  value.phase=static_cast<unsigned>(x.phase);value.connected=x.connected;value.logged_in=x.logged_in;
  value.stop_requested=x.stop_requested;
  // 临时调度暂停沿独立准入位处理；此字段继续表示原通信/故障围栏。
- value.writes_blocked=x.writes_blocked||x.hard_fault;
+ value.writes_blocked=x.writes_blocked||x.hard_fault||x.read_waiting;
  value.worker_live=x.worker_live;value.joined=x.joined;value.callbacks=x.callbacks;
  value.queries=x.queries;value.inserts=x.inserts;value.cancels=x.cancels;
  value.candidates=static_cast<unsigned>(x.candidates.size())+(x.event_chain&&x.event_chain->candidate?1u:0u);value.owner_thread=std::hash<std::thread::id>{}(x.owner_thread);
  {std::lock_guard<std::mutex> lock(x.mutex);value.queued=static_cast<unsigned>(x.tasks.size());value.ready=static_cast<unsigned>(x.results.size());
   value.pending_commands=static_cast<unsigned>(x.pending.size());value.worker_done=x.worker_done;value.drained=x.drained;
   value.worker_thread=x.worker_thread;value.payload_bytes=x.payload_bytes;}
- value.error=static_cast<int>(x.first_error.code);std::strncpy(value.reason,x.first_error.reason.c_str(),sizeof(value.reason)-1);
+ value.error=static_cast<int>(x.first_error.code);
+ const auto& reason=x.first_error.ok()&&x.read_waiting?std::string("qmt_read_source_waiting"):x.first_error.reason;
+ std::strncpy(value.reason,reason.c_str(),sizeof(value.reason)-1);
  std::strncpy(value.last_command_id,x.last_command.c_str(),sizeof(value.last_command_id)-1);out=value;return 0;
 }
 int StandardQmtTrader::awaiting_observation()const
 {
  if(!owner())return StandardQmtWrongOwner;
  auto& x=*impl_;std::lock_guard<std::mutex> lock(x.mutex);
- return x.query_first&&x.unknown_fenced&&!x.hard_fault&&!x.stop_requested&&!x.submissions_closed
+ return x.query_first&&(x.unknown_fenced||x.read_waiting)&&!x.hard_fault&&!x.stop_requested&&!x.submissions_closed
      &&x.ingress_error.ok()&&x.owner_error.ok()
      &&(x.first_error.ok()||x.first_error.code==ErrorCode::SubmissionUnknown)?1:0;
 }
@@ -2521,7 +2795,7 @@ int StandardQmtTrader::recovery(StandardQmtRecoveryV1& out)const
  auto& x=*impl_;std::lock_guard<std::mutex> lock(x.mutex);StandardQmtRecoveryV1 value;
  value.query_first=x.query_first;value.submissions_closed=x.submissions_closed;value.open_group=x.submission.open;
  value.pending_commands=static_cast<std::uint32_t>(x.pending.size());
- value.unsafe=x.hard_fault||x.unknown_fenced||!x.first_error.ok()||!x.ingress_error.ok()||!x.owner_error.ok();
+ value.unsafe=x.hard_fault||x.unknown_fenced||x.read_waiting||!x.held_reads.empty()||!x.first_error.ok()||!x.ingress_error.ok()||!x.owner_error.ok();
  value.active_orders=x.active_orders;value.next_task=x.next_task;
  value.last_order_query=x.last_order_query;value.last_position_query=x.last_position_query;value.last_account_query=x.last_account_query;
  for(const auto& item:x.identities)if(item.second.group_id&&item.second.observation!=SubmissionObservation::None)++value.unresolved_children;

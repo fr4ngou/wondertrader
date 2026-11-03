@@ -161,12 +161,12 @@ fs::path installed(const fs::path& root,const std::string& value){
     fs::path path=fs::u8path(value);need(!path.empty()&&!path.is_absolute()&&!path.has_root_name());for(const auto& item:path)need(item!=".."&&item!=".");
     auto result=root/path;need(fs::is_regular_file(result));return result;
 }
-void publish(const fs::path& target,const rj::Value& value){
+void publish(const fs::path& target,const rj::Value& value,bool replace=false){
     const auto temporary=fs::path(target.wstring()+L".pending");const auto bytes=encode(value);
     Handle file;file.value=CreateFileW(temporary.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
     need(file.value!=INVALID_HANDLE_VALUE);DWORD written=0;need(WriteFile(file.value,bytes.data(),static_cast<DWORD>(bytes.size()),&written,nullptr)&&written==bytes.size());
     need(FlushFileBuffers(file.value));need(CloseHandle(file.value));file.value=INVALID_HANDLE_VALUE;
-    need(MoveFileExW(temporary.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH)!=0);
+    need(MoveFileExW(temporary.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH|(replace?MOVEFILE_REPLACE_EXISTING:0))!=0);
 }
 rj::Document receipt(const char* schema,const std::string& id,const std::string& config_sha,bool closed){
     rj::Document value(rj::kObjectType);auto& a=value.GetAllocator();
@@ -242,6 +242,105 @@ rj::Document state_identity(const fs::path& output,const rj::Value& strategies){
 bool settled(const guanheng::StandardQmtRecoveryV1& value){
     return value.query_first&&value.submissions_closed&&!value.open_group&&!value.unresolved_children
         &&!value.pending_commands&&!value.unsafe;
+}
+// 故障恢复只改变准入依据；调用点已持有原输出租约，券商O/P/A已沿原流程核查。
+void admit_reconciled(const rj::Value& selection,const rj::Value& current,const fs::path& output,
+    const rj::Value& strategies,const std::string& installation,const std::string& id,
+    const std::string& configuration,const fs::path& control){
+    const auto& reference=member(selection,"transition");keys(reference,{"file","sha256"});
+    const auto transition_sha=text(reference,"sha256",64);
+    const auto raw=read(absolute(text(reference,"file")),1024*1024);need(sha(raw)==transition_sha);
+    auto transition=parse(raw);
+    keys(transition,{"schema","predecessor_configuration","predecessor_configuration_sha256",
+        "predecessor_control_directory","predecessor_installation_sha256","successor_installation_sha256",
+        "predecessor_python_binding_sha256","successor_python_code_identity","state_files"});
+    need(text(transition,"schema")=="guanheng.execution-recovery-transition.v1"
+        &&text(transition,"successor_installation_sha256")==installation);
+    const auto prior_raw=read(absolute(text(transition,"predecessor_configuration")),256*1024);
+    const auto prior_sha=text(transition,"predecessor_configuration_sha256",64);need(sha(prior_raw)==prior_sha);
+    auto prior_config=parse(prior_raw);prior_config.RemoveMember("recovery");
+    rj::Document identity;identity.CopyFrom(current,identity.GetAllocator());identity.RemoveMember("recovery");
+    need(encode(prior_config)==encode(identity));
+    const auto previous=absolute(text(transition,"predecessor_control_directory"));physical(previous);
+    const auto ready_raw=read(previous/"ready.json",4096);const auto ready=parse(ready_raw);
+    const bool clean_transition=fs::exists(previous/"closed.json");
+    const bool lost_transition=!clean_transition&&!fs::exists(previous/"close-prepared.json")
+        &&!fs::exists(previous/"failure.json")&&fs::exists(previous/"owner-loss.json");
+    need(text(ready,"schema")=="guanheng.execution.ready.v1");
+    auto same_origin=[&](const rj::Value& value){
+        need(text(value,"config_sha256")==prior_sha&&text(value,"control_id")==text(ready,"control_id")
+            &&member(value,"pid")==member(ready,"pid"));
+    };
+    same_origin(ready);
+    if(lost_transition){
+        const auto loss=parse(read(previous/"owner-loss.json",4096));
+        keys(loss,{"schema","control_id","config_sha256","pid","ready_sha256","reason","observed_at","observer_pid"});
+        same_origin(loss);
+        need(text(loss,"schema")=="guanheng.execution.owner-loss.v1"&&text(loss,"reason")=="process_lost"
+            &&text(loss,"ready_sha256",64)==sha(ready_raw)&&!text(loss,"observed_at",64).empty()
+            &&member(loss,"observer_pid").IsUint()&&member(loss,"observer_pid").GetUint()>0);
+    }else{
+        const auto closed=parse(read(previous/(clean_transition?"closed.json":"close-prepared.json"),4096));
+        same_origin(closed);need(member(closed,"closed").IsTrue());
+        if(clean_transition){
+            need(text(closed,"schema")=="guanheng.execution.closed.v2"&&member(closed,"ok").IsTrue()
+                &&member(closed,"recovery_ready").IsTrue()&&member(closed,"exit_code").IsInt()
+                &&member(closed,"exit_code").GetInt()==0&&member(closed,"error_code").IsNull()
+                &&member(closed,"resources_closed").IsTrue());
+            const auto origin=parse(read(output/".cta-clean.json",256*1024));
+            need(text(origin,"schema")=="guanheng.cta-clean.v2"&&text(origin,"control_id")==text(ready,"control_id")
+                &&text(origin,"config_sha256")==sha(encode(identity))&&member(origin,"closed").IsTrue()
+                &&member(origin,"pid")==member(ready,"pid")&&text(origin,"closed_config_sha256")==prior_sha
+                &&text(origin,"installation_sha256")==text(transition,"predecessor_installation_sha256")
+                &&absolute(text(origin,"closed_receipt"))==previous/"closed.json"
+                &&encode(member(origin,"files"))==encode(member(transition,"state_files")));
+        }else{
+            const auto failure=parse(read(previous/"failure.json",4096));same_origin(failure);
+            need(text(failure,"schema")=="guanheng.execution.failure.v1"
+                &&text(closed,"schema")=="guanheng.execution.close-prepared.v1"
+                &&member(closed,"ok").IsFalse()&&member(closed,"recovery_ready").IsFalse());
+        }
+    }
+    const auto& pid=member(ready,"pid");need(pid.IsUint()&&pid.GetUint()>0);
+    Handle process;process.value=OpenProcess(SYNCHRONIZE,FALSE,pid.GetUint());
+    if(process.value)need(WaitForSingleObject(process.value,0)==WAIT_OBJECT_0);
+    else need(GetLastError()==ERROR_INVALID_PARAMETER);
+    need(sha(read(previous/"python-binding.json",256*1024))==text(transition,"predecessor_python_binding_sha256"));
+    const auto consumed=output/".cta-clean.consumed.json";
+    if(clean_transition){/* 原成功关闭证明已在同根租约内完整核验。 */}
+    else if(fs::exists(previous/"installation-identity.json")){
+        const auto origin=parse(read(previous/"installation-identity.json",4096));same_origin(origin);
+        need(text(origin,"schema")=="guanheng.execution-installation.v1"
+            &&text(origin,"installation_sha256")==text(transition,"predecessor_installation_sha256"));
+    }else if(fs::exists(previous/"reconciled.json")){
+        const auto origin=parse(read(previous/"reconciled.json",256*1024));
+        same_origin(origin);need(text(origin,"schema")=="guanheng.cta-reconciled.v1"
+            &&text(origin,"successor_installation_sha256")==text(transition,"predecessor_installation_sha256"));
+    }else if(fs::exists(consumed)){
+        const auto origin=parse(read(consumed,256*1024));
+        need(text(origin,"schema")=="guanheng.cta-clean.v2"&&text(origin,"config_sha256")==sha(encode(identity))
+            &&member(origin,"closed").IsTrue()
+            &&text(origin,"installation_sha256")==text(transition,"predecessor_installation_sha256"));
+        const auto source=parse(read(absolute(text(origin,"closed_receipt")),4096));
+        need(text(source,"schema")=="guanheng.execution.closed.v2"&&text(source,"control_id")==text(origin,"control_id")
+            &&text(source,"config_sha256")==text(origin,"closed_config_sha256")&&member(source,"pid")==member(origin,"pid")
+            &&member(source,"closed").IsTrue()&&member(source,"ok").IsTrue()&&member(source,"recovery_ready").IsTrue()
+            &&member(source,"error_code").IsNull()&&member(source,"exit_code").IsInt()
+            &&member(source,"exit_code").GetInt()==0&&member(source,"resources_closed").IsTrue());
+    }else need(false);
+    need((clean_transition||!fs::exists(output/".cta-clean.json"))&&!fs::exists(output/".cta-clean.prepared.json")
+        &&encode(state_identity(output,strategies))==encode(member(transition,"state_files")));
+    const auto claimed=output/(".cta-reconciled-"+transition_sha+".json");need(!fs::exists(claimed));
+    auto proof=receipt("guanheng.cta-reconciled.v1",id,configuration,false);auto& a=proof.GetAllocator();
+    proof.AddMember("transition_sha256",rj::Value(transition_sha.c_str(),a),a); // 配置绑定的固定发行材料摘要。
+    proof.AddMember("admission_kind",rj::Value(clean_transition?"clean_transition":lost_transition?"process_lost_reconciled":"fault_reconciled",a),a); // 正常、原故障关闭或进程退出核查依据分别保留。
+    proof.AddMember("successor_installation_sha256",rj::Value(installation.c_str(),a),a); // 本代完整安装清单规范摘要。
+    proof.AddMember("predecessor_control_id",rj::Value(text(ready,"control_id").c_str(),a),a); // 上代真实控制ID。
+    proof.AddMember("state_files",rj::Value(member(transition,"state_files"),a),a); // 原金融JSON相对路径与字节摘要，仅作准入证据。
+    // 独立核查收据记录新代认领；原failure/consumed与金融JSON均保留原字节。
+    if(clean_transition)need(MoveFileExW((output/".cta-clean.json").c_str(),consumed.c_str(),
+        MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0);
+    publish(claimed,proof);publish(control/"reconciled.json",proof);
 }
 bool own_orders_empty(guanheng::StandardExecutionHost& execution){
     auto* rows=execution.orders("");need(rows!=nullptr);const bool empty=rows->size()==0;rows->release();return empty;
@@ -405,19 +504,27 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         if(!fs::exists(output))need(fs::create_directory(output));need(fs::is_directory(output));
         WtHelper::setGenerateDir((output.generic_string()+"/").c_str());
         if(cfg.HasMember("recovery")){
-            const auto& selection=cfg["recovery"];keys(selection,{"mode"});const auto mode=text(selection,"mode",32);
-            need(mode=="record_clean"||mode=="resume_clean");recovery_enabled=true;recovery_hooks.restore=mode=="resume_clean";
+            const auto& selection=cfg["recovery"];keys(selection,{"mode","transition"});const auto mode=text(selection,"mode",32);
+            need(mode=="record_clean"||mode=="resume_clean"||mode=="resume_reconciled");
+            need(selection.HasMember("transition")== (mode=="resume_reconciled"));
+            recovery_enabled=true;recovery_hooks.restore=mode!="record_clean";
             need(text(member(cfg,"trader"),"order_context")=="query_first");
             need(member(member(cfg,"trader"),"savedata").IsBool()&&!cfg["trader"]["savedata"].GetBool());
             recovery_output=output;recovery_installation=installation_identity(root);
+            auto installation_receipt=receipt("guanheng.execution-installation.v1",id,expected_sha,false);
+            installation_receipt.AddMember("installation_sha256",rj::Value(recovery_installation.c_str(),installation_receipt.GetAllocator()),installation_receipt.GetAllocator()); // 本代已核完整安装身份，供后继追溯。
+            publish(control/"installation-identity.json",installation_receipt);
             rj::Document identity;identity.CopyFrom(cfg,identity.GetAllocator());identity.RemoveMember("recovery");
             recovery_config=sha(encode(identity));recovery_strategies.CopyFrom(member(cfg,"strategies"),recovery_strategies.GetAllocator());
-            recovery_hooks.admit=[&]{
+            recovery_hooks.admit=[&,mode]{
                 physical(recovery_output);
                 const auto marker=recovery_output/".cta-clean.json";
                 need(!fs::exists(recovery_output/".cta-clean.json.pending"));
                 need(!fs::exists(recovery_output/".cta-clean.prepared.json")
                     &&!fs::exists(recovery_output/".cta-clean.prepared.json.pending"));
+                if(mode=="resume_reconciled"){
+                    admit_reconciled(selection,cfg,recovery_output,recovery_strategies,recovery_installation,id,expected_sha,control);return true;
+                }
                 if(!recovery_hooks.restore){need(!fs::exists(marker)&&!fs::exists(recovery_output/".cta-clean.consumed.json"));return true;}
                 physical(marker);const auto proof=parse(read(marker,256*1024));
                 need(text(proof,"schema")=="guanheng.cta-clean.v2"&&text(proof,"config_sha256")==recovery_config
@@ -538,6 +645,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         auto ready=receipt("guanheng.execution.ready.v1",id,expected_sha,false);publish(control/"ready.json",ready);stage="runtime";
         const auto run_until=Clock::now()+std::chrono::milliseconds(run_ms);
         bool stop_seen=false,stop_decoded=false;
+        int last_read_waiting=-1;unsigned read_transitions=0;
+        auto next_read_publish=Clock::time_point::min();
         while(Clock::now()<run_until){
             if(fs::exists(control/"stop.json")){
                 if(!stop_seen){
@@ -573,6 +682,21 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                     need(target_status(&completed)==0&&completed.failure==0);
                     if(!completed.active){need(execution->pause_inserts(false));target_status=nullptr;}
                 }
+            }
+            // 私有控制收据沿原进程身份发布，只记录读取可用性转换，不含账户正文。
+            const auto read_state=execution->status().plugin;
+            const int waiting=std::strcmp(read_state.reason,"qmt_read_source_waiting")==0?1:0;
+            if(waiting!=last_read_waiting&&Clock::now()>=next_read_publish){
+              try {
+                auto value=receipt("guanheng.execution.read-status.v1",id,expected_sha,false);auto& a=value.GetAllocator();
+                value.AddMember("waiting",waiting!=0,a);value.AddMember("writes_blocked",read_state.writes_blocked!=0,a);
+                value.AddMember("queries",read_state.queries,a);value.AddMember("transitions",read_transitions++,a);
+                publish(control/"read-status.json",value,true);last_read_waiting=waiting;
+              }catch(...){
+                // 可重建的可用性投影失败不改变原执行事实，固定间隔后再发布当前状态。
+                std::error_code error;fs::remove(control/"read-status.json.pending",error);
+                next_read_publish=Clock::now()+std::chrono::milliseconds(500);
+              }
             }
             publish_broker(*execution,*environment);Sleep(2);
         }

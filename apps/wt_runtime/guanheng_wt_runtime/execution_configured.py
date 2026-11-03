@@ -17,7 +17,7 @@ from threading import Event, RLock
 from zoneinfo import ZoneInfo
 
 from .execution_process import ExecutionProcessConfig, _PYTHON_PACKAGES, _python_bytes, _python_inventory, _python_packages
-from .execution_strategy import CtaRuntime, StrategyBinding, _need
+from .execution_strategy import CtaBridgeError, CtaRuntime, StrategyBinding, _need
 from .managed_local_process import _inspect, _json, _read
 from .thread_owner import ThreadOwner
 
@@ -37,18 +37,21 @@ def _quantity(value):
     return int(value)
 
 
-def _replace_projection(temporary, target, deadline):
-    """Windows读者持有旧文件时替换可报5/32/33；沿本轮D等待原句柄释放。
+class ProjectionPublicationTimeout(CtaBridgeError):
+    """本轮可重建观察投影的发布预算耗尽；原金融事实保持各自owner。"""
 
-    本函数只发布本宿主独占的观察投影。失败保留最后原生错误及pending文件，
-    调用方沿既有health停止；原持仓/KV及已发生setter继续由原owner持有。
-    """
+
+def _check_publication_deadline(deadline):
+    if time.monotonic() >= deadline:
+        raise ProjectionPublicationTimeout('projection_deadline')
+
+
+def _replace_projection(temporary, target, deadline):
+    """Windows旧读句柄可能报5/32/33；仅在本轮有限预算内等待释放。"""
     last_error = None
     while True:
         if time.monotonic() >= deadline:
-            if last_error is not None:
-                raise last_error
-            _need(False, 'evaluation_deadline')
+            raise ProjectionPublicationTimeout('projection_deadline') from last_error
         try:
             temporary.replace(target)
             return
@@ -58,8 +61,25 @@ def _replace_projection(temporary, target, deadline):
             last_error = error
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise
+                raise ProjectionPublicationTimeout('projection_deadline') from error
             time.sleep(min(.002, remaining))
+
+
+def _write_projection(temporary, target, raw, deadline):
+    """独占临时文件；未提交时清理本次文件，原子替换成功即为提交边界。"""
+    owned = False
+    try:
+        _check_publication_deadline(deadline)
+        with temporary.open('xb') as stream:
+            owned = True
+            stream.write(raw)
+        _check_publication_deadline(deadline)
+        _replace_projection(temporary, target, deadline)
+        owned = False
+    finally:
+        # 已存在的pending属于其他未决发布，创建失败时保留它并传播原错误。
+        if owned:
+            temporary.unlink(missing_ok=True)
 
 
 def _state_fields(cls, value):
@@ -133,6 +153,7 @@ class RetainedStrategy:
     新周期仅消费原管理成交的源时间；缺少完整事实时保持等待。
     """
     def __init__(self, item, publish, configuration, native, *, deadline, code_identity):
+        self.start_deadline = deadline  # 原监督者启动绝对截止；资金观察失败不重开启动预算。
         from guanheng_strategy_v1 import SYMBOLS
         from .retained_evaluation import evaluate_retained
         from guanheng_strategy_core.contracts import EvaluationBudget
@@ -173,10 +194,10 @@ class RetainedStrategy:
         from .execution_market_window import MarketWindowFile
         self.market_window = MarketWindowFile.from_dict(parameters['market_window']) if 'market_window' in parameters else None
         self.recovery = configuration.recovery_mode
-        _need(self.recovery in ('record_clean','resume_clean'), 'retained_recovery_required')
+        _need(self.recovery in ('record_clean','resume_clean','resume_reconciled'), 'retained_recovery_required')
         now = datetime.now(timezone.utc)
         _need(self.inputs.request.decision_cutoff <= now, 'initial_cycle_window')
-        if self.recovery != 'resume_clean':
+        if self.recovery not in ('resume_clean','resume_reconciled'):
             _need(self.inputs.request.cycles_captured_at <= now < self.inputs.request.cycles_valid_until,
                   'initial_cycle_window')
         admitted = evaluate_retained(self.inputs.request, self.inputs.policy,
@@ -206,6 +227,17 @@ class RetainedStrategy:
         if self.market_window is not None:
             identity += (self.market_window.configuration_identity,)
         self.state_identity = _digest(identity)
+        # 故障恢复显式核前代发行身份；原状态模型、输入和数量不变量保持。
+        self.previous_state_identity = None
+        self.recovery_native = native  # 原已准入恢复链；仅用于核验前代合法原报价及原时点。
+        self.retained_market_source = None  # 保留报价时的原控制/文件SHA，独立于当前现金与NAP。
+        if self.recovery == 'resume_reconciled':
+            from .execution_recovery import load_transition
+            unused, prior_code_identity = load_transition(native)
+            prior_identity = (self.id,self.input_sha,tuple(sorted(self.mapping.items())),asdict(self.inputs.policy),prior_code_identity)
+            if self.market_window is not None:
+                prior_identity += (self.market_window.configuration_identity,)
+            self.previous_state_identity = _digest(prior_identity)
         self.state, self.sequence, self.initialized = None, 0, False
         self.cycles, self.exits = {}, ()
         self.flat_sources = {}
@@ -264,7 +296,7 @@ class RetainedStrategy:
         value = _json(text.encode('ascii'))
         _need(set(value) == {'schema','strategy_id','identity','sequence','state','state_id','cycles','exits'}
               and value['schema'] == 'guanheng.retained-quantity-state.v1' and value['strategy_id'] == self.id
-              and value['identity'] == self.state_identity, 'quantity_state_identity')
+              and value['identity'] == (self.previous_state_identity or self.state_identity), 'quantity_state_identity')
         seq = value['sequence'];_need(type(seq) is int and 0 <= seq <= 9007199254740991, 'quantity_state_sequence')
         state = _restore_quantity_state(value['state'])
         if state is not None:
@@ -272,7 +304,9 @@ class RetainedStrategy:
                   and state.target.universe == self.execution and state.target.config_id == self.config_identity
                   and state.target.algorithm_id == self.algorithm_identity, 'quantity_state_identity')
         metadata, exits = self._metadata(value['cycles']), self._exit_values(value['exits'])
-        _need(self._state_payload(state,seq,metadata,exits) == text, 'quantity_state_encoding')
+        expected = _json(self._state_payload(state,seq,metadata,exits).encode('ascii'))
+        expected['identity'] = self.previous_state_identity or self.state_identity
+        _need(_encode(expected).decode('ascii') == text, 'quantity_state_encoding')
         self.state, self.sequence, self.cycles, self.exits = state, seq, metadata, exits
         self.restored_state_id, self.restored_sequence = None if state is None else state.state_id, seq
 
@@ -289,7 +323,7 @@ class RetainedStrategy:
         broker = context.broker_observation()
         _need(broker.positions_known, 'broker_unknown')
         rows = self._broker_rows(broker)
-        if self.recovery == 'resume_clean':
+        if self.recovery in ('resume_clean','resume_reconciled'):
             self._load_state(context.load_quantity_state())
             # 原单已由运行owner撤清并重查P/A；保留周期/止损和退出记忆，重新规划执行。
             self.state = None
@@ -326,15 +360,91 @@ class RetainedStrategy:
                            if not rows.get(self.mapping[symbol],(0,0))[0]}
         # 原主K线触发规则保持，用户状态由原dirty保存流程落盘。
         context.bars(self.main,'m1',1,main=True)
-        if self.recovery != 'resume_clean':
+        if self.recovery not in ('resume_clean','resume_reconciled'):
             context.store_quantity_state(self._state_payload(None,0,self.cycles,self.exits))
+        elif self.recovery == 'resume_reconciled':
+            # 身份交接独立于资金展示和首轮调度；正常关闭后即可沿本代身份恢复。
+            context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
         self.initialized = True
         if self.inputs.capital_baseline is not None and self.capital_market is not None:
             self._publish_initial_capital(context, broker)
         print('CTA retained strategy initialized',flush=True)
         print('CTA retained strategy initialized',file=sys.stderr,flush=True)
 
+    def _native_cash(self, context, broker):
+        """复用原WT已实现盈亏、费用和持仓成本；当前券商数量须与原账一致。"""
+        from .execution_facts import _decimal
+        rows=self._broker_rows(broker);cost=Fraction(0);fund=None
+        read=getattr(context,'cash_basis',None)
+        if read is None:return None
+        for symbol,code in self.mapping.items():
+            quantity=rows.get(code,(0,0))[0]
+            if context.position(code).raw_position != quantity:return None
+            value=read(code)
+            if value is None or not all(math.isfinite(v) for v in (value.realized_pnl_cny,value.fees_cny,value.average_price_cny)):
+                return None
+            current=(Fraction(repr(value.realized_pnl_cny)),Fraction(repr(value.fees_cny)))
+            if fund is not None and current != fund:return None
+            fund=current
+            if quantity and value.average_price_cny <= 0:return None
+            cost+=quantity*Fraction(repr(value.average_price_cny))
+        if fund is None:return None
+        cash=Fraction(self.inputs.capital_baseline['total_cny'])+fund[0]-fund[1]-cost
+        self.native_cash_basis=dict(source='original-WT:flag1-flag3-position-average',
+            realized_pnl_cny=_decimal(fund[0]),fees_cny=_decimal(fund[1]),position_cost_cny=_decimal(cost),
+            cash_balance_cny=_decimal(cash))
+        return cash
+
+    def _publish_initial_observation(self, context, broker, response, reason, *, deadline):
+        self.sequence += 1
+        candidate = dict(status='waiting_market_input',reason=reason,sequence=self.sequence,
+            broker_observation=asdict(broker),broker_position_qualified=False,recovery_mode=self.recovery,
+            restored_state_id=self.restored_state_id,restored_sequence=self.restored_sequence,
+            cycle_metadata=dict(self.cycles),capital_baseline=self.inputs.capital_baseline,
+            capital=self.capital_observation,initial_market_observation=response,
+            native_cash_basis=getattr(self,'native_cash_basis',None),
+            retained_market_source=self.retained_market_source)
+        self.publish(self.id,candidate,preview=True,deadline=deadline)
+        context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
+        self.publish(self.id,candidate,deadline=deadline)
+
     def _publish_initial_capital(self, context, broker):
+        try:
+            response=self._read_initial_capital(context,broker)
+            reason='awaiting_first_strategy_calculation'
+        except Exception:
+            # 来源/估值缺值局限于资金观察。KV/投影保存置于本捕获范围之外。
+            self.capital_observation=None;response=None;reason='initial_capital_unavailable'
+        self._publish_initial_observation(context,broker,response,reason,deadline=self.start_deadline)
+
+    def _retained_initial_market(self, broker, funds, cash, *, deadline):
+        """同账/数量/周期核验后复用原QMT快照；当前NAP和原WT账仍分别现取。"""
+        from .execution_recovery import prior_strategy_observations
+        expected = {code:value[0] for code,value in self._broker_rows(broker).items() if value[0]}
+        for previous, source in prior_strategy_observations(self.recovery_native,self.id,deadline=deadline):
+            capital = previous.get('capital')
+            if type(capital) is not dict:continue
+            prior_basis = previous.get('native_cash_basis')
+            positions = previous.get('broker_observation',{}).get('positions',[])
+            old = {row['symbol']:row['quantity'] for row in positions if row['quantity']}
+            _need(old == expected and previous.get('cycle_metadata') == self.cycles
+                and previous.get('capital_baseline') == self.inputs.capital_baseline
+                and prior_basis == self.native_cash_basis
+                and capital['baseline'] == self.inputs.capital_baseline
+                and Fraction(capital['cash_balance_cny']) == cash
+                and Fraction(capital['native_pnl_cny']) == Fraction(repr(funds.fund_pnl)),
+                'retained_capital_basis_changed')
+            response = previous.get('initial_market_observation')
+            _need(type(response) is dict and response['status']['code'] == 'Ok'
+                and response['data']['metadata']['qualification'] in ('NativeVerified','ProductionQualified')
+                and capital['market_value_source'] == 'broker-position+raw-QMT-snapshot',
+                'retained_capital_market_source')
+            self.retained_market_source = dict(source,original_valuation_at=capital['observed_at'],
+                original_price_observed_at=capital['price_observed_at'])
+            return response
+        raise ValueError('retained_capital_market_unavailable')
+
+    def _read_initial_capital(self, context, broker):
         """初始化后发布只读资金；原WT损益、券商P和明确当前快照各保留原来源。
 
         原CTA初始化早于行情Parser启动，当前价格尚未进入CTA缓存。首次估值使用
@@ -348,17 +458,25 @@ class RetainedStrategy:
             'base_url','token_env','timeout_seconds','max_response_bytes','max_age_seconds'}, 'capital_market')
         _need(type(market['max_age_seconds']) in (int,float) and 0 < market['max_age_seconds'] <= 3600,
               'capital_market_age')
-        deadline = time.monotonic()+self.seconds
+        deadline = min(self.start_deadline,time.monotonic()+self.seconds)
         quantities = self._broker_rows(broker)
+        # 原账现金先独立核实。报价暂缺时仍保留真实现金依据，避免报价失败抹掉原账。
+        cash = self._native_cash(context,broker)
+        _need(cash is not None,'capital_cash_unknown')
+        funds = context.facts();_need(math.isfinite(funds.fund_pnl),'native_funds')
         codes = [code for symbol,code in self.mapping.items() if quantities.get(code,(0,0))[0]]
         value, response = Fraction(0), None
+        valuation_stamps = []  # 原报价时间；闭市最后价格仅用于有来源时点的估值展示。
         if codes:
             client = MarketClient(market['base_url'],os.environ[market['token_env']],
                 timeout=min(market['timeout_seconds'],deadline-time.monotonic()),
                 max_response_bytes=market['max_response_bytes'])
-            response = client.quotes_query(['.'.join(code.split('.')[::2]) for code in sorted(codes)])
-            _need(response['status']['code'] == 'Ok' and response['data']['metadata']['qualification']
-                  in ('NativeVerified','ProductionQualified'), 'capital_market_source')
+            try:
+                response = client.quotes_query(['.'.join(code.split('.')[::2]) for code in sorted(codes)])
+                _need(response['status']['code'] == 'Ok' and response['data']['metadata']['qualification']
+                      in ('NativeVerified','ProductionQualified'), 'capital_market_source')
+            except Exception:
+                response = self._retained_initial_market(broker,funds,cash,deadline=deadline)
             observed = {}
             now = datetime.now(timezone.utc)
             for row in response['data']['snapshots']:
@@ -368,27 +486,22 @@ class RetainedStrategy:
                 stamp = stamp.replace(tzinfo=ZoneInfo('Asia/Shanghai'),microsecond=row['action_time']%1000*1000)
                 price = row['price']
                 _need(key in codes and key not in observed and row['source_time_verified'] is True
-                    and stamp <= now < stamp+timedelta(seconds=market['max_age_seconds'])
+                    and stamp <= now
                     and type(price) in (int,float) and math.isfinite(price) and price > 0,'capital_market_snapshot')
                 observed[key] = price
+                valuation_stamps.append(stamp)
             _need(set(observed) == set(codes),'capital_market_complete')
             value = sum((Fraction(repr(observed[code]))*quantities[code][0] for code in codes),Fraction(0))
         cutoff = datetime.now(timezone.utc)
-        funds = context.facts();_need(math.isfinite(funds.fund_pnl),'native_funds')
         account,qualified = self.capital_reader.read(cutoff,deadline)
+        completed_at = datetime.now(timezone.utc)
         self.capital_observation = observe_capital(self.inputs.capital_baseline,Fraction(repr(funds.fund_pnl)),
-            value,cutoff.isoformat(),account,qualified,max_age_seconds=self.max_age,
+            value,completed_at.isoformat(),
+            account,qualified,max_age_seconds=self.max_age,
             position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat(),
-            market_value_source='broker-position+raw-QMT-snapshot')
-        self.sequence += 1
-        candidate = dict(status='waiting_market_input',reason='awaiting_first_strategy_calculation',sequence=self.sequence,
-            broker_observation=asdict(broker),broker_position_qualified=False,recovery_mode=self.recovery,
-            restored_state_id=self.restored_state_id,restored_sequence=self.restored_sequence,
-            cycle_metadata=dict(self.cycles),capital_baseline=self.inputs.capital_baseline,
-            capital=self.capital_observation,initial_market_observation=response)
-        self.publish(self.id,candidate,preview=True,deadline=deadline)
-        context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
-        self.publish(self.id,candidate,deadline=deadline)
+            market_value_source='broker-position+raw-QMT-snapshot',
+            cash_balance=cash,price_observed_at=min(valuation_stamps).isoformat() if valuation_stamps else None)
+        return response
 
     def _flat_source(self,symbol,broker,trades):
         if trades is None or not trades.known or trades.submission_revision is None:return None
@@ -451,12 +564,16 @@ class RetainedStrategy:
             actual_value = sum((Fraction(repr(prices[s]))*quantities.get(self.mapping[s],(0,0))[0]
                                 for s in self.execution), Fraction(0))
             account, qualified = self.capital_reader.read(datetime.now(timezone.utc), deadline)
-            self.capital_observation = observe_capital(self.inputs.capital_baseline, Fraction(repr(facts.fund_pnl)),
-                actual_value, cutoff.isoformat(), account, qualified, max_age_seconds=self.max_age,
-                position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat())
-            spendable = self.capital_observation['spendable_cash_cny']
+            ledger_cash=self._native_cash(context,broker)
+            self.capital_observation = None
+            if ledger_cash is not None and ledger_cash==nav-actual_value:
+                self.capital_observation = observe_capital(self.inputs.capital_baseline, Fraction(repr(facts.fund_pnl)),
+                    actual_value, cutoff.isoformat(), account, qualified, max_age_seconds=self.max_age,
+                    position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat(),
+                    cash_balance=ledger_cash)
+            spendable = None if self.capital_observation is None else self.capital_observation['spendable_cash_cny']
             cash, verified = Fraction(spendable or '0'), spendable is not None
-            nav_source, cash_source = 'current-capital:explicit-baseline+WT-flag0', 'broker-P:raw-mark+NAP-cash-constraint'
+            nav_source, cash_source = 'current-capital:explicit-baseline+WT-flag0', 'original-WT:cash-ledger+NAP-cash-constraint'
             identity = _digest((identity,self.capital_observation,asdict(broker)))
         basis = Basis(cutoff.isoformat(),result_sha,_decimal(nav),repr(facts.fund_pnl),_decimal(cash),
                       self.inputs.fee_reserve_cny,nav_source,cash_source,self.inputs.fee_source,
@@ -638,33 +755,33 @@ def main():
     reports, publication_lock = {}, RLock()
 
     def publish(strategy_id, value, *, preview=False, deadline):
-        _need(publication_lock.acquire(timeout=max(0,deadline-time.monotonic())), 'publication_deadline')
+        if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
+            raise ProjectionPublicationTimeout('projection_lock_deadline')
         try:
             return publish_locked(strategy_id,value,preview=preview,deadline=deadline)
         finally:
             publication_lock.release()
 
     def publish_locked(strategy_id, value, *, preview=False, deadline):
-        def check():
-            _need(time.monotonic() < deadline, 'evaluation_deadline')
-        check()
+        _check_publication_deadline(deadline)
         candidate = dict(reports);candidate[strategy_id] = value
         raw = _encode({'schema': 'guanheng.configured-cta-observation.v2',
                        'control_id': args.control_id, 'config_sha256': args.config_sha256,
                        'pid': os.getpid(), 'strategies': candidate})
         _need(len(raw) <= 4 * 1024 * 1024, 'projection_capacity')
-        check()
+        _check_publication_deadline(deadline)
         if preview:
             return
         temporary = args.control / 'strategies.pending'
-        with temporary.open('xb') as stream:
-            stream.write(raw)
-        check()
-        _replace_projection(temporary, args.control / 'strategies.json', deadline)
-        check()
+        _write_projection(temporary, args.control / 'strategies.json', raw, deadline)
+        # 原子替换已经提交，内存发布状态随即推进；截止不能撤回已提交投影。
         reports[strategy_id] = value
 
     code_identity = _digest(identities)
+    if config.recovery_mode == 'resume_reconciled':
+        from .execution_recovery import load_transition
+        binding = _json(_read(args.control/'python-binding.json',256*1024))
+        load_transition(native,identities,binding=binding)
     strategies = tuple(RetainedStrategy(
                             item,publish,config,native,deadline=args.deadline,code_identity=code_identity)
                        for item in native['strategies'])
@@ -696,6 +813,10 @@ def main():
                         updated = refresh_account_constraint(capital,reader,deadline)
                         if updated != capital:
                             publish_locked(strategy_id,dict(report,capital=updated),deadline=deadline)
+                except ProjectionPublicationTimeout:
+                    # 本轮观察尚未提交时保留最后成功值；下一轮重新读取权威NAP批次。
+                    # 原K线回调仍传播该异常，保持原策略/金融写入失败语义。
+                    continue
                 finally:
                     publication_lock.release()
         except Exception as error:

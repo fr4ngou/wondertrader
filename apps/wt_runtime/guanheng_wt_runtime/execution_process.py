@@ -111,8 +111,8 @@ class ExecutionProcessConfig:
         recovery_mode = None
         if 'recovery' in config:
             selection = config['recovery']
-            _require(type(selection) is dict and set(selection) == {'mode'}
-                     and selection['mode'] in ('record_clean', 'resume_clean'))
+            _require(type(selection) is dict and selection.get('mode') in ('record_clean', 'resume_clean', 'resume_reconciled')
+                     and set(selection) == ({'mode', 'transition'} if selection['mode'] == 'resume_reconciled' else {'mode'}))
             recovery_mode = selection['mode']
         return cls(installation, configuration, hashlib.sha256(raw).hexdigest(), control_root,
                    budget['start_ms'] / 1000., budget['stop_ms'] / 1000., tuple(sorted(files.items())), recovery_mode)

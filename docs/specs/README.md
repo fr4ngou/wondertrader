@@ -215,3 +215,5 @@
 - [原生数据组件固定源码构建](native-data-offline-build.md)：选中非交易原生组件的版本化源码、同批依赖及可搬迁原生组件切片。
 
 - [沪深北日终广度与换手](observer-ashare-day.md)：同日原件、统一stock_day、停牌换手资格、固定包消费与持续来源边界。
+
+- [执行故障核查恢复](execution-fault-recovery.md)：自有恢复准入、固定前后发行身份交接、原状态及资本观察。

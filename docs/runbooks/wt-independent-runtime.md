@@ -31,6 +31,8 @@ WT 先启动分析通信，再启动持续发布，最后启动执行；没有�
 
 观衡只持WT公开查询接口的只读地址及读取凭据，独立启动、停止及更新。观衡关闭或异常退出时，WT运行控制目录、Host、采集和执行owner继续存在；观衡不拥有运行侧停止或下载入口。
 
+整套WT进程物理退出而原关闭收据缺失时，使用已安装WT入口的`--record-process-loss`，沿原`--config`、`--config-sha256`、`--control-directory`和`--control-id`核原实例OS租约及全部已登记PID退出。入口保存独立owner-loss故障，将当前状态标为faulted，components_closed=false保留原join凭据未知。执行owner另记原Native进程退出依据，后继显式resume_reconciled沿原账本、安装/Python及当前券商责任复核；契约见[EFR-14](../specs/execution-fault-recovery.md)。原正常关闭收据和clean仍由实际成功关闭生成。使用前核实原件及原Source/Host未决请求，恢复后的真实业务与页面资格分别验收。
+
 `status.json`使用`guanheng.wt-runtime-status.v1`，包括`control_id`、`instance_id`、`configuration_sha256`、真实`pid`、运行`state`及各组件安全状态。状态文件读取沿独立SDK的`guanheng_market_client.runtime_status.read_status`，兼容Windows原子替换，不需导入运行包。该文件的进程ready不代替来源和业务事实。
 
 ## 正常停止及故障

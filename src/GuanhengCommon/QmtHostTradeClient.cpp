@@ -615,7 +615,9 @@ public:
     {
         const auto checked = event_gate(deadline, failure, control, QmtTradeEventReadStage::Binding); if (!checked.ok()) return checked;
         accepting = accepting_cancel = false;
-        auto reply = http.exchange("GET", "/internal/v1/read-binding", "", deadline, metadata_capacity);
+        auto reply = http.read_binding(deadline,metadata_capacity,[&]{
+            return event_gate(deadline,failure,control,QmtTradeEventReadStage::Binding);
+        });
         event_reply_failure(failure, reply);
         if (!reply.status.ok()) return reply.status;
         if (reply.code != 200) return signed_http_error(reply.code);

@@ -162,6 +162,15 @@ int32_t GH_RT_CALL gh_ms_price(uint64_t epoch,const char* code,double* out){retu
 int32_t GH_RT_CALL gh_ms_position(uint64_t epoch,const char* code,GhRtPosition* out){return api([&]()->int32_t{
     auto& b=access(epoch);cta_require(out&&out->size==sizeof(*out));*out=cta_position(*b.ctx,b.binding->reads,symbol(b,code));return GH_RT_OK;
 });}
+int32_t GH_RT_CALL gh_ms_cash_basis(uint64_t epoch,const char* code,GhMsCashBasis* out){return api([&]()->int32_t{
+    auto& b=access(epoch);cta_require(out&&out->size==sizeof(*out)&&out->version==1);
+    const auto name=symbol(b,code);GhMsCashBasis value{};value.size=sizeof(value);value.version=1;
+    value.realized_pnl_cny=b.ctx->stra_get_fund_data(1);value.fees_cny=b.ctx->stra_get_fund_data(3);
+    value.average_price_cny=b.ctx->stra_get_position_avgpx(name.c_str());
+    cta_require(std::isfinite(value.realized_pnl_cny)&&std::isfinite(value.fees_cny)
+        &&std::isfinite(value.average_price_cny)&&value.average_price_cny>=0,GH_RT_UNKNOWN);
+    *out=value;return GH_RT_OK;
+});}
 int32_t GH_RT_CALL gh_ms_bars(uint64_t epoch,const char* code,const char* period,uint32_t count,uint32_t main,
     GhRtBar* out,uint32_t capacity,uint32_t* written){return api([&]()->int32_t{
     auto& b=access(epoch);cta_require(out&&written&&main<=1&&capacity>=count&&capacity<=GH_RT_MAX_BARS,GH_RT_CAPACITY);

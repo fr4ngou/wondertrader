@@ -218,11 +218,11 @@ class InitialInventoryExecutionProcess(ManagedPythonExecutionProcess):
         raw = _read(self.config.configuration, 256*1024, clock=self._clock, deadline=deadline)
         _require(sha256(raw).hexdigest() == self.config.configuration_sha256)
         native = _json(raw)
-        _require(self.config.recovery_mode in ('record_clean', 'resume_clean') and 'takeover' not in native)
+        _require(self.config.recovery_mode in ('record_clean', 'resume_clean', 'resume_reconciled') and 'takeover' not in native)
         identity = dict(native);identity.pop('recovery')
         origin = sha256(_encode(dict(configuration=identity, startup=self.inventory.identity))).hexdigest()
         root = self.inventory.state_root
-        if self.config.recovery_mode == 'resume_clean':
+        if self.config.recovery_mode in ('resume_clean', 'resume_reconciled'):
             _inspect(root, directory=True)
             receipt = _json(_read(root/'BASELINE.json', 65536, clock=self._clock, deadline=deadline))
             _require(set(receipt) == {'schema', 'origin_sha256', 'baseline_at', 'source_sha256', 'files'}
