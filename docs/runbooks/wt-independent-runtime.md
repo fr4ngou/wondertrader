@@ -2,6 +2,22 @@
 
 类型：运行手册。状态：独立安装、正式1.1.2首次库存接管、正常调仓、限定未知委托连续性及自有挂单撤清后重算的简版恢复已有SDK替身资格；最终真实QMT来源及生产启用分别验收。当前候选及使用位置见[WT独立交付](../releases/2026-11-01-wt-independent-candidate.md)，业务依据见[完整安装接收](../evidence/2026-11-01-wt-simple-recovery-installed.md)。适用范围：独立WT发行环境。职责及配置唯一正文见[WRI](../specs/independent-wt-runtime.md)。
 
+## 日常启动、停止和状态查看
+
+安装角色固定`service.json`后，操作员只执行以下三个命令，不编辑控制UUID或配置摘要：
+
+```powershell
+E:\guanheng\wt\venv\Scripts\guanheng-wt-service.exe start --service-config E:\guanheng\wt\service.json
+E:\guanheng\wt\venv\Scripts\guanheng-wt-service.exe status --service-config E:\guanheng\wt\service.json
+E:\guanheng\wt\venv\Scripts\guanheng-wt-service.exe stop --service-config E:\guanheng\wt\service.json
+```
+
+成功启动返回`state=ready`；来源尚未具备时返回组件的实际等待状态。重复启动返回`changed=false`并保持同一控制身份。正常停止返回`state=stopped`，重复停止返回`changed=false`。停止完成后再次启动会生成新`control_id`并保持同一`instance_id`，旧代状态和关闭收据继续保留。
+
+`state=faulted`、`process_lost`、`start_timeout`或`stop_timeout`进入故障处理。保留公开`CURRENT.json`、本代控制目录、代际配置和业务原件，沿[故障处理规范](incidents.md)核查。服务入口不会自动重启故障代，也不会按进程名结束外部进程。
+
+固定公开路径`CURRENT.json`供观衡等只读消费者发现当前代。该文件严格为五字段协议，不存储环境、账户、凭证或启动命令。生产安装、配置变更和现场切换仍按[发布规范](release.md)执行。
+
 ## 安装和启动
 
 1. 使用发行安装器准备独立WT环境及其原生组件；WT环境不要求安装观衡Web包或SPA。QMT Host使用安装器声明的独立Host环境。

@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
+
+from guanheng_wt_runtime.execution_process import ManagedExecutionProcess
 
 from guanheng_wt_runtime.execution_recovery import (
     compatible_business_configuration,
@@ -81,6 +84,32 @@ class ExecutionBusinessIdentityTests(unittest.TestCase):
                 new["budget"]["run_ms"] = invalid
                 with self.assertRaises(ValueError):
                     compatible_business_configuration(new, old)
+
+
+class ExecutionConfigurationSnapshotTests(unittest.TestCase):
+    def test_native_receives_same_bytes_as_recovery_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            configuration = root / "deployment.json"
+            raw = canonical({"schema": "synthetic-native-configuration", "budget": {"run_ms": 0}})
+            configuration.write_bytes(raw)
+            control = root / "control"
+            control.mkdir()
+            process = object.__new__(ManagedExecutionProcess)
+            process.config = SimpleNamespace(
+                configuration=configuration, configuration_sha256=sha256(raw).hexdigest(), pythonw=root / "pythonw.exe")
+            process._directory, process._control_id = control, "synthetic-control"
+            command = process._command()
+            self.assertEqual((control / "execution.json").read_bytes(), raw)
+            self.assertEqual(command[command.index("--config-sha256") + 1], sha256(raw).hexdigest())
+            self.assertEqual(process._command(), command)
+            # 已物化配置沿原件复用，另一个部署模板不能覆盖原ready将绑定的配置。
+            process.config.configuration = control / "execution.json"
+            self.assertEqual(process._command()[2], str(control / "execution.json"))
+            process.config.configuration = configuration
+            (control / "execution.json").write_bytes(canonical({"other": "configuration"}))
+            with self.assertRaises(ValueError):
+                process._command()
 
 
 if __name__ == "__main__":

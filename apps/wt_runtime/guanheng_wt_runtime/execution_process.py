@@ -47,14 +47,14 @@ def _library_files(installation, *, clock=time.monotonic, deadline=float('inf'))
 
 @dataclass(frozen=True)
 class ExecutionProcessConfig:
-    installation: Path
-    configuration: Path
-    configuration_sha256: str
-    control_root: Path
-    startup_seconds: float
-    stop_seconds: float
-    artifacts: tuple[tuple[str, str], ...]
-    recovery_mode: str | None = None
+    installation: Path  # 固定原生安装绝对目录；启动前核完整安装清单，进程存续期间保持冻结。
+    configuration: Path  # 本代实际Native配置原件；库存准备后指向物化配置，供本代快照与恢复核验。
+    configuration_sha256: str  # 上述配置完整原字节SHA256；与Native ready/关闭收据绑定，必填。
+    control_root: Path  # 各控制代的私有父目录；由监督owner创建本代子目录并保留原件。
+    startup_seconds: float  # 本代启动预算，单位秒；从Native start_ms转换，不含运行时长。
+    stop_seconds: float  # 正常停止与回收预算，单位秒；从stop_ms转换，持续模式仍生效。
+    artifacts: tuple[tuple[str, str], ...]  # 安装相对文件名与原字节SHA256的不可变集合，来自安装清单。
+    recovery_mode: str | None = None  # 显式恢复模式；None表示未声明，不能替代原账准入证据。
 
     @property
     def pythonw(self):
@@ -142,6 +142,16 @@ class ManagedExecutionProcess(ManagedLocalProcess):
         self._directory.mkdir()
 
     def _command(self):
+        # 保存本代真正交给Native的原配置，供正常/故障接续按ready中的SHA核对。
+        # 库存准备器已在该位置生成物化配置时复用原件，禁止再写回部署模板。
+        raw = _read(self.config.configuration, 256 * 1024)
+        _require(hashlib.sha256(raw).hexdigest() == self.config.configuration_sha256)
+        snapshot = self._directory / 'execution.json'
+        if snapshot.exists():
+            _require(_read(snapshot, 256 * 1024) == raw)
+        else:
+            with snapshot.open('xb') as stream:
+                _require(stream.write(raw) == len(raw))
         return (str(self.config.pythonw), '--config', str(self.config.configuration),
                 '--control', str(self._directory), '--control-id', self._control_id,
                 '--config-sha256', self.config.configuration_sha256)
@@ -227,11 +237,11 @@ class ManagedExecutionProcess(ManagedLocalProcess):
 @dataclass(frozen=True)
 class PythonExecutionProcessConfig:
     """固定入口使用当前安装解释器；native仍为原生配置的唯一owner。"""
-    native: ExecutionProcessConfig
-    pythonw: Path
-    python_files: tuple[tuple[str, str], ...]
-    site_root: Path
-    packages: tuple[str, ...] = _RETAINED_PYTHON_PACKAGES
+    native: ExecutionProcessConfig  # 本代原生配置与安装绑定；Python装配继续沿同一Native owner。
+    pythonw: Path  # 固定安装解释器入口绝对路径；实际CLI/无窗口入口随发行身份核验。
+    python_files: tuple[tuple[str, str], ...]  # 解释器及受管源码绝对路径与SHA256；由本次安装清点生成。
+    site_root: Path  # 上述受管Python包的唯一site-packages绝对目录；子进程隔离加载。
+    packages: tuple[str, ...] = _RETAINED_PYTHON_PACKAGES  # 已绑定的策略与运行依赖包名集合，默认唯一保留策略。
 
     def __getattr__(self, name):
         return getattr(self.native, name)

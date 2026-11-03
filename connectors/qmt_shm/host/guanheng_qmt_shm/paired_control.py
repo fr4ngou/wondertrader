@@ -101,6 +101,7 @@ class _Owner:
         self.monitor_joined = True
         self.ready_written = self.stop_seen = self.server_closed = False
         self.first = None
+        self._failure_diagnostic = None  # 映射runtime_failed前冻结的首故障副本；只在原结果确定后写文件。
         self.deadline = None
         self.startup_deadline = time.monotonic() + runtime.budget.connect_seconds + runtime.budget.io_seconds + 1
 
@@ -108,6 +109,42 @@ class _Owner:
         with self.lock:
             if self.first is None:
                 self.first = code
+
+    def capture_failure_diagnostic(self):
+        """仅复制原常驻owner的白名单纯值；失败不影响原错误和关闭路径。"""
+        try:
+            from .read_service import ReconnectingReadService
+            if isinstance(self.runtime, ReconnectingReadService):
+                value = self.runtime.failure_diagnostic_snapshot
+                if value is not None:
+                    if self._failure_diagnostic is None:
+                        self._failure_diagnostic = value
+                    else:
+                        # 首业务故障保持原快照；收尾只补首次退休分类及当时清理状态。
+                        self._failure_diagnostic['retirement'] = value['retirement']
+                        self._failure_diagnostic['cleanup_reason'] = value['cleanup_reason']
+        except Exception:
+            pass
+
+    def publish_failure_diagnostic(self):
+        """原结果及截止检查完成后独占原子发布；诊断I/O不参与关闭成功判定。"""
+        try:
+            self.capture_failure_diagnostic()
+            if self.directory is None or self._failure_diagnostic is None:
+                return
+            value = dict(
+                schema='qmt.host-failure-diagnostic.v1',  # 独立诊断版本；不扩展ready/closed协议。
+                control_id=self.control_id, pid=self.pid,  # 原控制owner身份，不含连接或账户正文。
+                **self.identity,  # 已核pair原字节摘要；沿原收据绑定本次运行。
+                **self._failure_diagnostic)  # 首次故障、首次退休异常及清理分类的固定白名单副本。
+            raw = canonical(value)
+            _require(0 < len(raw) <= MAX_CONTROL_BYTES)
+            temporary = self.directory / ('failure-diagnostic.' + uuid4().hex + '.tmp')
+            write_private_new(temporary, raw)
+            # Windows rename目标存在时拒绝覆盖；保留已发布的首个原件，不重试或删改。
+            temporary.rename(self.directory / 'failure-diagnostic.json')
+        except Exception:
+            pass
 
     def validate_identity(self):
         identity = self._provided_identity
@@ -200,6 +237,7 @@ class _Owner:
                 if self.runtime.shutdown_started:
                     return
                 if getattr(self.runtime, 'failure', None) is not None:
+                    self.capture_failure_diagnostic()
                     self.fail('runtime_failed')
                     self.stop()
                     return
@@ -319,6 +357,7 @@ class _Owner:
         if complete:
             with _PENDING_LOCK:
                 _PENDING.discard(self)
+        self.publish_failure_diagnostic()
         return result
 
 

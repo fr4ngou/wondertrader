@@ -308,6 +308,14 @@ stop.json schema=qmt.host-stop.v1，含control_id及同机绝对monotonic deadli
 App先停止账户消费者，再在同一个应用关闭D内给Host保留其显式stop预算。启动中取消接管晚返回owner，禁止第二Host；意外退出显示故障并保留其他观衡功能，不盲目重启或接管陌生端口。关闭失败保owner；TerminateJobObject及父死亡KILL_ON_JOB_CLOSE只作异常收口，不记为优雅退出。Windows登录自动启动留待安装及真实终端验收，不因CLI存在而擅自设置系统任务。
 
 
+### R20.9 Host首次故障诊断
+
+常驻Host在原`runtime_failed`映射前冻结首次故障的纯值快照，独立记录固定分类`reason/lifecycle/generation/cleanup_reason`、原单代异常类及首次退休失败的异常类、步骤和原截止剩余毫秒。未知分类输出`other`，缺失输出null；不采集异常正文、文件路径、账户、凭证或请求/结果正文。
+
+控制owner在原关闭收据和返回结果已经确定后，以创建期私有权限独占发布同目录`failure-diagnostic.json`，schema固定`qmt.host-failure-diagnostic.v1`，原子发布的正文不超过4096字节。首个业务故障与首次退休失败分别保存，后续清理分类保持独立。诊断读写失败不覆盖原错误、不跳过清理、不重开截止；正常运行不产生此文件。原ready/closed字段、消费者、恢复证明和交易权限保持原契约。
+
+验收以原常驻管理器与控制owner的实际调用链注入运行故障、退休异常及诊断写入失败，核第一原因、同一原截止、关闭结果及敏感文本隔离。诊断补充仅证明下次故障可分类，现存故障根因和现场修复分别验收。
+
 ### R18.1 同实例整次提交组准入（首片 accepted，完整生产恢复未完成）
 
 显式 order_context=query_first 的自有派生上下文在调用原 WT Local/base.buy或sell前，通过自有StandardSubmission固定POD接口认领整次同步group。缺省/native继续原路径；配置在init固定，禁止热切。group覆盖一次base拆出的全部真实Entrust，下一次tick/重入在base前得到明确Blocked；错线程拒绝，不持管理锁跨WT/SDK/SPI。查询getUndoneQty仍采用完整真实ORDER，空批保持0，不生成虚拟挂单或金融账本。

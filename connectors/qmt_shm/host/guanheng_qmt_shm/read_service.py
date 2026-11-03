@@ -12,6 +12,21 @@ from .runtime import error
 
 
 _TRANSPORT = frozenset(('OSError', 'TimeoutError', 'BrokenPipeError', 'ConnectionResetError'))
+_DIAGNOSTIC_REASONS = _TRANSPORT | frozenset((
+    'ConnectionAbortedError', 'AuthenticationError', 'PermissionError', 'ProtocolError',
+    'GatewayError', 'ValueError', 'TypeError', 'KeyError', 'RuntimeError', 'BufferError',
+    'OperationalError', 'DatabaseError', 'IntegrityError', 'InterfaceError', 'ProgrammingError',
+    'MemoryError', 'OverflowError', 'journal_unavailable', 'control_interrupt_unconfirmed',
+    'trade_shutdown_unconfirmed'))
+_DIAGNOSTIC_CATEGORIES = frozenset(stage + '_' + kind
+    for stage in ('factory', 'startup', 'runtime')
+    for kind in ('transport', 'authentication_or_protocol', 'configuration', 'journal', 'fault')) | frozenset((
+        'startup_timeout', 'manager_start_unconfirmed', 'retirement_unconfirmed'))
+
+
+def _diagnostic_enum(value, allowed):
+    """只复制固定类别；缺失与未知分别保留为null和other，禁止输出外部文本。"""
+    return None if value is None else value if type(value) is str and value in allowed else 'other'
 
 
 def _category(reason, stage):
@@ -84,6 +99,8 @@ class ReconnectingReadService:
         self._active = self._generation = 0
         self._limits = None
         self._phase, self._failure, self._cleanup_failure = 'new', None, None
+        self._failure_diagnostic = None  # 本服务首次故障的白名单纯值；跨退休保留，原owner持有。
+        self._retirement_diagnostic = None  # 首次退休失败的分类、步骤及原D剩余毫秒；不授关闭证明。
 
     def _admit_configuration(self, configuration, profile):
         """默认保持原只读准入；显式产品只复用下面的运输代际和关闭 owner。"""
@@ -162,11 +179,41 @@ class ReconnectingReadService:
     def _fault(self, category, *, cleanup=False):
         with self._condition:
             if self._failure is None:
+                try:
+                    runtime = self._runtime
+                    self._failure_diagnostic = dict(
+                        reason=_diagnostic_enum(category, _DIAGNOSTIC_CATEGORIES),  # 首次服务故障固定分类。
+                        lifecycle=_diagnostic_enum(self._phase, frozenset((
+                            'new', 'starting', 'waiting', 'connected', 'retiring', 'faulted', 'stopped'))),  # 故障前阶段。
+                        generation=self._generation if type(self._generation) is int
+                            and 0 <= self._generation <= 2**53-1 else None,  # 本服务创建代数，未知为null。
+                        cleanup_reason=_diagnostic_enum(category if cleanup else self._cleanup_failure,
+                            _DIAGNOSTIC_CATEGORIES),  # 首故障当时的清理分类，与后续退休失败分开。
+                        runtime_failure=_diagnostic_enum(getattr(runtime, 'failure', None), _DIAGNOSTIC_REASONS),  # 原单代首因。
+                        runtime_cleanup=_diagnostic_enum(getattr(runtime, 'cleanup_failure', None), _DIAGNOSTIC_REASONS),  # 原资源清理类。
+                        runtime_interruption=_diagnostic_enum(getattr(runtime, 'interruption_failure', None), _DIAGNOSTIC_REASONS))  # 原派发交接类。
+                except Exception:
+                    pass  # 诊断构造失败仍推进原故障、停止与owner保留，禁止以诊断异常替换首因。
                 self._failure = category
             if cleanup and self._cleanup_failure is None:
                 self._cleanup_failure = category
             self._phase, self._admitting = 'faulted', False
         self.connected.clear()
+
+    @property
+    def failure_diagnostic_snapshot(self):
+        """控制owner读取白名单副本；不等待业务锁，不调用health/Journal或改变原截止。"""
+        if not self._condition.acquire(blocking=False):
+            return None
+        try:
+            first = getattr(self, '_failure_diagnostic', None)
+            retired = getattr(self, '_retirement_diagnostic', None)
+            return None if first is None else dict(
+                first_failure=dict(first),  # 不可变首次故障的副本；后续清理不能覆盖其字段。
+                retirement=None if retired is None else dict(retired),  # 首次退休异常；未发生或未捕获为null。
+                cleanup_reason=_diagnostic_enum(self._cleanup_failure, _DIAGNOSTIC_CATEGORIES))  # 读取时的清理分类。
+        finally:
+            self._condition.release()
 
     def _validate_runtime(self, runtime):
         if (getattr(runtime, 'trade_requests_enabled', False) is not False
@@ -231,6 +278,7 @@ class ReconnectingReadService:
             if self._failure is None:
                 self._phase = 'retiring'
         self.connected.clear()
+        stage = 'active_calls'
         try:
             with self._condition:
                 while self._active:
@@ -238,23 +286,32 @@ class ReconnectingReadService:
                     if remaining <= 0:
                         raise TimeoutError('entered proxy calls remain owned')
                     self._condition.wait(min(remaining, self.poll_seconds))
+            stage = 'deadline'
             deadline = self._deadline(deadline)
             if time.monotonic() >= deadline:
                 raise TimeoutError('original retirement deadline elapsed')
             first = None
+            first_stage = None
+            stage = 'request_close'
             try:
                 runtime.request_close()
             except BaseException as exc:
                 first = exc
+                first_stage = stage
+            stage = 'runtime_close'
             try:
                 runtime.close(deadline)
             except BaseException as exc:
                 if first is None:
                     first = exc
+                    first_stage = stage
             if first is not None:
+                stage = first_stage
                 raise first
+            stage = 'closed_state'
             if runtime.closed_complete is not True or runtime.io_resources_closed is not True:
                 raise RuntimeError('generation close remains unconfirmed')
+            stage = 'owner_release'
             with self._condition:
                 # runtime.close可能与显式stop交错；释放owner前沿当前
                 # 最早D确认，不能沿调用close前捕获的旧值报退休完成。
@@ -265,7 +322,17 @@ class ReconnectingReadService:
                     raise RuntimeError('generation ownership differs')
                 self._runtime = None
             return True
-        except BaseException:
+        except BaseException as exc:
+            try:
+                with self._condition:
+                    if getattr(self, '_retirement_diagnostic', None) is None:
+                        self._retirement_diagnostic = dict(
+                            exception_type=_diagnostic_enum(type(exc).__name__, _DIAGNOSTIC_REASONS),  # 固定异常类，原正文保留私有。
+                            step=stage,  # 本方法固定步骤，区分引用等待、原close及owner确认。
+                            remaining_budget_ms=max(-600000, min(600000,
+                                int((self._deadline(deadline)-time.monotonic())*1000))))  # 同机原D剩余毫秒，负值表示已超期。
+            except Exception:
+                pass  # 纯值快照失败不能跳过原retirement_unconfirmed或释放原owner。
             self._fault('retirement_unconfirmed', cleanup=True)
             return False
 
