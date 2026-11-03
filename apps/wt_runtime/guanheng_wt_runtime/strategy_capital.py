@@ -137,6 +137,11 @@ class AccountCashReader:
             return self.last, False
 
 
+def cash_reconciles(nav, market_value, cash):
+    """原WT double与精确原价/成本重建只容许1e-8 CNY表示误差，原值全部保留。"""
+    return abs(cash-(nav-market_value)) <= Fraction(1,100000000)
+
+
 def observe_capital(origin, pnl, market_value, observed_at, account, qualified, *, max_age_seconds=60,
                     position_observed_at=None, market_value_source='broker-position+raw-CTA-price',
                     cash_balance=None, price_observed_at=None):  # 独立原现金依据与原报价时间；均不冒充账户批次时间。
@@ -149,7 +154,7 @@ def observe_capital(origin, pnl, market_value, observed_at, account, qualified, 
     _require(market_value_source in ('broker-position+raw-CTA-price', 'broker-position+raw-QMT-snapshot'))
     nav = rational(origin['total_cny']) + pnl
     cash = nav - market_value if cash_balance is None else cash_balance
-    _require(cash == nav-market_value)
+    _require(cash_reconciles(nav,market_value,cash))
     spendable = None
     if account is not None and qualified:
         spendable = min(max(Fraction(0), cash-rational(account.frozen_cash_cny)),

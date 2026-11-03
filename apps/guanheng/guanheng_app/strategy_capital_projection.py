@@ -43,7 +43,7 @@ def project_capital(value, origin, *, runtime_state='ready'):
         and value['cash_constraint_scope'] == 'account-wide-conservative-limit')
     amounts = {k: _amount(value[k]) for k in ('native_pnl_cny','nav_cny','market_value_cny','cash_balance_cny')}
     _need(amounts['nav_cny'] == _amount(origin['total_cny'])+amounts['native_pnl_cny']
-        and amounts['cash_balance_cny'] == amounts['nav_cny']-amounts['market_value_cny']
+        and abs(amounts['cash_balance_cny']-(amounts['nav_cny']-amounts['market_value_cny'])) <= Fraction(1,100000000)
         and amounts['market_value_cny'] >= 0)
     stamp = datetime.fromisoformat(value['observed_at'])
     _need(stamp.utcoffset() is not None and stamp <= datetime.now(timezone.utc))

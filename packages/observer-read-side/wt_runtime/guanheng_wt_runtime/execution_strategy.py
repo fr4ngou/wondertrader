@@ -45,6 +45,20 @@ class Facts(_Packed):
                 ('tdate', C.c_uint32), ('fund_pnl', C.c_double)]
 
 
+class CashBasis(_Packed):
+    _fields_ = [('size', C.c_uint32), ('version', C.c_uint32),  # 可选现金扩展结构大小与版本1。
+                ('realized_pnl_cny', C.c_double),  # WT原已实现盈亏，CNY。
+                ('fees_cny', C.c_double),  # WT原累计费用，CNY。
+                ('average_price_cny', C.c_double)]  # 证券原平均成本，CNY/份。
+
+
+class Quote(_Packed):
+    _fields_ = [('size', C.c_uint32), ('version', C.c_uint32),  # 原扩展大小与版本1。
+                ('action_date', C.c_uint32),  # 原tick事件日期，上海YYYYMMDD。
+                ('action_time', C.c_uint32),  # 原tick事件时刻，上海HHMMSSmmm。
+                ('price_cny', C.c_double)]  # 原WT已应用tick原价，CNY/份。
+
+
 class Position(_Packed):
     _fields_ = [('size', C.c_uint32), ('flags', C.c_uint32),
                 *[(key, C.c_double) for key in ('raw_position', 'raw_valid', 'enum_target')],
@@ -117,7 +131,7 @@ class StrategyBinding:
     strategy_id: str
     main_symbol: str
     read_symbols: tuple[str, ...]
-    execution_symbols: tuple[str, ...]
+    execution_symbols: tuple[str, ...]  # 明确目标权限；空元组为只读绑定，须Native可选能力1。
     callback: object
 
     def __post_init__(self):
@@ -126,8 +140,8 @@ class StrategyBinding:
         stem = name.split('.')[0].lower()
         _need(stem not in ('con', 'prn', 'aux', 'nul') and not re.fullmatch(r'(?:com|lpt)[1-9]', stem))
         _symbol(self.main_symbol)
-        for values, maximum in ((self.read_symbols, 16), (self.execution_symbols, 8)):
-            _need(type(values) is tuple and 0 < len(values) <= maximum)
+        for values, maximum, minimum in ((self.read_symbols, 16, 1), (self.execution_symbols, 8, 0)):
+            _need(type(values) is tuple and minimum <= len(values) <= maximum)
             _need(len(set(values)) == len(values))
             for code in values:
                 _symbol(code)
@@ -170,6 +184,20 @@ class FactsValue:
     time: int
     tdate: int
     fund_pnl: float
+
+
+@dataclass(frozen=True)
+class CashBasisValue:
+    realized_pnl_cny: float  # WT flag1原已实现盈亏，CNY。
+    fees_cny: float  # WT flag3原费用，CNY。
+    average_price_cny: float  # 当前证券原WT平均持仓成本，CNY/份。
+
+
+@dataclass(frozen=True)
+class QuoteValue:
+    action_date: int  # 原tick上海事件日期YYYYMMDD。
+    action_time: int  # 原tick上海事件时刻HHMMSSmmm，保留原毫秒。
+    price_cny: float  # 原WT已应用的tick价格，CNY/份。
 
 
 @dataclass(frozen=True)
@@ -272,6 +300,26 @@ class CallbackContext:
         self._ok(api.gh_ms_facts(self.event.epoch, C.byref(out)))
         return FactsValue(out.date, out.time, out.tdate, out.fund_pnl)
 
+    def cash_basis(self, code):
+        """同一回调借用原WT现金依据；缺扩展时只撤销资金观察资格。"""
+        api=self._access();function=getattr(api,'gh_ms_cash_basis',None)
+        if function is None:return None
+        out=CashBasis();out.size=C.sizeof(out);out.version=1
+        result=function(self.event.epoch,self._code(code),C.byref(out))
+        if result==-8:return None
+        self._ok(result)
+        return CashBasisValue(out.realized_pnl_cny,out.fees_cny,out.average_price_cny)
+
+    def quote(self, code):
+        """同epoch复制原WT已应用tick；缺扩展/首tick时返回None。"""
+        api=self._access();function=getattr(api,'gh_ms_quote',None)
+        if function is None:return None
+        out=Quote();out.size=C.sizeof(out);out.version=1
+        result=function(self.event.epoch,self._code(code),C.byref(out))
+        if result==-8:return None
+        self._ok(result)
+        return QuoteValue(out.action_date,out.action_time,out.price_cny)
+
     def price(self, code):
         api = self._access();out = C.c_double()
         self._ok(api.gh_ms_price(self.event.epoch, self._code(code), C.byref(out)))
@@ -297,6 +345,7 @@ class CallbackContext:
 
     def set_targets(self, values):
         api = self._access((4,))
+        _need(bool(self._binding.execution_symbols),'target_submission_disabled')
         _need(type(values) is tuple and len(values) == len(self._binding.execution_symbols), 'incomplete_target')
         _need(all(type(row) is tuple and len(row) == 2 for row in values), 'invalid_target')
         _need(all(type(code) is str for code, _ in values), 'invalid_target')
@@ -427,8 +476,18 @@ class CtaRuntime:
         if self._state_abi:
             prototypes.update(gh_ms_state_read=[C.c_uint64, C.POINTER(C.c_char), C.c_uint32, C.POINTER(C.c_uint32)],
                               gh_ms_state_write=[C.c_uint64, C.c_char_p, C.c_uint32])
+        if getattr(api,'gh_ms_cash_basis',None) is not None:
+            prototypes['gh_ms_cash_basis']=[C.c_uint64,C.c_char_p,C.POINTER(CashBasis)]
+        if getattr(api,'gh_ms_quote',None) is not None:
+            _need(api.gh_ms_layout(8)==C.sizeof(Quote),'quote_abi_layout')
+            prototypes['gh_ms_quote']=[C.c_uint64,C.c_char_p,C.POINTER(Quote)]
         for name, parameters in prototypes.items():
             function = getattr(api, name);function.argtypes = parameters;function.restype = C.c_int32
+        if any(not binding.execution_symbols for binding in bindings):
+            readonly=getattr(api,'gh_ms_read_only_abi_version',None)
+            _need(readonly is not None,'readonly_binding_capability')
+            readonly.argtypes=[];readonly.restype=C.c_uint32
+            _need(readonly()==1,'readonly_binding_capability')
         for binding in bindings:
             _need(time.monotonic() < deadline, 'startup_deadline')
             config = _Config();config.size = C.sizeof(config);config.abi_version = 1

@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import hashlib
+import copy
+import math
 import json
 import os
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from pathlib import Path
 import time
 
-from .managed_local_process import _inspect, _json, _read, _require, _sha
+from .managed_local_process import _inspect, _json, _path, _read, _require, _sha
 
 
 def canonical(value):
@@ -73,6 +76,222 @@ def record_execution_process_loss(control, *, expected=None):
     return value
 
 
+def _business(value):
+    """原Native业务配置；恢复选择不属于持仓模型身份。"""
+    value=copy.deepcopy(value);value.pop('recovery',None)
+    return value
+
+
+def _market_sources(marker):
+    """只读来源声明；秘密只以环境变量名出现，连接固定本机服务。"""
+    def endpoint(value):
+        _require(type(value) is str)
+        url=urlsplit(value)
+        _require(url.scheme=='http' and url.hostname=='127.0.0.1' and url.port is not None
+            and url.username is None and url.password is None and url.path in ('','/')
+            and not url.query and not url.fragment)
+    quotes=marker.get('quotes')
+    if quotes is not None:
+        _require(type(quotes)is dict and set(quotes)=={'base_url','token_env','timeout_seconds','max_response_bytes','max_age_seconds'})
+        endpoint(quotes['base_url'])
+        _require(type(quotes['token_env'])is str and quotes['token_env'].isidentifier()
+            and type(quotes['timeout_seconds'])in(int,float)and 0<quotes['timeout_seconds']<=30
+            and type(quotes['max_response_bytes'])is int and 8192<=quotes['max_response_bytes']<=16*1024*1024
+            and type(quotes['max_age_seconds'])in(int,float)and 0<quotes['max_age_seconds']<=3600)
+    parser=marker.get('parser')
+    if parser is not None:
+        _require(type(parser)is dict and set(parser)=={'module','base_url','key_id_env','hmac_secret_env'}
+            and parser['module']=='ParserQMTHostRetainedV6')
+        endpoint(parser['base_url'])
+        _require(all(type(parser[k])is str and parser[k].isidentifier()for k in ('key_id_env','hmac_secret_env')))
+    return quotes,parser
+
+
+def market_origin_configuration(native, *, deadline=float('inf')):
+    """显式行情接入只沿原配置/SHA回到基准；其余业务字段逐项保持。
+
+    原参考只允许一跳且没有另一份origin，避免循环别名。准备阶段尚未注入
+    takeover，按相同阶段比较；Native准入再核实际原takeover及状态文件。
+    """
+    marker=native.get('market_input_origin')
+    if marker is None:return native
+    _require(type(marker) is dict and {'schema','file','sha256'}<=set(marker)<={'schema','file','sha256','quotes','parser'}
+        and marker['schema']=='guanheng.market-input-origin.v1')
+    path=_path(marker['file']);_require(path.name=='execution.json')
+    raw=_read(path,256*1024,deadline=deadline,clock=time.monotonic)
+    _require(hashlib.sha256(raw).hexdigest()==_sha(marker['sha256']))
+    origin=_json(raw);_require('market_input_origin' not in origin)
+    preparing='takeover' not in native and 'takeover' in origin
+    if preparing:origin.pop('takeover')
+    before,after=_business(origin),_business(native);after.pop('market_input_origin')
+    _require(type(after.get('strategies')) is list and len(after['strategies'])==1
+        and type(before.get('strategies')) is list and len(before['strategies'])==1)
+    current=after['strategies'][0]['parameters']['python_strategy']
+    previous=before['strategies'][0]['parameters']['python_strategy']
+    quotes,parser=_market_sources(marker)
+    if quotes is not None and not preparing:
+        _require(current.get('capital_market')==quotes and 'capital_market'in previous)
+        current['capital_market']=copy.deepcopy(previous['capital_market'])
+    if parser is not None:
+        new_parsers,old_parsers=after['parsers'],before['parsers']
+        _require(len(new_parsers)==len(old_parsers)==1 and old_parsers[0]['module']=='ParserQMTHostV6'
+            and new_parsers[0]['module']==parser['module'])
+        new_parsers[0]['module']=old_parsers[0]['module']
+        for k in ('base_url','key_id_env','hmac_secret_env'):
+            _require(new_parsers[0]['qmt'][k]==parser[k])
+            new_parsers[0]['qmt'][k]=old_parsers[0]['qmt'][k]
+    _require('market_window' not in previous and 'market_window' in current)
+    window=current.pop('market_window')
+    _require(type(window) is dict and set(window)=={'path','max_age_seconds'}
+        and type(window['path']) is str and Path(window['path']).is_absolute()
+        and type(window['max_age_seconds']) in (int,float)
+        and math.isfinite(window['max_age_seconds']) and 1<=window['max_age_seconds']<=604800)
+    daily=after['data']['store']['daily'];old_daily=before['data']['store']['daily']
+    _require('publication' not in old_daily and 'adjustment' not in old_daily)
+    publication=daily.pop('publication');adjustment=daily.pop('adjustment','none')
+    _require(adjustment in ('none','front_ratio') and type(publication) is dict
+        and {'status_file','publication_file','cache_root'}<=set(publication)
+        <={'status_file','publication_file','cache_root','source_root'}
+        and all(type(v) is str and Path(v).is_absolute() for v in publication.values())
+        and Path(publication['publication_file'])==Path(window['path']))
+    if preparing:
+        # 原准备器随后用BASELINE的runtime-input替换模板引用；此处返回真正的
+        # 准备配置投影，由原origin哈希完整约束模板及启动账户/报价，不改写BASELINE。
+        for name in ('input_file','input_sha256','capital_account','capital_market'):
+            if name in current:previous[name]=current[name]
+            else:previous.pop(name,None)
+    _require(before==after)
+    if preparing:
+        after['recovery']=copy.deepcopy(native['recovery'])
+        return after
+    return origin
+
+
+def compatible_business_configuration(current, previous, *, deadline=float('inf')):
+    """同一原模型允许显式市场引用接入；原窗口内容继续由数据owner发布。"""
+    before=_business(market_origin_configuration(previous,deadline=deadline))
+    after=_business(market_origin_configuration(current,deadline=deadline))
+    if ('takeover' in current)!=('takeover' in previous):
+        # 准备器尚未注入原库存引用；实际Native配置会再次完整核此字段。
+        before.pop('takeover',None);after.pop('takeover',None)
+        # 材料准备尚未注入库存文件；原BASELINE和实际Native准入再完整核输入。
+        for value in (before,after):
+            parameters=value['strategies'][0]['parameters']['python_strategy']
+            for name in ('input_file','input_sha256','capital_account','capital_market'):parameters.pop(name,None)
+    return before==after
+
+
+def predecessor_configuration(native, *, deadline=float('inf')):
+    """返回材料已绑定的前代原配置，供状态身份使用其真实市场配置。"""
+    selection=native['recovery']['transition'];raw=_read(Path(selection['file']),1024*1024,deadline=deadline,clock=time.monotonic)
+    _require(hashlib.sha256(raw).hexdigest()==_sha(selection['sha256']))
+    transition=_json(raw);body=_read(Path(transition['predecessor_configuration']),256*1024,deadline=deadline,clock=time.monotonic)
+    _require(hashlib.sha256(body).hexdigest()==_sha(transition['predecessor_configuration_sha256']))
+    return _json(body)
+
+
+
+def restoration_origin(transition, *, deadline=float('inf')):
+    """核部署者显式原件恢复材料；只读取原Native已接收的状态，不写金融文件。"""
+    reference=transition.get('restoration')
+    if reference is None:return None
+    def pinned(reference,maximum):
+        _require(type(reference)is dict and set(reference)=={'file','sha256'})
+        raw=_read(_path(reference['file']),maximum,clock=time.monotonic,deadline=deadline)
+        _require(hashlib.sha256(raw).hexdigest()==_sha(reference['sha256']))
+        return _json(raw)
+    value=pinned(reference,1024*1024)
+    _require(type(value)is dict and set(value)=={'schema','current_clean_sha256','archive_directory','snapshot_admission','snapshot_transition'}
+        and value['schema']=='guanheng.execution-restoration.v1')
+    archive=_path(value['archive_directory']);_inspect(archive,directory=True)
+    clean=pinned(dict(file=str(archive/'clean.json'),sha256=value['current_clean_sha256']),256*1024)
+    _require(clean['schema']=='guanheng.cta-clean.v2'and clean['closed']is True
+        and clean['closed_config_sha256']==transition['predecessor_configuration_sha256']
+        and Path(clean['closed_receipt']).parent==Path(transition['predecessor_control_directory']))
+    for name,h in clean['files'].items():
+        relative=Path(name);_require(not relative.is_absolute()and '..'not in relative.parts)
+        raw=_read(archive/relative,4*1024*1024,clock=time.monotonic,deadline=deadline);_require(hashlib.sha256(raw).hexdigest()==_sha(h))
+    admitted=pinned(value['snapshot_admission'],256*1024);snapshot=pinned(value['snapshot_transition'],1024*1024)
+    _require(admitted['schema']=='guanheng.cta-reconciled.v1'and admitted['admission_kind']=='clean_transition'
+        and admitted['transition_sha256']==value['snapshot_transition']['sha256']
+        and admitted['state_files']==snapshot['state_files']==transition['state_files'])
+    admission_path=Path(value['snapshot_admission']['file']);_require(admission_path.name=='reconciled.json')
+    ready=_json(_read(admission_path.parent/'ready.json',4096,clock=time.monotonic,deadline=deadline))
+    _require(all(admitted[k]==ready[k]for k in ('control_id','config_sha256','pid')))
+    origin=Path(snapshot['predecessor_control_directory']);_require(admitted['predecessor_control_id']==origin.name)
+    raw=_read(origin/'execution.json',256*1024,clock=time.monotonic,deadline=deadline)
+    _require(hashlib.sha256(raw).hexdigest()==snapshot['predecessor_configuration_sha256'])
+    binding=_read(origin/'python-binding.json',256*1024,clock=time.monotonic,deadline=deadline)
+    _require(hashlib.sha256(binding).hexdigest()==snapshot['predecessor_python_binding_sha256'])
+    configuration=_json(raw);_require(configuration['trader']['writes_enabled']is False)
+    return dict(configuration=configuration,configuration_sha256=snapshot['predecessor_configuration_sha256'],control_directory=origin,binding=_json(binding))
+
+
+def initialization_abort_origin(transition, *, deadline=float('inf')):
+    """核准入后、就绪前失败且状态未变的原owner，保留真实失败生命周期。"""
+    reference=transition.get('initialization_abort')
+    if reference is None:return None
+    _require('restoration'not in transition and type(reference)is dict and set(reference)=={'file','sha256'})
+    previous=_path(transition['predecessor_control_directory'])
+    _require(_path(reference['file'])==previous/'reconciled.json'and not(previous/'ready.json').exists())
+    def read(path,maximum):return _read(path,maximum,clock=time.monotonic,deadline=deadline)
+    raw=read(previous/'reconciled.json',256*1024)
+    _require(hashlib.sha256(raw).hexdigest()==_sha(reference['sha256']))
+    admitted=_json(raw);failure=_json(read(previous/'failure.json',4096));closed=_json(read(previous/'close-prepared.json',4096))
+    _require(admitted['schema']=='guanheng.cta-reconciled.v1'and admitted['admission_kind']=='clean_transition'
+        and failure['schema']=='guanheng.execution.failure.v1'and failure['stage']=='cta'
+        and closed['schema']=='guanheng.execution.close-prepared.v1'and closed['closed']is True
+        and closed['ok']is False and closed['recovery_ready']is False)
+    for value in (admitted,failure,closed):
+        _require(value['control_id']==previous.name and value['config_sha256']==transition['predecessor_configuration_sha256']
+            and value['pid']==failure['pid'])
+    require_process_exited(failure['pid'])
+    prior_raw=read(previous/'execution.json',256*1024)
+    _require(hashlib.sha256(prior_raw).hexdigest()==transition['predecessor_configuration_sha256'])
+    prior=_json(prior_raw);_require(prior['trader']['writes_enabled']is False)
+    selected=prior['recovery']['transition'];snapshot_raw=read(_path(selected['file']),1024*1024)
+    _require(hashlib.sha256(snapshot_raw).hexdigest()==selected['sha256']==admitted['transition_sha256'])
+    snapshot=_json(snapshot_raw)
+    _require(snapshot['schema']=='guanheng.execution-recovery-transition.v1'
+        and not any(k in snapshot for k in ('restoration','initialization_abort'))
+        and snapshot['state_files']==admitted['state_files']==transition['state_files'])
+    origin=_path(snapshot['predecessor_control_directory']);_require(origin.name==admitted['predecessor_control_id'])
+    config_raw=read(origin/'execution.json',256*1024);binding_raw=read(origin/'python-binding.json',256*1024)
+    _require(hashlib.sha256(config_raw).hexdigest()==snapshot['predecessor_configuration_sha256']
+        and hashlib.sha256(binding_raw).hexdigest()==snapshot['predecessor_python_binding_sha256'])
+    configuration=_json(config_raw)
+    _require(configuration['trader']['writes_enabled']is False
+        and compatible_business_configuration(prior,configuration,deadline=deadline))
+    terminal=_json(read(origin/'closed.json',4096));ready=_json(read(origin/'ready.json',4096))
+    _require(ready['schema']=='guanheng.execution.ready.v1'and ready['control_id']==origin.name
+        and ready['config_sha256']==snapshot['predecessor_configuration_sha256']and ready['pid']==terminal['pid'])
+    _require(terminal['schema']=='guanheng.execution.closed.v2'and terminal['closed']is True
+        and terminal['ok']is True and terminal['recovery_ready']is True and terminal['resources_closed']is True
+        and terminal['exit_code']==0 and terminal['error_code']is None
+        and terminal['control_id']==origin.name and terminal['config_sha256']==snapshot['predecessor_configuration_sha256'])
+    consumed=_json(read(_path(configuration['output_directory'])/'.cta-clean.consumed.json',256*1024))
+    _require(consumed['schema']=='guanheng.cta-clean.v2'and consumed['closed']is True
+        and consumed['installation_sha256']==snapshot['predecessor_installation_sha256']
+        and consumed['control_id']==origin.name and consumed['pid']==ready['pid']
+        and consumed['closed_config_sha256']==snapshot['predecessor_configuration_sha256']
+        and _path(consumed['closed_receipt'])==origin/'closed.json'and consumed['files']==transition['state_files'])
+    return dict(configuration=configuration,configuration_sha256=snapshot['predecessor_configuration_sha256'],control_directory=origin,binding=_json(binding_raw))
+
+
+def state_origin(transition, *, deadline=float('inf')):
+    """显式恢复和初始化失败分别核严格凭证，再提供原状态owner。"""
+    _require(not('restoration'in transition and 'initialization_abort'in transition))
+    return restoration_origin(transition,deadline=deadline)or initialization_abort_origin(transition,deadline=deadline)
+
+
+def state_origin_configuration(native, *, deadline=float('inf')):
+    """状态身份和初始观察沿被恢复原owner；真实最新进程前代仍独立保留。"""
+    selection=native['recovery']['transition'];raw=_read(_path(selection['file']),1024*1024,clock=time.monotonic,deadline=deadline)
+    _require(hashlib.sha256(raw).hexdigest()==selection['sha256']);value=_json(raw)
+    origin=state_origin(value,deadline=deadline)
+    return origin['configuration']if origin else predecessor_configuration(native,deadline=deadline)
+
+
 def _normalized(binding):
     site = Path(binding['site_root'])
     prefix = Path(binding['python']).parent.parent
@@ -87,6 +306,16 @@ def _normalized(binding):
     return result
 
 
+def _compatible_python(previous, current):
+    """最新进程前代及恢复原owner共用同一纯模型/解释器不变规则。"""
+    before,after=_normalized(previous),_normalized(current)
+    for key in before.keys()|after.keys():
+        if before.get(key)!=after.get(key):
+            _require(key.startswith('site/guanheng_wt_runtime/')
+                or key.startswith('site/guanheng_wt_runtime-')and key.endswith('.dist-info/METADATA')
+                or key=='venv/pyvenv.cfg')
+
+
 def load_transition(native, identities=None, *, binding=None, deadline=float('inf')):
     """核固定前后代身份及原证据；返回前代代码身份，不修改原 KV。"""
     selection = native['recovery']
@@ -94,28 +323,27 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
     reference = selection['transition']
     _require(type(reference) is dict and set(reference) == {'file', 'sha256'})
     path = Path(reference['file']); _require(path.is_absolute())
-    raw = _read(path, 1024 * 1024, deadline=deadline)
+    raw = _read(path, 1024 * 1024, deadline=deadline,clock=time.monotonic)
     _require(hashlib.sha256(raw).hexdigest() == _sha(reference['sha256']))
     value = _json(raw)
-    _require(set(value) == {'schema', 'predecessor_configuration', 'predecessor_configuration_sha256',
+    required={'schema', 'predecessor_configuration', 'predecessor_configuration_sha256',
         'predecessor_control_directory', 'predecessor_installation_sha256', 'successor_installation_sha256',
         'predecessor_python_binding_sha256', 'successor_python_code_identity', 'state_files'}
+    _require(required<=set(value)<=required|{'restoration','initialization_abort'}
         and value['schema'] == 'guanheng.execution-recovery-transition.v1')
+    previous_configuration=predecessor_configuration(native,deadline=deadline)
+    _require(compatible_business_configuration(native,previous_configuration,deadline=deadline))
     previous = Path(value['predecessor_control_directory']); _inspect(previous, directory=True)
-    old_raw = _read(previous / 'python-binding.json', 256 * 1024, deadline=deadline)
+    old_raw = _read(previous / 'python-binding.json', 256 * 1024, deadline=deadline,clock=time.monotonic)
     _require(hashlib.sha256(old_raw).hexdigest() == _sha(value['predecessor_python_binding_sha256']))
     old = _json(old_raw)
     _require(old['schema'] == 'guanheng.cta-python-binding.v1')
     if identities is not None:
         _require(binding is not None and digest(identities) == value['successor_python_code_identity'])
-        before, after = _normalized(old), _normalized(binding)
-        for key in before.keys() | after.keys():
-            if before.get(key) != after.get(key):
-                # 发行仅交接自有运行适配；策略核/NSQ/模型与解释器身份保持原值。
-                _require(key.startswith('site/guanheng_wt_runtime/')
-                    or key.startswith('site/guanheng_wt_runtime-') and key.endswith('.dist-info/METADATA')
-                    or key == 'venv/pyvenv.cfg')
-    return value, digest(dict(old['files']))
+        _compatible_python(old,binding)
+    restored=state_origin(value,deadline=deadline)
+    if restored is not None and identities is not None:_compatible_python(restored['binding'],binding)
+    return value, digest(dict((restored['binding']if restored else old)['files']))
 
 
 def prior_strategy_observations(native, strategy_id, *, deadline):
@@ -130,19 +358,19 @@ def prior_strategy_observations(native, strategy_id, *, deadline):
         if current.get('recovery', {}).get('mode') != 'resume_reconciled':
             return
         transition, unused_identity = load_transition(current, deadline=deadline)
-        previous = Path(transition['predecessor_control_directory'])
+        restored=state_origin(transition,deadline=deadline)
+        previous = restored['control_directory']if restored else Path(transition['predecessor_control_directory'])
         _require(previous not in visited)
         visited.add(previous)
-        path = Path(transition['predecessor_configuration'])
+        path = previous/'execution.json'
+        expected_sha=restored['configuration_sha256']if restored else transition['predecessor_configuration_sha256']
         _require(path == previous / 'execution.json')
-        raw = _read(path, 256 * 1024, deadline=deadline)
-        _require(hashlib.sha256(raw).hexdigest() == transition['predecessor_configuration_sha256'])
+        raw = _read(path, 256 * 1024, deadline=deadline,clock=time.monotonic)
+        _require(hashlib.sha256(raw).hexdigest() == expected_sha)
         prior = _json(raw)
-        before, after = dict(prior), dict(current)
-        before.pop('recovery', None); after.pop('recovery', None)
-        _require(before == after)
-        ready = _json(_read(previous / 'ready.json', 4096, deadline=deadline))
-        body = _read(previous / 'strategies.json', 1024 * 1024, deadline=deadline)
+        _require(compatible_business_configuration(current,prior,deadline=deadline))
+        ready = _json(_read(previous / 'ready.json', 4096, deadline=deadline,clock=time.monotonic))
+        body = _read(previous / 'strategies.json', 1024 * 1024, deadline=deadline,clock=time.monotonic)
         report = _json(body)
         _require(report['control_id'] == ready['control_id'] and report['pid'] == ready['pid']
             and report['config_sha256'] == ready['config_sha256'] == hashlib.sha256(raw).hexdigest())
@@ -161,6 +389,7 @@ def prepare_transition(configuration, predecessor_configuration, predecessor_con
     native = _json(_read(configuration, 256 * 1024))
     old_raw = _read(predecessor_configuration, 256 * 1024)
     old = _json(old_raw)
+    _require(compatible_business_configuration(native,old))
     root = Path(native['output_directory'])
     _require(root == Path(old['output_directory']))
     current = PythonExecutionProcessConfig.load(Path(native['installation_root']).parent,

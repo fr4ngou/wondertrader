@@ -35,6 +35,13 @@ data_target(ParserQMTHostV6 SHARED parser_v6 ${common}
   src/GuanhengData/QmtHostEndpoint.cpp src/GuanhengData/QmtHttpEndpoint.cpp
   src/GuanhengData/QmtHttpClient.cpp src/GuanhengData/QmtTickMapping.cpp src/ParserQMTHostV6/Factory.cpp)
 set_target_properties(ParserQMTHostV6 PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+data_target(ParserQMTHostRetainedV6 SHARED parser_retained_v6 ${common}
+  src/GuanhengData/MarketParser.cpp src/GuanhengData/QmtPollingParser.cpp
+  src/GuanhengData/QmtHostEndpoint.cpp src/GuanhengData/QmtHttpEndpoint.cpp
+  src/GuanhengData/QmtHttpClient.cpp src/GuanhengData/QmtTickMapping.cpp src/ParserQMTHostRetainedV6/Factory.cpp)
+set_target_properties(ParserQMTHostRetainedV6 PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
 data_target(GuanhengNativeBarFile SHARED collection004
   src/GuanhengData/NativeBarFile.cpp src/GuanhengNativeBarFile/Exports.cpp)
 target_link_libraries(GuanhengNativeBarFile PRIVATE WtDtHelper)
@@ -59,3 +66,5 @@ install(TARGETS WtDataStorageNrc RUNTIME DESTINATION components/native_analysis/
 install(TARGETS GuanhengNativeBarFile WtDtHelper GuanhengShmQuotes RUNTIME DESTINATION components/native_bar_file/app)
 install(TARGETS GuanhengDataKitSession WtDataStorage WtDataStorageLifecycle WtDtHelper RUNTIME DESTINATION components/collection/app)
 install(TARGETS ParserQMTHostV6 RUNTIME DESTINATION components/parser_v6/app)
+
+install(TARGETS ParserQMTHostRetainedV6 RUNTIME DESTINATION components/parser_retained_v6/app)

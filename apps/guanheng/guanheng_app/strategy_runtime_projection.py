@@ -16,7 +16,7 @@ _LABELS = {
     'waiting_cash': '等待可用资金', 'waiting_fee': '等待费用信息',
     'supersession_required': '等待原目标处理完成', 'blocked': '本轮目标暂未执行',
     'waiting_broker_position': '等待更新券商持仓', 'waiting_actual_cycle': '等待确认实际开仓信息',
-    'waiting_market_input': '等待策略所需行情',
+    'waiting_market_input': '等待策略所需行情', 'observing': '分析运行中',
 }
 
 
@@ -78,10 +78,15 @@ def project_strategy(value, *, runtime_state='ready'):
         observed = _observation(report['native_observation'])
         _require(_time(observed.observed_at) == decision_at)
         outcome = report['outcome']
-        _require(type(outcome) is dict and outcome.get('status') == status)
-        state = _restore_quantity_state(outcome['state'])
-        _require(state is None or state.target.strategy_id == 'resonance-regime-v1'
-                 and set(state.target.universe) == set(_SYMBOLS))
+        if status == 'observing':
+            _require(outcome is None and report.get('reason') == 'analysis_only'
+                     and report.get('target_readback') is None)
+            state = None
+        else:
+            _require(type(outcome) is dict and outcome.get('status') == status)
+            state = _restore_quantity_state(outcome['state'])
+            _require(state is None or state.target.strategy_id == 'resonance-regime-v1'
+                     and set(state.target.universe) == set(_SYMBOLS))
         targets = {} if state is None else {p.symbol: p.shares for p in state.targets}
         _require(not targets or set(targets) == set(_SYMBOLS))
         readback = report.get('target_readback')

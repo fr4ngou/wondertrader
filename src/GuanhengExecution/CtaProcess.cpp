@@ -243,7 +243,71 @@ bool settled(const guanheng::StandardQmtRecoveryV1& value){
     return value.query_first&&value.submissions_closed&&!value.open_group&&!value.unresolved_children
         &&!value.pending_commands&&!value.unsafe;
 }
-// 故障恢复只改变准入依据；调用点已持有原输出租约，券商O/P/A已沿原流程核查。
+// 显式只读市场引用回投原业务模型；原金融、账户及执行字段继续逐项核验。
+rj::Document market_model(const rj::Value& config){
+    rj::Document current;current.CopyFrom(config,current.GetAllocator());current.RemoveMember("recovery");
+    if(!current.HasMember("market_input_origin"))return current;
+    const auto& marker=member(config,"market_input_origin");keys(marker,{"schema","file","sha256","quotes","parser"});
+    need(text(marker,"schema")=="guanheng.market-input-origin.v1");
+    const auto path=absolute(text(marker,"file"));need(path.filename()=="execution.json");
+    const auto raw=read(path,256*1024);need(sha(raw)==text(marker,"sha256",64));auto original=parse(raw);
+    need(!original.HasMember("market_input_origin"));original.RemoveMember("recovery");
+    current.RemoveMember("market_input_origin");
+    const auto& checked_rows=member(current,"strategies");const auto& old_rows=member(original,"strategies");
+    need(checked_rows.IsArray()&&checked_rows.Size()==1&&old_rows.IsArray()&&old_rows.Size()==1);
+    auto& rows=current["strategies"];
+    need(member(rows[0],"parameters").IsObject()&&member(member(rows[0],"parameters"),"python_strategy").IsObject());
+    auto& parameters=rows[0]["parameters"]["python_strategy"];
+    const auto& old_parameters=member(member(old_rows[0],"parameters"),"python_strategy");
+    auto local_url=[](std::string value){
+        if(!value.empty()&&value.back()=='/')value.pop_back();
+        const std::string prefix="http://127.0.0.1:";need(value.compare(0,prefix.size(),prefix)==0);
+        const auto port=value.substr(prefix.size());need(!port.empty()&&port.size()<=5
+            &&std::all_of(port.begin(),port.end(),[](char c){return c>='0'&&c<='9';}));
+        const auto number=std::stoul(port);need(number>0&&number<=65535);
+    };
+    if(marker.HasMember("quotes")){
+        const auto& quotes=marker["quotes"];keys(quotes,{"base_url","token_env","timeout_seconds","max_response_bytes","max_age_seconds"});
+        local_url(text(quotes,"base_url",2048));text(quotes,"token_env",128);
+        const auto& timeout=member(quotes,"timeout_seconds");const auto& age=member(quotes,"max_age_seconds");
+        need(timeout.IsNumber()&&std::isfinite(timeout.GetDouble())&&timeout.GetDouble()>0&&timeout.GetDouble()<=30
+            &&age.IsNumber()&&std::isfinite(age.GetDouble())&&age.GetDouble()>0&&age.GetDouble()<=3600);
+        number(quotes,"max_response_bytes",8192,16*1024*1024);
+        need(member(parameters,"capital_market")==quotes);
+        parameters["capital_market"].CopyFrom(member(old_parameters,"capital_market"),current.GetAllocator());
+    }
+    if(marker.HasMember("parser")){
+        const auto& parser=marker["parser"];keys(parser,{"module","base_url","key_id_env","hmac_secret_env"});
+        need(text(parser,"module")=="ParserQMTHostRetainedV6");local_url(text(parser,"base_url",2048));
+        const auto& checked=member(current,"parsers");const auto& old=member(original,"parsers");
+        need(checked.IsArray()&&checked.Size()==1&&old.IsArray()&&old.Size()==1
+            &&text(old[0],"module")=="ParserQMTHostV6"&&text(checked[0],"module")==text(parser,"module"));
+        auto& selected=current["parsers"][0];selected["module"].CopyFrom(old[0]["module"],current.GetAllocator());
+        need(member(selected,"qmt").IsObject()&&member(old[0],"qmt").IsObject());
+        for(const char* key:{"base_url","key_id_env","hmac_secret_env"}){
+            need(text(selected["qmt"],key,2048)==text(parser,key,2048));
+            selected["qmt"][key].CopyFrom(member(old[0]["qmt"],key),current.GetAllocator());
+        }
+    }
+    need(!old_parameters.HasMember("market_window"));
+    const auto& window=member(parameters,"market_window");keys(window,{"path","max_age_seconds"});
+    const auto publication_path=absolute(text(window,"path"));const auto& age=member(window,"max_age_seconds");
+    need(age.IsNumber()&&std::isfinite(age.GetDouble())&&age.GetDouble()>=1&&age.GetDouble()<=604800);
+    need(member(current,"data").IsObject()&&member(member(current,"data"),"store").IsObject()
+        &&member(member(member(current,"data"),"store"),"daily").IsObject());
+    auto& daily=current["data"]["store"]["daily"];
+    const auto& old_daily=member(member(member(original,"data"),"store"),"daily");
+    need(!old_daily.HasMember("publication")&&!old_daily.HasMember("adjustment"));
+    if(daily.HasMember("adjustment"))need(text(daily,"adjustment")=="none"||text(daily,"adjustment")=="front_ratio");
+    const auto& publication=member(daily,"publication");keys(publication,{"status_file","publication_file","cache_root","source_root"});
+    need(absolute(text(publication,"publication_file"))==publication_path);
+    absolute(text(publication,"status_file"));absolute(text(publication,"cache_root"));
+    if(publication.HasMember("source_root"))absolute(text(publication,"source_root"));
+    parameters.RemoveMember("market_window");daily.RemoveMember("publication");daily.RemoveMember("adjustment");
+    need(current==original);return original;
+}
+
+// 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
 void admit_reconciled(const rj::Value& selection,const rj::Value& current,const fs::path& output,
     const rj::Value& strategies,const std::string& installation,const std::string& id,
     const std::string& configuration,const fs::path& control){
@@ -253,25 +317,69 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     auto transition=parse(raw);
     keys(transition,{"schema","predecessor_configuration","predecessor_configuration_sha256",
         "predecessor_control_directory","predecessor_installation_sha256","successor_installation_sha256",
-        "predecessor_python_binding_sha256","successor_python_code_identity","state_files"});
+        "predecessor_python_binding_sha256","successor_python_code_identity","state_files","restoration","initialization_abort"});
     need(text(transition,"schema")=="guanheng.execution-recovery-transition.v1"
         &&text(transition,"successor_installation_sha256")==installation);
     const auto prior_raw=read(absolute(text(transition,"predecessor_configuration")),256*1024);
     const auto prior_sha=text(transition,"predecessor_configuration_sha256",64);need(sha(prior_raw)==prior_sha);
     auto prior_config=parse(prior_raw);prior_config.RemoveMember("recovery");
     rj::Document identity;identity.CopyFrom(current,identity.GetAllocator());identity.RemoveMember("recovery");
-    need(encode(prior_config)==encode(identity));
+    need(market_model(prior_config)==market_model(identity));
     const auto previous=absolute(text(transition,"predecessor_control_directory"));physical(previous);
-    const auto ready_raw=read(previous/"ready.json",4096);const auto ready=parse(ready_raw);
+    const bool initialization_abort=transition.HasMember("initialization_abort");
+    need(!initialization_abort||(!fs::exists(previous/"ready.json")&&!transition.HasMember("restoration")));
+    const auto ready_raw=read(previous/(initialization_abort?"failure.json":"ready.json"),4096);const auto ready=parse(ready_raw);
     const bool clean_transition=fs::exists(previous/"closed.json");
+    need(!transition.HasMember("restoration")||clean_transition);
     const bool lost_transition=!clean_transition&&!fs::exists(previous/"close-prepared.json")
         &&!fs::exists(previous/"failure.json")&&fs::exists(previous/"owner-loss.json");
-    need(text(ready,"schema")=="guanheng.execution.ready.v1");
+    need(text(ready,"schema")== (initialization_abort?"guanheng.execution.failure.v1":"guanheng.execution.ready.v1"));
     auto same_origin=[&](const rj::Value& value){
         need(text(value,"config_sha256")==prior_sha&&text(value,"control_id")==text(ready,"control_id")
             &&member(value,"pid")==member(ready,"pid"));
     };
     same_origin(ready);
+    if(initialization_abort){
+        need(!clean_transition&&!lost_transition&&text(ready,"stage")=="cta");
+        const auto closed=parse(read(previous/"close-prepared.json",4096));same_origin(closed);
+        need(text(closed,"schema")=="guanheng.execution.close-prepared.v1"&&member(closed,"closed").IsTrue()
+            &&member(closed,"ok").IsFalse()&&member(closed,"recovery_ready").IsFalse());
+        const auto& reference=member(transition,"initialization_abort");keys(reference,{"file","sha256"});
+        need(absolute(text(reference,"file"))==previous/"reconciled.json");
+        const auto admitted_raw=read(previous/"reconciled.json",256*1024);
+        need(sha(admitted_raw)==text(reference,"sha256",64));const auto admitted=parse(admitted_raw);same_origin(admitted);
+        need(text(admitted,"schema")=="guanheng.cta-reconciled.v1"&&text(admitted,"admission_kind")=="clean_transition"
+            &&member(admitted,"state_files")==member(transition,"state_files"));
+        const auto prior_full=parse(prior_raw);const auto& selected=member(member(prior_full,"recovery"),"transition");
+        const auto snapshot_raw=read(absolute(text(selected,"file")),1024*1024);
+        need(sha(snapshot_raw)==text(selected,"sha256",64)&&sha(snapshot_raw)==text(admitted,"transition_sha256",64));
+        const auto snapshot=parse(snapshot_raw);
+        need(text(snapshot,"schema")=="guanheng.execution-recovery-transition.v1"&&!snapshot.HasMember("restoration")
+            &&!snapshot.HasMember("initialization_abort")&&member(snapshot,"state_files")==member(transition,"state_files"));
+        const auto origin=absolute(text(snapshot,"predecessor_control_directory"));physical(origin);
+        need(origin.filename()==text(admitted,"predecessor_control_id"));
+        const auto source_raw=read(origin/"execution.json",256*1024);
+        need(sha(source_raw)==text(snapshot,"predecessor_configuration_sha256",64)
+            &&sha(read(origin/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64));
+        auto source=parse(source_raw);need(member(member(source,"trader"),"writes_enabled").IsFalse()
+            &&member(member(current,"trader"),"writes_enabled").IsFalse());
+        source.RemoveMember("recovery");need(market_model(source)==market_model(identity));
+        const auto terminal=parse(read(origin/"closed.json",4096));
+        const auto source_ready=parse(read(origin/"ready.json",4096));
+        need(text(source_ready,"schema")=="guanheng.execution.ready.v1"&&text(source_ready,"control_id")==origin.filename().string()
+            &&text(source_ready,"config_sha256")==sha(source_raw)&&member(source_ready,"pid")==member(terminal,"pid"));
+        need(text(terminal,"schema")=="guanheng.execution.closed.v2"&&text(terminal,"control_id")==origin.filename().string()
+            &&text(terminal,"config_sha256")==sha(source_raw)&&member(terminal,"closed").IsTrue()
+            &&member(terminal,"ok").IsTrue()&&member(terminal,"resources_closed").IsTrue()&&member(terminal,"recovery_ready").IsTrue()
+            &&member(terminal,"error_code").IsNull()&&member(terminal,"exit_code").IsInt()&&member(terminal,"exit_code").GetInt()==0);
+        const auto consumed=parse(read(output/".cta-clean.consumed.json",256*1024));
+        need(text(consumed,"schema")=="guanheng.cta-clean.v2"&&text(consumed,"control_id")==origin.filename().string()
+            &&text(consumed,"closed_config_sha256")==sha(source_raw)&&text(consumed,"config_sha256")==sha(encode(source))
+            &&member(consumed,"closed").IsTrue()
+            &&text(consumed,"installation_sha256")==text(snapshot,"predecessor_installation_sha256")
+            &&member(consumed,"pid")==member(terminal,"pid")&&member(consumed,"files")==member(transition,"state_files")
+            &&absolute(text(consumed,"closed_receipt"))==origin/"closed.json");
+    }
     if(lost_transition){
         const auto loss=parse(read(previous/"owner-loss.json",4096));
         keys(loss,{"schema","control_id","config_sha256","pid","ready_sha256","reason","observed_at","observer_pid"});
@@ -287,13 +395,45 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
                 &&member(closed,"recovery_ready").IsTrue()&&member(closed,"exit_code").IsInt()
                 &&member(closed,"exit_code").GetInt()==0&&member(closed,"error_code").IsNull()
                 &&member(closed,"resources_closed").IsTrue());
-            const auto origin=parse(read(output/".cta-clean.json",256*1024));
+            const auto clean_raw=read(output/".cta-clean.json",256*1024);const auto origin=parse(clean_raw);
             need(text(origin,"schema")=="guanheng.cta-clean.v2"&&text(origin,"control_id")==text(ready,"control_id")
-                &&text(origin,"config_sha256")==sha(encode(identity))&&member(origin,"closed").IsTrue()
+                &&text(origin,"config_sha256")==sha(encode(prior_config))&&member(origin,"closed").IsTrue()
                 &&member(origin,"pid")==member(ready,"pid")&&text(origin,"closed_config_sha256")==prior_sha
                 &&text(origin,"installation_sha256")==text(transition,"predecessor_installation_sha256")
-                &&absolute(text(origin,"closed_receipt"))==previous/"closed.json"
-                &&encode(member(origin,"files"))==encode(member(transition,"state_files")));
+                &&absolute(text(origin,"closed_receipt"))==previous/"closed.json");
+            if(transition.HasMember("restoration")){
+                auto pinned=[](const rj::Value& reference,std::size_t maximum){
+                    keys(reference,{"file","sha256"});const auto raw=read(absolute(text(reference,"file")),maximum);
+                    need(sha(raw)==text(reference,"sha256",64));return parse(raw);
+                };
+                const auto restore=pinned(transition["restoration"],1024*1024);
+                keys(restore,{"schema","current_clean_sha256","archive_directory","snapshot_admission","snapshot_transition"});
+                need(text(restore,"schema")=="guanheng.execution-restoration.v1"
+                    &&text(restore,"current_clean_sha256",64)==sha(clean_raw)
+                    &&member(member(prior_config,"trader"),"writes_enabled").IsFalse()
+                    &&member(member(current,"trader"),"writes_enabled").IsFalse());
+                const auto archive=absolute(text(restore,"archive_directory"));physical(archive);
+                need(read(archive/"clean.json",256*1024)==clean_raw
+                    &&state_identity(archive,strategies)==member(origin,"files"));
+                const auto admitted=pinned(member(restore,"snapshot_admission"),256*1024);
+                const auto snapshot=pinned(member(restore,"snapshot_transition"),1024*1024);
+                const auto admission_path=absolute(text(member(restore,"snapshot_admission"),"file"));
+                need(admission_path.filename()=="reconciled.json");
+                const auto accepted_ready=parse(read(admission_path.parent_path()/"ready.json",4096));
+                need(text(snapshot,"schema")=="guanheng.execution-recovery-transition.v1"
+                    &&text(accepted_ready,"schema")=="guanheng.execution.ready.v1"
+                    &&text(admitted,"schema")=="guanheng.cta-reconciled.v1"&&text(admitted,"admission_kind")=="clean_transition"
+                    &&text(admitted,"transition_sha256",64)==text(member(restore,"snapshot_transition"),"sha256",64)
+                    &&member(admitted,"state_files")==member(snapshot,"state_files")
+                    &&member(admitted,"state_files")==member(transition,"state_files"));
+                for(const char* key:{"control_id","config_sha256","pid"})need(member(admitted,key)==member(accepted_ready,key));
+                const auto snapshot_owner=absolute(text(snapshot,"predecessor_control_directory"));
+                need(snapshot_owner.filename()==text(admitted,"predecessor_control_id"));
+                const auto snapshot_raw=read(snapshot_owner/"execution.json",256*1024);
+                need(sha(snapshot_raw)==text(snapshot,"predecessor_configuration_sha256",64)
+                    &&sha(read(snapshot_owner/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64)
+                    &&market_model(parse(snapshot_raw))==market_model(current));
+            }else need(member(origin,"files")==member(transition,"state_files"));
         }else{
             const auto failure=parse(read(previous/"failure.json",4096));same_origin(failure);
             need(text(failure,"schema")=="guanheng.execution.failure.v1"
@@ -318,7 +458,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
             &&text(origin,"successor_installation_sha256")==text(transition,"predecessor_installation_sha256"));
     }else if(fs::exists(consumed)){
         const auto origin=parse(read(consumed,256*1024));
-        need(text(origin,"schema")=="guanheng.cta-clean.v2"&&text(origin,"config_sha256")==sha(encode(identity))
+        need(text(origin,"schema")=="guanheng.cta-clean.v2"&&text(origin,"config_sha256")==sha(encode(prior_config))
             &&member(origin,"closed").IsTrue()
             &&text(origin,"installation_sha256")==text(transition,"predecessor_installation_sha256"));
         const auto source=parse(read(absolute(text(origin,"closed_receipt")),4096));
@@ -333,8 +473,10 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     const auto claimed=output/(".cta-reconciled-"+transition_sha+".json");need(!fs::exists(claimed));
     auto proof=receipt("guanheng.cta-reconciled.v1",id,configuration,false);auto& a=proof.GetAllocator();
     proof.AddMember("transition_sha256",rj::Value(transition_sha.c_str(),a),a); // 配置绑定的固定发行材料摘要。
-    proof.AddMember("admission_kind",rj::Value(clean_transition?"clean_transition":lost_transition?"process_lost_reconciled":"fault_reconciled",a),a); // 正常、原故障关闭或进程退出核查依据分别保留。
+    proof.AddMember("admission_kind",rj::Value(initialization_abort?"initialization_abort_reconciled":transition.HasMember("restoration")?"restored_snapshot":clean_transition?"clean_transition":lost_transition?"process_lost_reconciled":"fault_reconciled",a),a); // 启动失败原状态、正常关闭、显式恢复和故障依据分别保留。
     proof.AddMember("successor_installation_sha256",rj::Value(installation.c_str(),a),a); // 本代完整安装清单规范摘要。
+    if(transition.HasMember("restoration"))proof.AddMember("restoration_sha256",
+        rj::Value(text(transition["restoration"],"sha256",64).c_str(),a),a); // 显式恢复材料，不重放原clean。
     proof.AddMember("predecessor_control_id",rj::Value(text(ready,"control_id").c_str(),a),a); // 上代真实控制ID。
     proof.AddMember("state_files",rj::Value(member(transition,"state_files"),a),a); // 原金融JSON相对路径与字节摘要，仅作准入证据。
     // 独立核查收据记录新代认领；原failure/consumed与金融JSON均保留原字节。
@@ -489,8 +631,11 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         need(id.size()==36&&expected_sha.size()==64&&fs::is_directory(control));
         need(!fs::exists(control/"ready.json")&&!fs::exists(control/"closed.json")&&!fs::exists(control/"close-prepared.json"));
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
-        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh"});
+        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
+        if(cfg.HasMember("market_input_origin")){
+            need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
+        }
         unsigned observation_refresh_ms=0;
         const auto& trader_config=member(cfg,"trader");
         need(trader_config.IsObject()&&!trader_config.HasMember("observation_refresh_ms"));

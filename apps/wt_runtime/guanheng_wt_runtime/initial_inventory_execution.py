@@ -219,7 +219,8 @@ class InitialInventoryExecutionProcess(ManagedPythonExecutionProcess):
         _require(sha256(raw).hexdigest() == self.config.configuration_sha256)
         native = _json(raw)
         _require(self.config.recovery_mode in ('record_clean', 'resume_clean', 'resume_reconciled') and 'takeover' not in native)
-        identity = dict(native);identity.pop('recovery')
+        from .execution_recovery import market_origin_configuration
+        identity = dict(market_origin_configuration(native,deadline=deadline));identity.pop('recovery')
         origin = sha256(_encode(dict(configuration=identity, startup=self.inventory.identity))).hexdigest()
         root = self.inventory.state_root
         if self.config.recovery_mode in ('resume_clean', 'resume_reconciled'):
@@ -269,6 +270,8 @@ class InitialInventoryExecutionProcess(ManagedPythonExecutionProcess):
             # 首次只读估值沿同一已声明快照来源；旧持仓基准和交易计算触发保持原owner。
             parameters['capital_market'] = dict(self.inventory.market,
                 max_age_seconds=self.inventory.max_age_seconds)
+            quotes=native.get('market_input_origin',{}).get('quotes')
+            if quotes is not None:parameters['capital_market']=dict(quotes)
         if 'native-input.json' in files:
             native['takeover'] = dict(input_file=str(root/'native-input.json'), input_sha256=files['native-input.json'])
         effective = self._directory/'execution.json'

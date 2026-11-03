@@ -15,7 +15,7 @@ def prepare(root, work, entries, source, write_snapshot, expected):
     material = {declaration: raw}
     directories = []
     for name, variant in lock["variants"].items():
-        if name not in ("account006", "parser_v6", "collection004", "analysis001", "quotes_hpr3"):
+        if name not in ("account006", "parser_v6", "parser_retained_v6", "collection004", "analysis001", "quotes_hpr3"):
             raise ValueError("unknown native data variant")
         files = dict(entries)
         for target, row in variant["files"].items():
@@ -37,6 +37,7 @@ def package(installed, save, sha256):
         "native_bar_file": {"bars": "app/GuanhengNativeBarFile.dll", "helper": "app/WtDtHelper.dll", "quotes": "app/GuanhengShmQuotes.dll"},
         "collection": {"session": "app/GuanhengDataKitSession.dll", "writer": "app/WtDataStorage.dll", "lifecycle_writer": "app/WtDataStorageLifecycle.dll", "helper": "app/WtDtHelper.dll"},
         "parser_v6": {"parser": "app/ParserQMTHostV6.dll"},
+        "parser_retained_v6": {"parser": "app/ParserQMTHostRetainedV6.dll"},
     }
     # MSVC/UCRT support is copied from CMake's ordinary installation, never
     # sourced from a historical component or a tool cache.

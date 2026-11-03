@@ -11,6 +11,8 @@ using namespace wtp;
 struct Binding {
     GhMsConfig config{};GhRtCallback callback=nullptr;void* user=nullptr;
     std::set<std::string> reads,executions;bool created=false,main_registered=false;
+    std::mutex quote_mutex; // 原tick回调和原epoch读取共用，槽在configure预分配。
+    std::map<std::string,GhMsQuote> quotes; // 仅固定reads集合，每证券最新已应用tick。
 };
 struct Owner {
     std::mutex mutex;DWORD controller=0;bool frozen=false;
@@ -98,6 +100,16 @@ public:
         // 初始化错误沿宿主既有启动异常边界传播，避免继续启动行情生产者。
         if(const auto failure=owner().failure.load())throw CtaAccessError{failure};
     }
+    void on_tick(ICtaStraCtx*,const char* code,WTSTickData* tick)override{
+        try {
+            cta_require(code&&tick);std::lock_guard<std::mutex> guard(binding.quote_mutex);
+            auto at=binding.quotes.find(code);cta_require(at!=binding.quotes.end());
+            const auto& raw=tick->getTickStruct();
+            cta_require(std::isfinite(raw.price)&&raw.price>0&&raw.action_date&&raw.action_time,GH_RT_UNKNOWN);
+            GhMsQuote value{};value.size=sizeof(value);value.version=1;value.action_date=raw.action_date;
+            value.action_time=raw.action_time;value.price_cny=raw.price;at->second=value;
+        }catch(...){owner().fail(GH_RT_NATIVE);}
+    }
     void on_session_begin(ICtaStraCtx* ctx,uint32_t date)override{emit(binding,ctx,GH_RT_SESSION_BEGIN,0,0,date);}
     void on_session_end(ICtaStraCtx* ctx,uint32_t date)override{emit(binding,ctx,GH_RT_SESSION_END,0,0,date);}
     void on_bar(ICtaStraCtx* ctx,const char* code,const char* period,WTSBarStruct* bar)override{
@@ -127,22 +139,24 @@ extern "C" {
 GH_RT_API ICtaStrategyFact* createStrategyFact(){return &factory();}
 GH_RT_API void deleteStrategyFact(ICtaStrategyFact*& value){if(value==&factory())value=nullptr;}
 uint32_t GH_RT_CALL gh_ms_abi_version(void){return GH_MS_ABI_VERSION;}
+uint32_t GH_RT_CALL gh_ms_read_only_abi_version(void){return 1;}
 uint64_t GH_RT_CALL gh_ms_layout(uint32_t id){
     switch(id){case 1:return sizeof(GhMsConfig);case 2:return sizeof(GhMsStatus);case 3:return sizeof(GhRtEvent);
-    case 4:return sizeof(GhRtBar);case 5:return sizeof(GhRtFacts);case 6:return sizeof(GhRtPosition);case 7:return sizeof(GhRtTarget);default:return 0;}
+    case 4:return sizeof(GhRtBar);case 5:return sizeof(GhRtFacts);case 6:return sizeof(GhRtPosition);case 7:return sizeof(GhRtTarget);case 8:return sizeof(GhMsQuote);default:return 0;}
 }
 int32_t GH_RT_CALL gh_ms_configure(const GhMsConfig* config,GhRtCallback callback,void* user){return api([&]()->int32_t{
     auto& o=owner();std::lock_guard<std::mutex> guard(o.mutex);
     cta_require(!borrowed&&!o.frozen&&(!o.controller||o.controller==GetCurrentThreadId()),GH_RT_STATE);
     cta_require(config&&config->size==sizeof(*config)&&config->abi_version==GH_MS_ABI_VERSION&&callback);
     cta_require(o.bindings.size()<GH_MS_MAX_STRATEGIES&&config->read_count&&config->read_count<=GH_RT_MAX_READS
-        &&config->execution_count&&config->execution_count<=GH_RT_MAX_TARGETS,GH_RT_CAPACITY);
+        &&config->execution_count<=GH_RT_MAX_TARGETS,GH_RT_CAPACITY);
     auto value=std::make_unique<Binding>();value->config=*config;value->callback=callback;value->user=user;
     const auto id=cta_text(config->strategy_id,sizeof(config->strategy_id));
     const auto main=configured_symbol(config->main_symbol);
     for(uint32_t i=0;i<config->read_count;++i)cta_require(value->reads.insert(configured_symbol(config->read_symbols[i])).second);
     for(uint32_t i=0;i<config->execution_count;++i){auto code=configured_symbol(config->execution_symbols[i]);
         cta_require(value->reads.count(code)&&value->executions.insert(code).second);}
+    for(const auto& code:value->reads)value->quotes.emplace(code,GhMsQuote{});
     cta_require(value->reads.count(main)&&!o.bindings.count(id));
     o.bindings.emplace(id,std::move(value));o.controller=GetCurrentThreadId();o.configured.fetch_add(1);return GH_RT_OK;
 });}
@@ -161,6 +175,12 @@ int32_t GH_RT_CALL gh_ms_price(uint64_t epoch,const char* code,double* out){retu
 });}
 int32_t GH_RT_CALL gh_ms_position(uint64_t epoch,const char* code,GhRtPosition* out){return api([&]()->int32_t{
     auto& b=access(epoch);cta_require(out&&out->size==sizeof(*out));*out=cta_position(*b.ctx,b.binding->reads,symbol(b,code));return GH_RT_OK;
+});}
+int32_t GH_RT_CALL gh_ms_quote(uint64_t epoch,const char* code,GhMsQuote* out){return api([&]()->int32_t{
+    auto& b=access(epoch);cta_require(out&&out->size==sizeof(*out)&&out->version==1);
+    const auto name=symbol(b,code);std::lock_guard<std::mutex> guard(b.binding->quote_mutex);
+    const auto at=b.binding->quotes.find(name);cta_require(at!=b.binding->quotes.end());
+    cta_require(at->second.action_date&&at->second.version==1,GH_RT_UNKNOWN);*out=at->second;return GH_RT_OK;
 });}
 int32_t GH_RT_CALL gh_ms_cash_basis(uint64_t epoch,const char* code,GhMsCashBasis* out){return api([&]()->int32_t{
     auto& b=access(epoch);cta_require(out&&out->size==sizeof(*out)&&out->version==1);

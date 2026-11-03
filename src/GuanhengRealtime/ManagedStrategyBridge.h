@@ -9,7 +9,8 @@ extern "C" {
 #define GH_MS_STATE_BYTES 32768u
 #pragma pack(push,8)
 typedef struct GhMsConfig {
-    uint32_t size,abi_version,read_count,execution_count;
+    uint32_t size,abi_version,read_count;
+    uint32_t execution_count; /* 0为明确的只读绑定，1..8为原目标证券权限；布局不变。 */
     char strategy_id[GH_RT_CODE_BYTES];
     char main_symbol[GH_RT_CODE_BYTES];
     char read_symbols[GH_RT_MAX_READS][GH_RT_CODE_BYTES];
@@ -27,11 +28,20 @@ typedef struct GhMsCashBasis {
     double fees_cny; /* 原WT flag3累计费用，CNY。 */
     double average_price_cny; /* 指定证券的原WT持仓平均成本，CNY/份；空仓为0。 */
 } GhMsCashBasis;
+typedef struct GhMsQuote {
+    uint32_t size; /* 调用方结构字节数；严格核sizeof。 */
+    uint32_t version; /* 可选当前已应用tick观察ABI，当前1。 */
+    uint32_t action_date; /* 原tick事件日期，Asia/Shanghai YYYYMMDD；0表示尚无观察。 */
+    uint32_t action_time; /* 原tick事件时刻，Asia/Shanghai HHMMSSmmm，不以读取时间替换。 */
+    double price_cny; /* 原WT已应用tick的原价，CNY/份；完整复制值不借用tick指针。 */
+} GhMsQuote;
 #pragma pack(pop)
 
 // 配置线程在原工厂首次create前注册；同策略ID只注册一次，函数/user保持至进程退出。
 GH_RT_API uint32_t GH_RT_CALL gh_ms_abi_version(void);
-// layout 1=Config/2=Status/3=Event/4=Bar/5=Facts/6=Position/7=Target，未知为0。
+// 可选只读绑定能力1：execution_count=0仅授读取，任何target setter继续拒绝。
+GH_RT_API uint32_t GH_RT_CALL gh_ms_read_only_abi_version(void);
+// layout 1=Config/2=Status/3=Event/4=Bar/5=Facts/6=Position/7=Target/8=Quote，未知为0。
 GH_RT_API uint64_t GH_RT_CALL gh_ms_layout(uint32_t id);
 GH_RT_API int32_t GH_RT_CALL gh_ms_configure(const GhMsConfig*,GhRtCallback,void* user);
 GH_RT_API int32_t GH_RT_CALL gh_ms_status(GhMsStatus*);
@@ -42,6 +52,7 @@ GH_RT_API int32_t GH_RT_CALL gh_ms_facts(uint64_t epoch,GhRtFacts*);
 GH_RT_API int32_t GH_RT_CALL gh_ms_price(uint64_t epoch,const char*,double*);
 GH_RT_API int32_t GH_RT_CALL gh_ms_position(uint64_t epoch,const char*,GhRtPosition*);
 // 可选只读扩展；沿相同INIT/SCHEDULE epoch，不提供账户或交易副作用。
+GH_RT_API int32_t GH_RT_CALL gh_ms_quote(uint64_t epoch,const char*,GhMsQuote*);
 GH_RT_API int32_t GH_RT_CALL gh_ms_cash_basis(uint64_t epoch,const char*,GhMsCashBasis*);
 GH_RT_API int32_t GH_RT_CALL gh_ms_bars(uint64_t epoch,const char*,const char*,uint32_t count,
     uint32_t main,GhRtBar*,uint32_t capacity,uint32_t* written);
