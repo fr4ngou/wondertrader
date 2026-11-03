@@ -1,5 +1,4 @@
-import { fetchReadJson } from '../api'
-import { archiveConfiguration, tradingDate, validDigest, validId, type ArchiveEntry } from './backtestApi'
+import { archiveConfiguration, fetchBacktestReadJson, tradingDate, validDigest, validId, type ArchiveEntry } from './backtestApi'
 import { boundedBacktestTree, invalidBacktest, isObject } from './backtestV2'
 import { HISTORICAL_REPORT_SCHEMA, HISTORICAL_SCOPE } from './backtestHistorical'
 import { PER_DATE_REPORT_SCHEMA, PER_DATE_SCOPE, RETAINED_REPORT_SCHEMA, RETAINED_SCOPE } from './backtestRetained'
@@ -79,7 +78,7 @@ export function validatePerformance(value: unknown, entry: ArchiveEntry): Backte
 }
 export async function fetchBacktestPerformance(entry: ArchiveEntry, signal?: AbortSignal): Promise<BacktestPerformance> {
   if (!validId(entry.run_id) || !validDigest(entry.receipt_sha256)) invalidBacktest()
-  const value = await fetchReadJson<unknown>(`/v1/ui/backtest/archive/${entry.run_id}/performance?receipt_sha256=${entry.receipt_sha256}`, '回测绩效', signal)
+  const value = await fetchBacktestReadJson<unknown>(`/v1/ui/backtest/archive/${entry.run_id}/performance?receipt_sha256=${entry.receipt_sha256}`, '回测绩效', signal)
   boundedBacktestTree(value)
   return validatePerformance(value, entry)
 }
@@ -87,7 +86,7 @@ export async function fetchBacktestComparison(left: ArchiveEntry, right: Archive
   if (!validId(left.run_id) || !validId(right.run_id) || left.run_id === right.run_id || !validDigest(left.receipt_sha256) || !validDigest(right.receipt_sha256)) invalidBacktest()
   const query = new URLSearchParams({ left_run_id: left.run_id, left_receipt_sha256: left.receipt_sha256,
     right_run_id: right.run_id, right_receipt_sha256: right.receipt_sha256 })
-  const value = await fetchReadJson<unknown>(`/v1/ui/backtest/comparison?${query}`, '回测比较', signal)
+  const value = await fetchBacktestReadJson<unknown>(`/v1/ui/backtest/comparison?${query}`, '回测比较', signal)
   boundedBacktestTree(value)
   keys(value, 'schema left right differences scope')
   if (value.schema !== 'nbw-comparison-v1' || !text(value.scope) || !Array.isArray(value.differences) || value.differences.length > 7) invalidBacktest()

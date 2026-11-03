@@ -9,9 +9,12 @@ from fastapi.responses import JSONResponse
 from .backtest_archive import BacktestArchive, ArchiveError
 from .reading import ReadCapacityError
 
+# 排队、原件核验及两份报告比较共用一次截止，不按子步骤重新计时。
+REQUEST_SECONDS = 30
+
 
 def router(root):
-    """原归档完整校验和5秒总截止保持；本入口没有运行、取消或归档写方法。"""
+    """原归档完整校验及有界读取；本入口没有运行、取消或归档写方法。"""
     archive = BacktestArchive(root) if root else None
     routes = APIRouter(prefix='/v1/ui/backtest')
 
@@ -22,7 +25,7 @@ def router(root):
             raise HTTPException(422, '历史报告只接受声明的查询参数')
         if archive is None:
             raise HTTPException(503, '尚未配置WT已保存的回测报告')
-        deadline, future = monotonic() + 5, None
+        deadline, future = monotonic() + REQUEST_SECONDS, None
         try:
             future = request.app.state.backtest_reader.submit(lambda _remaining: operation(deadline), deadline)
             wrapped = asyncio.wrap_future(future)
@@ -66,7 +69,7 @@ def router(root):
             if state == 'empty' and value['unarchived_runs']:
                 reason = '目录中存在尚未发布完成证明的运行，当前没有可读取的正式归档。'
             return state, reason, value
-        deadline, future = monotonic() + 5, None
+        deadline, future = monotonic() + REQUEST_SECONDS, None
         try:
             future = request.app.state.backtest_reader.submit(lambda _remaining: inspect(deadline), deadline)
             wrapped = asyncio.wrap_future(future)

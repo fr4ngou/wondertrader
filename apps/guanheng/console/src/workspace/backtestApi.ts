@@ -1,7 +1,12 @@
-import { fetchReadJson } from '../api'
+import { fetchReadJson as fetchBoundedJson } from '../api'
 import { boundedBacktestTree, V2_REPORT_SCHEMA, validateV2Summary, type V2Summary } from './backtestV2'
 import { HISTORICAL_REPORT_SCHEMA, validateHistoricalSummary } from './backtestHistorical'
 import { PER_DATE_REPORT_SCHEMA, RETAINED_REPORT_SCHEMA, isRetainedReport, retainedSymbols, validatePerDateWindow, validateRetainedSummary } from './backtestRetained'
+
+/** 报告排队、原件核验及比较共用后端30秒，另留1秒HTTP余量。 */
+export function fetchBacktestReadJson<T>(input: RequestInfo | URL, context: string, signal?: AbortSignal): Promise<T> {
+  return fetchBoundedJson<T>(input, context, signal, 'workspace', 31_000)
+}
 
 export type BacktestRun = {
   owner_id: string; request_id: string; run_id: string | null
@@ -58,7 +63,7 @@ function run(value: unknown): BacktestRun {
 }
 
 export async function fetchBacktestWorkspace(signal?: AbortSignal): Promise<BacktestWorkspaceData> {
-  const value = await fetchReadJson<unknown>('/v1/ui/backtest/workspace', '回测工作区', signal)
+  const value = await fetchBacktestReadJson<unknown>('/v1/ui/backtest/workspace', '回测工作区', signal)
   if (!object(value) || value.schema !== 'nbw-workspace-v1' || !validId(value.owner_id)
     || typeof value.available !== 'boolean' || typeof value.scope !== 'string'
     || value.reason !== null && typeof value.reason !== 'string' || !Array.isArray(value.runs) || value.runs.length > 128) return invalid()
@@ -99,7 +104,7 @@ export async function fetchBacktestRecords(ownerId: string, requestId: string, o
   const params = new URLSearchParams({ owner_id: ownerId, offset: String(offset), limit: '50' })
   if (archive) { validateArchiveSelection(archive); params.delete('owner_id'); params.set('receipt_sha256', archive.receiptSha) }
   const path = archive ? `/v1/ui/backtest/archive/${archive.runId}/records` : `/v1/ui/backtest/runs/${requestId}/records`
-  const value = await fetchReadJson<unknown>(`${path}?${params}`, '回测记录', signal)
+  const value = await fetchBacktestReadJson<unknown>(`${path}?${params}`, '回测记录', signal)
   if (!object(value) || value.request_id !== requestId || !validDigest(value.report_sha256)
     || !Number.isInteger(value.total) || (value.total as number) < 0 || (value.total as number) > 4096 || value.offset !== offset
     || !Array.isArray(value.records) || value.records.length > 50 || typeof value.scope !== 'string') return invalid()
@@ -119,7 +124,7 @@ export async function fetchBacktestDay(ownerId: string, requestId: string, index
   if (archive) validateArchiveSelection(archive)
   const path = archive ? `/v1/ui/backtest/archive/${archive.runId}/records/${index}?receipt_sha256=${archive.receiptSha}`
     : `/v1/ui/backtest/runs/${requestId}/records/${index}?owner_id=${ownerId}`
-  const value = await fetchReadJson<unknown>(path, '回测当日详情', signal)
+  const value = await fetchBacktestReadJson<unknown>(path, '回测当日详情', signal)
   boundedBacktestTree(value)
   if (!object(value) || value.request_id !== requestId || value.index !== index || !validDigest(value.report_sha256)
     || expectedReportSha !== undefined && value.report_sha256 !== expectedReportSha
@@ -225,7 +230,7 @@ export function archiveConfiguration(value: unknown): value is ArchiveEntry['con
     && number(value.max_seconds) && (value.max_seconds as number) >= .1 && (value.max_seconds as number) <= 1800
 }
 export async function fetchBacktestArchive(signal?: AbortSignal): Promise<ArchiveIndex> {
-  const value = await fetchReadJson<unknown>('/v1/ui/backtest/archive', '历史回测归档', signal)
+  const value = await fetchBacktestReadJson<unknown>('/v1/ui/backtest/archive', '历史回测归档', signal)
   boundedBacktestTree(value)
   if (!object(value)) return invalid()
   exactKeys(value, ['schema', 'runs', 'invalid_receipts', 'unarchived_runs', 'scope'])
@@ -246,7 +251,7 @@ export async function fetchBacktestArchive(signal?: AbortSignal): Promise<Archiv
 }
 export async function fetchArchiveConfiguration(entry: ArchiveEntry, signal?: AbortSignal): Promise<ArchiveConfiguration> {
   validateArchiveSelection({ runId: entry.run_id, receiptSha: entry.receipt_sha256 })
-  const value = await fetchReadJson<unknown>(`/v1/ui/backtest/archive/${entry.run_id}?receipt_sha256=${entry.receipt_sha256}`, '历史冻结配置', signal)
+  const value = await fetchBacktestReadJson<unknown>(`/v1/ui/backtest/archive/${entry.run_id}?receipt_sha256=${entry.receipt_sha256}`, '历史冻结配置', signal)
   boundedBacktestTree(value)
   if (!object(value)) return invalid()
   exactKeys(value, ['schema', 'run_id', 'request_id', 'receipt_sha256', 'report_sha256', 'installation_sha256', 'configuration',

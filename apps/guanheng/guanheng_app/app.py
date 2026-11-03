@@ -21,7 +21,7 @@ from .contracts.strategy_configuration import MAX_VERSIONS as CONFIGURATION_MAX_
 from .runtime_status_routes import router as status_router
 from .wt_runtime_observation import router as wt_runtime_router
 from .wt_business_observation import router as wt_business_router
-from .backtest_readonly import router as backtest_router
+from .backtest_readonly import router as backtest_router, REQUEST_SECONDS as BACKTEST_REQUEST_SECONDS
 from .strategy_catalog import strategy_catalog
 from .observation.contracts import ObservationError
 from .observation.runtime import build_prepared_reader as observation_reader
@@ -56,7 +56,9 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
     @asynccontextmanager
     async def lifespan(application):
         application.state.reader = BoundedReader()
-        application.state.backtest_reader = BoundedReader(workers=1, capacity=2)
+        # 切换报告时，原两项读取可能仍在收尾；为新绩效和记录各留等待位。
+        # 继续单线程读取原件，避免与行情/账户共用读取线程。
+        application.state.backtest_reader = BoundedReader(workers=1, capacity=4)
         application.state.watchlist_owner = None
         application.state.observation_owner = None
         application.state.observation_error = None
@@ -81,7 +83,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         finally:
             # 取消HTTP不会终止已运行worker；关闭预算覆盖观察、报告及行情的原D。
             deadline = monotonic() + max(configured.wondertrader_market_timeout_seconds,
-                                         OBSERVATION_REQUEST_SECONDS, 5) + .25
+                                         OBSERVATION_REQUEST_SECONDS, BACKTEST_REQUEST_SECONDS) + .25
             errors = []
             def close(owner, timeout):
                 if owner is None:
