@@ -30,14 +30,22 @@ def _require(value):
 
 @dataclass(frozen=True)
 class RuntimeObservationConfig:
-    """安装时固定的只读路径与运行身份；构造不读取文件、不创建运行owner。"""
+    """一次业务读取固定的路径与身份；构造不创建运行owner。"""
+    # 本代公开status.json绝对路径，文件读取沿SDK共享删除句柄。
     path: Path
+    # 本代控制UUID，必须与状态发布者相同。
     control_id: str
+    # 逻辑实例UUID，允许正常重启后沿发布者原语义保持。
     instance_id: str
+    # 本代配置原字节SHA256，64位小写十六进制。
     configuration_sha256: str
 
     @classmethod
     def from_settings(cls, settings):
+        current = getattr(settings, 'wt_current_file', '')
+        if current:
+            _require(type(current) is str and Path(current).is_absolute())
+            return RuntimeCurrentFile(Path(current))
         values = (settings.wt_status_file, settings.wt_control_id, settings.wt_instance_id,
                   settings.wt_configuration_sha256)
         if not any(values):
@@ -48,6 +56,45 @@ class RuntimeObservationConfig:
         _require(str(UUID(control)) == control and str(UUID(instance)) == instance)
         _require(re.fullmatch('[a-f0-9]{64}', digest) is not None)
         return cls(Path(path), control, instance, digest)
+
+
+@dataclass(frozen=True)
+class RuntimeCurrentFile:
+    """只保存公开指针的位置；App启动时允许文件尚未发布。"""
+    # 运行侧原子发布的CURRENT绝对路径；消费者只有读权限职责。
+    path: Path
+
+
+def _read_snapshot(path, deadline, max_bytes=65536):
+    """沿原SDK句柄与同一次截止处理发布替换，不回退到旧文件或旧身份。"""
+    while True:
+        if monotonic() >= deadline:
+            raise TimeoutError('WT状态读取超过本次时间')
+        try:
+            snapshot = read_status_snapshot(path, max_bytes)
+            break
+        except CollectionStatusPending:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError('WT状态读取超过本次时间') from None
+            sleep(min(.01, remaining))
+    if monotonic() >= deadline:
+        raise TimeoutError('WT状态读取超过本次时间')
+    return snapshot
+
+
+def resolve_runtime_configuration(configuration, deadline):
+    """每次业务读取入口解析一次CURRENT，后续根/结果复核共用同一四身份。"""
+    if not isinstance(configuration, RuntimeCurrentFile):
+        return configuration
+    value = _read_snapshot(configuration.path, deadline, 65536).value
+    fields = {'wt_status_file', 'wt_control_id', 'wt_instance_id', 'wt_configuration_sha256'}
+    _require(type(value) is dict and set(value) == fields | {'schema'}
+             and value['schema'] == 'guanheng.wt-current.v1')
+    from types import SimpleNamespace
+    result = RuntimeObservationConfig.from_settings(SimpleNamespace(**{key: value[key] for key in fields}))
+    _require(isinstance(result, RuntimeObservationConfig))
+    return result
 
 
 def _published_state(value, *, component=False):
@@ -136,22 +183,8 @@ def _component_issue(name, value, first):
 def read_runtime_snapshot(configuration, deadline):
     """内部共享读取边界：核固定运行身份及已声明组件，返回同句柄SDK快照。"""
     _require(configuration is not None)
-    if monotonic() >= deadline:
-        raise TimeoutError('WT状态读取超过本次时间')
-    while True:
-        try:
-            snapshot = read_status_snapshot(configuration.path)
-            break
-        except CollectionStatusPending:
-            # 发布者替换状态文件时，Windows可能暂时占用文件名。SDK明确返回
-            # Pending后，消费者沿本次原总截止取得下一份完整快照；格式、身份
-            # 与其他I/O错误仍沿原失败路径，不能用旧值冒充本次成功。
-            remaining = deadline - monotonic()
-            if remaining <= 0:
-                raise TimeoutError('WT状态读取超过本次时间') from None
-            sleep(min(.01, remaining))
-    if monotonic() >= deadline:
-        raise TimeoutError('WT状态读取超过本次时间')
+    configuration = resolve_runtime_configuration(configuration, deadline)
+    snapshot = _read_snapshot(configuration.path, deadline)
     value = snapshot.value
     _require(value.get('schema') == 'guanheng.wt-runtime-status.v1'
              and value.get('control_id') == configuration.control_id

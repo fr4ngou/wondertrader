@@ -10,7 +10,7 @@ from uuid import UUID
 from guanheng_market_client.runtime_status import read_status_snapshot
 from .contracts.account import AccountOverviewV3,AccountGroupV3,NativeAccountSource,AccountRow,AccountField
 from .account_projection import FIELD_MAP,unknown
-from .wt_runtime_observation import RuntimeObservationConfig,read_runtime_snapshot
+from .wt_runtime_observation import RuntimeObservationConfig,read_runtime_snapshot,resolve_runtime_configuration
 from .strategy_runtime_projection import project_strategy
 from .managed_local_process import _read,_json,_inspect
 
@@ -29,6 +29,7 @@ def read_business(configuration,deadline):
     WRI快照沿SDK64KiB，结果沿原观察器4MiB共享删除读取；不扫描或改写运行文件。
     文件修改时间与原P/A接收/副本发布时刻分别拥有，停止后结果保留历史身份。
     """
+    configuration=resolve_runtime_configuration(configuration,deadline)
     if configuration is None:return None,None,'unconfigured'
     before=read_runtime_snapshot(configuration,deadline).value
     execution=before['components'].get('execution')
@@ -133,12 +134,14 @@ def project_broker(strategies,configuration,reference,runtime_state):
 
 
 def observe_account(configuration,deadline):
+    configuration=resolve_runtime_configuration(configuration,deadline)
     strategies,reference,state=read_business(configuration,deadline)
     result=project_broker(strategies,configuration,reference,state);_check(deadline)
     return result
 
 
 def observe_strategy(configuration,deadline):
+    configuration=resolve_runtime_configuration(configuration,deadline)
     strategies,_reference,state=read_business(configuration,deadline)
     projected=project_strategy(dict(schema='guanheng.configured-cta-observation.v1',strategies=strategies),runtime_state=state) if strategies is not None else None
     _check(deadline)

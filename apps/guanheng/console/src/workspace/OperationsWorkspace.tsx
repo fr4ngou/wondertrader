@@ -20,7 +20,7 @@ function IssueDetail({issue}: {issue?: RuntimeIssue | null}) {
 
 export default function OperationsWorkspace() {
   const runtime = useQuery({queryKey:['independent-wt-instances'],queryFn:({signal})=>fetchWtInstances(signal),
-    retry:false,refetchOnWindowFocus:false,refetchOnReconnect:false})
+    retry:false,refetchInterval:15_000,refetchOnWindowFocus:false,refetchOnReconnect:false})
   const operations = useQuery({queryKey:['independent-operations'],queryFn:({signal})=>fetchOperations(signal),
     retry:false,refetchOnWindowFocus:false,refetchOnReconnect:false})
   const data = runtime.data; const query = operations.data?.query

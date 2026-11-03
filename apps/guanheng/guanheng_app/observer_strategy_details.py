@@ -8,7 +8,8 @@ from time import monotonic
 from types import SimpleNamespace
 
 from .strategy_catalog import strategy_catalog
-from .wt_runtime_observation import RuntimeObservationConfig, read_runtime_snapshot, observe_runtime
+from .wt_runtime_observation import (RuntimeObservationConfig, RuntimeCurrentFile, read_runtime_snapshot,
+    observe_runtime, resolve_runtime_configuration)
 from .reading import ReadCapacityError
 from guanheng_market_client.runtime_status import read_status_snapshot
 
@@ -98,6 +99,8 @@ def observe_details(settings, configuration, deadline):
     from .strategy_runtime_projection import project_strategy
     from .account_publication import observe_published_account
 
+    # CURRENT读取失败沿503保留浏览器原成功结果；同轮账户与策略共用本代身份。
+    configuration = resolve_runtime_configuration(configuration, deadline)
     runtime = None
     runtime_error = False
     try:
@@ -164,7 +167,7 @@ def load_instances(settings):
     items = value['instances']
     if type(items) is not list or len(items) > 7:
         raise ValueError('invalid WT instance count')
-    seen = {primary.instance_id} if primary else set()
+    seen = {primary.instance_id} if isinstance(primary, RuntimeObservationConfig) else set()
     fields = {'wt_status_file', 'wt_control_id', 'wt_instance_id', 'wt_configuration_sha256'}
     for item in items:
         if type(item) is not dict or set(item) != fields | {'label'}:
@@ -183,8 +186,9 @@ def load_instances(settings):
 def observe_instances(rows, deadline):
     result = []
     for label, config in rows:
-        identity = config.instance_id if config else 'unconfigured'
-        scope = hashlib.sha256(identity.encode('ascii')).hexdigest()
+        # 动态行的展示身份由稳定公开指针位置确定；账户金融scope仍由实际本代身份生成。
+        identity = str(config.path) if isinstance(config, RuntimeCurrentFile) else config.instance_id if config else 'unconfigured'
+        scope = hashlib.sha256(identity.encode('utf8')).hexdigest()
         try:
             value = observe_runtime(config, deadline)
         except (ValueError, OSError, TimeoutError):

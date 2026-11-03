@@ -25,10 +25,15 @@ class ConsoleSettings(BaseModel):
     wondertrader_market_timeout_seconds: float = Field(default=2.0, gt=0, le=30.0)
     # 显式选择来源标签读取；默认标准化服务的单位和时间合同保持。
     wondertrader_history_semantics: Literal["canonical", "source"] = "canonical"
-    # 仅绑定WT公开状态及其运行身份；不加载WT运行配置或凭据。
+    # 当前实例公开指针绝对路径；非空时每轮读取，优先于固定四项身份，缺失时等待恢复。
+    wt_current_file: str = ""
+    # WT公开状态绝对路径；当前指针为空时使用固定四项，不加载运行配置或凭据。
     wt_status_file: str = ""
+    # 固定模式控制UUID，属于本次启动代。
     wt_control_id: str = ""
+    # 固定模式逻辑实例UUID，与控制UUID分别校验。
     wt_instance_id: str = ""
+    # 固定模式配置原字节SHA256，64位小写十六进制。
     wt_configuration_sha256: str = ""
     account_source: Literal['wt_strategy','wt_account_publication'] = 'wt_strategy'
     # 仅读已发布归档，不加载回测运行绑定或会话执行配置。
@@ -48,6 +53,7 @@ class ConsoleSettings(BaseModel):
             wondertrader_market_connect_ip=os.environ.get("GUANHENG_MARKET_CONNECT_IP", ""),
             wondertrader_market_timeout_seconds=os.environ.get("GUANHENG_MARKET_TIMEOUT_SECONDS", "2"),
             wondertrader_history_semantics=os.environ.get("GUANHENG_HISTORY_SEMANTICS", "canonical"),
+            wt_current_file=os.environ.get("GUANHENG_WT_CURRENT_FILE", ""),
             wt_status_file=os.environ.get("GUANHENG_WT_STATUS_FILE", ""),
             wt_control_id=os.environ.get("GUANHENG_WT_CONTROL_ID", ""),
             wt_instance_id=os.environ.get("GUANHENG_WT_INSTANCE_ID", ""),

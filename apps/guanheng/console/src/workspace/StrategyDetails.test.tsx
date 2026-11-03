@@ -43,6 +43,15 @@ test('刷新失败保留同一成功详情和原时间，再恢复',async()=>{
  fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
  expect(await screen.findByText('策略已停止')).toBeVisible()
 })
+
+test('原页面定时读取WT新一代状态，无需重新挂载或点击刷新',async()=>{
+ const fetch=vi.fn().mockResolvedValueOnce(Response.json(fixture()))
+   .mockImplementation(()=>Promise.resolve(Response.json({...fixture(),execution:{...fixture().execution,state:'closed',label:'策略已停止'}})))
+ vi.stubGlobal('fetch',fetch);mount()
+ expect(await screen.findByText('策略未启动')).toBeVisible()
+ expect(await screen.findByText('策略已停止',{}, {timeout:20_000})).toBeVisible()
+ expect(fetch).toHaveBeenCalledTimes(2)
+},25_000)
 test('金额按中文单位显示且可查看精确值，持仓份额保持原数量',async()=>{
  const value=fixture()
  const fields=value.account.groups.position.rows[0].fields

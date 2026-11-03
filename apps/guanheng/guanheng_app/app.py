@@ -134,7 +134,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
     @application.get("/v1/ui/capabilities")
     async def capabilities():
         available=bool(configured.wondertrader_market_url and configured.wondertrader_market_token.get_secret_value())
-        business=all((configured.wt_status_file,configured.wt_control_id,configured.wt_instance_id,configured.wt_configuration_sha256))
+        business=bool(configured.wt_current_file) or all((configured.wt_status_file,configured.wt_control_id,configured.wt_instance_id,configured.wt_configuration_sha256))
         return {"read_only":True,"features":{
             "minute_chart":{"available":available,"periods":["1m","1d","1w","1mo"] if configured.wondertrader_history_semantics=="source" else ["1m","5m"],"timeout_seconds":configured.wondertrader_market_timeout_seconds,"reason":None if available else "尚未配置WT行情读取连接"},
             "daily_chart":{"available":available and configured.wondertrader_history_semantics=="source","periods":["1d","1w","1mo"],"read_only":True,"reason":None if available else "尚未配置WT日线读取连接"},

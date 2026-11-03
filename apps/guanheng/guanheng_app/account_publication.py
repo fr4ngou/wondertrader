@@ -15,7 +15,7 @@ from .managed_local_process import _inspect
 from .account_scan import decode_json,_completion,FRAME_BYTES
 from .account_projection import require,integer,text,validate_observation,project_account,unavailable_account
 from .contracts.account import AccountClose,AccountOverviewV4,AccountPublication
-from .wt_runtime_observation import read_runtime_snapshot
+from .wt_runtime_observation import read_runtime_snapshot,resolve_runtime_configuration
 
 PUBLICATION_BYTES=FRAME_BYTES+65536
 _FIELDS={'schema','control_id','config_sha256','pid','revision','updated_at','state','error_code',
@@ -178,6 +178,7 @@ def observe_published_account(configuration,deadline):
     只有短暂未见和Windows共享冲突可以重读，协议/身份错误立即失败。
     每次重读重新核整条根身份，不拼接两次读取，也不创建运行owner。
     """
+    configuration=resolve_runtime_configuration(configuration,deadline)
     while True:
         check(deadline)
         try:

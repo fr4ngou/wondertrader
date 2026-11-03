@@ -47,7 +47,8 @@ export default function StrategyDetails({ strategy = defaultStrategy }: {
     const previous = client.getQueryData<DetailsReadView>(queryKey)?.account
     return {current,account:current.account ? accountReadView(current.account,previous) : previous}
   },
-    retry:false,refetchOnWindowFocus:false,refetchOnReconnect:false})
+    // 日常WT换代后在原页面接收本代事实；失败仍由query保留成功详情和原时间。
+    retry:false,refetchInterval:15_000,refetchOnWindowFocus:false,refetchOnReconnect:false})
   const data = query.data?.current
   const currentGroups = data?.account?.groups
   const moneyGroup = query.data?.account?.complete.account ?? currentGroups?.account

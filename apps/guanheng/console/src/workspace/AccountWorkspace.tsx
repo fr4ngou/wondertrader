@@ -51,7 +51,7 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
   const query = useQuery({ queryKey: ['independent-account-overview'],
     queryFn: async ({ signal }) => accountReadView(await fetchAccountOverview(signal, capability.timeout_seconds ?? 30),
       client.getQueryData<AccountReadView>(['independent-account-overview'])), enabled: capability.available,
-    retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
+    retry: false, refetchInterval: 15_000, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const data = query.data?.current
   const publication=data?.schema_version==='4.0' ? data.publication : null
   const funds = query.data?.complete.account ?? data?.groups.account
