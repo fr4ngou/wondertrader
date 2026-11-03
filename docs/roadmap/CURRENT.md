@@ -1,5 +1,7 @@
 # 当前事实
 
+2026-11-03 14:24后继核实：正式Full30于14:13:50写failure，父PID72368已退出，error_code=component_runtime_trade_host，交易通信及执行组件报unexpected_exit；13:58成功结果保留其历史范围。当前自动交易未启用，根因待原运行owner定位，不能沿旧ready证明可用。原Web/观察更新保持；完整原件为本机QA的FULL30-FAULT-1424-RECEIVED.json。
+
 2026-11-03 13:56实际核实：Web a101/18143已绑定正式只读Full30，策略observing可读，原现金/可用633075.20元、五持仓及当前估值持续发布；账户WT五组件ready。总览六卡片无具体策略，桌面/390px已验。全A T2108到11/2、5540/5576，GDP到11/2的0.8298倍；a99独立更新30路及原三窗口运行，机构旧期次继续。见[实际交付、维护和剩余](../releases/2026-11-03-observer-a101-capital-and-market.md)。
 
 2026-11-03 12:39实际核实：a98独立更新已运行，SGX双路实际refresh success、当前a1cf，日频1836/月频10原行及其它70组保持，Web两图与完整范围已验。官网末期仍为10月30日/9月，保险数字kind和原29路计划保持；账户24持续、策略资金恢复与全A/T2108继续。见[当前交付与剩余](../releases/2026-11-03-observation-a98-sgx-live.md)。
