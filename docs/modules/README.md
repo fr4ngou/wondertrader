@@ -80,3 +80,5 @@
 - [批量日线来源](qmt-analysis-batch-source.md)：固定股票池资源分片、原SDK批次结果和C只读消费包。
 
 - [全市场日线准备](qmt-market-daily-preparation.md)：原HPR缓存更新、v8回读、长工作流原slot续接。
+
+| [全A等权PB持续快照](pb-all-continuation.md) | 原提供方月末/最新报告值、公开会话与原历史保留 |

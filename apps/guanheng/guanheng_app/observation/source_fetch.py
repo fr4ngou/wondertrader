@@ -112,8 +112,13 @@ class Fetcher:
     def close(self):
         self.client.close()
 
-    def get(self, url, params=None, referer=None, *, session_handoff=False):
-        return self._read('GET', url, params=params, referer=referer,session_handoff=session_handoff)
+    def get(self, url, params=None, referer=None, *, session_handoff=False, public_headers=None):
+        """原只读GET；public_headers仅允许本来源公开页面的X-CSRF-Token。
+
+        该值只用于当前请求，Cookie仍由本实例client持有；不接纳账户认证头。
+        缺省None沿原请求，字段不进入配置或采集回执。
+        """
+        return self._read('GET', url, params=params, referer=referer,session_handoff=session_handoff,public_headers=public_headers)
 
     def post_readonly(self, url, form, *, referer=None, session_handoff=False):
         """仅供已核只读查询适配器；公开表单归档，Cookie仅由原client内存持有。
@@ -128,8 +133,16 @@ class Fetcher:
             raise SourceFailure('source_public_form_invalid')
         return self._read('POST', url, form=form, referer=referer, session_handoff=session_handoff)
 
-    def _read(self, method, url, *, params=None, form=None, referer=None, session_handoff=False):
+    def _read(self, method, url, *, params=None, form=None, referer=None, session_handoff=False, public_headers=None):
         import httpx
+        if public_headers is not None and (type(public_headers) is not dict
+                or set(public_headers)!={'X-CSRF-Token'}
+                or type(public_headers['X-CSRF-Token']) is not str
+                or not 1<=len(public_headers['X-CSRF-Token'])<=256
+                or any(not 33<=ord(c)<=126 for c in public_headers['X-CSRF-Token'])):
+            raise SourceFailure('source_public_headers_invalid')
+        headers=dict(public_headers or {})
+        if referer:headers['Referer']=referer
         if type(session_handoff) is not bool:raise SourceFailure('source_public_session_invalid')
         parts = urlsplit(url)
         host = parts.hostname
@@ -148,7 +161,7 @@ class Fetcher:
                 remaining = request_remaining()
                 options={'data':form} if method=='POST' else {}
                 with self.client.stream(method, url, params=params, **options,
-                        headers={'Referer':referer} if referer else None,
+                        headers=headers or None,
                         timeout=httpx.Timeout(remaining)) as response:
                     chunks, size = [], 0
                     # 消费原始网络块，HTTPX解码及64KiB聚块均退出输入准入路径。

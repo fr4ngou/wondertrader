@@ -65,6 +65,10 @@ CSV/JSON导出链接包含页面snapshot_id，和表格/图表保持同版本。
 
 ### 原采集与调度
 
+`pb_all`持续生产使用[原供应商快照模块](../modules/pb-all-continuation.md)。在原来源列表追加`id=legulegu.pb_all`、`kind=legulegu_pb`、`datasets=[pb_all]`、`window_mode=report_latest`、`date_policy=cn-closed-day`，url固定`https://legulegu.com/api/stock-data/market-index-pb`，referer固定`https://legulegu.com/stockdata/all-pb`，allowed_hosts追加`legulegu.com`。保留原27来源、模型、日历、调度及预算。公开会话和当日标识由原Fetcher内生成，不手填token或导入浏览器Cookie。
+
+Root先在E盘隔离根沿原refresh只选择该source验证，核原PB方法版本、全部旧日期/数值、新月末与最新点、分位及导出，再部署支持新kind的更新角色并绑定新来源配置SHA。Web继续只读，旧读取版本可消费新增PB数据；现场当前版本已变化时在最新快照重放该单路，不以旧候选覆盖其它更新。供应商响应不提供的日期保留已有真实观察，缺失历史不补值。完整日频、逐股股票池及真实样本数仍按原未核范围记录。
+
 采集安装额外使用发行清单固定的`observation-collection`依赖闭包，包含HTTPX、Baostock及其精确依赖；普通只读App保持基础安装。先接纳完整历史快照，再核实来源配置原字节SHA、公开host、日期窗口、请求/字节/时间预算及A统一行情连接。来源文件禁止嵌入凭据。大陆行情通过A的已配置查询服务取得；其他来源失败时保留原数据并记录原因。
 
 央行大型银行PDF需要采集闭包中的固定pypdf；页面只读安装保持零PDF依赖。原件取得后核文档页/字节与文本容量、年份、亿元单位和逐月列，失败保留原值及原件，维护人员核对最新官方表而非手工平移月份。HTTP未显式提供SSL_CERT_FILE/SSL_CERT_DIR时使用系统默认可信CA；显式提供时沿原配置核证书链。证书与主机名验证持续启用，网络错误及官方资料变更分别处理。

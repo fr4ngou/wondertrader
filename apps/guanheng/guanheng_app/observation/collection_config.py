@@ -9,7 +9,7 @@ from urllib.parse import urlsplit,parse_qsl
 from .contracts import ObservationError
 
 KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmoney','shenwan','irs',
-         'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public'}
+         'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb'}
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
@@ -137,6 +137,13 @@ def validate_configuration(value):
                     and type(source.get('input_sha256')) is str and re.fullmatch('[a-f0-9]{64}',source['input_sha256']))
             _need(source.get('datasets')==[METRIC] and source.get('tables')==[UNIVERSE])
             _need(not {'url','referer','symbols','replace_tables','window_mode','scope','bse_history'} & set(source))
+        elif source['kind']=='legulegu_pb':
+            # 固定原报告值口径；配置不接受其他市场或独立计算器的输出身份。
+            _need(source.get('datasets')==['pb_all'] and not source.get('tables')
+                and source.get('url')=='https://legulegu.com/api/stock-data/market-index-pb'
+                and source.get('referer')=='https://legulegu.com/stockdata/all-pb'
+                and source.get('window_mode')=='report_latest')
+            _need(not {'input_manifest','input_sha256','input_directory','symbols','replace_tables','scope','bse_history','params'} & set(source))
         elif source['kind']=='ashare_snapshot':
             _need('input_directory' not in source)
             from .breadth_models import ASHARE_METRICS

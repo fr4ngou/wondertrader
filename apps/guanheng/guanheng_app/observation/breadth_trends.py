@@ -95,6 +95,7 @@ def attach_benchmark(datasets,definitions,tables):
     """原market.sh000001表的只读投影；指数身份与源表继续保持唯一。"""
     key='market.sh000001';prices=tables.get(key,[])
     if not prices:return
+    previous_definition=definitions.get(key,{})
     datasets[key]=[dict(date=r['date'],close=r.get('close'),open=r.get('open'),high=r.get('high'),low=r.get('low'),available_at=None) for r in prices]
     schema=dict(date=dict(label='交易日',unit='日期'),available_at=dict(label='历史首次可知时间',unit='时间，未知留空'))
     schema.update({k:dict(label='上证指数'+label,unit='指数点',required=k=='close') for k,label in [('close','收盘'),('open','开盘'),('high','最高'),('low','最低')]})
@@ -105,3 +106,6 @@ def attach_benchmark(datasets,definitions,tables):
         lines=[dict(key='close',name='上证指数',unit='指数点',color='#c65761',panel='main',shown=True,formula='原始收盘',reading='基准与指标各自保留实际缺口。')],
         trading_days=sorted({row['date'] for row in tables.get('source.cn_calendar',[]) if row.get('is_open')==1}),
         limitations=['保持原market.sh000001身份和原始单位；数据补齐由指数来源owner提供。'])
+    # freshness归采集者所有；只读数学投影重建时保留原观察，不冒充一次指数采集。
+    # 当指数来源实际被选中时，collection最终化仍会写入该次真实新回执。
+    if 'freshness' in previous_definition:definitions[key]['freshness']=previous_definition['freshness']
