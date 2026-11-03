@@ -68,6 +68,8 @@ PBC大型银行PDF解析只属于可选observation-collection安装，固定pypd
 
 ## OBI6 调度与发布责任
 
+回购定盘来源沿中国货币网公开历史查询的只读POST表单，显式提供startDate、endDate和lang=CN；不以GET访问该查询。复用原Fetcher的请求/字节/截止、正文原件和来源回执。FR007与FDR007单位为百分比，按实际lfiProducDate过滤，缺失首次可知时间保持为空；该查询不涉及账户认证或交易副作用。权限/格式/空结果失败保留原观察，成功后沿原refresh、计算及CAS补齐真实日期。
+
 2026-11-02日终更新：同一独立更新owner保留09:00，`schedule.times`允许至多三个16:30及以后的盘后窗口，按唯一有序HH:MM配置；窗口身份仍为北京时间ISO时点，只扫描昨日和今日已到期窗口。尝试、有限退避、完成记录、采集lease、调度lease与CAS共同发布沿原实现。
 
 显式`schedule.date_policy=source-aware-v1`启用来源截止策略；每源声明`date_policy=cn-closed-day|hk-closed-day|calendar-day`。市场日线在窗口时点按沪深15:00/香港16:00收盘和原已准入官方日历取最近已结束交易日；周一09:00取前一交易日，周末和假期沿日历回看。模型批次as_of为沪深最近已结束交易日。披露、月季年报沿窗口自然日查已发布记录，保留实际报告期；高管按CHANGE_DATE回溯已披露记录，不声明盘中实时。补跑始终使用计划窗口时点。无date_policy的原09:00配置保持既有日期行为。

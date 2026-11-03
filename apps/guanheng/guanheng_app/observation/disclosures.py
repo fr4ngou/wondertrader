@@ -47,7 +47,10 @@ def gov10y(fetch,config,start,end):
     return {'source.gov10y':sorted(unique.values(),key=lambda r:r['date'])}
 
 def repo_fixing(fetch,config,start,end):
-    raw=json.loads(fetch.get(config['url'],dict(startDate=start,endDate=end,pageSize=1000)))
+    # 官网历史表使用只读POST；GET在同一公开地址返回403，不能据此判定资料需登录。
+    # 表单日期是本次闭合区间，lang固定官方中文查询；原Fetcher记录方法和原始正文。
+    raw=json.loads(fetch.post_readonly(config['url'],dict(startDate=start,endDate=end,lang='CN'),
+        referer=config.get('referer')))
     rows=[]
     for row in raw.get('records',[]):
         day=row['lfiProducDate']; values=row['frValueMap']

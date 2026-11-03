@@ -75,6 +75,8 @@ requests为HTTP请求与实际PB协议发送数之和，http_requests/sdk_reques
 
 一次更新使用已安装解释器：
 
+回购定盘由`observation/disclosures.py:repo_fixing`沿中国货币网公开历史表单读取FR007与FDR007（百分比），请求方式为只读POST，参数为本批startDate/endDate及lang=CN。GET访问同一地址可能返回403，维护时先对照官方当前展示页的请求方式，再判断资料权限；保持原HTTP边界、原件和失败保旧。每日定盘发布时点沿官网，09点更新使用已收盘交易日，不能将抓取时间写成当天尚未发布的利率日期。
+
 ```powershell
 $SourcesSha = (Get-FileHash -LiteralPath $SourcesFile -Algorithm SHA256).Hash.ToLowerInvariant()
 & $AppPython -I -B -m guanheng_app.observation refresh --root $ObservationRoot --config $SourcesFile --config-sha256 $SourcesSha --as-of $ObservationDate --seconds 600
