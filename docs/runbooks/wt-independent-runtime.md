@@ -21,6 +21,12 @@ Host保持等待，QMT策略晚于60秒启动仍可配对。每个查询/命令�
 
 ## 只读观察
 
+### 策略部署选择
+
+按[策略部署要求](../product/brief.md#策略部署与启用)，用户回测满意后可直接部署对应策略版本、参数及账户并启用。沿本手册原安装和WT启动入口装配策略；部署工具负责生成配置引用及制品身份，日常使用者无需制作审批文件或收集额外资格记录。
+
+观察模式与启用交易是用户的运行选择。切换时保留当前资金、持仓和必要策略记忆，账户及未知委托沿原运行恢复处理。缺少本次必需行情或账户事实时，运行状态展示原因并在恢复后继续；无需用户重新走策略上线审批。发布观衡、补齐非策略必需的市场观察或等待固定观察天数均不属于策略启用前置步骤。
+
 ### 持续策略分析窗口
 
 需要自动更新策略日线分析时，同实例声明 analysis_host（kind=qmt_read）和 analysis_window（kind=analysis_window）。前者使用显式 v7 只读配对和原 Host descriptor；后者使用 `guanheng.analysis-window-deployment.v1` descriptor，其 configuration 由 source_connection、source 和 producer 三项组成，具体参数沿 [AWP](../specs/qmt-analysis-window-producer.md)。原生 Helper/Reader/probe 和工作解释器使用发行实际路径与摘要，凭据通过环境变量注入。

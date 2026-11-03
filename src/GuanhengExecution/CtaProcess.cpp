@@ -243,11 +243,33 @@ bool settled(const guanheng::StandardQmtRecoveryV1& value){
     return value.query_first&&value.submissions_closed&&!value.open_group&&!value.unresolved_children
         &&!value.pending_commands&&!value.unsafe;
 }
+// 自有恢复准入仅归一化显式开关与运输引用；原账户、模型、账根及所有其他字段相同。
+rj::Document permission_model(const rj::Value& config,unsigned depth=0){
+    rj::Document current;current.CopyFrom(config,current.GetAllocator());current.RemoveMember("recovery");
+    if(!current.HasMember("execution_permission_origin"))return current;
+    need(depth<16);const auto& marker=member(config,"execution_permission_origin");keys(marker,{"schema","file","sha256"});
+    need(text(marker,"schema")=="guanheng.execution-permission-origin.v1");
+    const auto path=absolute(text(marker,"file"));need(path.filename()=="execution.json");
+    const auto raw=read(path,256*1024);need(sha(raw)==text(marker,"sha256",64));auto original=parse(raw);
+    rj::Document before;before.CopyFrom(original,before.GetAllocator());before.RemoveMember("recovery");
+    before.RemoveMember("execution_permission_origin");current.RemoveMember("execution_permission_origin");
+    need(member(before,"trader").IsObject()&&member(current,"trader").IsObject());
+    const auto& old=before["trader"];auto& selected=current["trader"];
+    const auto& enabled=member(selected,"writes_enabled");const auto& prior=member(old,"writes_enabled");
+    need(enabled.IsBool()&&prior.IsBool()&&enabled.GetBool()!=prior.GetBool());
+    for(const char* key:{"writes_enabled","base_url","binding_id","binding_sha256","instance_id","key_id_env","hmac_secret_env"}){
+        need(selected.HasMember(key)==old.HasMember(key));
+        if(old.HasMember(key))selected[key].CopyFrom(old[key],current.GetAllocator());
+    }
+    need(current==before);return permission_model(original,depth+1);
+}
+
 // 显式只读市场引用回投原业务模型；原金融、账户及执行字段继续逐项核验。
 rj::Document market_model(const rj::Value& config){
-    rj::Document current;current.CopyFrom(config,current.GetAllocator());current.RemoveMember("recovery");
+    rj::Document normalized=permission_model(config);
+    rj::Document current;current.CopyFrom(normalized,current.GetAllocator());
     if(!current.HasMember("market_input_origin"))return current;
-    const auto& marker=member(config,"market_input_origin");keys(marker,{"schema","file","sha256","quotes","parser"});
+    const auto& marker=member(normalized,"market_input_origin");keys(marker,{"schema","file","sha256","quotes","parser"});
     need(text(marker,"schema")=="guanheng.market-input-origin.v1");
     const auto path=absolute(text(marker,"file"));need(path.filename()=="execution.json");
     const auto raw=read(path,256*1024);need(sha(raw)==text(marker,"sha256",64));auto original=parse(raw);
@@ -631,8 +653,11 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         need(id.size()==36&&expected_sha.size()==64&&fs::is_directory(control));
         need(!fs::exists(control/"ready.json")&&!fs::exists(control/"closed.json")&&!fs::exists(control/"close-prepared.json"));
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
-        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin"});
+        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
+        if(cfg.HasMember("execution_permission_origin")){
+            need(text(member(cfg,"recovery"),"mode")!="record_clean");permission_model(cfg);
+        }
         if(cfg.HasMember("market_input_origin")){
             need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
         }

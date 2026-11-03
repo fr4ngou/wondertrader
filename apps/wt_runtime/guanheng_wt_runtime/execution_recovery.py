@@ -107,12 +107,40 @@ def _market_sources(marker):
     return quotes,parser
 
 
+def execution_permission_origin_configuration(native, *, deadline=float('inf'), depth=0):
+    """原账显式变更执行权限；仅归一化开关和运输引用，账户/模型/账根逐项保持。
+
+    origin以原配置文件和SHA冻结，不授金融动作。实际准入继续核原关闭、查询、
+    未决命令及金融文件。最多16跳，支持后继原账停写及正常发行接续。
+    """
+    marker = native.get('execution_permission_origin')
+    if marker is None:return native
+    _require(depth < 16 and type(marker) is dict and set(marker) == {'schema','file','sha256'}
+        and marker['schema'] == 'guanheng.execution-permission-origin.v1')
+    path = _path(marker['file']);_require(path.name == 'execution.json')
+    body = _read(path,256*1024,deadline=deadline,clock=time.monotonic)
+    _require(hashlib.sha256(body).hexdigest() == _sha(marker['sha256']))
+    origin = _json(body)
+    before,after = _business(origin),_business(native)
+    before.pop('execution_permission_origin',None);after.pop('execution_permission_origin')
+    old,current = before['trader'],after['trader']
+    _require(type(old.get('writes_enabled')) is bool and type(current.get('writes_enabled')) is bool
+        and old['writes_enabled'] is not current['writes_enabled'])
+    # 其余Trader字段（账户、环境、profile、预算及查询语义）继续精确相同。
+    for key in ('writes_enabled','base_url','binding_id','binding_sha256','instance_id','key_id_env','hmac_secret_env'):
+        _require((key in old) == (key in current))
+        if key in old:current[key] = copy.deepcopy(old[key])
+    _require(before == after)
+    return execution_permission_origin_configuration(origin,deadline=deadline,depth=depth+1)
+
+
 def market_origin_configuration(native, *, deadline=float('inf')):
     """显式行情接入只沿原配置/SHA回到基准；其余业务字段逐项保持。
 
     原参考只允许一跳且没有另一份origin，避免循环别名。准备阶段尚未注入
     takeover，按相同阶段比较；Native准入再核实际原takeover及状态文件。
     """
+    native=execution_permission_origin_configuration(native,deadline=deadline)
     marker=native.get('market_input_origin')
     if marker is None:return native
     _require(type(marker) is dict and {'schema','file','sha256'}<=set(marker)<={'schema','file','sha256','quotes','parser'}
