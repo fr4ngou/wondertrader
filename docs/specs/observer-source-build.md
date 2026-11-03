@@ -10,6 +10,6 @@ OSB-R3：构建解释器、Flit wheel、第三方wheel目录、Node/npm和npm离
 
 OSB-R4：源清单包含项目元数据、全部包成员/许可证、实际前端构建输入、工具及配置；构建前后重新核精确文件集与SHA。所有外部命令沿native.run隐藏创建期Job、有限总截止和输出上限，失败保留现场并返回非零；最终构建收据在完整检查成功后发布。外部缓存只供固定第三方内容，记录不提升其为产品源码。
 
-OSB-R5：角色沿qar.role-artifacts.v1，真实来源标识为本次source-build，不伪称安装；保留App30发行、所选extra、精确requirements和永久local-projects。现有compose/安装器保持唯一实现，独立包沿guanheng.observer-runtime.v1及其原verify/install。安装不启动WT、采集或交易，个人数据和实际市场观察根在包外配置。
+OSB-R5：角色沿qar.role-artifacts.v1，真实来源标识为本次source-build，不伪称安装；保留完整App角色发行、所选extra、精确requirements和永久local-projects。第三方数量取自固定registry，角色总数量为已登记第三方与本次私有发行之和；新增依赖仍逐一核wheel哈希及完整依赖闭包。现有compose/安装器保持唯一实现，独立包沿guanheng.observer-runtime.v1及其原verify/install。安装不启动WT、采集或交易，个人数据和实际市场观察根在包外配置。
 
 OSB-R6：先从全新目录、仅永久声明源和显式依赖实际构建，核未变payload与选中004/App71，C70差异明确单列。随后普通离线安装、公开App入口、账户/分钟/报告/观察及正常关闭；已验真实004只读结果和不变算法/异常回归按精确身份复用，不重发QMT或全池查询。必要构建/身份回归、两轴独审及project.py check通过后交付源码、入口、角色、独立包/安装和完整结果。整系统组合、locator、原生Reader、生产及Git集成由Root/相应owner继续。

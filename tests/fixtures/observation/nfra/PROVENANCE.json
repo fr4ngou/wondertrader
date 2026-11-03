@@ -1,0 +1,24 @@
+{
+  "source": "National Financial Regulatory Administration public statistics item 954",
+  "retrieved_at": "2026-11-03",
+  "detail": "https://www.nfra.gov.cn/cn/view/pages/ItemDetail.html?docId=1268117&itemId=954",
+  "files": [
+    {
+      "file": "detail.json",
+      "sha256": "2bbdcbb644fb9a2eb4077d10009eaefb87996a4996faa7a751ee8a7b184f980c"
+    },
+    {
+      "file": "funds-2026-q2.xls",
+      "sha256": "392176fd489542f04454a89fa2195c354c762ff727acf63f377c689579d29d1b"
+    },
+    {
+      "file": "listing-1.json",
+      "sha256": "054c76a2fd78974fe68fe2f54c8bc701b38a1815de875334661267040e5a1b0b"
+    },
+    {
+      "file": "listing-2.json",
+      "sha256": "e669200c21716076b88902327a452359a1d9ebf01b562bb7476f184c9f599ebf"
+    }
+  ],
+  "public": true
+}

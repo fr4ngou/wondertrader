@@ -124,3 +124,10 @@ $ObservationDeploymentSha = (Get-FileHash -LiteralPath $ObservationDeployment -A
 配置`ashare_snapshot`来源时，显式绑定原件清单绝对路径及SHA256；清单交易日须与本次`refresh --as-of`一致。原件包包含同日普通A股股票池、沪深日线、北交所行情及股份资料，并保留各自实收时刻。沿原独立采集入口发布，四项`.ashare`指标与已有`.shsz`历史分别展示。
 
 固定包提供对应交易日的可核验观察；每日取得新原件和配置身份更新由持续来源负责。更新失败保留原成功快照，界面继续显示其实际日期及原因。完整合同和验收范围见[日终规格](../specs/observer-ashare-day.md)。
+
+
+## 寿险、财险季度配置维护
+
+原`nfra.disclosures`来源选择`kind=nfra_insurance`，保留原两组datasets及官网url，配置`window_mode=report_latest,max_pages=8`。用固定采集闭包包含的`xlrd==2.0.2`读取官方XLS，依赖与SHA沿原注册锁。沿原独立更新计划运行；季度未披露期间保留上次季度，不用月度经营表代替资金配置。切换配置和制品由原发布流程接收，页面无需新增服务。
+
+先查来源回执及原列表/详情/附件SHA。`nfra_listing_coverage_incomplete`表示配置页数内尚未覆盖所需起点，应核官网分页和原截止后调整页数，允许3至20；`nfra_response_schema`表示列表/详情身份、附件或排序发生变化；`nfra_workbook_schema`表示单位、机构分组、列或比例核对失败；`nfra_xls_dependency_missing`需重建包含固定可选依赖的独立更新角色。失败沿原刷新保留已发布值；维护人员核原件，不手工复制金额或补未披露季度。

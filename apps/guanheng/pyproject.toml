@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-app"
-version = "0.1.0a96+pb.1"
+version = "0.1.0a97+insurance.1"
 description = "Independently managed Guanheng business application on WonderTrader"
 requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]
@@ -26,7 +26,7 @@ guanheng-console = "guanheng_app.__main__:main"
 guanheng-observation = "guanheng_app.observation_supervisor:main"
 
 [project.optional-dependencies]
-observation-collection = ["httpx==0.28.1", "httpcore==1.0.9", "baostock==0.9.4", "pandas==3.0.6", "numpy==2.5.4", "python-dateutil==2.9.0.post0", "six==1.17.0", "pypdf==6.14.2"]
+observation-collection = ["httpx==0.28.1", "httpcore==1.0.9", "baostock==0.9.4", "pandas==3.0.6", "numpy==2.5.4", "python-dateutil==2.9.0.post0", "six==1.17.0", "pypdf==6.14.2", "xlrd==2.0.2"]
 
 [dependency-groups]
 dev = ["pytest==8.4.2", "httpx==0.28.1", "ruff==0.15.22"]

@@ -850,3 +850,5 @@
 - [账户恢复完整依赖源码接收](2026-11-03-execution-recovery-source-intake.md)：五代封存依赖、40模块与实际wheel逻辑核同、现有运行及资格边界。
 
 - [2026-11-03全A等权PB持续生产](2026-11-03-pb-all-continuation.md)：原同源263条、262→264实际发布、71组完整保持及普通安装分位/导出核对。
+
+- [寿险/财险季度原XLS数字接续：最新官方2026Q2，隔离发布/安装API导出及历史保持通过；正式部署待接收](2026-11-03-insurance-allocation-continuation.md)。

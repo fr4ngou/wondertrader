@@ -9,7 +9,7 @@ from urllib.parse import urlsplit,parse_qsl
 from .contracts import ObservationError
 
 KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmoney','shenwan','irs',
-         'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb'}
+         'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance'}
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
@@ -137,6 +137,13 @@ def validate_configuration(value):
                     and type(source.get('input_sha256')) is str and re.fullmatch('[a-f0-9]{64}',source['input_sha256']))
             _need(source.get('datasets')==[METRIC] and source.get('tables')==[UNIVERSE])
             _need(not {'url','referer','symbols','replace_tables','window_mode','scope','bse_history'} & set(source))
+        elif source['kind']=='nfra_insurance':
+            # 固定官方原寿险/财险口径；季度窗口沿原报告游标，分页容量显式登记。
+            _need(source.get('datasets')==['holdings_life','holdings_property'] and not source.get('tables')
+                and source.get('url')=='https://www.nfra.gov.cn/'
+                and source.get('window_mode')=='report_latest'
+                and type(source.get('max_pages')) is int and 3<=source['max_pages']<=20)
+            _need(not {'input_manifest','input_sha256','input_directory','symbols','replace_tables','scope','bse_history','params','referer'} & set(source))
         elif source['kind']=='legulegu_pb':
             # 固定原报告值口径；配置不接受其他市场或独立计算器的输出身份。
             _need(source.get('datasets')==['pb_all'] and not source.get('tables')

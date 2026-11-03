@@ -66,7 +66,8 @@ def build(root: Path, work: Path, *, python: Path, backend: Path, wheelhouse: Pa
     registry_raw = roles._read(root / declaration['registry_lock'])
     registry = roles._requirements(registry_raw)
     public = roles._wheelhouse(wheelhouse, registry, {})
-    roles._require(len(public) == len(registry) == 24
+    # 依赖闭包来自已锁登记；新增合法依赖时不沿用某次发行的固定数量。
+    roles._require(len(public) == len(registry)
                    and {r['name'] for r in registry} == set(public), 'complete observer third-party wheels')
     public_shas = {p.name: roles._sha(p) for p in wheelhouse.iterdir()}
     npm_root = files._root(npm_cli.parent.parent)
@@ -126,7 +127,7 @@ def build(root: Path, work: Path, *, python: Path, backend: Path, wheelhouse: Pa
     roles._json_write(role_root / 'local-projects.json', dict(role='app', extras=declaration['extras'],
         projects=[{key: p[key] for key in ('name', 'version', 'module', 'relative')} for p in projects]))
     wheel_infos = roles._wheelhouse(wheel_output, registry, built)
-    roles._require(len(wheel_infos) == 30, 'App30 closure required')
+    roles._require(len(wheel_infos) == len(registry) + len(built), 'complete App role closure required')
     qa = source_roles / 'qa';qa.mkdir()
     for name in ('runtime_identity.py', 'fixture_control.py'):
         shutil.copyfile(root / 'tests/integration/qmt_shm_account/scan' / name, qa / name)
