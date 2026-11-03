@@ -2,7 +2,7 @@
 
 观衡独立交付和更新，已完成的观衡版本可先行交给使用者，WT交易开发与恢复验收单独继续。联合候选用于兼容联调；观衡安装、启动和升级不启动WT/Host，也不要求WT同时升级。当前独立交付沿[发布索引](../releases/README.md)，按观衡App和市场更新角色分别核对已验安装、真实数据绑定及当前维护入口。
 
-类型：操作手册。适用范围：[独立观衡development制品](../specs/observer-runtime-package.md)，Windows x64。当前验收使用SDK替身；真实QMT及生产发布分别登记。
+类型：操作手册。适用范围：[独立观衡development制品](../specs/observer-runtime-package.md)，Windows x64。安装与维护流程的SDK替身资格、真实来源接入及生产发布分别登记；当前实际版本、来源绑定和用户入口以[发布记录](../releases/README.md)的最新后继为准。
 
 接收交付记录中的ZIP、ZIP SHA256和OBSERVER-RUNTIME.json SHA256。先用Get-FileHash核ZIP，再用系统Expand-Archive解压至新目录。安装需要显式CPython 3.12 x64（含pip）和uv；离线wheel已随包提供。
 
