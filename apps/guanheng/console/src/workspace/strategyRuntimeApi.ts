@@ -9,6 +9,7 @@ export const runtimeLabels = {
   supersession_required: '等待原目标处理完成', blocked: '本轮目标暂未执行',
   waiting_broker_position: '等待更新券商持仓', waiting_actual_cycle: '等待确认实际开仓信息',
   waiting_market_input: '等待策略所需行情',
+  observing: '分析运行中', // WT只读模式持续计算，不调用目标提交；与后端公开状态同步。
 } as const
 export type RuntimePosition = { symbol: string; target_weight: number | null; theoretical_quantity: number | null;
   theoretical_sellable: number | null; pending_target: number | null; stage_target: number | null;
