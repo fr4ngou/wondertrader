@@ -174,7 +174,11 @@ def main():
     write(output/'execution-same-ledger.json',native)
     execution.update(configuration=str(output/'execution-same-ledger.json'),
         configuration_sha256=sha(output/'execution-same-ledger.json'),control_root=str(output/'native-controls'))
-    capital=execution['initial_inventory']['capital']
+    # 后继沿实际前代已经装配好的配置和原账恢复，首次库存准备只属于首次建账。
+    # 两者混装会把已经包含takeover的配置再次交给首次准备器，启动在Native之前失败。
+    # 原库存引用及摘要已在上方核对；Native继续核原账、输入文件和本次券商查询。
+    inventory=execution.pop('initial_inventory')
+    capital=inventory['capital']
     write(output/'execution-deployment.json',execution)
     runtime['components']['trade_host'].update(descriptor=str(output/'trade-host.json'),sha256=sha(output/'trade-host.json'))
     runtime['components']['execution'].update(descriptor=str(output/'execution-deployment.json'),sha256=sha(output/'execution-deployment.json'))
@@ -193,7 +197,7 @@ def main():
         control_directory=str(output/'wt-controls'/control),  # 新控制目录，当前未创建。
         status_file=str(output/'wt-controls'/control/'status.json'),  # 后继状态位置。
         financial_state=native['output_directory'],  # 原金融账根，保持原事实。
-        initial_inventory=execution['initial_inventory']['state_root'],  # 原库存及资本基准根。
+        initial_inventory=inventory['state_root'],  # 原库存及资本基准根。
         capital_cny=capital['total_cny'],  # 原资本声明，保持原金额。
         writes_enabled=True,  # 候选请求执行，仍须原各层授权。
         started=False,  # 准备器只写候选材料。
@@ -213,7 +217,7 @@ def main():
         runtime_configuration=prepared['configuration'],  # 原账候选WRI配置路径。
         runtime_configuration_sha256=prepared['configuration_sha256'],  # WRI配置摘要。
         original_financial_root=native['output_directory'],  # 原金融状态根。
-        original_inventory_root=execution['initial_inventory']['state_root'],  # 原基准库存根。
+        original_inventory_root=inventory['state_root'],  # 原基准库存根。
         original_capital_cny=capital['total_cny'],  # 原100万元声明。
         same_business_configuration_verified=True,  # 权限/运输归一化后全配置精确相同。
         current_financial_state_reused=True,  # 采用时沿原账核查，不产生新基准。

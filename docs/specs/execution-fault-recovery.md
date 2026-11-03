@@ -80,3 +80,6 @@ EFR-21：同账权限交接显式提供execution_permission_origin={schema:"guan
 本进程已验证并持有原终态后，consumed收到完整410/read_result_unretained表示消费交接已完成。先校验该业务回复，再解释通用HTTP错误；正文不完整、错误类别或形状不符均保留真实失败。读取回收不会清理历史行情、金融状态或未决委托。
 
 验证状态见[账户读取回收状态修正](../evidence/2026-11-03-account-read-ended.md)，现场恢复与隔离验证分别登记。
+
+
+同账后继使用已经核对的前代实际配置，直接交原ManagedPythonExecutionProcess；其中takeover及输入文件摘要沿原库存基准保持。首次initial_inventory准备器仅负责尚未物化库存引用的准备配置，同账后继descriptor省略initial_inventory，继续保留原金融根、基准根及Native恢复核查。避免重复准备既有持仓或创建新基准。现场状态见[模拟自动执行启用](../releases/2026-11-04-wt-simulation-enabled.md)。
