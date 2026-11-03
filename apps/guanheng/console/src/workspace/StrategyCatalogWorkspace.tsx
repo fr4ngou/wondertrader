@@ -1,31 +1,28 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { fetchStrategyCatalog } from './strategyCatalogApi'
+import { Link, useSearchParams } from 'react-router-dom'
 import StrategyDetails from './StrategyDetails'
-import './strategy-catalog.css'
+import { StrategyPicker, strategyKey, useStrategySelection } from './StrategyPicker'
 
-/** 策略页仅展示登记资料；配置与算法细节由各自业务owner维护。 */
+/** 策略目录决定当前选择，运行详情按同一身份读取。 */
 export default function StrategyCatalogWorkspace() {
-  const [search, setSearch] = useState('')
-  const query = useQuery({ queryKey: ['strategy-catalog'], queryFn: ({ signal }) => fetchStrategyCatalog(signal),
-    retry: false, refetchOnWindowFocus: false })
-  const data = !query.isError && !query.isFetching ? query.data : undefined
-  const filter = search.trim().toLocaleLowerCase()
-  const strategies = data?.filter(item => [item.display_name, item.strategy_id, item.strategy_version]
-    .some(value => value.toLocaleLowerCase().includes(filter)))
+  const selection = useStrategySelection()
+  const [params, setParams] = useSearchParams()
+  const selected = selection.selected
+  const description = params.get('view') === 'description'
+  function view(value: string) {
+    const next = new URLSearchParams(params); next.set('view', value); setParams(next)
+  }
   return <section className="workspace-page strategy-catalog-workspace">
-    <header className="page-heading"><div><h1>策略</h1><p>查看当前持仓、资金与实际运行状态。</p></div></header>
-    <label className="strategy-catalog-search">搜索策略<input value={search} onChange={event => setSearch(event.target.value)}
-      placeholder="策略名称 / 版本" /></label>
-    {query.isFetching ? <p role="status">正在读取策略目录…</p> : null}
-    {query.isError ? <div role="alert"><p>{query.error.message}</p><button onClick={() => void query.refetch()}>重新读取策略</button></div> : null}
-    {strategies ? <div className="surface-card strategy-summary-list">
-      {strategies.map(item => <article className="strategy-summary-row" key={item.strategy_id + '@' + item.strategy_version}>
-        <div className="strategy-summary-heading"><h2>{item.display_name}</h2><span className="strategy-summary-version">v{item.strategy_version}</span></div>
-        <p>{item.description}</p>
-        <StrategyDetails />
-      </article>)}
-      {strategies.length === 0 ? <p role="status">{filter ? '没有匹配的策略。' : '当前没有登记策略。'}</p> : null}
-    </div> : null}
+    <header className="strategy-page-heading"><h1>策略</h1><StrategyPicker selection={selection} />
+      {selected ? <Link className="strategy-backtest-link" to={'/backtests?' + new URLSearchParams({ strategy: strategyKey(selected) })}>查看该策略回测 →</Link> : null}
+    </header>
+    {selected ? <>
+      <div className="strategy-selected"><h2>{selected.display_name}</h2><span>版本 {selected.strategy_version}</span></div>
+      <nav className="strategy-view-tabs" aria-label="策略详情视图">
+        <button aria-pressed={!description} onClick={() => view('runtime')}>运行与持仓</button>
+        <button aria-pressed={description} onClick={() => view('description')}>策略说明</button>
+      </nav>
+      {description ? <p className="strategy-description">{selected.description}</p>
+        : <StrategyDetails key={strategyKey(selected)} strategy={selected} />}
+    </> : null}
   </section>
 }

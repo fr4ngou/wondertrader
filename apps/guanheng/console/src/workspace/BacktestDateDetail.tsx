@@ -44,7 +44,6 @@ export default function BacktestDateDetail({ entry, day, dates, onDay }: {
             {value.positions.map(p => <details key={p.symbol} className="bt-holding"><summary><span>{reportSymbol(p.symbol)}<small>{p.quantity} 份</small></span><strong className={gainClass(p.floating_cny)}>{backtestMoney(p.floating_cny)}</strong></summary>
               <div>累计已实现盈亏 <strong className={gainClass(p.realized_cny)}>{backtestMoney(p.realized_cny)} 元</strong></div></details>)}
           </div>}
-          <p className="bt-muted">以当日日末记录为准。浮动与累计已实现盈亏均未扣费用。</p>
         </> : <>
           {!value.trades_available ? <p role="status">该报告的原生成交明细暂不可用。</p> : !value.total ? <p role="status">{all ? '本报告没有成交。' : '当日没有成交。持仓可在另一页签查看。'}</p> : <>
             <div className="bt-trade-table" tabIndex={0} role="region" aria-label="原生成交明细"><table><thead><tr>{all ? <th>日期</th> : null}<th>证券 / 买卖</th><th>成交价 / 数量</th><th>费用（元）</th></tr></thead><tbody>

@@ -8,9 +8,11 @@ import { FinancialValue } from './FinancialValue'
 import { StatusBadge } from './StatusBadge'
 import { Link } from 'react-router-dom'
 import { StrategyCapitalSummary } from './StrategyCapitalSummary'
+import { strategyKey } from './StrategyPicker'
+import type { StrategyDefinition } from './strategyCatalogApi'
 
 type DetailsReadView = { current: Details; account: AccountReadView | undefined }
-const queryKey = ['independent-strategy-details']
+const defaultStrategy = { strategy_id: 'resonance-regime-v1', strategy_version: '1.1.2' }
 
 const amount = (v: unknown) => typeof v === 'number' || typeof v === 'string' && v.trim() && Number.isFinite(Number(v))
   ? Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '尚未取得'
@@ -34,10 +36,14 @@ function Fact({ name, fact, unit = '' }: { name: string; fact: OptionalFact; uni
 }
 
 /** 当前持仓直接消费券商原发布；归属沿用户确认，策略运行由独立execution事实说明。 */
-export default function StrategyDetails() {
+export default function StrategyDetails({ strategy = defaultStrategy }: {
+  /** 目录选择的策略身份；运行接口返回的身份须与之相符。 */ strategy?: Pick<StrategyDefinition, 'strategy_id' | 'strategy_version'>
+}) {
   const client = useQueryClient()
+  const queryKey = ['independent-strategy-details', strategyKey(strategy)]
   const query = useQuery({queryKey,queryFn:async({signal}):Promise<DetailsReadView>=>{
     const current = await fetchStrategyDetails(signal)
+    if (strategyKey(current.strategy) !== strategyKey(strategy)) throw new Error('尚未取得该策略的运行与持仓数据。')
     const previous = client.getQueryData<DetailsReadView>(queryKey)?.account
     return {current,account:current.account ? accountReadView(current.account,previous) : previous}
   },
@@ -46,7 +52,6 @@ export default function StrategyDetails() {
   const currentGroups = data?.account?.groups
   const moneyGroup = query.data?.account?.complete.account ?? currentGroups?.account
   const positionGroup = query.data?.account?.complete.position ?? currentGroups?.position
-  const account = moneyGroup?.status === 'complete' ? moneyGroup.rows[0]?.fields : undefined
   const positions = positionGroup?.status === 'complete' ? positionGroup.rows : undefined
   const hasRunFacts = data && [data.execution.started_at, data.execution.duration_seconds, data.returns.cumulative_pct].some(fact => fact.value !== null)
   const runFacts = data ? <dl className="operations-facts">
@@ -64,13 +69,10 @@ export default function StrategyDetails() {
       <div className="compact-status-strip" role="status"><StatusBadge state={data.execution.state} label={data.execution.label} /><small>数据时间 {clock(groupTime(positionGroup))}</small><Link to="/account">查看券商账户</Link></div>
       <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
       {!data.capital_baseline || hasRunFacts ? runFacts : <details className="compact-details"><summary>运行与收益</summary>{runFacts}</details>}
-      <details className="compact-details"><summary>资金与运行说明</summary><p>{data.execution.reason}</p>
-        <p>全账户资金单独展示在账户页。</p><p>资金查询时间：{clock(groupTime(moneyGroup))}</p>
-        {currentGroups?.account.status !== 'complete' && moneyGroup?.status === 'complete' ? <p>本轮资金未更新，当前保留上次成功资金及原查询时间。</p> : null}
-        {account ? <p>券商账户可用资金：{field(account.available, true)}（全账户）</p> : null}</details>
-      <h4>策略持仓 <small>{positions?.length ?? '—'} 项</small></h4><details className="compact-details"><summary>持仓归属</summary><p>{data.assignment.reason}</p></details>
+      {data.execution.state !== 'ready' ? <p role="status">{data.execution.reason}</p> : null}
+      {currentGroups?.account.status !== 'complete' && moneyGroup?.status === 'complete' ? <p role="status">本轮资金未更新，当前保留上次成功资金及原查询时间。</p> : null}
+      <h4>策略持仓 <small>{positions?.length ?? '—'} 项</small></h4>
       {data.account_reason ? <p role="alert">{data.account_reason}</p> : null}
-      {data.account?.reason ? <details className="compact-details"><summary>账户更新详情</summary><p>{data.account.reason}</p></details> : null}
       {currentGroups?.position.status !== 'complete' && positionGroup?.status === 'complete' ? <p role="status">本轮持仓未更新，当前保留上次成功持仓及原查询时间。</p> : null}
       {positions ? positions.length ? <div className="account-table-scroll" role="region" aria-label="策略当前持仓" tabIndex={0}>
         <table><thead><tr><th>证券</th><th>数量（份）</th><th>可卖（份）</th><th>市值（元）</th><th>持仓浮盈（元）</th></tr></thead>

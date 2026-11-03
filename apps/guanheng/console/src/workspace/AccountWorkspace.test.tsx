@@ -36,7 +36,9 @@ it('展示来源持仓和可卖，缺失冻结保持未知，零资金保留为�
   expect(within(row).queryByText('280')).not.toBeInTheDocument()
   const cash = screen.getByRole('heading', { name: '可用资金（元）' }).closest('article')!
   expect(within(cash).getByText('0')).toBeInTheDocument()
-  expect(screen.getAllByText(/\*\*\*\*3456/).length).toBeGreaterThan(0)
+  expect(screen.queryByText(/\*\*\*\*3456/)).toBeNull()
+  expect(screen.queryByText('来源与更新详情')).toBeNull()
+  expect(screen.queryByText('字段与查询范围说明')).toBeNull()
   expect(screen.getByText(/券商交易日：未知/)).toBeInTheDocument()
 })
 

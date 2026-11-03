@@ -17,7 +17,7 @@ const fixture = ()=>({schema_version:'guanheng.strategy-details.v1',read_only:tr
  returns:{cumulative_pct:missing('缺少起始本金和期间现金流基准')}})
 const clients:QueryClient[]=[]
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals()})
-function mount(){const c=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});clients.push(c);render(<QueryClientProvider client={c}><MemoryRouter><StrategyDetails/></MemoryRouter></QueryClientProvider>)}
+function mount(strategy?:{strategy_id:string;strategy_version:string}){const c=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});clients.push(c);render(<QueryClientProvider client={c}><MemoryRouter><StrategyDetails strategy={strategy}/></MemoryRouter></QueryClientProvider>)}
 test('未启动策略仍显示四项当前持仓，资金、预算和收益基准分别解释',async()=>{
  const value=fixture();const row=value.account.groups.position.rows[0]
  value.account.groups.position.rows=[0,1,2,3].map((i):AccountRow=>({...structuredClone(row),identity:{m_strInstrumentID:`5100${i}0`,m_strExchangeID:'SH'},
@@ -108,4 +108,13 @@ test('可用资金未知保留原资产与来源时间，不以账户余额或�
  expect(within(funds).getByText('65.05万')).toBeVisible()
  expect(funds.querySelector('time')).toHaveAttribute('datetime',value.capital.observed_at)
  expect(()=>validateStrategyDetails({...value,capital:{...value.capital,spendable_cash_cny:'198000000'}})).toThrow('策略资金格式无效')
+})
+
+// 目录可能登记多个策略，唯一运行接口的返回值不得借给另一个选择。
+test('策略身份不符时保持持仓与资金未取得',async()=>{
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(capitalFixture())))
+ mount({strategy_id:'other',strategy_version:'2.0'})
+ expect(await screen.findByRole('alert')).toHaveTextContent('尚未取得该策略的运行与持仓数据')
+ expect(screen.queryByRole('region',{name:'策略当前持仓'})).toBeNull()
+ expect(screen.queryByRole('region',{name:'策略资金'})).toBeNull()
 })

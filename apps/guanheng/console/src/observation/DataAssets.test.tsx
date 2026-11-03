@@ -34,14 +34,15 @@ function open(component = <DataAssets catalog={catalog} />) {
 
 it('以中文说明选择字段，隐藏资产身份、字段代码及原始JSON', async () => {
   const view = open()
-  expect(await screen.findByText('有效股票市净率的算术平均')).toBeVisible()
+  expect(await screen.findByText(definition.reading)).toBeVisible()
   expect(screen.getByText('市净率（倍）')).toBeVisible()
-  expect(screen.getByRole('link', { name: '查看来源页面' })).toHaveAttribute('href', definition.source_url)
+  expect(screen.queryByRole('link', { name: '查看来源页面' })).toBeNull()
+  expect(screen.queryByText(definition.formula)).toBeNull()
   expect(view.container.textContent).not.toMatch(/[a-f0-9]{64}|opaque_metric|raw_key|baostock\.pb|资产ID|SHA-256/)
   expect(view.container.querySelector('pre')).toBeNull()
   const api = await import('./api')
   expect(api.read).not.toHaveBeenCalled()
-  fireEvent.change(screen.getByLabelText('搜索指标说明'), { target: { value: '申万' } })
+  fireEvent.change(screen.getByLabelText('搜索指标说明'), { target: { value: '月末' } })
   const table = screen.getByRole('table')
   expect(within(table).getByText('月末估值')).toBeVisible()
   expect(within(table).queryByRole('button', { name: '平均市净率' })).toBeNull()
@@ -50,15 +51,15 @@ it('以中文说明选择字段，隐藏资产身份、字段代码及原始JSON
 })
 
 it('同指标重读失败保留原说明及成功时间，并通过用户重读恢复', async () => {
-  open(); await screen.findByText(definition.formula)
+  open(); await screen.findByText(definition.reading)
   state.fail = true
   await act(async () => { await query.refetchQueries({ queryKey: ['observation', 'definition'] }) })
   expect(await screen.findByText(/指标说明读取失败/)).toBeVisible()
-  expect(screen.getByText(definition.formula)).toBeVisible()
+  expect(screen.getByText(definition.reading)).toBeVisible()
   expect(document.querySelector('time')).toHaveAttribute('datetime')
   state.fail = false
   fireEvent.click(screen.getByRole('button', { name: '重新读取指标说明' }))
-  await screen.findByText(definition.formula)
+  await screen.findByText(definition.reading)
 })
 
 it('导出固定同一快照、指标和日期，切换指标恢复其覆盖，错误范围阻止下载', async () => {

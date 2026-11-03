@@ -30,6 +30,7 @@ export function ObserverLayout({ children, connected, failed = false }: {
   const [today, setToday] = useState(() => new Date())
   const location = useLocation()
   const navigate = useNavigate()
+  const strategy = new URLSearchParams(location.search).get('strategy')
   const observation = location.pathname === '/observation' || location.pathname.startsWith('/observation/')
   // ObservationShell保留自己的主内容地标，其余独立页面由统一外壳提供main。
   const Content = observation ? 'div' : 'main'
@@ -44,7 +45,7 @@ export function ObserverLayout({ children, connected, failed = false }: {
         <strong>{brand.short_name}</strong><span>量化观察平台</span>
       </NavLink>
       <nav aria-label="主要工作区">{destinations.map(({ id, label, icon: Icon }) =>
-        <NavLink key={id} to={`/${id}`} className={({ isActive }) => isActive ? 'nav-item nav-item-active' : 'nav-item'}>
+        <NavLink key={id} to={`/${id}${strategy && (id === 'strategies' || id === 'backtests') ? `?${new URLSearchParams({ strategy })}` : ''}`} className={({ isActive }) => isActive ? 'nav-item nav-item-active' : 'nav-item'}>
           <Icon size={18} strokeWidth={1.7} aria-hidden="true" /><span>{label}</span>
         </NavLink>)}
       </nav>

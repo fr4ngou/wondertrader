@@ -28,7 +28,7 @@ function mount(onRefreshArchive?: () => void) {
 test('日期明细显示原持仓浮盈亏，无成交仍保留持仓入口', async () => {
   mount()
   expect(await screen.findByText('-123.45')).toBeVisible()
-  expect(screen.getByText(/以当日日末记录为准/)).toHaveTextContent('未扣费用')
+  expect(screen.queryByText(/以当日日末记录为准/)).toBeNull()
   fireEvent.click(screen.getByRole('tab', { name: '当日交易' }))
   expect(await screen.findByText('当日没有成交。持仓可在另一页签查看。')).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: '全部交易记录' }))
@@ -55,7 +55,7 @@ test('刷新入口同时发现新归档，已固定原件的图表不重复排�
 
 test('折叠日期表保留原精度净值与缺失观察', async () => {
   mount(); await screen.findByText('-123.45')
-  fireEvent.click(screen.getByText('来源与计算口径'))
+  expect(screen.queryByText('来源与计算口径')).toBeNull()
   fireEvent.click(screen.getByText('主报告 · 日期与净值原值'))
   const table = screen.getByRole('region',{name:'主报告日期净值表'})
   expect(table).toHaveTextContent('观察缺失')

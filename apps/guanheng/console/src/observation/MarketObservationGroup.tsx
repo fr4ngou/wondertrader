@@ -106,7 +106,6 @@ export function MarketObservationGroup({catalog,metric,board,range,parameters,on
       })}))
   return <div className="observation-group" data-testid="market-observation-group" aria-busy={queries.some(query=>query.isFetching)}>
     {queries.some(query=>query.isFetching)&&<p role="status">正在读取本组基准与指标…</p>}
-    <p className="observation-note">统一日期和光标；每条线保留自己的真实观察日及缺口。{board==='breadth'&&'RANA沿原千倍净上涨比例，MSI以19/39期EMA差累计。'}</p>
     {queries.map((query,index)=><ReadNotice key={ids[index]} label={catalog.datasets.find(item=>item.id===ids[index])?.label||metricName(ids[index])} query={query} />)}
     {ids.filter(id=>!registered.has(id)).map(id=><p key={id} role="status">{metricName(id)} 尚未取得可用结果。</p>)}
     {group?<div className="market-group-layout"><ObservationChart definition={group.definition} rows={group.rows} history={history.data} historyLabel="上证指数导航" range={range}
@@ -115,13 +114,5 @@ export function MarketObservationGroup({catalog,metric,board,range,parameters,on
         const series=data.get(id);const row=series?.rows.at(-1);const unit=series?.definition.field_schema[field]?.unit;const number=row?.[field]
         return <div key={id+field}><span>{label}</span><strong title={exactObservationValue(number,unit)} className={typeof number==='number'&&number<0?'market-number-down':'market-number-up'}>{number==null?'—':observationNumber(number,unit)}<small>{observationDisplayUnit(unit)}</small></strong><time>{row?.date||'暂无观察'}</time>{id.startsWith('msi.')&&<small>累计起始：{row?.cumulative_start||'尚未满39期'}</small>}</div>
       })}</section>)}</aside></div>:<p>正在读取本组观察…</p>}
-    <details className="observation-reading"><summary>本组公式、预热、累计起点与真实覆盖</summary>
-      <div className="observation-table-scroll"><table><thead><tr><th>指标</th><th>所选日期内有效数</th><th>完整覆盖</th><th>单位 / 预热 / 起点</th></tr></thead><tbody>
-        {ids.map(id=>{const series=data.get(id);const definition=series?.definition;const last=series?.rows.at(-1);const coverage=catalog.datasets.find(item=>item.id===id)?.coverage
-          return <tr key={id}><td>{definition?.label||metricName(id)}</td><td>{series?.rows.filter(row=>typeof row[definition!.primary_field]==='number').length??'尚缺'}</td>
-            <td>{coverage?`${coverage.start} — ${coverage.end}（${coverage.observations}条）`:'尚缺'}</td><td>{definition?.unit} {id.startsWith('msi.')?`39期预热；本段累计起始 ${last?.cumulative_start||'尚未满39期'}`:id.startsWith('breadth.thrust.')?'10期预热':''}</td></tr>})}
-      </tbody></table></div>
-      {[...data].filter(([id])=>id!==benchmarkMetric).map(([id,series])=><div key={id}><b>{series.definition.label}</b><p>{series.definition.formula}</p>{series.definition.limitations.map((text,index)=><p key={index}>{text}</p>)}</div>)}
-    </details>
   </div>
 }

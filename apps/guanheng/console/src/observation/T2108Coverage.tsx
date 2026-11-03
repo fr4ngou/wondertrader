@@ -10,17 +10,13 @@ export const methodVersionLabel = (value: unknown) => value === 't2108.ashare/1'
   : value === 't2108.ashare/2' ? '供应商前复权序列口径' : '原观察口径尚未登记'
 
 /** 将有效分母紧邻主数值显示，避免部分覆盖的样本比例被读成全市场比例。 */
-export function T2108Coverage({ row, mixedMethods, definitionVersion }: { row?: Row; mixedMethods?: boolean; definitionVersion?: string }) {
+export function T2108Coverage({ row, definitionVersion }: { row?: Row; mixedMethods?: boolean; definitionVersion?: string }) {
   if (!row) return null
   const method = row.method_version || definitionVersion
   return <div className="observation-note" role="note" aria-label="40期均线样本覆盖">
-    <p>{method === 't2108.ashare/1' ? '原观察点，按当时核验口径保留。' : `${sourceTypeLabel(row.source_kind)}。`}</p>
-    <p>{methodVersionLabel(method)}</p>
-    {mixedMethods && <p>此区间包含不同计算口径，历史点保留原值；请在原始数据中核对各点口径。</p>}
     <p><b>合格股票 {count(row.eligible_count)} / {count(row.market_count)} 只</b> · 覆盖率 {count(row.coverage_pct)}%</p>
     <p>均线上方 {count(row.above_count)} 只 · 等于均线 {count(row.equal_count)} 只 · 均线下方 {count(row.below_count)} 只</p>
     <p>尚缺日线 {count(row.missing_count)} 只 · 日线过期 {count(row.stale_count)} 只 · 不足40期 {count(row.insufficient_count)} 只 · {method === 't2108.ashare/1' ? '复权待核' : '前复权不可用'} {count(row.adjustment_unverified_count)} 只</p>
     {[row.empty_count,row.invalid_count,row.partition_count].some(value=>typeof value==='number' && value>0) && <p>缺失中：空结果 {count(row.empty_count)} 只 · 无效数据 {count(row.invalid_count)} 只 · 区间待补齐 {count(row.partition_count)} 只</p>}
-    {row.market_above_sma40_pct == null ? <p>当前比例以合格股票为分母；完整市场占比等待来源补齐。</p> : <p>全部股票已纳入本期计算。</p>}
   </div>
 }

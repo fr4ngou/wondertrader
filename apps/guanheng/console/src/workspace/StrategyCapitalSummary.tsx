@@ -20,10 +20,5 @@ export function StrategyCapitalSummary({ baseline, capital }: { baseline?: Capit
       </dl>
       {capital.spendable_cash_cny === null ? <p className="strategy-capital-note">可用现金待WT确认。</p> : null}
     </> : <p className="strategy-capital-note">资金基准已发布，当前资产和余额等待WT更新。</p>}
-    <details className="compact-details"><summary>基准与来源时间</summary>
-      <p>本次基准启用：{absoluteChinaTime(baseline.baseline_at)}；现有持仓已计入总额。</p>
-      {capital ? <p>持仓查询：{absoluteChinaTime(capital.position_observed_at)}；账户资金查询：{capital.account_observed_at ? absoluteChinaTime(capital.account_observed_at) : '尚未取得'}。</p> : null}
-      {capital?.price_observed_at ? <p>所用报价最早时间：{absoluteChinaTime(capital.price_observed_at)}。</p> : null}
-    </details>
   </section>
 }

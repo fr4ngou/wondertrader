@@ -52,7 +52,7 @@ it('原图成功后单独资料重读失败，保留原图与结论并可手动�
   await query.refetchQueries({ queryKey: ['observation', 'reference'] })
   await screen.findByText(/原图资料读取失败：子资料读取失败/)
   expect(screen.getByRole('img', { name: '用户提供的原始图表' })).toBeInTheDocument()
-  expect(screen.getByText('已读取原图结论')).toBeInTheDocument()
+  expect(screen.queryByText('已读取原图结论')).toBeNull()
   state.failure = ''
   fireEvent.click(screen.getByRole('button', { name: '重新读取原图资料' }))
   expect(await screen.findByRole('img', { name: '用户提供的原始图表' })).toBeVisible()
@@ -128,9 +128,11 @@ it('更新回执成功后后台失败保留旧回执，手动重读恢复', asyn
   expect(await screen.findByText('其他数据来源')).toBeVisible()
 })
 
-it('看板来源说明只显示发布时间与覆盖，不展示快照哈希', async () => {
+it('看板保留原始数据和原图，移除来源与计算说明入口', async () => {
   open(); await screen.findByTestId('chart')
-  fireEvent.click(screen.getByRole('button', { name: '来源与质量' }))
-  expect(screen.getByText(/数据发布于/)).toBeVisible()
+  expect(screen.queryByRole('button', { name: '来源与质量' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '怎么算' })).toBeNull()
+  expect(screen.getByRole('button', { name: '原始数据' })).toBeVisible()
+  expect(screen.getByRole('button', { name: '原图对照' })).toBeVisible()
   expect(document.body.textContent).not.toContain('a'.repeat(12))
 })

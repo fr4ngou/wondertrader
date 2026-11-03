@@ -48,8 +48,7 @@ export default function OperationsWorkspace() {
       <header><div><h2>行情查询服务</h2><StatusBadge state={query.state} label={queryLabels[query.state]} /></div>
         <time>{time(operations.data!.observed_at)}</time></header>
       <ul className="runtime-component-list"><li><span>历史查询</span><StatusBadge state={query.history_supported ? 'responding' : 'unknown'} label={support(query.history_supported)} /></li>
-        <li><span>快照查询</span><StatusBadge state={query.snapshot_supported ? 'responding' : 'unknown'} label={support(query.snapshot_supported)} /></li>
-        <li><span>来源</span><span>{query.source ?? '未知'}</span></li></ul>
+        <li><span>快照查询</span><StatusBadge state={query.snapshot_supported ? 'responding' : 'unknown'} label={support(query.snapshot_supported)} /></li></ul>
       <details className="compact-details"><summary>连接说明</summary><p>{query.reason}</p></details>
     </section> : null}
   </section>

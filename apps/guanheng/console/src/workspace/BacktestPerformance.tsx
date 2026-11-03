@@ -8,6 +8,7 @@ import { backtestMoney } from './backtestMoney'
 import BacktestVisualChart, { reportDate, reportPct } from './BacktestVisualChart'
 import BacktestDateDetail from './BacktestDateDetail'
 import './backtest-performance.css'
+import { performanceKey } from './useBacktestReports'
 
 export const reportKey = (e: ArchiveEntry) => e.run_id + e.receipt_sha256
 /** 报告序号仅用于区分选项，本金只取已核验绩效；标签不参与金融推断。 */
@@ -25,7 +26,7 @@ function ExactDateTable({ value, label }: {
 }
 
 /** 报告身份隔离所有查询；刷新失败保留同一报告的成功结果。 */
-export default function BacktestPerformance({ entry, entries, ready = true, mainSelector, capitalLabels = {}, onReport, onRefreshArchive, archiveRefreshing = false }: {
+export default function BacktestPerformance({ entry, entries, ready = true, mainSelector, capitalLabels = {}, onReport, onRefreshArchive, archiveRefreshing = false, initialComparison = '' }: {
   /** 主报告完成身份。 */ entry: ArchiveEntry
   /** 同一来源可选归档。 */ entries: ArchiveEntry[]
   /** 来源准入开关。 */ ready?: boolean
@@ -34,15 +35,16 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
   /** 将已核验的业务元数据交还页面生成选择标签。 */ onReport?: (value: Performance) => void
   /** 刷新原归档目录，发现WT后来保存的回测；不执行回测。 */ onRefreshArchive?: () => void
   /** 目录已在刷新时合并重复刷新操作。 */ archiveRefreshing?: boolean
+  /** 从同策略列表带入的初始对比报告；本组件继续校验可选集合。 */ initialComparison?: string
 }) {
-  const [rightId, setRightId] = useState('')
+  const [rightId, setRightId] = useState(initialComparison)
   const [mode, setMode] = useState<'return' | 'nav'>('return')
   const [markers, setMarkers] = useState(true)
   const [day, setDay] = useState<number | null>(null)
   const [detailSide, setDetailSide] = useState('left')
   const right = entries.find(e => e.run_id === rightId && e.run_id !== entry.run_id)
-  const single = useQuery({ queryKey: ['backtest-performance', entry.run_id, entry.receipt_sha256, entry.report_sha256],
-    queryFn: ({ signal }) => fetchBacktestPerformance(entry, signal), enabled: ready && !right, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
+  const single = useQuery({ queryKey: performanceKey(entry),
+    queryFn: ({ signal }) => fetchBacktestPerformance(entry, signal), enabled: ready && !right, staleTime: Infinity, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const comparison = useQuery({ queryKey: ['backtest-comparison', entry.run_id, entry.receipt_sha256, right?.run_id, right?.receipt_sha256],
     queryFn: ({ signal }) => fetchBacktestComparison(entry, right!, signal), enabled: ready && !!right, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const current = right ? comparison : single
@@ -80,20 +82,16 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
           {visual.data && !visual.data.trades_available ? <p className="bt-muted" role="status">主报告的成交原件暂未适配，买卖标记未知。</p> : null}
           {right && rightVisual.data && !rightVisual.data.trades_available ? <p className="bt-muted" role="status">对比报告的成交原件暂未适配，买卖标记未知。</p> : null}
           <BacktestVisualChart left={leftValue} right={rightValue} visual={visual.data} rightVisual={rightVisual.data} mode={mode} markers={markers} onDay={setDay} />
-          <p className="bt-muted bt-chart-caption">上图：{mode === 'return' ? '累计收益率' : '日末净值（元）'}；下图：相对已观察高点的日末回撤。点选日期查看持仓与交易，滚轮可缩放。</p>
+          <p className="bt-muted bt-chart-caption">点选日期查看持仓与交易，滚轮可缩放。</p>
         </section>
         <div className="bt-inspector-wrap">{right ? <label className="bt-detail-source">日期明细所属报告<select aria-label="日期明细所属报告" value={detailSide} onChange={e => setDetailSide(e.target.value)}><option value="left">主报告</option><option value="right">对比报告</option></select></label> : null}
           <BacktestDateDetail key={detailEntry.run_id + detailEntry.receipt_sha256 + selectedDay} entry={detailEntry} day={selectedDay} dates={detailValue?.points.map(p => p[0]) ?? []} onDay={setDay} />
         </div>
       </div>}
-      <details className="bt-method"><summary>来源与计算口径</summary><p>回测模拟结果，按原报告初始本金和WT净损益计算；历史可知时间采用原报告假设，不代表实际交易绩效。收益与回撤保留各报告口径，缺失观察处断线。</p>
-        <p>共 {leftValue.observations.total} 期，可用 {leftValue.observations.available} 期，缺失 {leftValue.observations.missing} 期。首期日收益未知。持仓浮盈亏和累计已实现盈亏未扣费用；费用来自原生成交/累计资金记录。</p>
-        <p>费用依据：{leftValue.input.fee_source ?? '未知'}；本金来源：{leftValue.input.capital_source}。</p>
-        <p>读取于 {new Date(current.dataUpdatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）。仅查询已完成原生报告。</p>
-        <p>主报告名称：{leftValue.configuration.label}{rightValue ? `；对比报告名称：${rightValue.configuration.label}` : ''}</p>
+      <div className="bt-exact-values">
         <ExactDateTable key={leftValue.run_id + leftValue.receipt_sha256} value={leftValue} label="主报告" />
         {rightValue ? <ExactDateTable key={rightValue.run_id + rightValue.receipt_sha256} value={rightValue} label="对比报告" /> : null}
-      </details>
+      </div>
     </> : null}
   </section>
 }

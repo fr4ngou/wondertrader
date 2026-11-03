@@ -37,7 +37,7 @@ it('交易记录默认委托，切换成交和键盘导航复用同一观察，�
   expect(screen.getByRole('tab', { name: '成交' })).toHaveFocus()
   expect(screen.getByRole('tabpanel')).toHaveAccessibleName('成交')
   expect(within(screen.getByRole('tabpanel')).getByText('synthetic-deal')).toBeInTheDocument()
-  expect(screen.getByText(/查询时间（北京时间）/)).toBeInTheDocument()
+  expect(within(screen.getByRole('tabpanel')).getByText(/数据时间/)).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledTimes(1)
 })
 
