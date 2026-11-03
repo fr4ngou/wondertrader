@@ -61,3 +61,8 @@ EFR-19：模拟只读边界故障后的原件恢复可在兼容transition增加r
 只读Retained绑定向原ManagedStrategy明确提供空execution_symbols；新可选gh_ms_read_only_abi_version=1确认execution_count=0的读取专用能力，布局1..8保持。Python和Native target入口均拒绝空执行权限集合，原读取集合和订阅保持。发布native_setter_count复制原gh_ms_status的累计setter调用数，用于核只读零提交，不作为券商成交或账户事实。
 
 EFR-20：已准入原状态、在发布ready前启动失败的后继，可在transition显式增加initialization_abort={file,sha256}，绑定该故障owner原reconciled.json。只读双方、原failure.stage=cta、close-prepared.closed=true/ok=false/recovery_ready=false、原PID物理退出及ready不存在时适用。原admission须为clean_transition；原接收状态、当前状态及本代transition集合逐字节相同。核原transition、被接收的正常关闭owner配置/Python/closed及consumed clean；本代记录initialization_abort_reconciled。KV和初始化观察沿原被接收状态owner，最新前代生命周期保留故障身份，接续后生成本代正常状态。拒绝状态变更、缺少原件或身份冲突；原失败记录和已消费证明保持原件。
+
+
+## INIT同账估值恢复
+
+恢复INIT先核对原持仓数量、周期、资本基准、WT现金依据及损益，再读取同账的已验证估值。QMT快照与原CTA已应用价格各自保持来源和原价时点；CTA原价须为raw CNY/share、关联原窗口，持仓价格完整，重建市值沿1e-8 CNY既有表示容差核对。缺合适原估值才读取已声明MarketClient快照。账户约束继续核实际NAP及时效，过期保留可用金额未知。恢复估值只服务资金展示，不触发策略计算、目标setter或交易命令。

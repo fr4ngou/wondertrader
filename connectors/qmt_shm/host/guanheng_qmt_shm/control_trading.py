@@ -46,6 +46,7 @@ class HostTradingControlLoop(HostControlLoop):
         self._interrupt_deadline = None
         self._interrupt_attempted = self._interrupt_complete = False
         self._interrupt_error = None
+        self._abandoned_poll = None  # 已关闭运输上放弃的原观察；不代表域提交或源业务ACK。
         self._io_owner = threading.current_thread()
         self._close_complete = False
         super().__init__(runtime, session, binding)
@@ -221,8 +222,41 @@ class HostTradingControlLoop(HostControlLoop):
             except BaseException as error:
                 if failures is None:
                     raise
+                if slot == 'poll' and self._abandon_timed_out_poll():
+                    continue
                 failures[slot] = error
                 self._retain_interrupt_error(error)
+
+    def _abandon_timed_out_poll(self):
+        """仅失联后放弃已退休运输的只读观察，原持久前沿留给同Journal重连核验。"""
+        job = self._jobs.get('poll')
+        if (not self._interrupted or job is None or self._poll_future is None
+                or not self._poll_future.retired or self._poll_received is None
+                or self._poll_received.get('ok') is not True):
+            return False
+        operations = {'status': 'trade.stream', 'page': 'trade.events.persist', 'ack': 'trade.events.ack'}
+        if operations.get(self._poll_stage) != job['operation'] or job['submit_uncertain']:
+            return False
+        future = job['future']
+        if future is None:
+            if time.monotonic() < job['payload']['deadline']:
+                return False
+            reason = 'not_admitted_before_deadline'
+        else:
+            if (not future.done() or future.cancelled()
+                    or not isinstance(future.exception(), TimeoutError)):
+                return False
+            # 域已经结束；事务可能已提交，原Journal是唯一事实，不重做本次事务。
+            reason = 'domain_timeout_completed'
+        # peer.close已把运输结果标为retired/abandoned。这里不调用Future.ack，
+        # 不发送agent.trade.ack，源端事件和既有Host ACK意图均保留供同Journal接续。
+        self._abandoned_poll = {'job': job, 'reply': self._poll_received,
+            'future': self._poll_future, 'reason': reason}
+        del self._jobs['poll']
+        self._poll_future = self._poll_received = None
+        self._poll_result_deadline = self._poll_request = self._poll_next = None
+        self._poll_stage, self._poll_drained = 'idle', False
+        return True
 
     def _progress_domain(self):
         super()._progress_domain()
@@ -416,7 +450,7 @@ class HostTradingControlLoop(HostControlLoop):
             self._interrupt_error = error
 
     def _local_interrupt_complete(self):
-        # 只证明已知本地输入持久化，不授源排空或运输ACK；离线不再发新RPC。
+        # 金融持久交接保持；已退休的只读观察允许明确放弃，不授提交/源排空/ACK。
         return (not self._jobs and self._trade_active is None
             and self._trade_future is None and self._poll_future is None)
 
@@ -450,6 +484,7 @@ class HostTradingControlLoop(HostControlLoop):
                 self._retain_interrupt_error(error)
             while True:
                 self._wake.clear()
+                self._abandon_timed_out_poll()
                 self._progress_jobs(failures)
                 job = self._jobs.get('trade')
                 if (job is not None and job['operation'] == 'trade.claim'
@@ -478,6 +513,8 @@ class HostTradingControlLoop(HostControlLoop):
                     try:
                         self._offer_job(job)
                     except BaseException as error:
+                        if slot == 'poll' and self._abandon_timed_out_poll():
+                            continue
                         failures[slot] = error
                         self._retain_interrupt_error(error)
                 self._progress_jobs(failures)

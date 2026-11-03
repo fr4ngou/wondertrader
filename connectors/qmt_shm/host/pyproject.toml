@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-qmt-shm-host"
-version = "0.1.0a22+mdphttp.3.tes.1.uc.1.sdkreturn.1"
+version = "0.1.0a22+host.poll.1"
 description = "Private independent QMT SHM host"
 readme = "README.md"
 requires-python = ">=3.10"

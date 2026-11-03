@@ -434,8 +434,29 @@ class RetainedStrategy:
                 reason='market_history_mismatch'
         self._publish_initial_observation(context,broker,response,reason,deadline=self.start_deadline)
 
-    def _retained_initial_market(self, broker, funds, cash, *, deadline):
-        """同账/数量/周期核验后复用原QMT快照；当前NAP和原WT账仍分别现取。"""
+    @staticmethod
+    def _snapshot_valuation(response, quantities):
+        """原QMT快照的完整原价与时点；恢复和首次读取复用同一校验。"""
+        _need(type(response) is dict and response['status']['code'] == 'Ok'
+            and response['data']['metadata']['qualification'] in ('NativeVerified','ProductionQualified'),
+            'capital_market_source')
+        prices, stamps = {}, []
+        now = datetime.now(timezone.utc)
+        for row in response['data']['snapshots']:
+            exchange, code = row['symbol'].split('.')
+            key = exchange+'.ETF.'+code
+            stamp = datetime.strptime(str(row['date'])+f"{row['action_time']//1000:06d}",'%Y%m%d%H%M%S')
+            stamp = stamp.replace(tzinfo=ZoneInfo('Asia/Shanghai'),microsecond=row['action_time']%1000*1000)
+            price = row['price']
+            _need(key in quantities and key not in prices and row['source_time_verified'] is True
+                and stamp <= now and type(price) in (int,float) and math.isfinite(price) and price > 0,
+                'capital_market_snapshot')
+            prices[key] = Fraction(repr(price));stamps.append(stamp)
+        _need(set(prices) == set(quantities),'capital_market_complete')
+        return sum((prices[code]*quantity for code,quantity in quantities.items()),Fraction(0)), min(stamps)
+
+    def _retained_initial_valuation(self, broker, funds, cash, *, deadline):
+        """同账/数量/周期复用原事实估值；QMT与CTA来源、原价时点分别保持。"""
         from .execution_recovery import prior_strategy_observations
         expected = {code:value[0] for code,value in self._broker_rows(broker).items() if value[0]}
         for previous, source in prior_strategy_observations(self.recovery_native,self.id,deadline=deadline):
@@ -451,21 +472,54 @@ class RetainedStrategy:
                 and Fraction(capital['cash_balance_cny']) == cash
                 and Fraction(capital['native_pnl_cny']) == Fraction(repr(funds.fund_pnl)),
                 'retained_capital_basis_changed')
-            response = previous.get('initial_market_observation')
-            _need(type(response) is dict and response['status']['code'] == 'Ok'
-                and response['data']['metadata']['qualification'] in ('NativeVerified','ProductionQualified')
-                and capital['market_value_source'] == 'broker-position+raw-QMT-snapshot',
-                'retained_capital_market_source')
+            kind = capital['market_value_source'];response = None
+            if kind == 'broker-position+raw-QMT-snapshot':
+                response = previous.get('initial_market_observation')
+                if type(response) is not dict:continue
+                value, stamp = self._snapshot_valuation(response,expected)
+                _need(stamp == datetime.fromisoformat(capital['price_observed_at']),
+                    'retained_capital_price_source')
+            elif kind == 'broker-position+raw-CTA-price':
+                basis = previous.get('quantity_basis')
+                window = previous.get('market_window')
+                price_time = capital.get('price_observed_at')
+                if not (type(basis) is dict and type(basis.get('prices')) is list
+                        and type(window) is dict and type(window.get('publication_sha256')) is str
+                        and type(price_time) is str):continue
+                # NSQ basis.cash是NAP约束后的可用金额；旧账户有效性与原价复用各自核验。
+                # 现金账已由capital和native_cash_basis核对，本代账户约束在读取后重新计算。
+                _need(Fraction(basis['native_pnl_cny']) == Fraction(capital['native_pnl_cny']),
+                    'retained_capital_basis_changed')
+                prices = {}
+                expected_source = 'original-CTA:applied-tick;window:'+window['publication_sha256']
+                for row in basis['prices']:
+                    _need(type(row) is dict,'retained_capital_price_source')
+                    code = self.mapping.get(row.get('symbol'))
+                    _need(code is not None and row.get('unit') == 'CNY/share' and row.get('adjustment') == 'raw'
+                        and row.get('source') == expected_source and code not in prices
+                        and type(row.get('raw_cny_per_share')) is str,
+                        'retained_capital_price_source')
+                    price = Fraction(row['raw_cny_per_share']);_need(price > 0,'retained_capital_price_source')
+                    prices[code] = price
+                _need(set(expected) <= set(prices),'retained_capital_market_complete')
+                value = sum((prices[code]*quantity for code,quantity in expected.items()),Fraction(0))
+                stamp = datetime.fromisoformat(price_time)
+                _need(stamp.utcoffset() is not None and stamp <= datetime.now(timezone.utc),
+                    'retained_capital_price_source')
+            else:continue
+            _need(abs(value-Fraction(capital['market_value_cny'])) <= Fraction(1,100000000),
+                'retained_capital_market_changed')
             self.retained_market_source = dict(source,original_valuation_at=capital['observed_at'],
-                original_price_observed_at=capital['price_observed_at'])
-            return response
+                original_price_observed_at=capital['price_observed_at'],market_value_source=kind)
+            return value, stamp, kind, response
         raise ValueError('retained_capital_market_unavailable')
 
     def _read_initial_capital(self, context, broker):
         """初始化后发布只读资金；原WT损益、券商P和明确当前快照各保留原来源。
 
-        原CTA初始化早于行情Parser启动，当前价格尚未进入CTA缓存。首次估值使用
-        已声明的原MarketClient快照，不触发策略计算、目标setter或金融命令。
+        原CTA初始化早于行情Parser启动，当前价格尚未进入CTA缓存。恢复优先读取
+        同账、同数量和周期的原估值；首次估值使用已声明的原MarketClient快照。
+        两条路径保留原价时点，不触发策略计算、目标setter或金融命令。
         后续原K线回调继续以原CTA价格和同一资本基准更新。
         """
         from guanheng_market_client import MarketClient
@@ -483,35 +537,19 @@ class RetainedStrategy:
         funds = context.facts();_need(math.isfinite(funds.fund_pnl),'native_funds')
         codes = [code for symbol,code in self.mapping.items() if quantities.get(code,(0,0))[0]]
         value, response = Fraction(0), None
+        market_value_source = 'broker-position+raw-QMT-snapshot'
         valuation_stamps = []  # 原报价时间；闭市最后价格仅用于有来源时点的估值展示。
         if codes:
-            client = MarketClient(market['base_url'],os.environ[market['token_env']],
-                timeout=min(market['timeout_seconds'],deadline-time.monotonic()),
-                max_response_bytes=market['max_response_bytes'])
+            held = {code:quantities[code][0] for code in codes}
             try:
-                # 恢复INIT尚无本代已应用tick；优先保留同一原WT账对应的已核估值及原时点。
-                # 原Market快照仅在没有兼容原观察时读取，不能把新报价与旧flag0混为一次估值。
-                try:response=self._retained_initial_market(broker,funds,cash,deadline=deadline)
-                except ValueError:response=client.quotes_query(['.'.join(code.split('.')[::2]) for code in sorted(codes)])
-                _need(response['status']['code'] == 'Ok' and response['data']['metadata']['qualification']
-                      in ('NativeVerified','ProductionQualified'), 'capital_market_source')
-            except Exception:
-                response = self._retained_initial_market(broker,funds,cash,deadline=deadline)
-            observed = {}
-            now = datetime.now(timezone.utc)
-            for row in response['data']['snapshots']:
-                exchange,code = row['symbol'].split('.')
-                key = exchange+'.ETF.'+code
-                stamp = datetime.strptime(str(row['date'])+f"{row['action_time']//1000:06d}",'%Y%m%d%H%M%S')
-                stamp = stamp.replace(tzinfo=ZoneInfo('Asia/Shanghai'),microsecond=row['action_time']%1000*1000)
-                price = row['price']
-                _need(key in codes and key not in observed and row['source_time_verified'] is True
-                    and stamp <= now
-                    and type(price) in (int,float) and math.isfinite(price) and price > 0,'capital_market_snapshot')
-                observed[key] = price
-                valuation_stamps.append(stamp)
-            _need(set(observed) == set(codes),'capital_market_complete')
-            value = sum((Fraction(repr(observed[code]))*quantities[code][0] for code in codes),Fraction(0))
+                value,stamp,market_value_source,response = self._retained_initial_valuation(broker,funds,cash,deadline=deadline)
+            except (ValueError,CtaBridgeError):
+                client = MarketClient(market['base_url'],os.environ[market['token_env']],
+                    timeout=min(market['timeout_seconds'],deadline-time.monotonic()),
+                    max_response_bytes=market['max_response_bytes'])
+                response = client.quotes_query(['.'.join(code.split('.')[::2]) for code in sorted(codes)])
+                value,stamp = self._snapshot_valuation(response,held)
+            valuation_stamps.append(stamp)
         cutoff = datetime.now(timezone.utc)
         account,qualified = self.capital_reader.read(cutoff,deadline)
         completed_at = datetime.now(timezone.utc)
@@ -519,7 +557,7 @@ class RetainedStrategy:
             value,completed_at.isoformat(),
             account,qualified,max_age_seconds=self.max_age,
             position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat(),
-            market_value_source='broker-position+raw-QMT-snapshot',
+            market_value_source=market_value_source,
             cash_balance=cash,price_observed_at=min(valuation_stamps).isoformat() if valuation_stamps else None)
         return response
 

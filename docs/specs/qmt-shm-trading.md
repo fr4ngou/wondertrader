@@ -374,3 +374,6 @@ lookup结果可在写关闭或当前断连时读取，供原ID核查；不自动
 ## 未知委托定向取消后继边界
 
 [UC规格](qmt-unknown-cancel.md)及[ADR-0011](../architecture/adr/0011-unknown-order-targeted-cancel.md)按明确v2状态语义承接本规格unknown整体停写的受限取消后继。当前只接受源端/Host/原Journal实施；普通v1路径保持，Common/Standard新增审计预算和完整用户链尚未完成。新Agent/Host版本不得提前切生产；unknown原记录不改，一般恢复新下单的解除机制继续单独闭合。
+
+
+R19观察失联收尾补充（2026-11-03）：原peer已关闭、Future已retired且成功观察reply已完整领取时，status/trade.stream、page/trade.events.persist、ack/trade.events.ack三个非金融poll阶段可在明确未入域且原D到期，或域Future已经结束并返回TimeoutError时放弃本轮观察调度。完整原job/reply/Future保留在本代，不发送运输ACK或源业务ACK、不重做事务、不改首次D；事务提交结果以原Journal为准，原持久ACK意图及源端未确认事件保留供同Journal认证连续性接续。_poll_drained保持false，不授源排空。提交未知、运行中、其他错误和金融trade槽继续原保护；管理关闭仍join域/I/O，晚截止继续失败。此规则不改变读命令、委托或撤单的结果保存与核查边界。
