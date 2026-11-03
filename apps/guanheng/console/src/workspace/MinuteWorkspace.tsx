@@ -96,7 +96,7 @@ export default function MinuteWorkspace({ capability, capabilityPending = false,
       </div>
       <footer className="market-data-footer"><span role="status">{busy ? '正在更新…' : last ? `数据截至 ${intraday ? absoluteChinaTime(last.occurred_at) : sourceChartDate(last.occurred_at)} · ${bundle?.candles.length} 根` : '等待行情'}</span>
         {bundle ? <details><summary>数据来源</summary><SourceHistoryStatus bundle={bundle} />
-          <p>{bundle.source_bar_count != null ? `源日线 ${bundle.source_bar_count} 根` : ''}{bundle.native_source ? ` · ${bundle.native_source.provider} · ${bundle.native_source.adjustment === 'none' ? '不复权' : ''}` : ''}</p>
+          <p>{bundle.source_bar_count != null ? `来源K线 ${bundle.source_bar_count} 根` : ''}{bundle.native_source ? ` · ${bundle.native_source.provider} · ${bundle.native_source.adjustment === 'none' ? '不复权' : ''}` : ''}</p>
           </details> : null}</footer>
     </article>
   </section>
