@@ -50,6 +50,7 @@ def test_same_app_follows_nap_generation_without_fixed_fallback(account_publicat
         publish(current, pointer(changed))
         second = client.get('/v1/ui/account/overview').json()
         assert second['publication']['scope_id'] != first['publication']['scope_id']
+        assert client.get('/v1/ui/strategy-details').json()['runtime_scope_id'] != first_details['runtime_scope_id']
         assert second['groups'] == first['groups']
         assert client.get('/v1/ui/wt-runtime').status_code == 200
         assert client.get('/v1/ui/wt-instances').json()['instances'][0]['state'] == 'available'
@@ -141,3 +142,17 @@ def test_environment_reads_current_without_retired_owner_configuration(monkeypat
     current = str(tmp_path/'CURRENT.json')
     monkeypatch.setenv('GUANHENG_WT_CURRENT_FILE', current)
     assert ConsoleSettings.from_environment().wt_current_file == current
+
+
+def test_new_generation_details_exposes_new_scope_even_while_account_is_invalid(account_publication, tmp_path):
+    settings, values, files, write = account_publication
+    current = tmp_path/'CURRENT.json'; publish(current, pointer(settings))
+    with TestClient(create_app(dynamic_settings(settings, current))) as client:
+        first = client.get('/v1/ui/strategy-details').json()
+        values['runtime']['control_id'] = str(uuid4()); write()
+        publish(current, pointer(settings) | dict(wt_control_id=values['runtime']['control_id']))
+        publish(files['publication'], {'invalid':True})
+        second = client.get('/v1/ui/strategy-details')
+        assert second.status_code == 200
+        assert second.json()['account'] is None
+        assert second.json()['runtime_scope_id'] != first['runtime_scope_id']

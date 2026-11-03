@@ -142,6 +142,10 @@ def observe_details(settings, configuration, deadline):
             pass
     return dict(schema_version='guanheng.strategy-details.v1', read_only=True,
         observed_at=datetime.now(timezone.utc).isoformat(), strategy=strategy_catalog()['strategies'][0],
+        # 本轮已解析的公开运行身份摘要；未配置为null，只用于隔离跨代展示缓存。
+        runtime_scope_id=hashlib.sha256(repr((str(configuration.path), configuration.control_id,
+            configuration.instance_id, configuration.configuration_sha256)).encode('utf8')).hexdigest()
+            if isinstance(configuration, RuntimeObservationConfig) else None,
         assignment=dict(scope='current-account-inventory', label='现有持仓归属此策略',
             reason='按用户确认展示当前账户持仓；历史开仓和成交记录不迁移。'),
         execution=execution, account=account, account_reason=account_reason,

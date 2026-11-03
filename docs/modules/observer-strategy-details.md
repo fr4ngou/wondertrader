@@ -14,6 +14,8 @@ App沿已核execution_reference读取固定文件，校验同一control/config/p
 
 新接口共享原App读池和2秒总截止，分项读取错误只影响所属字段；每项保留状态/中文原因，顶层不返回凭证、原部署路径或私有运行身份。原`strategy-runtime.v1`保持兼容。
 
+显式CURRENT模式每轮在原读池内解析一次四项公开身份，后续账户与策略复核共用该代。详情的可选`runtime_scope_id`为四身份的不可逆SHA256；未配置为null，旧App可缺失。前端只在相同scope保留账户成功批，已知代际改变立即清除旧账户回退；整轮读取失败仍保留原成功视图并提示失败及原时间。该摘要不提供金融归属或交易资格。
+
 `GET /v1/ui/wt-instances`提供`guanheng.wt-instances.v1`。主账户实例沿原ConsoleSettings；可选`GUANHENG_WT_INSTANCE_CATALOG`指向显式JSON文件，最多7个补充实例，每项为`label`和`wt_status_file/wt_control_id/wt_instance_id/wt_configuration_sha256`。复用原WRI身份校验，按实例独立投影状态；失败实例保留中文原因，其他实例继续展示。浏览器仅见标签与不可逆scope摘要。文件最大64KiB，不扫描目录，不创建或控制WT。
 
 回测沿原`BacktestArchive`完整原件校验及5秒截止；补充`GET /v1/ui/backtest/source`仅报告归档配置/目录状态。未配置、配置路径不存在或类型错误、已配置空目录、已归档、完整性错误分别解释。归档为持久原件，WT停止后仍可读取，在线运行状态不作为报告读取前提。SDK演示及实验资料保留原模型资格，不作为正式策略回测。

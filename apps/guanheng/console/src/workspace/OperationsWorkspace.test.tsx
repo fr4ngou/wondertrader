@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, expect, test, vi} from 'vitest'
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import OperationsWorkspace from './OperationsWorkspace'
 import {fetchWtRuntime, type WtRuntimeObservation} from './wtRuntimeApi'
@@ -45,6 +45,23 @@ test('WT失败保留成功结果和原时间，行情查询独立读取，恢复
  await waitFor(()=>expect(refresh).toBeEnabled());fireEvent.click(refresh)
  expect(await screen.findByText('已停止')).toBeVisible()
  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('CURRENT返回单实例失败时保留旧组件和原发布时间，失败状态持续显示，恢复后替换',async()=>{
+ vi.mocked(fetchWtRuntime).mockResolvedValueOnce(runtime)
+  .mockResolvedValueOnce({...runtime,state:'unavailable',reason:'此WT实例读取失败',published_at:null,runtime:null})
+  .mockResolvedValue({...runtime,runtime:{...runtime.runtime!,state:'closed',label:'已停止',ready:false}})
+ mount()
+ const card=await screen.findByRole('region',{name:'WT运行状态'})
+ const refresh=screen.getByRole('button',{name:'重新读取状态'})
+ await waitFor(()=>expect(refresh).toBeEnabled());fireEvent.click(refresh)
+ await waitFor(()=>expect(card).toHaveTextContent('读取失败'))
+ expect(within(card).getByRole('alert')).toHaveTextContent('上次成功结果和原发布时间；当前运行状态未知')
+ expect(card).toHaveTextContent('历史查询')
+ expect(card).toHaveTextContent('2026-10-30 09:19:58')
+ await waitFor(()=>expect(refresh).toBeEnabled());fireEvent.click(refresh)
+ await waitFor(()=>expect(card).toHaveTextContent('已停止'))
+ expect(within(card).queryByRole('alert')).not.toBeInTheDocument()
 })
 
 test('未配置时明确说明，保持行情来源未知',async()=>{

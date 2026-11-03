@@ -6,6 +6,8 @@ import { validateCapitalFields, type CapitalFields } from './strategyCapital'
 export type OptionalFact = { value: string | number | null; reason: string | null }
 export type StrategyDetails = CapitalFields & {
   schema_version: 'guanheng.strategy-details.v1'; read_only: true; observed_at: string
+  /** 本轮公开运行四身份的不可逆摘要；null为未配置，缺失兼容旧App。只约束缓存归属。 */
+  runtime_scope_id?: string | null
   strategy: { strategy_id: 'resonance-regime-v1'; strategy_version: '1.1.2'; display_name: string }
   assignment: { scope: 'current-account-inventory'; label: string; reason: string }
   execution: { state: string; label: string; reason: string; started_at: OptionalFact; duration_seconds: OptionalFact }
@@ -42,6 +44,8 @@ export function validateStrategyDetails(v: unknown): StrategyDetails {
     || !numericFact(v.budget_cny, true) || !object(v.returns) || !numericFact(v.returns.cumulative_pct)
     || !(v.account_reason === null || text(v.account_reason)) || !(v.calculation_reason === null || text(v.calculation_reason))) return invalid()
   if (v.account !== null) validateAccountOverview(v.account)
+  if (v.runtime_scope_id !== undefined && v.runtime_scope_id !== null
+    && (typeof v.runtime_scope_id !== 'string' || !/^[a-f0-9]{64}$/.test(v.runtime_scope_id))) return invalid()
   if (v.calculation !== null) validateStrategyRuntime({schema_version:'guanheng.strategy-runtime.v1',read_only:true,
     observed_at:v.observed_at,state:'available',strategy:v.calculation})
   validateCapitalFields(v)

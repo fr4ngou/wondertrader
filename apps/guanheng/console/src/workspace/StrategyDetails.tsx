@@ -44,7 +44,9 @@ export default function StrategyDetails({ strategy = defaultStrategy }: {
   const query = useQuery({queryKey,queryFn:async({signal}):Promise<DetailsReadView>=>{
     const current = await fetchStrategyDetails(signal)
     if (strategyKey(current.strategy) !== strategyKey(strategy)) throw new Error('尚未取得该策略的运行与持仓数据。')
-    const previous = client.getQueryData<DetailsReadView>(queryKey)?.account
+    const cached = client.getQueryData<DetailsReadView>(queryKey)
+    // 本代已知时清除上一代持仓；整轮503仍由query保留原视图及错误提示。
+    const previous = cached?.current.runtime_scope_id === current.runtime_scope_id ? cached?.account : undefined
     return {current,account:current.account ? accountReadView(current.account,previous) : previous}
   },
     // 日常WT换代后在原页面接收本代事实；失败仍由query保留成功详情和原时间。

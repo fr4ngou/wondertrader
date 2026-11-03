@@ -52,6 +52,28 @@ test('原页面定时读取WT新一代状态，无需重新挂载或点击刷新
  expect(await screen.findByText('策略已停止',{}, {timeout:20_000})).toBeVisible()
  expect(fetch).toHaveBeenCalledTimes(2)
 },25_000)
+
+test('WT切到新代而账户暂缺时清除旧代持仓，恢复只显示本代结果',async()=>{
+ const first={...fixture(),runtime_scope_id:'a'.repeat(64)}
+ const waiting={...fixture(),runtime_scope_id:'b'.repeat(64),account:null,account_reason:'本代账户尚未发布'}
+ const recovered={...fixture(),runtime_scope_id:'b'.repeat(64)}
+ const row=recovered.account.groups.position.rows[0]
+ recovered.account.groups.position.rows=[{...row,identity:{m_strInstrumentID:'588000',m_strExchangeID:'SH'}}]
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(Response.json(first)).mockResolvedValueOnce(Response.json(waiting))
+   .mockResolvedValue(Response.json(recovered)))
+ mount();await screen.findByRole('region',{name:'策略当前持仓'})
+ fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
+ expect(await screen.findByRole('alert')).toHaveTextContent('本代账户尚未发布')
+ expect(screen.queryByRole('region',{name:'策略当前持仓'})).not.toBeInTheDocument()
+ expect(screen.getByText('当前持仓尚未取得。')).toBeVisible()
+ fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
+ expect(await screen.findByText('588000.SH')).toBeVisible()
+ expect(within(screen.getByRole('region',{name:'策略当前持仓'})).getAllByRole('row')).toHaveLength(2)
+})
+
+test.each([false, 4, 'A'.repeat(64), 'short'])('运行scope格式无效时拒绝详情：%s',scope=>{
+ expect(()=>validateStrategyDetails({...fixture(),runtime_scope_id:scope})).toThrow('策略详情格式无效')
+})
 test('金额按中文单位显示且可查看精确值，持仓份额保持原数量',async()=>{
  const value=fixture()
  const fields=value.account.groups.position.rows[0].fields
