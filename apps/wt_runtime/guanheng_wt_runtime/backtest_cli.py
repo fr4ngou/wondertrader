@@ -19,7 +19,6 @@ from .strategy_host import (
 )
 from .strategy_porter import AdmissionError, validate_backtest_window
 from .backtest_completion import publish_completed
-from .strategy_host import _digest
 
 _SCHEMA = "guanheng.backtest-cli.v1"
 _MAX_RECEIPT = 8192
@@ -122,8 +121,9 @@ def main(argv=None):
                                     reason='本轮尚无完整父端完成结果')
             if complete:
                 try:
+                    # 原完成证明沿Host规范会话身份；输入文件可有等价时区或可选字段写法。
                     digest = publish_completed(result, args.work_root, label=args.archive_label,
-                        session_sha256=_digest(payload), max_seconds=args.seconds, deadline=deadline)
+                        max_seconds=args.seconds, deadline=deadline)
                     value['archive'] = dict(status='available', receipt_sha256=digest,
                                             reason='完成证明与原件已核实，可由观衡只读查询')
                     archive_ok = True

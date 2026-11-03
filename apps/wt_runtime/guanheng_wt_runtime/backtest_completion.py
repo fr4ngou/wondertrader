@@ -83,11 +83,13 @@ def _read(path, maximum, deadline):
     return bytes(data)
 
 
-def publish_completed(result, work_root, *, label, session_sha256, max_seconds, deadline):
+def publish_completed(result, work_root, *, label, max_seconds, deadline):
     """返回原NBW证明的SHA256；写失败抛错并保留原件，调用者保留执行状态。
 
     仅接受当前父责任层已完成的HostResult；deadline为原CLI总D，max_seconds
-    为其原始秒数预算。label只用于展示，session_sha256绑定操作员输入原字节。
+    为其原始秒数预算。label只用于展示；configuration.session_sha256固定为
+    原Host已准入、规范编码的运行会话身份。输入文件原字节SHA归来源CAS，
+    不与规范会话SHA混用；调用者不能另传第二份会话身份。
     CLI一次运行以原run_id标识owner/request；历史读取不授进程控制权。
     """
     _check(deadline)
@@ -99,7 +101,6 @@ def publish_completed(result, work_root, *, label, session_sha256, max_seconds, 
              and type(result.run_id) is str and re.fullmatch('[a-f0-9]{32}', result.run_id)
              and type(result.report_json) is str)
     _require(type(label) is str and 1 <= len(label) <= 100 and all(ord(c) >= 32 for c in label)
-             and type(session_sha256) is str and re.fullmatch('[a-f0-9]{64}', session_sha256)
              and type(max_seconds) in (int, float) and math.isfinite(max_seconds)
              and .1 <= max_seconds <= 1800)
     directory = _path(Path(work_root) / result.run_id)
@@ -133,7 +134,7 @@ def publish_completed(result, work_root, *, label, session_sha256, max_seconds, 
         result_sha256=_digest(result_raw), report_sha256=_digest(report_json.encode('ascii')),
         record_count=admitted.record_count, pid=result.pid, exit_code=0, forced=False,
         pid_reaped=True, pipes_joined=True, elapsed_ms=result.elapsed_ms, scope=SCOPE,
-        configuration=dict(label=label, **request['backtest'], session_sha256=session_sha256,
+        configuration=dict(label=label, **request['backtest'], session_sha256=request['session_sha256'],
                            max_seconds=max_seconds))
     encoded = _encode(value)
     _require(len(encoded) <= MAX_RECEIPT)

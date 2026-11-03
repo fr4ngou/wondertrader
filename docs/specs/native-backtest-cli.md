@@ -58,9 +58,9 @@ R6-C1：七发行逐日角色普通安装，实际CLI→原NSH/runner→原Repla
 
 状态：accepted / in-progress。沿ADR-0012和NBW-R6，将独立运行后的完成证明接到WT操作员入口。原WT-B01/B02继续保存报告、资金/持仓、费用和原生输出；本项只保存父端已核实的退出/回收事实及原件摘要。当前stdout完成回执在CLI退出后缺少稳定文件供只读观衡消费；原子发布原NBW证明补齐该调用链。
 
-操作员显式使用`--archive-label LABEL`启用发布；LABEL为1..100个无控制字符的展示文字。省略参数保持原CLI参数、回执和输出行为。持有最终原HostResult的CLI在completed、nonforced、exit0、reaped、joined且原报告准入成立时，调用WT自有`backtest_completion.publish_completed(result, work_root, label=..., session_sha256=..., max_seconds=..., deadline=...)`。截止沿CLI原总D，发布失败保留真实执行完成事实和所有原件，不重跑、不扫描旧目录补造成功、不另起完整预算。
+操作员显式使用`--archive-label LABEL`启用发布；LABEL为1..100个无控制字符的展示文字。省略参数保持原CLI参数、回执和输出行为。持有最终原HostResult的CLI在completed、nonforced、exit0、reaped、joined且原报告准入成立时，调用WT自有`backtest_completion.publish_completed(result, work_root, label=..., max_seconds=..., deadline=...)`。截止沿CLI原总D，发布失败保留真实执行完成事实和所有原件，不重跑、不扫描旧目录补造成功、不另起完整预算。
 
-复用`completed-archive.json`和`nbw-completed-archive-v1`原合同及16KiB上界，原run_id作为CLI本次owner_id/request_id；这两个字段仅标识该次独立CLI调用，不授已退出进程的控制权。配置保留标签、原请求backtest参数、操作员session文件原字节SHA及原总期限。请求/安装/结果/报告、五类原基础资料及原生输出按原摘要绑定；策略报告scope保持原族，旧NBW receipt.scope沿原隔离BT资格字符串供既有读取器兼容。观衡直接使用原BacktestArchive只读校验与投影，无需接管WT进程或重新计算金融事实。
+复用`completed-archive.json`和`nbw-completed-archive-v1`原合同及16KiB上界，原run_id作为CLI本次owner_id/request_id；这两个字段仅标识该次独立CLI调用，不授已退出进程的控制权。配置保留标签、原请求backtest参数、Host已准入并规范编码的运行会话SHA及原总期限。configuration.session_sha256必须与原request.session_sha256相等，由发布者从已核原请求唯一派生；调用者不另传该身份。操作员输入文件可包含等价时区写法、空白和省略的可选字段，其原字节SHA沿来源/输入CAS单独保存，不能替代规范运行身份。请求/安装/结果/报告、五类原基础资料及原生输出按原摘要绑定；策略报告scope保持原族，旧NBW receipt.scope沿原隔离BT资格字符串供既有读取器兼容。观衡直接使用原BacktestArchive只读校验与投影，无需接管WT进程或重新计算金融事实。
 
 发布沿本机固定盘/无重解析路径与类型/链接准入，先独占写临时文件、flush/fsync、回读，再Windows不覆盖rename与最终回读；既有相同证明可确认，冲突和未知状态保留原件。请求发布的CLI回执增加一个有界archive对象，字段为status（available/unknown/not-applicable）、receipt_sha256和reason。available仅在回读确认后成立；执行完成而发布失败时status保持completed、archive为unknown、CLI exit2。未完成/取消/busy保持原退出语义，archive为not-applicable。默认未请求发布时无archive字段。
 
