@@ -1,3 +1,5 @@
+- [全市场分钟采集、覆盖与自动恢复](continuous-minute-collection.md)：原QST/Writer/Reader、动态名册对照、自然归档与原身份补缺接续。
+
 - [观衡统一WT日线消费](observer-wt-daily-consumer.md)：同一WT快照、七指标、原计划与后继历史保留，独立安装和回退。
 
 - [策略资金独立只读消费](strategy-capital-observation.md)：原WT资金发布、当前基准、来源时间和账户/策略范围，运行恢复资格独立。
