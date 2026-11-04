@@ -3,12 +3,24 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import time
+from uuid import uuid4
 
 from guanheng_wt_runtime.managed_local_process import ManagedLocalProcess, _inspect, _read, _json, _require
 from guanheng_qmt_shm.private_files import create_private_directory, write_private_new
 from guanheng_qmt_shm_agent.protocol import canonical
 from .collection_deployment import load
 from .market_generation import read_fixed
+
+
+def _publish_control(path, value):
+    """一次性控制收据先完整关闭，再原子发布最终名；读方只会看到完整已发布对象。"""
+    path = Path(path)
+    temporary = path.with_name('.' + path.name + '.' + uuid4().hex + '.tmp')
+    write_private_new(temporary, canonical(value))
+    try:
+        os.rename(temporary, path)
+    except FileExistsError:
+        _require(load_stop(path) == value)
 
 
 @dataclass(frozen=True)
@@ -62,9 +74,7 @@ class DataRoleProcess(ManagedLocalProcess):
         if target.exists():
             _require(_json(_read(target, 4096)) == value)
         else:
-            temporary = self._directory / 'minute-role-stop.tmp'
-            write_private_new(temporary, canonical(value))
-            os.rename(temporary, target)
+            _publish_control(target, value)
         self._stop_written = True
 
 
@@ -93,7 +103,7 @@ def run_role(deployment, pythonw, pythonw_sha256, owner_root):
         ready = dict(schema='qmt.minute-role-owner-ready.v1', pid=os.getpid(),
             control_id=process._control_id, child_control_directory=str(process._directory),
             deployment=deployment, child=process.status())
-        write_private_new(root / 'OWNER-READY.json', canonical(ready))
+        _publish_control(root / 'OWNER-READY.json', ready)
         while True:
             if (root / 'STOP.json').exists():
                 value = load_stop(root / 'STOP.json')
@@ -112,9 +122,9 @@ def run_role(deployment, pythonw, pythonw_sha256, owner_root):
             closed = process.status()
             _require(success is True and closed['state'] == 'closed' and closed['error_code'] is None
                      and closed['forced'] is False and closed['pending'] is False)
-            write_private_new(root / 'OWNER-CLOSED.json', canonical(dict(
+            _publish_control(root / 'OWNER-CLOSED.json', dict(
                 schema='qmt.minute-role-owner-closed.v1', control_id=process._control_id, pid=os.getpid(),
-                components_closed=True, error_type=error, child=closed)))
+                components_closed=True, error_type=error, child=closed))
         except BaseException:
             # 原受管器仍持有未确认owner；监督进程退出时原Job作最终收束。
             raise
@@ -138,5 +148,5 @@ def stop_role(owner_root):
     if target.exists():
         _require(load_stop(target) == value)
     else:
-        write_private_new(target, canonical(value))
+        _publish_control(target, value)
     return dict(stop_requested=True, control_id=ready['control_id'])

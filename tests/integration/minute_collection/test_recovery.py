@@ -5,11 +5,14 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(ROOT), str(ROOT / 'integrations'), str(ROOT / 'connectors/qmt_shm/agent'),
-               str(ROOT / 'connectors/qmt_shm/host')]
+               str(ROOT / 'connectors/qmt_shm/host'), str(ROOT / 'apps/wt_runtime')]
 
 from integrations.guanheng.source_history_selection import select_sources, SourceSelectionConflict
 from integrations.guanheng.collection_coverage import CollectionCoverage
@@ -86,6 +89,39 @@ class QuoteCoverageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             coverage.accept({'510300.SH': {'time': 1793775600000}, '510500.SH': {'time': float('nan')}}, 1793775601.)
         self.assertTrue(all(row['source_time_ms'] is None for row in coverage.snapshot(1793775602.)['symbols']))
+
+
+class ControlPublicationTests(unittest.TestCase):
+    def test_stop_final_name_stays_absent_until_complete_file_is_closed(self):
+        from integrations.guanheng import collection_role
+        # 重现创建文件已可见、正文只写一半且句柄仍打开的窗口，最终STOP不能提前可见。
+        parent = Path('E:/workspace/wondertrader-qa/minute-collection-regressions')
+        parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as root:
+            target = Path(root) / 'STOP.json'
+            entered, release = threading.Event(), threading.Event()
+            failures = []
+            def partial(path, raw):
+                with Path(path).open('xb') as stream:
+                    stream.write(raw[:5]); stream.flush(); entered.set()
+                    if not release.wait(5):
+                        raise TimeoutError('fixture publication gate')
+                    stream.write(raw[5:])
+            def publish():
+                try:
+                    collection_role._publish_control(target, dict(schema='fixture', control_id='fixture'))
+                except BaseException as error:
+                    failures.append(error)
+            with patch.object(collection_role, 'write_private_new', partial):
+                thread = threading.Thread(target=publish); thread.start()
+                try:
+                    self.assertTrue(entered.wait(5))
+                    self.assertFalse(target.exists())
+                finally:
+                    release.set(); thread.join(5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(failures, [])
+            self.assertEqual(collection_role.load_stop(target), dict(schema='fixture', control_id='fixture'))
 
 
 if __name__ == '__main__':

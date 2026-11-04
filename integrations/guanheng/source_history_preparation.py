@@ -180,8 +180,6 @@ class SourcePreparingMarket:
         holder=state if holder is None else holder
         if holder[phase]is None:
             metadata=self.source.binding(deadline)
-            if self.follow:
-                self._capacity(metadata['limits'])
             limits=metadata['profile']['operation_profiles']['market.history_1m']['limits']
             maximum=limits['max_rows'];calendar_days=limits['max_calendar_days']
             require(maximum>=2)
@@ -196,10 +194,9 @@ class SourcePreparingMarket:
             holder[phase]=dict(binding=metadata['binding'],pages=pages);save()
         pages=holder[phase]['pages']
         require(type(pages)is list and 1<=len(pages)<=self.c['max_pages'])
+        if self.follow:self._capacity(pages[0]['limits'],len(pages))
         rows=[];previous=None;cursor=start
         for record in pages:
-            if self.follow:
-                self._capacity(record['limits'])
             args=record['request']['arguments']
             require(record['request']['operation_id']=='market.history_1m'and record['binding']==holder[phase]['binding']
                 and args['symbol']==symbol and args['start_time']==cursor.strftime('%Y%m%d%H%M00'))
@@ -227,11 +224,29 @@ class SourcePreparingMarket:
         if not holder.get('verified',False):require(self.source.binding(deadline)['binding']==holder[phase]['binding'])
         return rows,holder[phase]['binding']
 
-    def _capacity(self,limits):
-        try:followup.capacity(self.follow,self.c['max_windows'],self.c['max_pages'],limits)
+    def _capacity(self,limits,pages=None):
+        # 保留客户端逐页消费，Host按原票据到期回收；持久窗口总数不等于同时驻留请求数。
+        windows=1 if self.c.get('retained_reads',False)else self.c['max_windows']
+        pages=self.c['max_pages']if pages is None else pages
+        try:followup.capacity(self.follow,windows,pages,limits)
         except followup.FollowUpExhausted as error:raise SourcePreparationBudget(str(error))from None
 
+    def _closed_grid(self,query):
+        if not self.closed_day_recovery:return[]
+        first,last=stamp(query['from']),stamp(query['to'])
+        if first.date()!=last.date()or last.date()>=datetime.now(SHANGHAI).date():return[]
+        expected=self.base.expected_minutes(query['exchange']+'.'+query['code'],first.date().isoformat())
+        return expected if expected and query['from']==expected[0]and query['to']==expected[-1]else[]
+
+    def _complete_rows(self,state,rows):
+        expected=self._closed_grid(state['query'])
+        actual=[label(datetime.fromtimestamp(row[0]/1000,SHANGHAI))for row in rows]
+        return bool(expected)and actual==expected
+
     def _publish(self,state,directory,symbol,rows,binding,deadline):
+        if self.follow and self.closed_day_recovery and not self._complete_rows(state,rows)and state['follow_up']is None:
+            state['follow_up']=followup.initial(self.follow,self.source.uptime.seconds(),self.wall_clock())
+            self._save(directory,state)
         if not rows:
             state['empty']=True;self._save(directory,state);raise SourcePending('source cache window is empty')
         stream=io.StringIO(newline='');writer=csv.writer(stream);writer.writerow(('timestamp','open','high','low','close','volume','amount'))
@@ -252,16 +267,10 @@ class SourcePreparingMarket:
             and verified['securities'][0]['symbol']==symbol and verified['securities'][0]['count']==len(rows))
         if self.clock()>=deadline:raise SourcePending('native import returned after deadline')
         published=dict(root=str(store),import_receipt_sha256=hashlib.sha256(raw).hexdigest(),count=len(rows))
-        if self.closed_day_recovery:
-            query=state['query'];first,last=stamp(query['from']),stamp(query['to'])
-            if first.date()==last.date()and last.date()<datetime.now(SHANGHAI).date():
-                security=('SSE.'if symbol.endswith('.SH')else'SZSE.')+symbol[:6]
-                expected=self.base.expected_minutes(security,first.date().isoformat())
-                actual=[label(datetime.fromtimestamp(row[0]/1000,SHANGHAI))for row in rows]
-                if expected and actual==expected and query['from']==expected[0]and query['to']==expected[-1]:
-                    published['reconciled_day']=dict(
-                        **{'from':expected[0],'to':expected[-1]},  # 已闭合日的原WT session完整右端范围。
-                        dataset_version=profile['dataset_version'])  # 固定完整来源版本；原采集和部分恢复根均保留。
+        if self.closed_day_recovery and self._complete_rows(state,rows):
+            published['reconciled_day']=dict(
+                **{'from':state['query']['from'],'to':state['query']['to']},  # 原WT session完整右端范围。
+                dataset_version=profile['dataset_version'])  # 固定完整来源版本；原采集和部分恢复根均保留。
         # 注册前原Reader再次验成功收据、同一metadata、DSB和实际行，不把Helper返回当发布。
         self._select(state['window_id'],published,symbol)
         if self.clock()>=deadline:raise SourcePending('native readback returned after deadline')
@@ -313,8 +322,8 @@ class SourcePreparingMarket:
         capacity=int((end-start).total_seconds()/60)+1
         target=min(query['limit'],capacity)
         unused,directory,state=self._state(query)
-        if state['published']is not None:return state
-        if state['empty']:
+        if state['published']is not None and(not self.closed_day_recovery or state['published'].get('reconciled_day')is not None):return state
+        if state['empty']or state['published']is not None:
             if self.follow:
                 try:self._follow_up(state,directory,symbol,start,end,deadline)
                 except (followup.FollowUpExhausted,SourcePreparationBudget)as error:
@@ -322,12 +331,12 @@ class SourcePreparingMarket:
                     raise SourcePreparationBudget(str(error))from None
             return state
         before,binding=self._reads(state,'before',directory,symbol,start,end,deadline)
-        if len(before)>=target:rows=before
+        if len(before)>=target or self._complete_rows(state,before):rows=before
         else:
             if state['prepare']is None:
                 metadata=self.source.binding(deadline)
                 if self.follow:
-                    self._capacity(metadata['limits'])
+                    self._capacity(metadata['limits'],len(state['before']['pages']))
                     state['follow_up']=followup.initial(self.follow,self.source.uptime.seconds(),self.wall_clock())
                 state['prepare']=self.reads.plan('market.history_prepare',self.source.prepare_arguments(symbol,
                     start.strftime('%Y%m%d%H%M00'),end.strftime('%Y%m%d%H%M00'),metadata,deadline),metadata,deadline,directory)
@@ -343,13 +352,14 @@ class SourcePreparingMarket:
         return state
 
     def _follow_up(self,state,directory,symbol,start,end,deadline):
-        """空观测后只读；每次推进先留额度，原HPR与原终态始终保持。"""
-        tracking=state['follow_up'];require(tracking is not None and state['prepare']is not None)
+        """空/部分观测后只读；新capture先留额度，原HPR及原请求终态保持。"""
+        tracking=state['follow_up'];require(tracking is not None)
         reads=tracking['reads']
-        frozen=bool(reads and reads[-1]['verified']and not reads[-1]['empty'])
-        if not frozen:
+        frozen=bool(reads and reads[-1]['verified']and(reads[-1].get('complete',False)if self.closed_day_recovery else not reads[-1]['empty']))
+        new_capture=not reads or(reads[-1]['verified']and not frozen)
+        if new_capture:
             followup.admit(tracking,self.follow,self.source.uptime.seconds(),self.wall_clock())
-            if not reads or reads[-1]['empty']:reads.append(dict(capture=None,verified=False,empty=False))
+            reads.append(dict(capture=None,verified=False,empty=False))
             self._save(directory,state)
         capture=reads[-1]
         read_deadline=deadline if frozen else min(deadline,self.clock()+max(0,
@@ -358,6 +368,8 @@ class SourcePreparingMarket:
             rows,binding=self._reads(state,'capture',directory,symbol,start,end,read_deadline,holder=capture)
         if self.clock()>=read_deadline:raise SourcePending('follow-up readback returned after deadline')
         capture.update(verified=True,empty=not bool(rows));self._save(directory,state)
+        if self.closed_day_recovery:
+            capture['complete']=self._complete_rows(state,rows);self._save(directory,state)
         self._publish(state,directory,symbol,rows,binding,deadline)
 
     def _published(self,request,preferred,deadline,budget):
@@ -405,6 +417,13 @@ class SourcePreparingMarket:
             original=self.base.call(request)
             if self.clock()>=deadline:raise SourcePending('archive readback returned after deadline')
             known,states,preferences=self._published(request,preferred,deadline,budget)
+            state=states.get(preferred)
+            if (self.follow and self.closed_day_recovery and state is not None
+                    and(state['empty']or state['published']is not None and state['published'].get('reconciled_day')is None)):
+                # 部分来源可能与原采集冲突；先推进原只读后继，再做最终选择，避免冲突锁死恢复。
+                try:self._window(window,deadline)
+                except SourcePending:pass
+                known,states,preferences=self._published(request,preferred,deadline,budget)
             batches=chain(known,[original['data']]if original['status']['code']=='Ok'else[])
             data=select_sources(batches,query,preferred_ranges=preferences)
             state=states.get(preferred)

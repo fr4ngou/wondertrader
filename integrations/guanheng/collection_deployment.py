@@ -97,7 +97,10 @@ def prepare_configuration(request):
             input_kind='qmt_export', timezone='Asia/Shanghai', minute_boundary='unknown', adjustment='none',
             factor_version='', value_semantics='source', price_unit='unknown', volume_unit='unknown', amount_unit='unknown'),
         timeout_seconds=30, max_windows=1000000, max_window_minutes=7200, max_pages=128,
-        max_rows=2000, max_bytes=8388608, overlay_cache_bars=20000, max_import_attempts=8))
+        max_rows=2000, max_bytes=8388608, overlay_cache_bars=20000, max_import_attempts=16,
+        # 首次发布加15次有界只读后继，覆盖同一窗口至多16份冻结导入；下载仍至多一次。
+        follow_up=dict(enabled=True,max_attempts=15,interval_seconds=60,total_seconds=86400,
+            rpc_timeout_seconds=10,journal_records=host['max_records'],journal_bytes=host['max_journal_bytes'])))
     files['producer'] = save('producer.json', producer)
     recovered = dict(mode='source-recovered', base=source, producer=files['producer'])
     files['source'] = save('source.json', recovered)
