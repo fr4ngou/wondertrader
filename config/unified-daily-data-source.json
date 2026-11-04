@@ -186,7 +186,7 @@
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/market_daily_preparation_cli.py"
     },
     "guanheng_qmt_shm/private_files.py": {
-      "sha256": "8943c52dc3a51507fa654d113f9397cd1e5513e858280edc7e5c662f0cb6cc65",
+      "sha256": "f1dd16701df393142031fcfae93434a505b4bf042a0bd4299a8fa37c5750f2f1",
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/private_files.py"
     },
     "guanheng_qmt_shm/quote_stream.py": {
@@ -522,7 +522,7 @@
       "source": "integrations/guanheng/quote_collection.py"
     },
     "integrations/guanheng/quote_collection_service.py": {
-      "sha256": "76726a95e2fea9d958bf6e53b388a31fc436e8015b793f52c2e20951546baa39",
+      "sha256": "e458765f85774b833dec37ae65dae73ee6c430f6c101bfda28296e4ea29756c1",
       "source": "integrations/guanheng/quote_collection_service.py"
     },
     "integrations/guanheng/security_reference.py": {
@@ -664,6 +664,10 @@
     "integrations/guanheng/source_history_repository.py": {
       "source": "integrations/guanheng/source_history_repository.py",
       "sha256": "992dc9121873451249f422e6738e7d61bca14f06e237cf334d9efecaf09a8468"
+    },
+    "integrations/guanheng/collection_projection.py": {
+      "source": "integrations/guanheng/collection_projection.py",
+      "sha256": "ee8df3a23d2bd1d68d445979642aa6651a5882c5bee3b20cb59e8cb872a35ea7"
     }
   },
   "native": {

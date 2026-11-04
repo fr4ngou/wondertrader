@@ -12,6 +12,7 @@ from .source_history_transport import require
 OWNED = (
     'integrations/__init__.py',
     'integrations/guanheng/collection_coverage.py',
+    'integrations/guanheng/collection_projection.py',
     'integrations/guanheng/collection_minute_reader.py',
     'integrations/guanheng/collection_maintenance.py',
     'integrations/guanheng/collection_roster.py',
@@ -34,6 +35,7 @@ OWNED = (
     'integrations/guanheng/source_market_service.py',
     'integrations/guanheng_market_client/exchange_calendar.py',
     'connectors/qmt_shm/host/guanheng_qmt_shm/market_source.py',
+    'connectors/qmt_shm/host/guanheng_qmt_shm/private_files.py',
 )
 
 

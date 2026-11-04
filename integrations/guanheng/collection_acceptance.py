@@ -7,6 +7,7 @@ from uuid import UUID
 from guanheng_qmt_shm_agent.protocol import decode
 from .collection_deployment import load
 from .market_generation import read_fixed
+from .collection_projection import PROJECTION_LIMITS
 from .source_history_transport import require
 
 
@@ -36,14 +37,14 @@ def accept_coverage(selected, directory):
     identity = (directory.name, pid, ready['configuration_sha256'])
     observation = read_observation(directory, identity, time.monotonic() + 5,
         clock=time.monotonic, wall_clock=time.time)
-    value = decode(read_fixed(directory / 'coverage.json', maximum=8388608))
+    value = decode(read_fixed(directory / 'coverage.json', maximum=PROJECTION_LIMITS['coverage.json']))
     require(value['schema'] == 'qmt.quote-collector-coverage.v1'
             and (value['control_id'], value['pid'], value['configuration_sha256']) == identity)
     coverage = value['coverage']; rows = coverage['symbols']
     require(len({row['symbol'] for row in rows}) == len(rows))
     subscribed = sum(row['subscribed'] for row in rows)
     require(subscribed == plan['quote_count'] == coverage['subscribed_count'])
-    maintenance = decode(read_fixed(directory / 'minute-maintenance.json', maximum=16777216))
+    maintenance = decode(read_fixed(directory / 'minute-maintenance.json', maximum=PROJECTION_LIMITS['minute-maintenance.json']))
     require(maintenance['schema'] == 'qmt.collection-minute-maintenance.v1'
             and maintenance['producer_sha256'] == plan['files']['producer']['sha256'])
     require(_process_identity(pid) == creation)

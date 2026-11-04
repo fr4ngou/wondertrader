@@ -34,7 +34,9 @@ stop_seconds在部署启动前按证券规模和实际归档/回收时间确定�
 
 ### MCC完整候选
 
-`scripts/minute_collection.py`提供`stage-program`、`prepare-source`、`prepare-config`、`verify`、`adopt-source`、`rollback-source`、`run-role`、`stop-role`、`accept-minutes`及`accept-coverage`。准备命令只在新E盘根生成程序、完整Source和配置；`verify`核完整文件集、原/新CAS及同一producer/Reader引用。`adopt-source`和`rollback-source`供Root停止对应GH行后显式调用，按完整正文before/after CAS采用或恢复；独立交易/v9保持。
+`scripts/minute_collection.py`提供`stage-program`、`prepare-source`、`prepare-config`、`prepare-update`、`verify`、`adopt-source`、`rollback-source`、`run-role`、`stop-role`、`accept-minutes`及`accept-coverage`。准备命令只在新E盘根生成程序、完整Source和配置；`verify`核完整文件集、原/新CAS及同一producer/Reader引用。`adopt-source`和`rollback-source`供Root停止对应GH行后显式调用，按完整正文before/after CAS采用或恢复；独立交易/v9保持。
+
+运行过的候选以`prepare-update`固定原deployment和新program，更新进程入口/控制根，保留producer、原恢复marker、收据和原Native引用；原程序仍被数据引用时继续保留。投影发布和消费复用同一预算表，原状态64KiB、覆盖8MiB、维护16MiB，显式预算贯穿原私有文件创建和SDK原子替换。按全部证券乘当前日期范围验容量，另核真实一次完整扫描与稳定运行；[实际故障及全量验证](../evidence/2026-11-04-minute-projection-capacity.md)。
 
 程序包从当前主线保留其他模块，仅覆盖MCC拥有的源；原Writer组件沿既有固定制品，新桥及Reader沿本次成功离线构建。数据根继续原单Writer，恢复产物仍由原Importer独占新根。完整配置准备同时固定7649等实际集合、contracts/commodities/session、QST双方profile、原HPR联合额度及完整Source，数量取本次名册差异证明，不能固定为历史常数。
 

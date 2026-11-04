@@ -36,14 +36,14 @@ def create_private_directory(path):
     return target
 
 
-def write_private_new(path, content):
-    """Exclusively create at most 2 MiB of UTF-8/byte material in a private owner.
+def write_private_new(path, content, *, maximum_bytes=2097152):
+    """独占创建私有bytes材料；默认2MiB，显式投影预算最大16MiB。
 
     No replace/retry/cleanup occurs. The caller writes the manifest last so a
     partial directory never qualifies as a complete paired bundle.
     """
     try:
-        return _write_private_new(path, content)
+        return _write_private_new(path, content, maximum_bytes=maximum_bytes)
     finally:
         content = None
 
@@ -76,12 +76,13 @@ def write_private_durable_new(path, content, deadline, clock=time.monotonic):
         content = None
 
 
-def _write_private_new(path, content, check_deadline=None):
+def _write_private_new(path, content, check_deadline=None, *, maximum_bytes=2097152):
     """共用既有创建期DACL及SecurityResources；显式持久入口才执行flush。"""
     buffer = None
     try:
-        if not isinstance(content, bytes) or not 1 <= len(content) <= 2097152:
-            raise ValueError("private material exceeds its explicit 2 MiB file budget")
+        if (type(maximum_bytes) is not int or not 1 <= maximum_bytes <= 16777216
+                or not isinstance(content, bytes) or not 1 <= len(content) <= maximum_bytes):
+            raise ValueError("private material exceeds its explicit bounded file budget")
         if check_deadline is not None:
             check_deadline()
         kernel, security = libraries()

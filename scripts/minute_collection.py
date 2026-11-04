@@ -13,7 +13,7 @@ import os
 from uuid import uuid4
 
 from integrations.guanheng.collection_installation import descriptor, stage_program, verify_program
-from integrations.guanheng.collection_deployment import load, prepare_configuration
+from integrations.guanheng.collection_deployment import load, prepare_configuration, prepare_code_update
 from integrations.guanheng.collection_source import prepare_source
 from integrations.guanheng.market_generation import read_fixed
 from integrations.guanheng.source_history_transport import require
@@ -149,7 +149,7 @@ def main():
     stage.add_argument('--native-build', type=Path, required=True)
     stage.add_argument('--collection-component', type=Path, required=True)
     stage.add_argument('--output', type=Path, required=True)
-    for name in ('prepare-config', 'prepare-source'):
+    for name in ('prepare-config', 'prepare-source', 'prepare-update'):
         prepare = commands.add_parser(name)
         prepare.add_argument('--request', type=Path, required=True)
         prepare.add_argument('--request-sha256', required=True)
@@ -185,6 +185,8 @@ def main():
         result = prepare_configuration(load(dict(path=str(args.request), sha256=args.request_sha256)))
     elif args.command == 'prepare-source':
         result = prepare_source(load(dict(path=str(args.request), sha256=args.request_sha256)))
+    elif args.command == 'prepare-update':
+        result = prepare_code_update(load(dict(path=str(args.request), sha256=args.request_sha256)))
     elif args.command == 'run-role':
         from integrations.guanheng.collection_role import run_role
         selected = dict(path=str(args.deployment), sha256=args.deployment_sha256)

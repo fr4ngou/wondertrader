@@ -22,10 +22,11 @@ import re
 import stat
 import threading
 import time
-from uuid import UUID, uuid4
+from functools import partial
+from uuid import UUID
 from integrations.guanheng.quote_collection import QuoteCollection
-from integrations.guanheng.collection_status import replace_status
 from integrations.guanheng.collection_coverage import CollectionCoverage
+from integrations.guanheng.collection_projection import publish_projection
 
 # 配置/启动失败进入新的服务收尾阶段；外层原启动/停止D仍有最终Job终止权。
 # 正常控制停止只使用父进程发来的原绝对D，不使用此回退预算。
@@ -208,17 +209,7 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
                 'ValueError', 'RuntimeError', 'OSError', 'MemoryError') else 'other'
             winerror = getattr(exception, 'winerror', None)
             failure_winerror = winerror if type(winerror) is int and 0 <= winerror <= 65535 else None
-    def publish(name, value, replace=False, maximum=65536):
-        raw = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('ascii')
-        _need(0 < len(raw) <= maximum)
-        # ready/closed也先写完并关闭私有临时文件，名称出现即代表完整收据。
-        # 直接创建最终名字会让父读取方观察到零字节或独占写句柄。
-        temporary = control_directory/(name + '-' + str(uuid4()) + '.tmp')
-        write_private_new(temporary, raw)
-        if replace:
-            replace_status(temporary, control_directory/name)
-        else:
-            os.rename(temporary, control_directory/name)
+    publish = partial(publish_projection, control_directory)
     try:
         value, settings, native_raw, native_directory, data_root = _configuration(configuration, configuration_sha256)
         create_private_directory(control_directory); directory_created = True
@@ -273,9 +264,9 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
                     schema='qmt.quote-collector-coverage.v1',  # 本代旁路只读投影，原状态格式保持。
                     control_id=control_id, pid=os.getpid(),  # 原采集子代身份，不是额外owner。
                     configuration_sha256=configuration_sha256,  # 固定本次原配置。
-                    coverage=coverage.snapshot(time.time())), True, maximum=8388608)  # 每证券纯时间/计数，总8MiB。
+                    coverage=coverage.snapshot(time.time())), True)  # 每证券纯时间/计数，总8MiB。
                 if maintenance is not None:
-                    publish('minute-maintenance.json', maintenance.snapshot(), True, maximum=16777216)
+                    publish('minute-maintenance.json', maintenance.snapshot(), True)
                 stage = 'collection'
                 next_status = now + value['status_interval_seconds']
             if maintenance is not None:

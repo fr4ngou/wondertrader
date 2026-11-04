@@ -17,6 +17,56 @@ def load(value, maximum=16777216):
     return decode(read_fixed(value['path'], maximum=maximum, identity=value['sha256']))
 
 
+def prepare_code_update(request):
+    """只更新完整程序和进程接线；原producer、恢复workspace及请求身份逐字节保留。
+
+    deployment固定已运行过的原候选；program为新程序，output为全新E盘配置根。
+    daily_role_service/daily_base取当前实际日线代，原日线任务/市场CURRENT继续原owner。
+    本函数只生成材料，不启停进程、不迁移收据、不覆盖原配置。
+    """
+    require(type(request) is dict and set(request) == {'schema','output','program','deployment',
+        'daily_role_service','daily_base'} and request['schema'] == 'qmt.minute-collection-code-update.v1')
+    old = load(request['deployment'])
+    require(old['schema'] == 'qmt.minute-collection-deployment.v1' and 'daily_adoption' in old)
+    verify_program(old['program']); verify_program(request['program'])
+    for reference in old['files'].values():
+        read_fixed(reference['path'], maximum=16777216, identity=reference['sha256'])
+    root, program = Path(request['output']), Path(request['program']['path']).parent
+    require(root.is_absolute() and root.resolve().drive.upper() == 'E:' and not root.exists())
+    create_private_directory(root)
+    def save(name, value):
+        path = root / name
+        write_private_new(path, canonical(value))
+        return descriptor(path)
+    files = deepcopy(old['files'])
+    runtime = load(files['runtime'])
+    runtime['instance_id'] = str(uuid4())
+    # 固定数据/Native引用保持；只替换三个组件的新控制根及两个Python入口。
+    for name in ('host','history','collection'):
+        process = load(files[name + '_process'])
+        control = root / (name + '-controls'); create_private_directory(control)
+        process['control_root'] = str(control)
+        if name != 'host':
+            entry = descriptor(program / ('integrations/guanheng/' +
+                ('source_market_service.py' if name == 'history' else 'quote_collection_service.py')))
+            process.update(entry=entry['path'],entry_sha256=entry['sha256'])
+        files[name + '_process'] = save(name + '-process.json',process)
+        runtime['components'][name].update(descriptor=files[name + '_process']['path'],sha256=files[name + '_process']['sha256'])
+    files['runtime'] = save('data-runtime.json',runtime)
+    from .collection_daily_connection import prepare_daily_connection
+    producer = load(files['producer'])
+    daily_files, daily_originals, facts = prepare_daily_connection(request['daily_role_service'],
+        request['daily_base'], program, root, files['producer'], producer['base'], save)
+    files.update(daily_files)
+    originals = dict(old['originals'],**daily_originals)
+    originals['daily_base'] = request['daily_base']
+    plan = dict(old,program=request['program'],files=files,originals=originals,daily_adoption=facts,
+        request=request,runtime_started=False)
+    plan['code_update'] = dict(previous_deployment=request['deployment'],  # 原候选及恢复请求的固定追溯入口。
+        producer_unchanged=True,recovery_workspace_unchanged=True)  # 不复制或重置原收据/未知ID。
+    return save('DEPLOYMENT.json',plan)
+
+
 def prepare_configuration(request):
     """固定原/新CAS并新建全部私有配置；只读旧配置，继续使用同一Writer数据根。
 
