@@ -14,8 +14,10 @@ class SecurityReferenceFailure(RetainedReadFailure):
 
 class SecurityReferenceSource:
     """单调用线程持有原transport；slot为原请求持久文件，deadline为单调绝对秒。"""
-    def __init__(self, transport):
-        self.client = RetainedReadClient(transport, lifetime_ms=30000)  # 原30秒票据及原结果持久/消费owner。
+    def __init__(self, transport, *, wait_for_active_capacity=False):
+        """批捕获可等待原准入额度；缺省保留单次观察行为，未知责任始终交回owner。"""
+        self.client = RetainedReadClient(transport, lifetime_ms=30000,
+            wait_for_active_capacity=wait_for_active_capacity)  # 原30秒票据/nonce额度及原结果持久owner。
 
     def capabilities(self, *, deadline):
         """认证metadata发现两操作及30秒保留额度；不生成业务请求、slot或SDK调用。"""

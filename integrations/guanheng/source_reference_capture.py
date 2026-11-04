@@ -116,7 +116,16 @@ def capture_reference(source, scope, directory, *, deadline, cancelled=lambda:Fa
             if current['metadata']['binding']!=binding:
                 raise RetainedReadBindingChanged('reference_capture_binding_changed')
         method=source.universe if operation==UNIVERSE else source.details
-        observed=method(arguments,slot,deadline=deadline,expected_binding=binding)
+        while True:
+            check()
+            try:
+                observed=method(arguments,slot,deadline=deadline,expected_binding=binding)
+            except RetainedReadPending as failure:
+                if str(failure)!='read_retention_capacity_rejected':raise
+                # 原SDK已确认尚未受理，仍以同槽/UUID等待正常容量释放；通信未知交回owner。
+                check();time.sleep(min(.25,max(0,deadline-time.monotonic())))
+                continue
+            break
         if observed['state']!='observed':raise RetainedReadPending('reference_result_waiting')
         returned=observed['result']
         if returned['binding']!=binding:raise RetainedReadBindingChanged('reference_result_binding_changed')

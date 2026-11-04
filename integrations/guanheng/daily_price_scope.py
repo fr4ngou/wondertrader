@@ -57,7 +57,7 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
     if connection is not None:
         transport=BoundHistorySource(connection,environ=environ,reuse_connections=True)
         try:
-            source=SecurityReferenceSource(transport)
+            source=SecurityReferenceSource(transport,wait_for_active_capacity=True)
             try:
                 state=capture_reference(source,configuration['scope'],root/'source',deadline=deadline,cancelled=cancelled)
             except (SourcePending,RetainedReadPending,RetainedReadFailure)as failure:
