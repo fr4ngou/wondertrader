@@ -68,6 +68,54 @@ def _utc():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _validate_saved_record(record, operation, arguments):
+    request = record['request']
+    if request['operation_id'] != operation or request['arguments'] != arguments:
+        raise ValueError('retained_read_original_request_changed')
+    raw = canonical(request)
+    if bound.digest(raw) != record['request_body_sha256']:
+        raise ValueError('retained_read_original_bytes_changed')
+    validate_identity(request, record['ticket'])
+    validate_read_request(request, record['profile'], max_result_bytes=record['limits']['max_result_bytes'])
+    if (bound.binding(record['binding']) != record['binding']
+            or bound.digest(canonical(record['profile'])) != record['binding']['capability_sha256']
+            or record['ticket']['epoch'] != record['binding']['host_instance_id']):
+        raise ValueError('retained_read_original_source_changed')
+    retention(record['profile'].get('read_retention'))
+    return raw
+
+
+def _validate_saved_result(record, value):
+    bound.validate_response(value, max_result_bytes=record['limits']['max_result_bytes'], request=record['request'])
+    if (value['request_body_sha256'] != record['request_body_sha256']
+            or value['admitted_binding'] != record['binding']):
+        raise ValueError('retained_read_result_source_changed')
+
+
+def inspect_saved_result(record):
+    """只读核验已消费原结果；未知返回None，损坏显式失败，无网络、确认或文件写入。
+
+    沿原read相同的请求/票据、profile、绑定、完整响应及业务投影校验，返回原reply。
+    consumed仅表示完整结果已交接；是否成功、SDK是否已返回和数据覆盖由业务owner判断。
+    本函数不以当前Source代际/时钟替换原身份，未消费原件保持原owner责任。
+    """
+    if type(record) is not dict:
+        raise ValueError('retained_read_saved_record_invalid')
+    if set(record)=={'request'}:
+        # 原有仅请求登记没有执行证明；保持未知保护，不具备解除责任的资格。
+        return None
+    request = record['request']
+    _validate_saved_record(record, request['operation_id'], request['arguments'])
+    value = record.get('result')
+    if value is not None:
+        _validate_saved_result(record, value)
+    if record.get('consumed') is not True:
+        return None
+    if type(value) is not dict or value.get('state') != 'terminal':
+        raise ValueError('retained_read_consumed_without_terminal')
+    return decode(bound.unb64(value['result_body_b64'], record['limits']['max_result_bytes']))
+
+
 class RetainedReadClient:
     """transport 沿现有 exchange/plan/rpc_budget；本类不创建线程或 SDK。
 
@@ -149,26 +197,10 @@ class RetainedReadClient:
         raise RetainedReadPending('read_retention_awaiting_ticket_end')
 
     def _validate_record(self, record, operation, arguments):
-        request = record['request']
-        if request['operation_id'] != operation or request['arguments'] != arguments:
-            raise ValueError('retained_read_original_request_changed')
-        raw = canonical(request)
-        if bound.digest(raw) != record['request_body_sha256']:
-            raise ValueError('retained_read_original_bytes_changed')
-        validate_identity(request, record['ticket'])
-        validate_read_request(request, record['profile'], max_result_bytes=record['limits']['max_result_bytes'])
-        if (bound.binding(record['binding']) != record['binding']
-                or bound.digest(canonical(record['profile'])) != record['binding']['capability_sha256']
-                or record['ticket']['epoch'] != record['binding']['host_instance_id']):
-            raise ValueError('retained_read_original_source_changed')
-        retention(record['profile'].get('read_retention'))
-        return raw
+        return _validate_saved_record(record, operation, arguments)
 
     def _result(self, record, value):
-        bound.validate_response(value, max_result_bytes=record['limits']['max_result_bytes'], request=record['request'])
-        if (value['request_body_sha256'] != record['request_body_sha256']
-                or value['admitted_binding'] != record['binding']):
-            raise ValueError('retained_read_result_source_changed')
+        _validate_saved_result(record, value)
 
     def read(self, operation, arguments, slot, *, deadline, expected_binding=None, minimum_new_request_seconds=0, new_request_observation_deadline=None):
         """minimum_new_request_seconds为新槽准入所需外部剩余秒数；默认0保持旧消费者；new_request_observation_deadline为外部单调截止秒值，缺省沿deadline，已有槽不受新准入门限影响。"""

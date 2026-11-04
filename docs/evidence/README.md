@@ -1,5 +1,7 @@
 # 验证证据
 
+- [130项目标日价格缺口调查](2026-11-04-daily-gap130.md)：业务代码、停牌和供应商缺口分类，原请求责任修复与官方原价统一落盘。
+
 - [WT service.8运行谱系与service.9最终永久源码闭包](2026-11-04-wt-runtime-service9-permanent-source.md)：service.8从b856b9f、service.9从干净757c359读取38个永久模块，只保留5份历史角色原件；两版43模块与固定wheel逐项一致，service.9全新Python 3.12离线安装及CLI通过，运行状态未操作。
 
 - [WT 35.3.service.7最终源码闭包](2026-11-04-wt-runtime-service7-source-closure.md)：保留service.5的五模块追溯，按固定角色材料接入service.6恢复模块和service.7资金公式；43模块、元数据、入口和全新Python 3.12安装逐项闭合，运行及交易状态未操作。

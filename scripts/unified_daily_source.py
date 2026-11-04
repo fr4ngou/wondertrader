@@ -90,9 +90,20 @@ def build(work, *, python, backend, wheelhouse, native_directory, seconds):
         if value <= 0:
             raise TimeoutError('daily source build deadline')
         return value
+    sdk_work = work / 'sdk'
+    (sdk_work / 'deps').mkdir(parents=True)
+    shutil.copyfile(backend, sdk_work / 'deps' / backend.name)
+    sdk_code='import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from client_sdk import build_sdk;build_sdk(Path(sys.argv[2]),output=Path(sys.argv[3]),offline=True)'
+    native.run([python, '-I', '-B', '-c',sdk_code, ROOT / 'scripts',sdk_work,sdk_work/'wheels'], cwd=ROOT, env=dict(os.environ),
+        timeout=remaining(), log=work / 'sdk-build.log', private_console=True)
+    sdk = json.loads((sdk_work / 'wheels/receipt.json').read_bytes())
+    sdk_info = roles._wheel_info(Path(sdk['wheel']))
+    if sdk_info['name'] != 'guanheng-market-client' or sdk_info['sha256'] != sdk['sha256']:
+        raise ValueError('daily built SDK identity differs')
     stage = work / 'project'
     shutil.copytree(ROOT / declaration['project'], stage, ignore=shutil.ignore_patterns('__pycache__'))
-    requirements = ['guanheng-market-client==0.16.0'] + [row['name'] + '==' + row['version'] for row in registry]
+    # 本轮构建的同版SDK元数据是唯一版本事实；角色依赖与离线锁共同消费它。
+    requirements = ['guanheng-market-client==' + sdk_info['version']] + [row['name'] + '==' + row['version'] for row in registry]
     metadata = stage / 'pyproject.toml'
     # 同一固定registry是角色依赖正文，Flit元数据与离线安装锁使用同一精确集合。
     text = metadata.read_text('utf8').replace('dynamic = []', 'dependencies = ' + json.dumps(requirements))
@@ -118,17 +129,10 @@ def build(work, *, python, backend, wheelhouse, native_directory, seconds):
         for member, data in additions.items():
             if archive.read(member) != data:
                 raise ValueError('daily wheel source bytes differ')
-    sdk_work = work / 'sdk'
-    (sdk_work / 'deps').mkdir(parents=True)
-    shutil.copyfile(backend, sdk_work / 'deps' / backend.name)
-    sdk_code='import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from client_sdk import build_sdk;build_sdk(Path(sys.argv[2]),output=Path(sys.argv[3]),offline=True)'
-    native.run([python, '-I', '-B', '-c',sdk_code, ROOT / 'scripts',sdk_work,sdk_work/'wheels'], cwd=ROOT, env=environment,
-        timeout=remaining(), log=work / 'sdk-build.log', private_console=True)
-    sdk = json.loads((sdk_work / 'wheels/receipt.json').read_bytes())
     artifact = work / 'artifact'
     (artifact / 'wheels').mkdir(parents=True)
     selected = [dict(name='guanheng-daily-data', version=declaration['version'], path=wheel, sha256=sha(wheel)),
-                dict(name='guanheng-market-client', version='0.16.0', path=Path(sdk['wheel']), sha256=sdk['sha256']), *public.values()]
+                dict(name='guanheng-market-client', version=sdk_info['version'], path=Path(sdk['wheel']), sha256=sdk['sha256']), *public.values()]
     lines = []
     for info in selected:
         target=artifact / 'wheels' / Path(info['path']).name

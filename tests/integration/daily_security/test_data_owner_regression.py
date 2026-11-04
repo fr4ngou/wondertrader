@@ -33,7 +33,7 @@ class DataOwnerRegressionTests(unittest.TestCase):
         scope=write(root/'scope.json',dict(universe=universe,source_members=[],reference=None,
             observation_date='2026-11-03',securities={symbol:identity},groups=[]))
         inputs=write(root/'inputs.json',dict(schema='guanheng.daily-price-input-result.v1',
-            cache=dict(directory='unused',sha256='0'*64),securities={symbol:dict(reason='source_unavailable')}))
+            cache=dict(directory='unused',sha256='0'*64),securities={symbol:dict(reason='source_unavailable',source_state='empty')}))
         native=write(root/'native.json',{});base=write(root/'base.json',{})
         request=dict(scope=scope,current_configuration=base,snapshot_id='0'*64,calendar=None,
             connections={},protected_slots=[],authorized_from='20260701',source_kind='sdk-synthetic',

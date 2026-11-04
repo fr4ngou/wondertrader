@@ -78,7 +78,9 @@ def validate_configuration(value):
         raise ValueError('daily service update template invalid')
     scope=value.get('price_scope')
     if scope is not None:
-        if (type(scope)is not dict or set(scope)!={'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows'}
+        if (type(scope)is not dict or not {'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows'}<=set(scope)
+                or set(scope)-{'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows','index_fallback'}
+                or scope.get('index_fallback')not in(None,'official-publishers')
                 or type(scope['maximum_history_rows'])is not int or not 2000<=scope['maximum_history_rows']<=1000000):
             raise ValueError('daily service price scope invalid')
         datetime.strptime(scope['authorized_from'],'%Y%m%d')

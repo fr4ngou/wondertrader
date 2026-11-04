@@ -38,7 +38,7 @@ def validate_source_metadata(value, *, period="1m", selection=False):
     if selection:
         source = _object(value["source"], ("kind", "provider", "selection_id"))
         _enum(source["kind"], ("SourceSelection",))
-        _enum(source["provider"], ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "Mixed") if period == "1d" else ("Qmt",))
+        _enum(source["provider"], ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI", "Mixed") if period == "1d" else ("Qmt",))
         _sha(source["selection_id"])
     else:
         _source(value["source"], daily=period == "1d")

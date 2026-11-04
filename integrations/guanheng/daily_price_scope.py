@@ -6,6 +6,7 @@ from .daily_data_update import _save,_load,_descriptor
 from .market_generation import read_fixed
 from ..guanheng_market_client import strict_json
 from ..guanheng_market_client.security import validate_security_identity
+from guanheng_qmt_shm_agent.security_price_roles import non_price_role
 
 
 def prepare_price_scope(configuration,day,stock_universe,current,directory,*,deadline,cancelled,environ=None,previous_scopes=()):
@@ -21,7 +22,9 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
     from guanheng_qmt_shm.read_retention_client import RetainedReadPending,RetainedReadFailure
     from guanheng_qmt_shm.security_reference_source import SecurityReferenceSource
     required={'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows'}
-    if type(configuration)is not dict or set(configuration)!=required:
+    if (type(configuration)is not dict or not required<=set(configuration)
+            or set(configuration)-required-{'index_fallback'}
+            or configuration.get('index_fallback')not in(None,'official-publishers')):
         raise ValueError('daily price scope configuration invalid')
     root=Path(directory).absolute();root.mkdir(exist_ok=True)
     intent=root/'REQUEST.json'
@@ -82,13 +85,15 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
     if previous_reference is not None:retained_sources.append(previous_reference)
     retained_sources.extend(previous_scopes);retained_sources.append(stock_universe)
     reference=prepare_retained_reference(reference,all_members,retained_sources,root/'reference.json')
+    exclusions={symbol:role for symbol,identity in all_members.items()
+                if (role:=non_price_role(identity,day))is not None}
     expected={kind:(sum(g['expected_count']for g in groups if g['security_type']==kind)
                     if all(g['state']=='complete'for g in groups if g['security_type']==kind)else None)
               for kind in configuration['scope']['security_types']}
     universe=dict(
         schema='guanheng.price-universe.v1',  # 价格范围独立于普通A股指标池。
         observation_date=day,  # 同一闭合市场日期。
-        securities={s:v for s,v in all_members.items()if s not in primary},  # 额外价格仅处理原股票链之外成员。
+        securities={s:v for s,v in all_members.items()if s not in primary and s not in exclusions},  # 非价格业务身份继续留证，不派OHLC任务。
         expected_counts=expected)  # 动态Source各组完整才给全类别分母；旧名册数量不替代。
     _save(root/'UNIVERSE.json',universe)
     result=dict(
@@ -100,5 +105,6 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
         source_members=source_members,  # 动态当前名册成员；历史保留集不混入当前分母。
         securities=all_members,  # 完整可追溯价格范围，含本轮股票及旧证券。
         primary_members=sorted(primary),  # 原指标股票池，仅用于归属和覆盖汇总。
+        price_exclusions=exclusions,  # 原证券仍在securities/Source原件；官方规则单独说明价格不适用。
         reference_state=state)  # 资料准备完成与价格覆盖分别保存。
     _save(final,result);return _descriptor(final)

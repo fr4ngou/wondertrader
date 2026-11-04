@@ -26,9 +26,11 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
     """
     required={'schema','universe','current_configuration','snapshot_id','reference','calendar',
               'connections','protected_slots','authorized_from','source_kind'}
-    if (type(request)is not dict or not required<=set(request)or set(request)-required-{'cache_seed'}
+    if (type(request)is not dict or not required<=set(request)or set(request)-required-{'cache_seed','index_fallback'}
             or request['schema']!='guanheng.daily-price-inputs.v1'):
         raise ValueError('daily price input request invalid')
+    if request.get('index_fallback')not in(None,'official-publishers'):
+        raise ValueError('daily price official fallback invalid')
     if (not callable(cancelled)or type(deadline)not in(int,float)or not math.isfinite(deadline)
             or request['source_kind']not in('actual-qmt','sdk-synthetic')):
         raise ValueError('daily price input cancellation or finite deadline invalid')
@@ -49,7 +51,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
     target=datetime.strptime(day,'%Y-%m-%d').date();authorized=datetime.strptime(request['authorized_from'],'%Y%m%d').date()
     if authorized>target:raise ValueError('daily price authorization outside target')
     source=create_native_source_market(_load(request['current_configuration'],1048576))
-    bounds={};previous={}
+    bounds={};previous={};native_present={}
     try:
         for symbol,identity in members.items():
             check()
@@ -65,6 +67,15 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
                 raise ValueError('daily price previous history unavailable')
             archive=reply['data'].get('archive')
             last=datetime.strptime(str(archive['last_date']),'%Y%m%d').date()if archive else None
+            target_day=int(target.strftime('%Y%m%d'))
+            present=any(bar['date']==target_day for bar in reply['data'].get('bars',[]))
+            if not present and last is not None and last>=target:
+                selected=dict(query,**{'from':target_day,'to':target_day})
+                selected_reply=source.call(dict(api_version=API_VERSION,action='history.source-daily-query',request=selected))
+                if selected_reply['status']['code']not in('Ok','Unavailable'):
+                    raise ValueError('daily price previous target unavailable')
+                present=any(bar['date']==target_day for bar in selected_reply['data'].get('bars',[]))
+            native_present[symbol]=present
             # 即使Native已更新，也保留目标日缓存核查，供同一原QMT缓存的其他消费者使用。
             first=max(authorized,min(target,last+timedelta(days=1)))if last is not None else authorized
             qmt=code+'.'+{'SSE':'SH','SZSE':'SZ','BSE':'BJ'}[exchange]
@@ -162,6 +173,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
             source_days[symbol]=dict(
                 security_type=identity['security_type'],  # 原价格池分类，unknown保留。
                 source_state=item['status'],  # 原SDK逐证券状态，不从缓存缺日推造不支持。
+                source_error_code=item.get('error_code'),  # 原Source逐证券失败码，保留无效值和空结果的区别。
                 first=dates[0]if dates else None,  # 实际原价缓存首日，未知不填0。
                 last=dates[-1]if dates else None,  # 实际原价缓存尾日，区别目标日。
                 target_in_cache=present,  # 实际原回包是否包含闭合目标日。
@@ -169,6 +181,15 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
                 unqualified_dates={d:r for d,r in quality.items()if r!='qualified'},  # 原缺字段/零价/矛盾保留具体日期，未填0。
                 reason=reason,  # 缺项/上市前/到期/供应商状态分别表达。
                 previous_archive=previous[symbol])  # 已有Native实际范围，后续合并保留全历史。
+        supplement=None
+        if request.get('index_fallback')=='official-publishers':
+            selected_indices={symbol:identity for symbol,identity in members.items()
+                if identity['security_type']=='index'and not native_present[symbol]and not source_days[symbol]['target_native_qualified']
+                and source_days[symbol]['reason']not in('before_listing','after_expiry')}
+            if selected_indices:
+                from .official_index_prices import prepare_official_index_prices
+                supplement=prepare_official_index_prices(selected_indices,capture_from,last,root/'official-indices',
+                    deadline=deadline,cancelled=cancelled)
         result=dict(
             schema='guanheng.daily-price-input-result.v1',  # 价格输入事实，不代表Native发布成功。
             observation_date=day,  # 本轮闭合市场目标日。
@@ -178,6 +199,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
             preparation=progress,  # 原调用观察，call_returned不提升覆盖资格。
             expected_counts=universe.get('expected_counts'),  # 动态分母未知保持None。
             counts=counts,  # 已知范围逐类缓存数量，不宣称全市场分母。
-            securities=source_days)  # 每证券实际日期/原因，缺失不填0。
+            securities=source_days,  # 每证券实际日期/原因，缺失不填0。
+            supplemental_prices=supplement)  # 显式官方原价原件；不修改原QMT捕获事实。
         _save(final,result);return _descriptor(final)
     finally:reference.close()

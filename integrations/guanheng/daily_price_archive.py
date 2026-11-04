@@ -74,6 +74,16 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                 for day,bar in sorted(item['data'].items()):
                     if original_price_quality(bar)!='qualified':continue  # 输入回执已逐日保存原准入原因，旧成功档继续保留。
                     values.setdefault(int(day),(dict(date=int(day),**bar),fallback))
+        if prepared.get('supplemental_prices')is not None:
+            from .official_index_prices import load_official_index_prices
+            supplement=load_official_index_prices(prepared['supplemental_prices'])
+            if not set(supplement['securities'])<=set(prepared['securities']):
+                raise ValueError('official prices outside original price universe')
+            for symbol,item in supplement['securities'].items():
+                check();values=additions.setdefault(symbol,{})
+                for day,bar in sorted(item['data'].items()):
+                    metadata=item['metadata_by_provider'][item['provider_by_date'][day]]
+                    values.setdefault(int(day),(dict(date=int(day),**bar),metadata))
         rows={};provenance={}
         for symbol,values in additions.items():
             check();rows[symbol]=[];provenance[symbol]=[]

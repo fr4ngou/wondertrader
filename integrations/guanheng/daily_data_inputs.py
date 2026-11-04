@@ -104,7 +104,11 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                     template.update(previous_archives=[archive], previous_stores=[])
                     break
             base = base.get('base')
-        if current_additional:template['additional_archives']=current_additional
+        if current_additional:
+            # 当前成功档优先；显式采用的已核原生补充档仍进入同一按日合并，不被指针抹掉。
+            selected={(item['path'],item['sha256']):item for item in current_additional}
+            for item in template.get('additional_archives',[]):selected.setdefault((item['path'],item['sha256']),item)
+            template['additional_archives']=list(selected.values())
     protected = set(template['protected_slots'])
     plans = [];scope_history=[]
     for request_path in previous_requests:
@@ -270,6 +274,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             helper=template['helper'])  # 同一固定原Helper，未引入独立导入owner。
         if inputs.get('price_cache_seed')is not None and not plans:
             template['price_maintenance']['cache_seed']=inputs['price_cache_seed']  # 同名单/闭合日的已完成原缓存，目录及原UUID保持。
+        if configuration['price_scope'].get('index_fallback')is not None:
+            template['price_maintenance']['index_fallback']=configuration['price_scope']['index_fallback']  # 显式官方指数来源；读侧仍只读WT。
         by_plan={descriptor['sha256']:_load(descriptor)for descriptor,_,_ in plans}
         pending=set()
         for observation in prior_observations:

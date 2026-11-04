@@ -16,7 +16,7 @@ import time
 from urllib.parse import urlsplit
 
 
-__version__ = "0.16.0"
+__version__ = "0.17.0"
 API_VERSION = "guanheng.market.v1"
 MAX_REQUEST_BYTES = 262144
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -123,7 +123,7 @@ def _queue_id(value):
 def _source(value, *, daily=False):
     _object(value, ("provider", "instance_id", "session_id", "generation"))
     # 公开指数提供者只进入日线；canonical/分钟/快照继续使用原提供者合同。
-    providers = ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI") if daily else ("Qmt", "Tdx")
+    providers = ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI") if daily else ("Qmt", "Tdx")
     if value["provider"] not in providers:
         raise MarketProtocolError("market provider is unsupported")
     _text(value["instance_id"], limit=128)

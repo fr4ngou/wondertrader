@@ -4,6 +4,7 @@ from pathlib import Path
 from guanheng_qmt_shm_agent.security_reference import (
     UNIVERSE, DETAILS, POLICY, CONFIRMED_ERRORS, arguments, validate_result)
 from .read_retention_client import RetainedReadClient, RetainedReadFailure
+from guanheng_qmt_shm_agent.security_price_roles import source_price_role
 
 
 class SecurityReferenceFailure(RetainedReadFailure):

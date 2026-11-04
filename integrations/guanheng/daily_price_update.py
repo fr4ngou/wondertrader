@@ -21,6 +21,11 @@ def _coverage_count():
         source_observed_count=0,  # 当前Source实际名册成员数量，旧保留集不冒充当前分母。
         source_native_target_count=0,  # 当前Source成员中目标日Native实际可读数。
         expected_count=None,  # 完整动态组才赋整数；未知和未支持保持None。
+        known_price_eligible_count=0,  # 已知身份中需要核价的数量，排除有官方用途依据的非价格记录。
+        source_price_eligible_count=0,  # 当前Source成员中需要核价的数量。
+        price_excluded_count=0,  # 已知非价格身份数；原身份和规则证据仍在scope。
+        source_price_excluded_count=0,  # 当前Source非价格成员数，不减少原Source分组应有数。
+        price_expected_count=None,  # 完整原Source组扣除有据非价格用途后的价格应核数；未知保持None。
         tails={},  # 真实原生末日到证券数量；无原生历史单列unknown。
         gap_reasons={})  # 当前目标不可读的逐原因数量；有合格事实才确认停牌等分类。
 
@@ -51,6 +56,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
             connections=request['connections'],protected_slots=request['protected_slots'],
             authorized_from=request['authorized_from'],source_kind=request['source_kind'])
         if request.get('cache_seed')is not None:price_request['cache_seed']=request['cache_seed']
+        if request.get('index_fallback')is not None:price_request['index_fallback']=request['index_fallback']
         inputs=prepare_price_inputs(price_request,root/'inputs',
             deadline=deadline,cancelled=cancelled,environ=environ)
     imported=_load(native);base=compose_native_import(_load(base_configuration,1048576),imported)
@@ -88,6 +94,10 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         finally:market.close()
     for item in additional:base=compose_static_archive(base,item,reader,max_bars=limit)
     input_values=_load(inputs)if inputs is not None else None
+    supplement=None
+    if input_values is not None and input_values.get('supplemental_prices')is not None:
+        from .official_index_prices import load_official_index_prices
+        supplement=load_official_index_prices(input_values['supplemental_prices'])
     market=create_native_source_market(base);coverage={};counts={};reference=None
     source_members=set(scope['source_members']);target=int(scope['observation_date'].replace('-',''))
     try:
@@ -100,17 +110,24 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
             if reply['status']['code']not in ('Ok','Unavailable'):raise ValueError('daily price coverage read failed')
             data=reply['data'];header=data.get('archive');last=header['last_date']if header else None
             present=any(bar['date']==target for bar in data.get('bars',[]));kind=identity['security_type'];key=exchange+'.'+kind
+            excluded=symbol in scope.get('price_exclusions',{})
+            if excluded and present:raise ValueError('non-price business role conflicts with readable Native price')
             count=counts.setdefault(key,_coverage_count())
             count['known_scope_count']+=1;count['native_target_count']+=present
             count['source_observed_count']+=symbol in source_members
             count['source_native_target_count']+=present and symbol in source_members
+            count['known_price_eligible_count']+=not excluded
+            count['source_price_eligible_count']+=symbol in source_members and not excluded
+            count['price_excluded_count']+=excluded
+            count['source_price_excluded_count']+=symbol in source_members and excluded
             label=str(last)if last is not None else'unknown';count['tails'][label]=count['tails'].get(label,0)+1
             detail=input_values['securities'].get(symbol)if input_values is not None else None
             reason=('available'if present else detail['reason']if detail is not None and detail['reason']!='available'
                     else'native_target_unavailable')
+            if excluded:reason='not_price_instrument'
             assessment=reference.assess(dict(symbol=symbol,**{'from':target,'to':target}),identity,
                 [bar['date']for bar in data.get('bars',[])],daily_facts)
-            if not present:
+            if not present and not excluded:
                 if assessment['no_trade_dates']:reason='source_halted_no_trade'
                 elif assessment['before_listing_dates']:reason='before_listing'
                 elif assessment['after_expiry_dates']:reason='after_expiry'
@@ -119,13 +136,19 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
                     status=trade_day_state(daily_facts.security_state(scope['observation_date'],symbol))
                     if status in('source_halted_quantity_unknown','source_trade_state_inconsistent'):reason=status
             if not present:count['gap_reasons'][reason]=count['gap_reasons'].get(reason,0)+1
+            attempts=[]
+            if detail is not None:attempts.append(dict(provider='Qmt',state=detail['source_state'],reason=detail.get('source_error_code')))
+            if supplement is not None and symbol in supplement['securities']:
+                extra=supplement['securities'][symbol]
+                attempts.append(dict(provider=extra['metadata']['source']['provider'],state=extra['state'],reason=extra['reason']))
             coverage[symbol]=dict(
                 security_type=kind,  # 本轮价格身份分类，保留unknown。
                 last_date=last,  # 实际完整原生档尾日，无历史为None。
                 target_readable=present,  # 只由原Reader真实目标日条目确认。
                 reason=reason,  # 可读、原Source缺项或合格日事实分类，未推造价格。
                 source_member=symbol in source_members,  # 当前动态名册与历史保留范围分别计数。
-                assessment=assessment)  # 同一原日事实/日历准入，停牌无成交不补0。
+                assessment=assessment,  # 同一原日事实/日历准入，停牌无成交不补0。
+                source_attempts=attempts)  # 原QMT状态及可选官方补充状态，各自不改写对方事实。
     finally:
         try:market.close()
         finally:
@@ -135,6 +158,8 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         key=markets[group['market']]+'.'+group['security_type']
         count=counts.setdefault(key,_coverage_count())
         count['expected_count']=group['expected_count'];count['source_state']=group['state']
+        count['price_expected_count']=(group['expected_count']-count['source_price_excluded_count']
+            if group['expected_count']is not None else None)
         count['source_reason']=group['reason_code']
     result=dict(
         schema='guanheng.daily-price-update.v1',  # 同一原更新事务的全类别价格阶段结果。

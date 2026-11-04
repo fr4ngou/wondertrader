@@ -29,5 +29,5 @@ def requires_price_continuation(price_result,prior_pending_symbols=(),*,stock_pl
         inputs=_load(price_result['inputs'])
         pending.update(_pending_symbols(inputs['plan'],inputs['preparation']))
     return any(symbol in price_result['securities']and not price_result['securities'][symbol]['target_readable']
-               and price_result['securities'][symbol].get('reason')not in('source_halted_no_trade','before_listing','after_expiry')
+               and price_result['securities'][symbol].get('reason')not in('source_halted_no_trade','before_listing','after_expiry','not_price_instrument')
                for symbol in pending)
