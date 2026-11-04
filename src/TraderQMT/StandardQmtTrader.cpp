@@ -7,6 +7,7 @@
 #include "GuanhengCommon/QmtHostCodec.h"
 #include "Includes/WTSVariant.hpp"
 #include "Includes/WTSTradeDef.hpp"
+#include "Includes/WTSContractInfo.hpp"
 #include "Includes/WTSError.hpp"
 #include "Includes/IBaseDataMgr.h"
 #include <algorithm>
@@ -120,11 +121,28 @@ bool valid_day(unsigned day)
  unsigned days[]={31,28,31,30,31,30,31,31,30,31,30,31};
  if(year%4==0&&(year%100!=0||year%400==0))days[1]=29;return date>0&&date<=days[month-1];
 }
-std::string price_text(double value)
+std::string price_text(double value,double tick)
 {require(std::isfinite(value)&&value>0,"qmt_standard_price_invalid");
- // ABI输入是double，运输最短往返十进制；不按另一套tick规则舍入。
  char buffer[128];const auto out=std::to_chars(buffer,buffer+sizeof(buffer),value,std::chars_format::general);
- require(out.ec==std::errc{},"qmt_standard_price_encoding_failed");return {buffer,out.ptr};}
+ require(out.ec==std::errc{},"qmt_standard_price_encoding_failed");const std::string original(buffer,out.ptr);
+ // 原股票执行器以整数档位乘double tick，2.885可产生2.8850000000000002。
+ // 仅消除已落在WT合约档位附近的浮点运算误差；真实离档价格保持原文，由Source原规则核验。
+ if(!std::isfinite(tick)||tick<=0)return original;
+ const double steps=std::round(value/tick),canonical=steps*tick;
+ const double tolerance=4*std::numeric_limits<double>::epsilon()*(std::max)(value,std::fabs(canonical));
+ if(!std::isfinite(steps)||steps<1||steps>9007199254740991.0||!std::isfinite(canonical)
+  ||tolerance>=tick/4||std::fabs(value-canonical)>tolerance)return original;
+ const auto encoded_tick=std::to_chars(buffer,buffer+sizeof(buffer),tick,std::chars_format::general);
+ require(encoded_tick.ec==std::errc{},"qmt_standard_price_encoding_failed");const std::string text(buffer,encoded_tick.ptr);
+ const auto e=text.find_first_of("eE"),dot=text.find('.');const auto end=e==std::string::npos?text.size():e;
+ int exponent=0;
+ if(e!=std::string::npos){const char* first=text.data()+e+1;if(*first=='+')++first;
+  const auto parsed=std::from_chars(first,text.data()+text.size(),exponent);
+  if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+text.size())return original;}
+ const int precision=(std::max)(0,(dot!=std::string::npos?static_cast<int>(end-dot-1):0)-exponent);
+ if(precision>18)return original;
+ const auto normalized=std::to_chars(buffer,buffer+sizeof(buffer),canonical,std::chars_format::fixed,precision);
+ require(normalized.ec==std::errc{},"qmt_standard_price_encoding_failed");return {buffer,normalized.ptr};}
 struct OrderValue {
  QmtTradeInsert insert;std::string broker;double price=0;bool net=false;
  wtp::WTSDirectionType direction=wtp::WDT_LONG;
@@ -147,7 +165,9 @@ OrderValue copy_order(const wtp::WTSEntrust& value)
  q.buy=out.net?value.isBuy():((out.direction==wtp::WDT_LONG&&out.offset==wtp::WOT_OPEN)
   ||(out.direction==wtp::WDT_SHORT&&out.offset!=wtp::WOT_OPEN));
  auto volume=value.getVolume();require(std::isfinite(volume)&&volume>0&&volume<=9007199254740991.0
-  &&std::floor(volume)==volume,"qmt_standard_volume_invalid");q.quantity=static_cast<std::uint64_t>(volume);out.price=value.getPrice();q.limit_price=price_text(out.price);return out;
+  &&std::floor(volume)==volume,"qmt_standard_volume_invalid");q.quantity=static_cast<std::uint64_t>(volume);out.price=value.getPrice();
+ const auto contract=value.getContractInfo();const auto commodity=contract?contract->getCommInfo():nullptr;
+ q.limit_price=price_text(out.price,commodity?commodity->getPriceTick():0);return out;
 }
 struct ObjectRelease {void operator()(wtp::WTSObject* value)const{if(value)value->release();}};
 }
