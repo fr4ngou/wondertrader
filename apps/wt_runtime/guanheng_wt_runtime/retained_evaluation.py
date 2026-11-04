@@ -53,16 +53,23 @@ def target_for_result(value, policy, *, previous_target=None):
     return target
 
 
-def advance_retained(target, policy, observation, basis, state, *, limits=Limits()):
-    """回放的前代交接与原NSQ推进；生产者和报告核查共享完整状态转换。"""
+def advance_retained(target, policy, observation, basis, state, *, limits=Limits(), basis_for_target=None):
+    """前代交接与原NSQ推进；可选纯装配器按实际消费目标提供费用basis。
+
+    basis_for_target(target,basis,observation)只装配原来源值，不执行金融操作；
+    默认直接复用原basis，已有回放/读取调用保持原行为。旧代与新代各调用一次，
+    份数、阶段、现金判定和冻结状态继续完全由原NSQ拥有。
+    """
+    def current_basis(current):
+        return basis if basis_for_target is None else basis_for_target(current,basis,observation)
     previous_status, outcome = None, None
     if state is not None and generation_id(target, policy) != state.generation_id:
-        prior = advance(state.target, policy, observation, basis, state, limits=limits)
+        prior = advance(state.target, policy, observation, current_basis(state.target), state, limits=limits)
         previous_status = prior.status
         if prior.status == 'converged':
             state = prior.state
         else:
             outcome = prior
     if outcome is None:
-        outcome = advance(target, policy, observation, basis, state, limits=limits)
+        outcome = advance(target, policy, observation, current_basis(target), state, limits=limits)
     return outcome, previous_status

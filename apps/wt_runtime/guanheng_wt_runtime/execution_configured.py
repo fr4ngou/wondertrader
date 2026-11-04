@@ -115,8 +115,8 @@ class RetainedRuntimeInput:
     """固定当前决策输入；本金显式，实际周期来源由接入owner核实。"""
     request: object  # 原策略核RetainedInput值对象；由冻结输入解析，持有规则/行情/周期及时点，必填且不持有资源。
     policy: object  # 原NSQ QuantityPolicy；由显式配置解析，资本为CNY、现金ETF数量为股/份，必填。
-    fee_reserve_cny: str | None  # 新买入组的费用预留，CNY十进制字符串；None表示未知，0表示明确无需预留。
-    fee_source: str | None  # 上述费用预留的来源标识；来自冻结输入，None表示来源未知，不是已知零费用。
+    fee_reserve_cny: str | None  # 显式买入组预留，CNY十进制字符串；None由执行owner沿已核WT模板装配，0须有来源。
+    fee_source: str | None  # 显式预留来源；None表示输入未提供，派生basis另标原WT费用文件SHA，不把未知当零。
     market_manifest_source: str  # 冻结行情清单的非空来源标识；不代替各批行情的实际来源时间或摘要。
     schema: str = 'guanheng.retained-cta-input.v1'  # 固定输入协议版本；默认沿原格式，缺失时仍由解析器拒绝。
     capital_baseline: dict | None = None  # 首次启用的当前总资本基准，含库存；None沿旧资本配置，存在时正常恢复复用原值。
@@ -223,6 +223,8 @@ class RetainedStrategy:
         identities, frozen = admit_native_files(self.mapping, SimpleNamespace(**paths))
         _need(all(hashlib.sha256(frozen[n]).hexdigest() == expected.get('app/'+paths[n].relative_to(root).as_posix())
                   for n,_ in identities) and time.monotonic() < deadline, 'native_cash_model_identity')
+        self.native_fees = _json(frozen['fees'])  # 原WT已准入模板的本代只读副本；open为CNY/份或成交金额比例，实际费用仍由WT记账。
+        self.native_fee_source = 'original-WT:fees-sha256:'+hashlib.sha256(frozen['fees']).hexdigest()  # 冻结原文件SHA；只证明配置模型来源。
         self.takeover = 'takeover' in native
         identity = (self.id, self.input_sha, tuple(sorted(self.mapping.items())), asdict(self.inputs.policy), code_identity)
         if self.market_window is not None:
@@ -629,6 +631,32 @@ class RetainedStrategy:
         observed = Observation(cutoff.isoformat(),'original-CTA:cash-long-theoretical',tuple(positions),True,identity)
         return facts,raw,basis,observed
 
+    def _buy_fee_basis(self, target, basis, observation):
+        """为本次原NSQ实际消费的目标装配新增买入组费用预留；不修改目标或现金。
+
+        显式预留继续沿原输入。缺预留时复用已核WT开仓费率、同次原价和原NSQ份数；
+        每股向上取分形成可覆盖整数股部分成交舍入的保守界，实际费用继续归WT。
+        此值是本策略预算的配置模型预留，不声明券商佣金或独立子账户现金。
+        """
+        if self.inputs.fee_reserve_cny is not None:
+            return basis
+        from guanheng_strategy_native import target_quantities
+        from .execution_facts import _decimal
+        total = Fraction(0)
+        for wanted, actual, price in zip(target_quantities(target,self.inputs.policy,basis),
+                                        observation.positions,basis.prices,strict=True):
+            delta = max(0,wanted.shares-actual.actual)
+            if not delta:continue
+            exchange, product, unused = self.mapping[wanted.symbol].split('.')
+            fee = self.native_fees[exchange+'.'+product]
+            rate = Fraction(repr(fee['open']))
+            unit_fee = rate if fee['byvolume'] else rate*Fraction(price.raw_cny_per_share)
+            # 原WT商品calcFee按每笔成交四舍五入到分；逐股向上取分覆盖任意整数股拆分。
+            cents = unit_fee*100
+            total += delta*((cents.numerator+cents.denominator-1)//cents.denominator)/Fraction(100)
+        return replace(basis,fee_reserve_cny=_decimal(total),
+                       fee_source=self.native_fee_source+':open-integer-share-cent-upper')
+
     def _current_quotes(self, context, cutoff):
         """读取原WT已应用tick副本；日线读缓存不承担当前报价及事件时点。"""
         read=getattr(context,'quote',None)
@@ -768,7 +796,13 @@ class RetainedStrategy:
                 from guanheng_strategy_native import Outcome
                 outcome, previous_status = Outcome('waiting_basis','account_cash_unavailable',state), None
             else:
-                outcome, previous_status = advance_retained(decision.target,self.inputs.policy,execution,basis,state)
+                def fee_basis(target, current_basis, observation):
+                    # 原接缝可先推进未决旧代再交接新代；每次实际目标分别装配并发布本次费用来源。
+                    nonlocal basis
+                    basis = self._buy_fee_basis(target,current_basis,observation)
+                    return basis
+                outcome, previous_status = advance_retained(decision.target,self.inputs.policy,execution,basis,state,
+                    basis_for_target=fee_basis)
                 state = outcome.state;exits = self._exit_values(result['next_exits'])
             vector = ()if outcome is None else tuple((self.mapping[t.symbol],t.shares) for t in outcome.submit_targets)
             candidate.update(status='observing'if outcome is None else outcome.status,
