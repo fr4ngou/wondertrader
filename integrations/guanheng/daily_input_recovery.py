@@ -33,10 +33,14 @@ def observe_input_reads(index, state, *, target_day, deadline, cancelled):
         if not intent.exists():
             continue
         original = strict_json(read_fixed(intent, maximum=16777216))['configuration']
-        # 顶层请求只在完整股票capture后提交；未提交输入的只读槽仍留在原根。
-        if not (root.parent/'REQUEST.json').exists():
-            for slot in (root/'cache'/'slots').glob('*.json'):
-                slots[slot] = original['inputs']['connections']['batch']
+        # 完成manifest在全部原结果消费后提交；部分股票/额外价格回读仍有独立责任。
+        captures = [root/'cache', root.parent/'work'/'readback',
+                    root.parent/'work'/'prices'/'inputs'/'cache',
+                    root.parent/'work'/'prices'/'inputs'/'readback']
+        for capture in captures:
+            if not (capture/'manifest.json').exists():
+                for slot in (capture/'slots').glob('*.json'):
+                    slots[slot] = original['inputs']['connections']['batch']
         source = root/'prices'/'source'
         scope = root/'prices'/'SCOPE.json'
         complete = scope.exists() and strict_json(read_fixed(scope, maximum=16777216)).get('reference_state', {}).get('membership_complete') is True

@@ -120,6 +120,23 @@ class InputRecoveryTests(unittest.TestCase):
                 observe_input_reads(index, memory(), target_day='2026-11-04', deadline=time.monotonic()+5, cancelled=lambda: False)
             self.assertEqual(slot.read_bytes(), before)
 
+    def test_committed_old_readback_keeps_created_batch_responsibility(self):
+        with tempfile.TemporaryDirectory() as directory:
+            old, original, request, index = self.fixtures(Path(directory), published=True)
+            targets = [old.parent/'work/readback/slots/0000-none.json',
+                       old.parent/'work/prices/inputs/cache/slots/0000-none.json',
+                       old.parent/'work/prices/inputs/readback/slots/0000-none.json']
+            for target in targets:
+                write(target, json.loads(original.read_bytes()))
+            p1, p2, p3 = self.patches()
+            with p1, p2, p3:
+                result = observe_input_reads(index, memory(), target_day='2026-11-04', deadline=time.monotonic()+5, cancelled=lambda: False)
+            self.assertEqual(result['pending'], 0)
+            for target in targets:
+                value = json.loads(target.read_bytes())
+                self.assertTrue(value['consumed'])
+                self.assertEqual(value['request'], request)
+
 
 if __name__ == '__main__':
     unittest.main()

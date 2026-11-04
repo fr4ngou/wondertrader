@@ -200,7 +200,9 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                                 if row.get('request')is not None and Path(row['request'])!=request_file:
                                     if Path(row['request']).exists():
                                         previous.append(row['request'])
-                                    elif row.get('state')=='published':
+                                    elif (row.get('state')=='published'
+                                          or (Path(row['request']).parent/'work'/'REQUEST.json').exists()
+                                          or (Path(row['request']).parent/'work'/'STATE.json').exists()):
                                         raise FileNotFoundError('daily published original request missing')
                                     # 未提交输入仍归原INDEX；既有读取槽由上方原身份续核，HPR只在提交后执行。
                             previous=list(dict.fromkeys(previous))
