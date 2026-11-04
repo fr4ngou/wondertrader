@@ -10,6 +10,7 @@ from .ashare_pool import current_pool
 from .provider_reports import report_pages
 from .source_fetch import BoundedContentStore,CollectionBudget,Fetcher,SourceFailure
 from .storage import digest, encode
+from .calendars import closed_day_cutoff
 from .provider_tables import load_table
 
 ZONE=timezone(timedelta(hours=8))
@@ -130,6 +131,7 @@ class Archive:
     def closed_day(self,as_of):
         end=date.fromisoformat(as_of)
         local=self.now.astimezone(ZONE)
+        cutoff=closed_day_cutoff(self.now)
         _need(end<=local.date(),'ashare_source_date')
         rows=self.receipts('ashare_calendar',as_of,status='success')
         success=rows[0] if rows else None
@@ -153,7 +155,7 @@ class Archive:
             _need(type(day) is str and date.fromisoformat(day).isoformat()==day
                 and row['is_trading_day'] in ('0','1'))
             days.append(day)
-            closed=(day<local.date().isoformat() or (local.hour,local.minute)>=(15,30))
+            closed=day<=cutoff
             if row['is_trading_day']=='1' and closed:opened.append(day)
         _need(days==expected and bool(opened),'ashare_calendar_incomplete')
         if not success:

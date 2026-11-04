@@ -30,7 +30,7 @@
       "source": "apps/guanheng/guanheng_app/observation/ashare_pool.py"
     },
     "guanheng_app/observation/ashare_public.py": {
-      "sha256": "d90757d7c86e2987cc08a56ece4bde662b22d735ccce17e13f0069682beb32a4",
+      "sha256": "8da966f17a53f1f67df99899ad7db846470df4c04977f0d500e9f3d0920b26eb",
       "source": "apps/guanheng/guanheng_app/observation/ashare_public.py"
     },
     "guanheng_app/observation/ashare_source.py": {
@@ -62,7 +62,7 @@
       "source": "apps/guanheng/guanheng_app/observation/calculations.py"
     },
     "guanheng_app/observation/calendars.py": {
-      "sha256": "98547b54238b7eeb83bc60a1e33faae47042710abe2e97ac5ba56d42ba761c4b",
+      "sha256": "2007f81fe44ea158500195570d6f6af476c65ef007c5124ace704363c2af5e6a",
       "source": "apps/guanheng/guanheng_app/observation/calendars.py"
     },
     "guanheng_app/observation/contracts.py": {
@@ -398,7 +398,7 @@
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "8d2d4e46e4d7e63778174ca0482c83d7677fd75a2a6e45ae4b296bf5ce4bb1b7",
+      "sha256": "879cb3d195eef4c1b696cc09a657d42761b53214731d06af41018a133324c2bd",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -670,5 +670,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.7"
+  "version": "0.2.0a1+unified.8"
 }

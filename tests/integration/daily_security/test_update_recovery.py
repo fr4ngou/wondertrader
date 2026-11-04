@@ -89,7 +89,7 @@ class RecoveryTests(unittest.TestCase):
                     update.run_update(request, root / 'work', deadline=time.monotonic() + 5)
             self.assertFalse((root / 'work').exists())
 
-    def test_daily_window_keeps_yesterday_after_close(self):
+    def test_daily_window_advances_to_today_after_shared_close(self):
         rows = [dict(date=day, is_open=1) for day in ('2026-11-02', '2026-11-03', '2026-11-04')]
         calendar = dict(coverage_start='2026-01-01', coverage_end='2026-12-31')
         with patch('guanheng_app.observation.calendars.official_calendar', return_value=(rows, None)):
@@ -97,7 +97,7 @@ class RecoveryTests(unittest.TestCase):
             afternoon = target_date(calendar, datetime.fromisoformat('2026-11-04T16:00:00+08:00'))
             next_day = target_date(calendar, datetime.fromisoformat('2026-11-05T09:00:00+08:00'))
         self.assertEqual(morning, '2026-11-03')
-        self.assertEqual(afternoon, morning)
+        self.assertEqual(afternoon, '2026-11-04')
         self.assertEqual(next_day, '2026-11-04')
 
     def test_service_lock_rejection_does_not_reserve_shared_configuration(self):

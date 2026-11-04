@@ -44,7 +44,7 @@ Root沿原SourceMarketProcess创建描述符，pythonw/entry来自安装收据�
 }
 ```
 
-read.json使用source-market-current，current_file与daily.template.publication_directory/CURRENT.json相同。ready要求生产者实际取得租约；HTTP和生产各用自己的线程/资源。日常09:00处理前日最近闭合交易日，全天固定同一日目标；显式手动as-of另行选择日期。未配置daily_update时沿原读服务。
+read.json使用source-market-current，current_file与daily.template.publication_directory/CURRENT.json相同。ready要求生产者实际取得租约；HTTP和生产各用自己的线程/资源。日常09:00起处理最近闭合交易日，15:30前处理前日最近交易日，15:30后沿同一owner自动推进当日；周末/休市沿官方日历回看，同日已成功且无需接续时直接复用。日期选择与原公开输入库共用北京时间闭合规则，实际来源可获性另行核对；显式手动as-of另行选择日期。未配置daily_update时沿原读服务。
 
 停止使用原SMP stop.json及原单调截止，父WT owner确认进程树、EOF和线程关闭。数据线程独有closed证明其owner退出，SMP成功closed还要求Reader及数据线程均关闭。父Job处理不可协作硬阻塞，Source/QMT外部业务责任继续保持原身份。
 

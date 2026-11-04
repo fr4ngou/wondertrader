@@ -1,7 +1,23 @@
 """原观察日历调用共享纯计算；来源采集及比较投影保持原接口。"""
 from guanheng_market_client.exchange_calendar import official_calendar as _official_calendar, last_open_day as _last_open_day, CalendarFailure
+from datetime import timedelta, timezone
 from .storage import digest, encode
 from .providers import SourceFailure
+
+
+def closed_day_cutoff(now):
+    """返回原日线输入15:30闭合窗口的北京时间日期上界（YYYY-MM-DD）。
+
+    调用方提供有时区的实际时钟；这里只判断来源闭合窗口，开市日仍由
+    对应日历核实，已过窗口也不授予来源价格完整或已发布资格。
+    """
+    if now.utcoffset() is None:
+        raise ValueError('daily closed-day clock requires timezone')
+    local = now.astimezone(timezone(timedelta(hours=8)))
+    cutoff = local.date()
+    if (local.hour, local.minute) < (15, 30):
+        cutoff -= timedelta(days=1)
+    return cutoff.isoformat()
 
 
 def official_calendar(config, *, check=lambda: None):

@@ -22,14 +22,13 @@ ZONE = timezone(timedelta(hours=8))
 
 
 def target_date(calendar, now):
-    """每日窗口固定处理本地昨日及此前最近交易日；显式--as-of另行选择日期。"""
-    from guanheng_app.observation.calendars import official_calendar
+    """按原输入闭合窗口和官方日历选最近交易日；显式as-of独立准入。"""
+    from guanheng_app.observation.calendars import closed_day_cutoff, official_calendar
+    cutoff = closed_day_cutoff(now)
     rows, _ = official_calendar(calendar)
-    local = now.astimezone(ZONE)
-    cutoff = local.date() - timedelta(days=1)
-    if not calendar['coverage_start'] <= cutoff.isoformat() <= calendar['coverage_end']:
+    if not calendar['coverage_start'] <= cutoff <= calendar['coverage_end']:
         raise ValueError('daily service outside calendar coverage')
-    days = [row['date'] for row in rows if row['is_open'] == 1 and row['date'] <= cutoff.isoformat()]
+    days = [row['date'] for row in rows if row['is_open'] == 1 and row['date'] <= cutoff]
     if not days:
         raise ValueError('daily service closed day unavailable')
     return max(days)
