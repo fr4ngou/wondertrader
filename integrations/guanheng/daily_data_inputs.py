@@ -90,39 +90,51 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         current_value, _ = read_generation(current)
         current_config = _load(current_value['configuration'], 1048576)
         template['daily_facts'] = current_config['daily_facts']
-        base = current_config['base']
+        base = current_config['base'];additional_selected=False;current_additional=[]
         while isinstance(base, dict):
             archive = base.get('archive')
-            if archive is not None and _load(archive).get('schema') == 'guanheng.daily-native-archive.v2':
-                template.update(previous_archives=[archive], previous_stores=[])
-                break
+            if archive is not None:
+                schema=_load(archive).get('schema')
+                if schema=='guanheng.daily-native-archive.v1'and not additional_selected:
+                    current_additional.append(archive);additional_selected=True
+                if schema=='guanheng.daily-native-archive.v2':
+                    entries=_load(archive)['entries']
+                    if entries and all(row['provenance'][0]['metadata']['adjustment']=='front_ratio'for row in entries):
+                        current_additional.append(archive);base=base.get('base');continue
+                    template.update(previous_archives=[archive], previous_stores=[])
+                    break
             base = base.get('base')
+        if current_additional:template['additional_archives']=current_additional
     protected = set(template['protected_slots'])
-    plans = []
+    plans = [];scope_history=[]
     for request_path in previous_requests:
         request_path = Path(request_path)
         previous = strict_json(read_fixed(request_path, maximum=16777216))
         protected.update(previous['protected_slots'])
+        if previous.get('price_maintenance')is not None:
+            scope_history=[previous['price_maintenance']['scope']]
+            protected.update(previous['price_maintenance']['protected_slots'])
         state_path = request_path.parent / 'work' / 'STATE.json'
         if not state_path.exists():
             continue
         state = strict_json(read_fixed(state_path, maximum=16777216))
-        plan = state['stages'].get('gap_plan')
-        if plan is None:
-            continue
-        value = _load(plan)
-        gap_work = state_path.parent / 'gap-work'
-        pending = []
-        for task in value['tasks']:
-            slot = gap_work / 'preparation' / ('%06d.json' % task['index'])
-            if not slot.exists():
-                continue
-            protected.add(str(slot))
-            observed = gap_work / 'observations' / ('%06d.json' % task['index'])
-            if not observed.exists() or strict_json(read_fixed(observed, maximum=1048576))['row']['state'] != 'call_returned':
-                pending.append(task['index'])
-        if pending:
-            plans.append((plan, gap_work, pending))
+        prior_plans=[]
+        if state['stages'].get('gap_plan')is not None:
+            prior_plans.append((state['stages']['gap_plan'],state_path.parent/'gap-work'))
+        price_root=state_path.parent/'prices'/'inputs'
+        phase=price_root/'PHASE-gap-plan.json'
+        if phase.exists():
+            price_plan=strict_json(read_fixed(phase,maximum=65536))['result']
+            if price_plan is not None:prior_plans.append((price_plan,price_root/'gap-work'))
+        for plan,gap_work in prior_plans:
+            value=_load(plan);pending=[]
+            for task in value['tasks']:
+                slot=gap_work/'preparation'/('%06d.json'%task['index'])
+                if not slot.exists():continue
+                protected.add(str(slot));observed=gap_work/'observations'/('%06d.json'%task['index'])
+                if not observed.exists()or strict_json(read_fixed(observed,maximum=1048576))['row']['state']!='call_returned':
+                    pending.append(task['index'])
+            if pending:plans.append((plan,gap_work,pending))
     if len(protected) > 100000:
         raise ValueError('daily protected request capacity')
     # 先观察原未知身份；所有非原槽的计划项交本日缓存计划判定，不在旧计划里重派。
@@ -239,6 +251,32 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     template.update(cache=cache,
         universe=selected_universe, daily_facts=catalog, protected_slots=sorted(protected),
         authorized_from=inputs['cache_from'], authorized_to=day.replace('-', ''), connections=inputs['connections'])
+    if configuration.get('price_scope')is not None:
+        from .daily_price_scope import prepare_price_scope
+        current_value,current_sha=read_generation(current)
+        scope=prepare_price_scope(configuration['price_scope'],day,selected_universe,current_value,root/'prices',
+            deadline=deadline,cancelled=cancelled,environ=environ,previous_scopes=scope_history)
+        template['price_maintenance']=dict(
+            scope=scope,  # 全类别动态/保留价格池，普通A股指标池保持独立。
+            current_configuration=current_value['configuration'],  # 固定旧价格读版本，恢复不跟随后继指针。
+            snapshot_id=current_value['snapshot_id'],  # 原旧快照身份，不冒充来源catalog_id。
+            calendar=template['calendar'],  # 原日历范围及验证资格。
+            connections=inputs['connections'],  # 同一数据角色的原Batch/HPR通信，凭据不写入。
+            protected_slots=sorted(protected),  # 跨股票及额外价格旧任务的原槽全部保护。
+            authorized_from=configuration['price_scope']['authorized_from'],  # 全类别已授权历史起日。
+            source_kind=inputs['source_kind'],  # 真源与SDK替身分别标识。
+            maximum_history_rows=configuration['price_scope']['maximum_history_rows'],  # 每证券完整历史预算。
+            previous_archives=template['additional_archives'],  # 最新完整补充原价，保留原独立来源。
+            helper=template['helper'])  # 同一固定原Helper，未引入独立导入owner。
+        if inputs.get('price_cache_seed')is not None and not plans:
+            template['price_maintenance']['cache_seed']=inputs['price_cache_seed']  # 同名单/闭合日的已完成原缓存，目录及原UUID保持。
+        by_plan={descriptor['sha256']:_load(descriptor)for descriptor,_,_ in plans}
+        pending=set()
+        for observation in prior_observations:
+            for index in observation['task_indices']:
+                qmt=by_plan[observation['plan_sha256']]['tasks'][index]['symbol'];code,market=qmt.split('.')
+                pending.add({'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[market]+'.'+code)
+        template['prior_pending_symbols']=sorted(pending)  # 原身份仍待核的证券集合，已可读Native不因此失去价格资格。
     if 'prepared_native' in template and _load(template['prepared_native'])['capture_sha256'] != cache['sha256']:
         template.pop('prepared_native')
     _save(final, template)

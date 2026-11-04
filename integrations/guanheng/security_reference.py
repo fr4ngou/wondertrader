@@ -11,6 +11,18 @@ from ..guanheng_market_client.security import validate_security_identity
 from .market_generation import read_fixed, encode
 
 
+def trade_day_state(state):
+    """原合格日事实的交易状态解释；缺成交量与真实零量分开，不生成价格。"""
+    if state is None or state['qualification']!='qualified':return 'unresolved'
+    if state['tradestatus']=='0':
+        if not state['volume']:return 'source_halted_quantity_unknown'
+        if Decimal(state['volume'])==0:return 'source_halted_no_trade'
+        return 'source_trade_state_inconsistent'
+    if state['tradestatus']=='1'and state['close_reference']and Decimal(state['close_reference'])>0:
+        return 'source_active'
+    return 'unresolved'
+
+
 def _descriptor(value, maximum):
     if (type(value) is not dict or set(value) != {'path', 'sha256'}
             or type(value['path']) is not str or not Path(value['path']).is_absolute()):
@@ -37,10 +49,48 @@ def _calendar(value):
     return value
 
 
+def _source_reference_lineage(value, securities):
+    """动态资料的Source名册/分组/原槽谱系；只校声明，不在查询热路径重读原槽。"""
+    if type(value)is not dict or set(value)!={'catalog_id','captured_at','source_as_of','groups','evidence'}:
+        raise ValueError('dynamic security reference lineage invalid')
+    _hash(value['catalog_id']);_clock(value['captured_at'])
+    if value['source_as_of']is not None:_clock(value['source_as_of'])
+    groups=value['groups']
+    if type(groups)is not list or not 1<=len(groups)<=9:
+        raise ValueError('dynamic security reference groups invalid')
+    markets={'SH':'SSE','SZ':'SZSE','BJ':'BSE'};seen=set()
+    for group in groups:
+        if type(group)is not dict or set(group)!={'market','security_type','state','expected_count','observed_count','source_groups','reason_code'}:
+            raise ValueError('dynamic security reference group fields invalid')
+        key=(group['market'],group['security_type'])
+        if (key in seen or key[0]not in markets or key[1]not in ('stock','etf','index')
+                or group['state']not in ('complete','partial','unavailable','unsupported')
+                or type(group['observed_count'])is not int or group['observed_count']<0):
+            raise ValueError('dynamic security reference group invalid')
+        seen.add(key)
+        if group['state']=='complete':
+            actual=sum(row['market']==markets[key[0]]and row['security_type']==key[1]for row in securities.values())
+            if (type(group['expected_count'])is not int or group['expected_count']!=actual
+                    or group['observed_count']!=actual or group['reason_code']is not None):
+                raise ValueError('dynamic security reference complete count differs')
+        elif group['expected_count']is not None or type(group['reason_code'])is not str or not group['reason_code']:
+            raise ValueError('dynamic security reference unknown count fabricated')
+        if type(group['source_groups'])is not list or any(type(v)is not str or not 1<=len(v)<=128 for v in group['source_groups']):
+            raise ValueError('dynamic security reference group evidence invalid')
+    evidence=value['evidence']
+    if type(evidence)is not list or not 1<=len(evidence)<=512:
+        raise ValueError('dynamic security reference evidence capacity invalid')
+    for item in evidence:
+        if type(item)is not dict or set(item)!={'path','sha256'}or type(item['path'])is not str or not Path(item['path']).is_absolute():
+            raise ValueError('dynamic security reference evidence invalid')
+        _hash(item['sha256'])
+
+
 class SecurityReference:
     """单个SnapshotSourceMarket拥有本对象；最多20000项/16MiB原JSON，关闭释放。"""
     def __init__(self, reference=None, calendar=None):
         self._rows = {}  # WT证券身份到不可变资料，最多20000项，随本市场版本关闭。
+        self._dynamic=False  # v2当前Source资料拥有名称/日期；旧snapshot.basics继续保存其原观察时刻。
         self.reference_sha256 = None  # 固定资料原件SHA，未配置时None，区别于价格缺失。
         self._calendar = None  # 原官方日历对象；缺项时不推断任何交易日。
         self._calendar_sha256 = None  # 日历原件字节SHA，供缺口复核。
@@ -49,7 +99,7 @@ class SecurityReference:
         if reference is not None:
             value = _descriptor(reference, 16777216)
             if (type(value) is not dict or set(value) != {'schema', 'securities', 'provenance'}
-                    or value['schema'] != 'guanheng.security-reference.v1'
+                    or value['schema'] not in ('guanheng.security-reference.v1','guanheng.security-reference.v2')
                     or type(value['securities']) is not dict or not 1 <= len(value['securities']) <= 20000):
                 raise ValueError('security reference catalog invalid')
             for symbol, row in value['securities'].items():
@@ -57,14 +107,16 @@ class SecurityReference:
                 if row['symbol'] != symbol:
                     raise ValueError('security reference key differs')
             original = value['provenance']
-            if type(original) is not dict or set(original) != {'catalog_sha256', 'details_sha256', 'indices_sha256'}:
-                raise ValueError('security reference lineage invalid')
-            _hash(original['catalog_sha256'])
-            if original['details_sha256'] is not None:
-                _hash(original['details_sha256'])
-            if original['indices_sha256'] is not None:
-                _hash(original['indices_sha256'])
+            if value['schema']=='guanheng.security-reference.v1':
+                if type(original) is not dict or set(original) != {'catalog_sha256', 'details_sha256', 'indices_sha256'}:
+                    raise ValueError('security reference lineage invalid')
+                _hash(original['catalog_sha256'])
+                if original['details_sha256'] is not None:_hash(original['details_sha256'])
+                if original['indices_sha256'] is not None:_hash(original['indices_sha256'])
+            else:
+                _source_reference_lineage(original,value['securities'])
             self._rows = value['securities']
+            self._dynamic=value['schema']=='guanheng.security-reference.v2'
             self.reference_sha256 = reference['sha256']
         if calendar is not None:
             self._calendar = _calendar(_descriptor(calendar, 1048576))
@@ -88,7 +140,7 @@ class SecurityReference:
         if symbol in snapshot['basics']:
             result['security_type'] = 'stock'
             basic = snapshot['basics'][symbol]
-            if basic is not None:
+            if basic is not None and not(self._dynamic and symbol in self._rows):
                 for key in ('name', 'market', 'listed_on', 'expires_on', 'observed_at'):
                     result[key] = basic[key]
         return validate_security_identity(result)
@@ -131,11 +183,10 @@ class SecurityReference:
                 kind = 'after_expiry_dates'
             else:
                 state = facts.security_state(iso, query['symbol']) if facts is not None else None
-                if state is None or state['qualification'] != 'qualified':
-                    kind = 'unresolved_dates'
-                elif state['tradestatus'] == '0' and state['volume'] and Decimal(state['volume']) == 0:
+                status=trade_day_state(state)
+                if status == 'source_halted_no_trade':
                     kind = 'no_trade_dates'
-                elif state['tradestatus'] == '1' and state['close_reference'] and Decimal(state['close_reference']) > 0:
+                elif status == 'source_active':
                     kind = 'missing_dates'
                 else:
                     kind = 'unresolved_dates'

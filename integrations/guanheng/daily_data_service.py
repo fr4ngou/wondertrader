@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import math
 import os
 import time
-from uuid import UUID
+from uuid import UUID,uuid4
 
 from integrations.guanheng.daily_data_update import run_update, _save, _load
 from integrations.guanheng.daily_data_inputs import prepare_update
@@ -38,7 +38,7 @@ def target_date(calendar, now):
 def validate_configuration(value):
     """有限预算及固定时区先准入；各原源配置沿所属工厂再次完整校验。"""
     required = {'schema', 'directory', 'raw_store', 'template', 'inputs', 'schedule', 'cycle_seconds', 'retry_seconds'}
-    if (type(value) is not dict or set(value) != required
+    if (type(value) is not dict or not required<=set(value)or set(value)-required-{'price_scope'}
             or value['schema'] != 'guanheng.daily-data-service.v1'):
         raise ValueError('daily service configuration invalid')
     for key in ('directory', 'raw_store'):
@@ -55,11 +55,15 @@ def validate_configuration(value):
             raise ValueError('daily service budget invalid')
     inputs = value['inputs']
     fields = {'connections', 'public_facts', 'cache_from', 'max_rows', 'source_kind'}
-    if (type(inputs) is not dict or not fields <= set(inputs) or set(inputs) - fields - {'cache_seed'}
+    if (type(inputs) is not dict or not fields <= set(inputs) or set(inputs) - fields - {'cache_seed','price_cache_seed','previous_requests'}
             or set(inputs['connections']) != {'batch', 'hpr'}
             or type(inputs['max_rows']) is not int or not 40 <= inputs['max_rows'] <= 2000
             or inputs['source_kind'] not in ('actual-qmt', 'sdk-synthetic')):
         raise ValueError('daily service inputs invalid')
+    previous=inputs.get('previous_requests',[])
+    if (type(previous)is not list or len(previous)>366 or len(set(previous))!=len(previous)
+            or any(type(path)is not str or not Path(path).is_absolute()for path in previous)):
+        raise ValueError('daily service prior request references invalid')
     datetime.strptime(inputs['cache_from'], '%Y%m%d')
     public = inputs['public_facts']
     if (type(public) is not dict or set(public) != {'source', 'allowed_hosts', 'seconds', 'max_requests',
@@ -72,6 +76,12 @@ def validate_configuration(value):
             raise ValueError('daily service source budget invalid')
     if not isinstance(value['template'], dict) or value['template'].get('schema') != 'guanheng.daily-data-update.v1':
         raise ValueError('daily service update template invalid')
+    scope=value.get('price_scope')
+    if scope is not None:
+        if (type(scope)is not dict or set(scope)!={'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows'}
+                or type(scope['maximum_history_rows'])is not int or not 2000<=scope['maximum_history_rows']<=1000000):
+            raise ValueError('daily service price scope invalid')
+        datetime.strptime(scope['authorized_from'],'%Y%m%d')
     return value
 
 
@@ -133,39 +143,57 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                 day = as_of if as_of is not None else target_date(calendar, now)
                 scheduled = once or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
                 entry = index.get(day, {})
-                if scheduled and entry.get('state') != 'published' and time.monotonic() >= retry_at:
+                continuation=entry.get('continuation_required',False)
+                if type(continuation)is not bool:raise ValueError('daily service continuation flag invalid')
+                if scheduled and (entry.get('state') != 'published'or continuation) and time.monotonic() >= retry_at:
                     if day not in index and len(index) >= 366:
                         raise ValueError('daily service retained task capacity')
-                    work = root / day
-                    work.mkdir(exist_ok=True)
-                    request_file = work / 'REQUEST.json'
+                    if entry.get('state')=='published'and continuation:
+                        revision=entry.get('revision',0)+1
+                        if revision>366:raise ValueError('daily service continuation capacity')
+                        history=[*entry.get('history_requests',[]),entry['request']]
+                        entry=dict(
+                            request=str(root/day/'continuations'/str(uuid4())/'REQUEST.json'),  # 新修订写独立根，旧成功任务保持。
+                            state='preparing',  # 先登记路径；崩溃后沿同路径和原输入槽恢复。
+                            history_requests=history,  # 原同日修订引用，未丢弃旧请求或原HPR责任。
+                            revision=revision)  # 本市场日零基后继修订号，上限366。
+                    request_file=Path(entry.get('request')or root/day/'REQUEST.json')
+                    work=request_file.parent
+                    if not work.resolve().is_relative_to((root/day).resolve()):
+                        raise ValueError('daily service task path outside day root')
+                    work.mkdir(parents=True,exist_ok=True)
+                    entry.update(request=str(request_file),state='preparing')
+                    index[day]=entry;_save(index_path,index)
                     deadline = time.monotonic() + config['cycle_seconds']
                     status.update(state='updating', active_date=day)
                     _save(directory / 'status.json', status)
                     try:
                         if not request_file.exists():
-                            previous = [row['request'] for key, row in sorted(index.items())
-                                        if key != day and row.get('request') is not None]
+                            previous=list(config['inputs'].get('previous_requests',[]))
+                            for _,row in sorted(index.items()):
+                                previous.extend(row.get('history_requests',[]))
+                                if row.get('request')is not None and Path(row['request'])!=request_file:
+                                    previous.append(row['request'])
+                            previous=list(dict.fromkeys(previous))
                             prepared = prepare_update(config, day, work / 'inputs', deadline=deadline,
                                 cancelled=stopped, previous_requests=previous)
                             request = _load(prepared)
                             _save(request_file, request)
-                        index[day] = dict(
-                            request=str(request_file),  # 固定单轮请求绝对路径；恢复沿原正文和slot。
-                            state='updating')  # 已登记当前任务，未声称原生或发布完成。
+                        index[day].update(state='updating')  # 保留原修订链，未声称原生或发布完成。
                         _save(index_path, index)
                         result = run_update(strict_json(read_fixed(request_file, maximum=16777216)), work / 'work',
                             deadline=deadline, cancelled=stopped, publisher=publisher)
                         index[day].update(
                             state='published',  # 已确认指针成功采用，而非仅接收任务。
-                            current_sha256=result['current_sha256'])  # 本日实际采用的指针身份；后继版本独立保存。
+                            current_sha256=result['current_sha256'],  # 本日实际采用的指针身份；后继版本独立保存。
+                            continuation_required=result.get('continuation_required',False))  # 价格原责任仍待核且目标缺失时，同日接续。
+                        if index[day]['continuation_required']:retry_at=time.monotonic()+config['retry_seconds']
                         status.update(state='waiting', active_date=None, last_success=day)
                     except InterruptedError:
                         status.update(state='stopping')
                     except Exception as failure:
                         status.update(state='update_failed', error_type=type(failure).__name__)
-                        index[day] = dict(
-                            request=str(request_file) if request_file.exists() else None,  # 请求尚未固定时为空，重试沿同任务根。
+                        index[day].update(
                             state='failed',  # 当前轮次失败，原CURRENT与已成功阶段保留。
                             error_type=type(failure).__name__)  # 固定异常类型，不持久化来源原文或秘密。
                         retry_at = time.monotonic() + config['retry_seconds']

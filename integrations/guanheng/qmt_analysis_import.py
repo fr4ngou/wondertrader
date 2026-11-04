@@ -12,10 +12,11 @@ from .qmt_minute_import import import_dataset
 from .native_history import _parse_source_receipt
 from ..guanheng_market_client import strict_json
 from ..guanheng_market_client.daily_contract import REFERENCE_PREFIX,source_daily_symbol
+from .analysis_price_capture import capture_profile,read_price_batch
 
 
 def prepare_analysis_capture(capture,output,helper_sha256,*,deadline,
-        max_input_bytes=268435456,max_total_bars=2000000,existing_stores=(),resume=False):
+        max_input_bytes=268435456,max_total_bars=2000000,existing_stores=(),resume=False,cancelled=lambda:False):
     """独占工作根保存转换输入和谱系，返回冻结准备收据；不调用原生写入或来源。
 
     capture为数据侧已完成且消费确认的原批次目录，deadline为单调绝对秒。
@@ -30,6 +31,7 @@ def prepare_analysis_capture(capture,output,helper_sha256,*,deadline,
     编码沿同一外部作业截止；准备后的原生调用及进程收尾归外层Job。
     """
     def check():
+        if cancelled():raise InterruptedError('analysis import stopped')
         if time.monotonic()>=deadline:raise TimeoutError('analysis import deadline expired')
     def read(path,maximum):
         check();before=path.stat()
@@ -67,12 +69,7 @@ def prepare_analysis_capture(capture,output,helper_sha256,*,deadline,
         raise ValueError('analysis import securities invalid')
     for symbol in symbols:source_daily_symbol(symbol)
     def profile_for(adjustment):
-        return dict(provider='Qmt',instance_id='qmt-batch-source:'+capture_sha[:32],
-            session_id=request['capture_id'],generation=1,dataset_version='qmt.batch-native-day.v1',
-            source_license='unknown',input_kind='qmt_export'if manifest['source_kind']=='actual-qmt'else'synthetic',
-            timezone='Asia/Shanghai',minute_boundary='unknown',adjustment=adjustment,
-            factor_version=''if adjustment=='none'else REFERENCE_PREFIX+capture_sha,
-            value_semantics='source',price_unit='unknown',volume_unit='unknown',amount_unit='unknown')
+        return capture_profile(manifest,capture_sha,adjustment)
     if type(existing_stores)not in (tuple,list)or len(existing_stores)>2:
         raise ValueError('analysis import existing store list invalid')
     reused={};rows=0
@@ -125,11 +122,7 @@ def prepare_analysis_capture(capture,output,helper_sha256,*,deadline,
             sha256=batch['sha256'],request_id=batch['request_id'],request_body_sha256=batch['request_body_sha256'],
             result_body_sha256=batch['result_body_sha256'],binding=batch['binding'],received_at=batch['received_at']))
         if adjustment in reused:continue
-        slot_body=read(capture/batch['slot'],max_input_bytes)
-        if digest(slot_body)!=batch['sha256']:raise ValueError('analysis import slot changed')
-        slot=strict_json(slot_body);native_body=base64.b64decode(slot['result']['result_body_b64'],validate=True)
-        if digest(native_body)!=batch['result_body_sha256']:raise ValueError('analysis import result changed')
-        native=strict_json(native_body)['data']['securities']
+        native=read_price_batch(capture,batch,manifest,read=read)
         for symbol in batch['symbols']:
             check()
             if symbol not in manifest['securities']or symbol in projections[adjustment]:

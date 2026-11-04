@@ -874,3 +874,5 @@
 - [2026-11-03全A等权PB持续生产](2026-11-03-pb-all-continuation.md)：原同源263条、262→264实际发布、71组完整保持及普通安装分位/导出核对。
 
 - [寿险/财险季度原XLS数字接续：最新官方2026Q2，隔离发布/安装API导出及历史保持通过；正式部署待接收](2026-11-03-insurance-allocation-continuation.md)。
+
+- [全类别日线数据owner候选](2026-11-04-unified-daily-categories-candidate.md)：7870个旧名单价格身份、同owner补齐/发布、原件/DSB复用、v9完整合成协议及明确待验范围。

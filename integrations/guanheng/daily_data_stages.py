@@ -14,7 +14,7 @@ def prepare_directory(root, name, marker, build, restore):
     同阶段最多16个尝试，防止持续故障无限积累目录；超限保留当前版本。
     """
     from .daily_data_update import _save
-    if name not in ('facts', 'gap-plan', 'snapshot') or type(marker) is not str or Path(marker).name != marker:
+    if name not in ('facts', 'gap-plan', 'snapshot', 'price-archive', 'price-front') or type(marker) is not str or Path(marker).name != marker:
         raise ValueError('daily immutable stage name invalid')
     root = Path(root).absolute()
     path = root / ('PHASE-' + name + '.json')

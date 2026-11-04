@@ -55,7 +55,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 'calendar', 'base_configuration', 'basic_capture', 'helper', 'previous_stores',
                 'previous_archives', 'protected_slots', 'authorized_from', 'authorized_to', 'additional_archives'}
     if (type(request) is not dict or not required <= set(request)
-            or set(request) - required - {'connections', 'prepared_native'}
+            or set(request) - required - {'connections', 'prepared_native', 'price_maintenance', 'prior_pending_symbols'}
             or request['schema'] != 'guanheng.daily-data-update.v1'):
         raise ValueError('daily update request invalid')
     if (type(deadline) not in (int, float) or not math.isfinite(deadline)
@@ -137,7 +137,8 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
             plan = stage('gap_plan', lambda: prepare_directory(root, 'gap-plan', 'PLAN.json',
                 lambda output: prepare_gap_plan(cache, reference, snapshot, output,
                     protected_slots=request['protected_slots'], daily_facts=facts,
-                    authorized_from=request['authorized_from'], authorized_to=request['authorized_to'], deadline=deadline),
+                    authorized_from=request['authorized_from'], authorized_to=request['authorized_to'], deadline=deadline,
+                    cancelled=cancelled),
                 restore_plan))
             plan_value = _load(plan)
             if plan_value['tasks']:
@@ -154,7 +155,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 _save(journal, state)
                 check()
                 source = BatchAnalysisSource(transport, lifetime_ms=30000)
-                reread = stage('readback', lambda: _capture(source, manifest['request'], root / 'readback', deadline))
+                reread = stage('readback', lambda: _capture(source, manifest['request'], root / 'readback', deadline,check))
                 capture = Path(reread['directory'])
                 read_fixed(capture / 'manifest.json', maximum=16777216, identity=reread['sha256'])
             else:
@@ -173,16 +174,22 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 conversion_path = root / 'conversion' / 'CONVERSION.json'
                 conversion = _descriptor(conversion_path) if conversion_path.exists() else prepare_analysis_capture(
                     capture, root / 'conversion', request['helper']['sha256'], deadline=deadline,
-                    resume=(root / 'conversion').exists())
+                    resume=(root / 'conversion').exists(),cancelled=cancelled)
                 materialize_generation(conversion, request['previous_stores'], root / 'native',
                     request['helper']['path'], request['helper']['sha256'], deadline=deadline,
                     resume=(root / 'native').exists(), previous_archives=request['previous_archives'],
-                    native_reader=_catalog(_load(request['base_configuration'],1048576))['native_reader'])
+                    native_reader=_catalog(_load(request['base_configuration'],1048576))['native_reader'],cancelled=cancelled)
                 return _descriptor(root / 'native' / 'RESULT.json')
             native = stage('native', native_version)
             imported = _load(native)
             if imported['capture_sha256'] != reread['sha256']:
                 raise ValueError('daily update restored native capture differs')
+            price_result=None
+            if 'price_maintenance'in request:
+                from .daily_price_update import prepare_price_update
+                price_descriptor=stage('prices',lambda:prepare_price_update(request['price_maintenance'],native,
+                    request['base_configuration'],root/'prices',deadline=deadline,cancelled=cancelled,environ=environ,daily_facts=facts))
+                price_result=_load(price_descriptor)
             def restore_snapshot(output):
                 result = strict_json(read_fixed(output / 'PREPARED.json', maximum=65536))
                 descriptor = dict(path=result['configuration'], sha256=result['configuration_sha256'])
@@ -197,8 +204,11 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
             def prepare_snapshot(output):
                 prepare_market_snapshot(_load(request['base_configuration'], 1048576), native['path'],
                     request['universe']['path'], request['basic_capture'], output,
-                    daily_facts=request['daily_facts'], security_reference=request['security_reference'],
-                    calendar=request['calendar'], additional_archives=request['additional_archives'])
+                    daily_facts=request['daily_facts'], security_reference=(price_result['reference']
+                        if price_result is not None else request['security_reference']),
+                    calendar=request['calendar'], additional_archives=(price_result['additional_archives']
+                        if price_result is not None else request['additional_archives']),
+                    maximum_history_rows=price_result['maximum_history_rows']if price_result is not None else 2000)
                 return restore_snapshot(output)
             configuration = stage('snapshot', lambda: prepare_directory(root, 'snapshot', 'PREPARED.json',
                 prepare_snapshot, restore_snapshot))
@@ -217,6 +227,10 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 current_sha256=published[1],  # 同一次原子指针字节SHA。
                 coverage_qualified=quality['full_coverage'],  # 实际缓存的全池资格；部分覆盖明确为False。
                 completed_at=datetime.now(timezone.utc).isoformat())  # 本地完成UTC时刻，区别来源交易日期。
+            if price_result is not None:
+                from .daily_price_continuation import requires_price_continuation
+                state['continuation_required']=requires_price_continuation(price_result,request.get('prior_pending_symbols',()))
+                # 原HPR未闭合且相关目标Native仍缺，后继同日修订沿原槽接续；发布成功独立保存。
             _save(journal, state)
             return state
         except BaseException as error:
@@ -233,8 +247,8 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 facts.close()
 
 
-def _capture(source, request, directory, deadline):
+def _capture(source, request, directory, deadline,check=lambda:None):
     """同一原BatchAnalysisSource及原slot续核；完成manifest才成为价格输入。"""
-    source.capture(request, directory, deadline=deadline, minimum_new_request_seconds=30)
+    source.capture(request, directory, deadline=deadline, minimum_new_request_seconds=30,on_result=lambda *args:check())
     descriptor = _descriptor(directory / 'manifest.json')
     return dict(directory=str(directory), sha256=descriptor['sha256'])

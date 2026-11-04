@@ -10,7 +10,7 @@ from .native_history import NativeHistory, source_file_metadata
 from ..guanheng_market_client.daily_contract import source_daily_security
 
 
-def materialize_generation(preparation,previous_stores,output,helper,helper_sha256,*,deadline,resume=False,previous_archives=(),native_reader=None):
+def materialize_generation(preparation,previous_stores,output,helper,helper_sha256,*,deadline,resume=False,previous_archives=(),native_reader=None,cancelled=lambda:False):
     """prepared(path/sha256)绑定原转换；旧根只读，output为新独占版本或同身份续接。
 
     previous_stores是原成功QMI根/收据SHA，previous_archives是本实现的v2目录。
@@ -21,6 +21,7 @@ def materialize_generation(preparation,previous_stores,output,helper,helper_sha2
     当前缓存遗漏旧日期时拒绝发布，保留旧版本；完全未出现的旧键沿原DSB/来源复制保留。
     """
     def check():
+        if cancelled():raise InterruptedError('daily generation stopped')
         if time.monotonic()>=deadline:raise TimeoutError('daily generation deadline expired')
     sha=lambda body:hashlib.sha256(body).hexdigest()
     encode=lambda v:json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode('utf8')

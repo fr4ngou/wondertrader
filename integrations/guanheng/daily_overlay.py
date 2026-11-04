@@ -108,7 +108,7 @@ class DailyOverlayMarket:
                 self._archive_root = path.parent
                 for entry in manifest['entries']:
                     _require(set(entry) == ({'symbol','path','sha256','rows','first','last','provenance','source_rows_sha256','price_range_quality'}if version2 else {'symbol','path','sha256','rows','first','last','provenance'}))
-                    _require(type(entry['symbol']) is str and re.fullmatch((r'(SSE|SZSE|BSE)\.[0-9]{6}'if version2 else r'(SSE|SZSE)\.[0-9]{6}'),entry['symbol']))
+                    _require(type(entry['symbol']) is str and re.fullmatch(r'(SSE|SZSE|BSE)\.[0-9]{6}',entry['symbol']))
                     dsb = (path.parent / entry['path']).resolve(strict=True)
                     _require(dsb.is_relative_to(path.parent) and 1 <= entry['rows'] <= self._max_bars)
                     _hash(entry['sha256'])

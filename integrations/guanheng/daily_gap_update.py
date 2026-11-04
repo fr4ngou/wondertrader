@@ -21,15 +21,22 @@ def _day(value):
 
 
 def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=(), daily_facts=None,
-                     authorized_from, authorized_to, deadline):
+                     authorized_from, authorized_to, deadline, required_adjustments=('none','front_ratio'),
+                     required_from=None, cancelled=lambda:False):
     """输入为完成QAB根、已准入资料/股票池和授权日期，输出只表示需补缓存。
 
     capture含directory/sha256；保护slot按原业务身份读取，旧结果/消费状态不改。
     仅原HPR的重叠区间阻止新派发，普通批读未知责任另外登记、保持原身份。
     计划按交易日和实际共同日期计算；不将SDK返回或计划任务数当覆盖证据。
+    required_adjustments默认保持原两口径共同日期；原价任务可显式只要求none。
+    required_from按证券约束真正需要的原生尾部日期，不为已有完整旧档重下历史。
     """
     from guanheng_qmt_shm.analysis_batch_source import read_capture
+    if (not callable(cancelled)or type(deadline)not in(int,float)or not math.isfinite(deadline)
+            or type(required_adjustments)not in(tuple,list)):
+        raise ValueError('daily gap requirements or finite deadline invalid')
     def check():
+        if cancelled():raise InterruptedError('daily gap plan stopped')
         if time.monotonic() >= deadline:
             raise TimeoutError('daily gap plan deadline expired')
     check()
@@ -42,11 +49,20 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
     if manifest != strict_json(body):
         raise ValueError('daily gap capture changed')
     request = manifest['request']
+    required_adjustments=tuple(required_adjustments)
+    if (required_adjustments not in (('none',),('front_ratio',),('none','front_ratio'))
+            or not callable(cancelled)):
+        raise ValueError('daily gap price requirements invalid')
+    if required_from is not None and (type(required_from)is not dict or not set(required_from)<=set(request['symbols'])):
+        raise ValueError('daily gap per-security range invalid')
     first, last = _day(authorized_from), _day(authorized_to)
     if not _day(request['start_date']) <= first <= last <= _day(request['end_date']):
         raise ValueError('daily gap authorization differs')
     if last.isoformat() != snapshot['observation_date']:
         raise ValueError('daily gap target snapshot differs')
+    for value in (required_from or {}).values():
+        if type(value)is not str or not first<=_day(value)<=last:
+            raise ValueError('daily gap per-security date invalid')
     if reference._calendar is None:
         raise ValueError('daily gap plan requires declared calendar')
     calendar = reference._calendar
@@ -54,11 +70,17 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
         raise ValueError('daily gap plan outside calendar coverage')
     mappings = {'SH': 'SSE', 'SZ': 'SZSE', 'BJ': 'BSE'}
     securities = {}
+    selected_dates={}
+    if required_adjustments!=('none','front_ratio'):
+        from .analysis_price_capture import price_batches
+        for _,items in price_batches(capture,manifest,adjustment=required_adjustments[0],deadline=deadline,cancelled=cancelled):
+            for symbol,item in items.items():selected_dates[symbol]=set(item['data'])
     for symbol in request['symbols']:
         code, market = symbol.split('.')
         identity = mappings[market] + '.' + code
         securities[symbol] = dict(identity=identity, basic=reference.security(snapshot, identity),
-                                  dates=set(manifest['comparison'][symbol]['common_dates']))
+                                  dates=(set(manifest['comparison'][symbol]['common_dates'])
+                                         if required_adjustments==('none','front_ratio')else selected_dates[symbol]))
     # 明确记录所有受保护业务请求；结果未知/已消费的旧未知均保持原ID。
     protected = []
     for path in protected_slots:
@@ -79,14 +101,16 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
     gaps = {symbol: [] for symbol in securities}
     exclusions = []
     closed = set(calendar['closed_dates'])
-    current = first
+    current = first;open_order={}
     while current <= last:
         check()
         iso, label = current.isoformat(), current.strftime('%Y%m%d')
         current += timedelta(days=1)
         if date.fromisoformat(iso).weekday() >= 5 or iso in closed:
             continue
+        open_order[label]=len(open_order)
         for symbol, item in securities.items():
+            if label<(required_from or {}).get(symbol,authorized_from):continue
             if label in item['dates']:
                 continue
             basic = item['basic']
@@ -111,7 +135,8 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
     for symbol, days in gaps.items():
         intervals = []
         for day in days:
-            if intervals and (_day(day) - _day(intervals[-1][-1])).days == 1:
+            # 连续缺失交易日跨周末/官方休市保持同一次HPR；已缓存或保护日仍隔断区间。
+            if intervals and open_order[day] == open_order[intervals[-1][-1]] + 1:
                 intervals[-1].append(day)
             else:
                 intervals.append([day])
@@ -132,6 +157,10 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
         protected_requests=protected,  # 原未知责任完整引用，保留operation及UUID。
         tasks=tasks,  # 可独立推进的互不重叠HPR任务，调用返回不表示数据已齐。
         exclusions=exclusions)  # 业务和原责任排除日期，后续保留供审计。
+    if required_adjustments!=('none','front_ratio')or required_from is not None:
+        value.update(
+            required_adjustments=list(required_adjustments),  # 本计划真正必需的缓存价格口径。
+            required_from=required_from or {})  # 每证券已存在原生历史之后的闭合日边界。
     output = Path(output).absolute()
     output.mkdir(parents=False, exist_ok=False)
     path = output / 'PLAN.json'

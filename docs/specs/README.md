@@ -220,3 +220,5 @@
 
 - [执行故障核查恢复](execution-fault-recovery.md)：自有恢复准入、固定前后发行身份交接、原状态及资本观察。
 - [WT日常启停与当前实例发现](wt-service-control.md)：正常启停、同账接续、显式持续运行及独立观衡跟随当前代。
+
+- [Source证券名册与资料](qmt-security-reference-source.md)：全类别只读分页、逐组未知、详情原值及原请求恢复；Root维护来源实现，统一数据owner消费。

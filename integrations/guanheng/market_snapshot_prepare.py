@@ -44,6 +44,19 @@ def compose_static_archive(base_config,archive,native_reader,*,max_file_bytes=26
         max_bars=max_bars,response_shape='segments')
 
 
+def compose_native_import(base_config,imported):
+    """同一新股票Native读取视图供价格合并和最终快照复用；旧根保持只读。"""
+    base=deepcopy(base_config);catalog=_catalog(base)
+    catalog['stores'].extend(imported['stores'])
+    from .market_generation import read_fixed
+    for store in imported['stores']:
+        read_fixed(Path(store['store_root'])/'qmt-import.json',maximum=16777216,
+                   identity=store['import_receipt_sha256'])
+    if imported['schema']=='guanheng.qmt-analysis-native-import.v2':
+        base=compose_static_archive(base,imported['archive'],catalog['native_reader'])
+    return base
+
+
 def load_snapshot_basics(members,basic_capture):
     """返回同一原QMT资料的(basics,行原件SHA)供缺口计划和快照复用；缺项保持None。"""
     from .market_generation import read_fixed
@@ -80,7 +93,7 @@ def load_snapshot_basics(members,basic_capture):
     return basics,basic_result['rows_sha256']
 
 
-def prepare_market_snapshot(base_config,native_import,universe,basic_capture,output,*,daily_facts=None,security_reference=None,calendar=None,additional_archives=()):
+def prepare_market_snapshot(base_config,native_import,universe,basic_capture,output,*,daily_facts=None,security_reference=None,calendar=None,additional_archives=(),maximum_history_rows=2000):
     """独占新输出，返回原服务配置；调用方负责现有服务的统一版本切换。
 
     universe必须是同次QAB原请求绑定的定日股票池。basic_capture是已完成的
@@ -97,22 +110,15 @@ def prepare_market_snapshot(base_config,native_import,universe,basic_capture,out
             or imported['securities']!=pool['market_count']or pool['unresolved_identity_count']!=0
             or imported['observation_date']!=pool['date'].replace('-','')):
         raise ValueError('market snapshot original universe differs')
-    base=deepcopy(base_config);catalog=_catalog(base)
+    base=compose_native_import(base_config,imported);catalog=_catalog(base)
     bindings={hashlib.sha256(canonical(b['binding'])).hexdigest()for b in lineage['batches']}
     if len(bindings)!=1:raise ValueError('market snapshot source bindings differ')
     original_binding=read(Path(lineage['capture'])/'BINDING.json')
     if original_binding['binding_sha256']not in bindings:raise ValueError('market snapshot original binding differs')
-    catalog['stores'].extend(imported['stores'])
-    for store in imported['stores']:
-        receipt=Path(store['store_root'])/'qmt-import.json'
-        if sha(receipt)!=store['import_receipt_sha256']:raise ValueError('market snapshot native receipt differs')
-    if imported['schema']=='guanheng.qmt-analysis-native-import.v2':
-        # 增量版本保留独立原价/分析价键；旧成功根和固定框架实现仍由base持有。
-        base=compose_static_archive(base,imported['archive'],catalog['native_reader'])
     if type(additional_archives)not in(tuple,list)or len(additional_archives)>32:
         raise ValueError('market snapshot additional archives invalid')
     for archive in additional_archives:
-        base=compose_static_archive(base,archive,catalog['native_reader'])
+        base=compose_static_archive(base,archive,catalog['native_reader'],max_bars=maximum_history_rows)
     markets={'sh':'SSE','sz':'SZSE','bj':'BSE'}
     members=sorted(markets[s[:2]]+'.'+s[3:]for s in pool['members'])
     basics,basics_sha256=load_snapshot_basics(members,basic_capture)
