@@ -95,7 +95,8 @@ def run_role(deployment, pythonw, pythonw_sha256, owner_root):
     del environment
     cfg = DataRoleConfig(pythonw, pythonw_sha256, plan['files']['runtime']['path'],
         plan['files']['runtime']['sha256'], runtime['instance_id'], str(root),
-        runtime['startup_seconds'], runtime['stop_seconds'] + 30)
+        # 原ManagedLocalProcess.close接收至多120秒；旧100秒角色不能传入130秒后在发stop前失败。
+        runtime['startup_seconds'], min(runtime['stop_seconds'] + 30, 120))
     process = DataRoleProcess(cfg)
     error = None
     try:
