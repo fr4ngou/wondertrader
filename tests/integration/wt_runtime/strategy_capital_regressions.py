@@ -112,6 +112,7 @@ def main():
     strategy.sequence=0;strategy.initialized=True;strategy.state=None;strategy.exits=()
     strategy.recovery='record_clean';strategy.restored_state_id=None;strategy.restored_sequence=None
     strategy.state_identity='e'*64;strategy.flat_sources={};strategy.market_window=None
+    strategy.execution_enabled=True
     strategy.cycles={c.symbol:dict(status='initial_inventory',cycle_id=c.cycle_id,
         baseline_at=c.baseline_at.isoformat(),source_sha256=c.source_sha256)
         for c in loaded.request.cycles if c.quantity}
@@ -122,13 +123,14 @@ def main():
     class Context:
         event=SimpleNamespace(kind=4)
         pending=False
+        theoretical_flat=False
         def broker_observation(self):
             ms=int(datetime.now(timezone.utc).timestamp()*1000)
             return BrokerObservationValue(True,True,1,ms,1,ms,ms,200000000.,199800000.,
                 (BrokerPositionValue(strategy.mapping['510050.SH'],True,500.,500.),))
         def broker_trades(self): return None
         def position(self,code):
-            n=500 if reverse[code]=='510050.SH' else 0
+            n=500 if reverse[code]=='510050.SH' and not self.theoretical_flat else 0
             return PositionValue(0,n,n,1000 if self.pending and n else None,1 if n else 0,1 if n else 0,0,None,None)
         def price(self,code): return 4.
         def facts(self): return FactsValue(20261102,1000,20261102,0.)
@@ -154,6 +156,14 @@ def main():
             strategies={strategy.id:json.loads(json.dumps(report,default=str))}))['status']=='waiting_basis'
     source[:]=[cash,True];context.pending=False;strategy.callback(context)
     assert reports[-1]['status']!='waiting_basis'
+    # 重启时理论目标已归零、券商仍持500份；预算沿完整券商P计价，不能等待成交才能授预算。
+    context.theoretical_flat=True;strategy.callback(context)
+    assert reports[-1]['status']!='waiting_basis'
+    assert reports[-1]['capital']['market_value_cny']=='2000'
+    assert reports[-1]['capital']['cash_balance_cny']=='998000'
+    assert reports[-1]['capital']['spendable_cash_cny']=='996765.5'
+    assert next(p for p in reports[-1]['execution_observation']['positions']if p['symbol']=='510050.SH')['actual']==500
+    context.theoretical_flat=False
     # 原无capital路径无需NAP现金引用，继续以原理论现金交NSQ。
     strategy.inputs=replace(loaded,capital_baseline=None);strategy.capital_observation=None
     strategy.capital_reader=SimpleNamespace(read=lambda *_:(_ for _ in ()).throw(AssertionError('legacy read NAP')))

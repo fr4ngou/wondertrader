@@ -83,12 +83,33 @@ def _business(value):
 
 
 def _same_business(left, right):
-    """比较持仓模型；有限/持续运行时长独立于金融事实，原配置原件仍完整核验。"""
+    """仅比较金融模型；运行时长和只读账户发布接线独立，原配置原件仍完整核验。"""
     left, right = copy.deepcopy(left), copy.deepcopy(right)
     for value in (left, right):
         duration = value['budget']['run_ms']
         _require(type(duration) is int and (duration == 0 or 1000 <= duration <= 86400000))
         value['budget'].pop('run_ms')
+        strategies = value.get('strategies')
+        if type(strategies) is not list:
+            continue
+        for strategy in strategies:
+            parameters = strategy.get('parameters') if type(strategy) is dict else None
+            python = parameters.get('python_strategy') if type(parameters) is dict else None
+            if type(python) is not dict or 'capital_account' not in python:
+                continue
+            account = python['capital_account']
+            _require(type(account) is dict and set(account) == {'path', 'config_sha256', 'account', 'environment'})
+            for name, maximum in (('path', 1024), ('account', 63)):
+                text = account[name]
+                _require(type(text) is str and 0 < len(text.encode('utf-8')) <= maximum
+                         and all(ord(character) >= 32 and ord(character) != 127 for character in text))
+            path = Path(account['path'])
+            _require(path.is_absolute() and '..' not in path.parts)
+            _sha(account['config_sha256'])
+            _require(type(account['environment']) is str and account['environment'] in ('simulation', 'live'))
+            # 仅从深拷贝的比较投影移除发布定位及程序身份；账户/环境和原读取时CAP绑定保持严格。
+            account.pop('path')
+            account.pop('config_sha256')
     return left == right
 
 

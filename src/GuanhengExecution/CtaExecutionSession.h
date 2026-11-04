@@ -10,10 +10,16 @@ class StandardExecutionHost;
 enum class CtaExecutionPhase:std::uint8_t {New,Configured,Running,Stopping,Closed,Failed};
 enum class CtaExecutionFault:std::uint8_t {None,Configuration,Initialize,Start,Execution,NativeTask,StrategyDelete,Close,OutputBusy};
 struct CtaExecutionStatus {
-    CtaExecutionPhase phase=CtaExecutionPhase::New;
-    CtaExecutionFault fault=CtaExecutionFault::None;
-    bool stop_requested=false;
-    std::uint64_t initializes=0,schedules=0,sessions=0;
+    CtaExecutionPhase phase=CtaExecutionPhase::New; // 自有会话生命周期阶段，由执行owner推进。
+    CtaExecutionFault fault=CtaExecutionFault::None; // 首个会话故障枚举，None表示尚未锁存故障。
+    bool stop_requested=false; // 已收到停止请求；资源实际关闭另由phase确认。
+    std::uint64_t initializes=0; // 原引擎初始化事件次数，单位次。
+    std::uint64_t schedules=0; // 原引擎分钟调度事件次数，单位次。
+    std::uint64_t sessions=0; // 原引擎交易时段开始/结束事件总数，单位次。
+    std::uint64_t parser_quotes=0; // 自有SPI实际收到的报价次数；与引擎分钟调度次数分别观察。
+    std::uint64_t parser_connects=0; // 插件已报告连接事件次数，连接命令受理不计入。
+    std::uint64_t parser_closes=0; // 插件已报告关闭事件次数；正常停止也会增加。
+    std::uint64_t parser_logs=0; // 插件日志事件次数；不复制日志正文或源凭据。
 };
 struct CtaExecutionStrategy {
     CtaStrategy* strategy=nullptr;

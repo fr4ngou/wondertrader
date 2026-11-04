@@ -6,12 +6,16 @@ from pathlib import Path
 import tempfile
 import unittest
 from types import SimpleNamespace
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 from guanheng_wt_runtime.execution_process import ManagedExecutionProcess
 
 from guanheng_wt_runtime.execution_recovery import (
+    _same_business,
     compatible_business_configuration,
     market_origin_configuration,
+    predecessor_configuration,
 )
 
 
@@ -84,6 +88,140 @@ class ExecutionBusinessIdentityTests(unittest.TestCase):
                 new["budget"]["run_ms"] = invalid
                 with self.assertRaises(ValueError):
                     compatible_business_configuration(new, old)
+
+
+class AccountPublicationBusinessIdentityTests(unittest.TestCase):
+    """同账户发布程序升级只改变接线；账户事实及全部金融模型继续保持原身份。"""
+    def fixture(self):
+        return {
+            'budget': {'start_ms': 25000, 'stop_ms': 10000, 'run_ms': 70000},
+            'trader': {'expected_account': 'SYNTHETIC', 'environment': 'simulation',
+                       'writes_enabled': False, 'currency': 'CNY', 'profile': 'cny_cash_shsz_v1'},
+            'output_directory': 'E:/synthetic/financial',
+            'takeover': {'input_file': 'E:/synthetic/inventory.json', 'input_sha256': '1' * 64},
+            'strategies': [dict(id='synthetic-' + str(index), parameters=dict(python_strategy=dict(
+                input_file='E:/synthetic/input-' + str(index) + '.json', input_sha256='2' * 64,
+                main_symbol='SYNTHETIC', evaluation_seconds=2,
+                capital_account=dict(path='E:/synthetic/account-' + str(index) + '/current.json',
+                    config_sha256='a' * 64, account='SYNTHETIC', environment='simulation'),
+                capital_market=dict(base_url='http://127.0.0.1:18000', timeout_seconds=5)))) for index in (1, 2)],
+            'fees': {'commission_rate': 0.0003},
+        }
+
+    @staticmethod
+    def account(value, index=0):
+        return value['strategies'][index]['parameters']['python_strategy']['capital_account']
+
+    def test_same_account_publication_path_and_digest_upgrade_all_strategies(self):
+        old = self.fixture()
+        new = deepcopy(old)
+        new['budget']['run_ms'] = 0
+        for index in (0, 1):
+            self.account(new, index).update(path='E:/synthetic/new-' + str(index) + '/current.json',
+                                             config_sha256='b' * 64)
+        old_bytes, new_bytes = canonical(old), canonical(new)
+        self.assertTrue(compatible_business_configuration(new, old))
+        self.assertTrue(_same_business(old, new))
+        self.assertEqual((canonical(old), canonical(new)), (old_bytes, new_bytes))
+        self.assertNotEqual(sha256(old_bytes).digest(), sha256(new_bytes).digest())
+
+    def test_account_or_environment_change_is_rejected_on_every_strategy(self):
+        old = self.fixture()
+        for index in (0, 1):
+            for field, value in (('account', 'OTHER-SYNTHETIC'), ('environment', 'live')):
+                with self.subTest(strategy=index, field=field):
+                    new = deepcopy(old)
+                    self.account(new, index).update(path='E:/synthetic/upgraded/current.json',
+                        config_sha256='b' * 64, **{field: value})
+                    self.assertFalse(_same_business(old, new))
+
+    def test_reference_presence_and_no_reference_configuration_keep_original_meaning(self):
+        old = self.fixture()
+        new = deepcopy(old)
+        new['strategies'][0]['parameters']['python_strategy'].pop('capital_account')
+        self.assertFalse(_same_business(old, new))
+        self.assertFalse(_same_business(new, old))
+        for value in (old, new):
+            for strategy in value['strategies']:
+                strategy['parameters']['python_strategy'].pop('capital_account', None)
+        self.assertTrue(_same_business(old, new))
+        self.assertTrue(_same_business({'budget': {'run_ms': 70000}}, {'budget': {'run_ms': 0}}))
+
+    def test_malformed_reference_is_rejected_before_wiring_is_removed(self):
+        changes = [
+            ('path', 'relative/current.json'), ('path', ''), ('path', 'E:/synthetic/../current.json'),
+            ('path', 'E:/synthetic/\x00/current.json'), ('config_sha256', 'A' * 64),
+            ('config_sha256', 'a' * 63), ('config_sha256', 'g' * 64), ('config_sha256', True),
+            ('account', ''), ('account', 123), ('account', 'x' * 64),
+            ('environment', None), ('environment', 'paper'),
+        ]
+        for field, value in changes:
+            with self.subTest(field=field, value_type=type(value).__name__):
+                old = self.fixture()
+                self.account(old)[field] = value
+                with self.assertRaises(ValueError):
+                    _same_business(old, deepcopy(old))
+        for mode in ('missing', 'extra', 'null'):
+            with self.subTest(shape=mode):
+                old = self.fixture()
+                if mode == 'missing':
+                    self.account(old).pop('path')
+                elif mode == 'extra':
+                    self.account(old)['ignored'] = True
+                else:
+                    old['strategies'][0]['parameters']['python_strategy']['capital_account'] = None
+                with self.assertRaises(ValueError):
+                    _same_business(old, deepcopy(old))
+
+    def test_other_financial_model_input_and_market_fields_still_compare(self):
+        old = self.fixture()
+        mutations = [
+            (('trader', 'expected_account'), 'OTHER-SYNTHETIC'),
+            (('trader', 'environment'), 'live'), (('trader', 'writes_enabled'), True),
+            (('output_directory',), 'E:/synthetic/other-financial'),
+            (('takeover', 'input_sha256'), '3' * 64), (('fees', 'commission_rate'), 0.0004),
+            (('budget', 'stop_ms'), 11000),
+            (('strategies', 0, 'parameters', 'python_strategy', 'input_file'), 'E:/synthetic/other-input.json'),
+            (('strategies', 0, 'parameters', 'python_strategy', 'input_sha256'), '4' * 64),
+            (('strategies', 0, 'parameters', 'python_strategy', 'main_symbol'), 'OTHER-SYNTHETIC'),
+            (('strategies', 0, 'parameters', 'python_strategy', 'evaluation_seconds'), 3),
+            (('strategies', 0, 'parameters', 'python_strategy', 'capital_market', 'timeout_seconds'), 6),
+        ]
+        for path, value in mutations:
+            with self.subTest(field=path):
+                new = deepcopy(old)
+                self.account(new).update(path='E:/synthetic/upgraded/current.json', config_sha256='b' * 64)
+                owner = new
+                for part in path[:-1]:
+                    owner = owner[part]
+                owner[path[-1]] = value
+                self.assertFalse(_same_business(old, new))
+
+    def test_original_configuration_bytes_and_live_cap_digest_binding_remain_strict(self):
+        old = self.fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prior = root / 'execution.json'
+            prior.write_bytes(canonical(old))
+            transition = root / 'transition.json'
+            transition.write_bytes(canonical(dict(predecessor_configuration=str(prior),
+                predecessor_configuration_sha256=sha256(prior.read_bytes()).hexdigest())))
+            native = dict(recovery=dict(transition=dict(file=str(transition),
+                sha256=sha256(transition.read_bytes()).hexdigest())))
+            self.assertEqual(predecessor_configuration(native), old)
+            changed = deepcopy(old)
+            self.account(changed)['config_sha256'] = 'b' * 64
+            self.assertTrue(_same_business(old, changed))
+            prior.write_bytes(canonical(changed))
+            with self.assertRaises(ValueError):
+                predecessor_configuration(native)
+        from guanheng_wt_runtime.strategy_capital import AccountCashReader
+        reader = AccountCashReader(self.account(old), 60)
+        reference = dict(schema='guanheng.account-observation-reference.v1', control_id='synthetic',
+            config_sha256='b' * 64, pid=123, path='E:/synthetic/observation.json', ready_path='E:/synthetic/ready.json')
+        with patch.object(AccountCashReader, '_document', return_value=(reference, b'synthetic')) as read:
+            self.assertEqual(reader.read(datetime.now(timezone.utc), float('inf')), (None, False))
+        self.assertEqual(read.call_count, 1)
 
 
 class ExecutionConfigurationSnapshotTests(unittest.TestCase):

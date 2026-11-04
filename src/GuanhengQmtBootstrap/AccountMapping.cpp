@@ -56,7 +56,17 @@ void abi(V& v,const char* k,const std::string& s,const char* why,A& a){V f(rapid
 bool digits(const std::string& s){return !s.empty()&&s.find_first_not_of("0123456789")==std::string::npos;}
 bool valid_date(unsigned n){unsigned y=n/10000,m=n/100%100,d=n%100;if(y<1||y>9999||m<1||m>12)return false;unsigned ds[]={31,28,31,30,31,30,31,31,30,31,30,31};if(y%4==0&&(y%100!=0||y%400==0))ds[1]=29;return d>=1&&d<=ds[m-1];}
 unsigned date(const std::string& s){std::string d=s;if(s.size()==10){check(s[4]=='-'&&s[7]=='-',"HTTP日期格式错误");d=s.substr(0,4)+s.substr(5,2)+s.substr(8,2);}check(d.size()==8&&digits(d),"HTTP日期格式错误");unsigned n=std::stoul(d);check(valid_date(n),"HTTP日期无效");return n;}
-unsigned event_time(const std::string& s){auto dot=s.find('.');std::string base=s.substr(0,dot),frac=dot==std::string::npos?"":s.substr(dot+1);if(base.size()==8){check(base[2]==':'&&base[5]==':',"HTTP时间格式错误");base=base.substr(0,2)+base.substr(3,2)+base.substr(6,2);}check(base.size()==6&&digits(base)&&((dot==std::string::npos)||(!frac.empty()&&frac.size()<=3&&digits(frac))),"HTTP时间格式错误");unsigned h=std::stoul(base.substr(0,2)),m=std::stoul(base.substr(2,2)),sec=std::stoul(base.substr(4,2));check(h<24&&m<60&&sec<60,"HTTP时间无效");while(frac.size()<3)frac+='0';return (h*10000+m*100+sec)*1000+std::stoul(frac);}
+unsigned event_time(const std::string& s){
+ auto dot=s.find('.');std::string base=s.substr(0,dot),frac=dot==std::string::npos?"":s.substr(dot+1);
+ if(base.size()==8){check(base[2]==':'&&base[5]==':',"HTTP时间格式错误");base=base.substr(0,2)+base.substr(3,2)+base.substr(6,2);}
+ // QMT成交回报使用数值式HHMMSS字符串，早盘09:53:02实际返回95302。
+ // 仅在解释时间时左补零；原raw_time、原回报及委托/成交身份全部保持。
+ check(base.size()>=1&&base.size()<=6&&digits(base)
+  &&((dot==std::string::npos)||(!frac.empty()&&frac.size()<=3&&digits(frac))),"HTTP时间格式错误");
+ base.insert(0,6-base.size(),'0');
+ unsigned h=std::stoul(base.substr(0,2)),m=std::stoul(base.substr(2,2)),sec=std::stoul(base.substr(4,2));
+ check(h<24&&m<60&&sec<60,"HTTP时间无效");while(frac.size()<3)frac+='0';return (h*10000+m*100+sec)*1000+std::stoul(frac);
+}
 
 // 同一解码器服务完整映射与部分检查。每字段只捕获既有事实校验异常；
 // bad_alloc等资源异常继续传播，不能伪装成已完成的Invalid金融观察。

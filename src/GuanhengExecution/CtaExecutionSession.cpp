@@ -21,6 +21,29 @@ namespace guanheng {
 namespace {
 struct Busy {bool& value;explicit Busy(bool& v):value(v){value=true;}~Busy(){value=false;}};
 std::atomic<bool> session_claimed{false};
+struct ParserObservation {
+    std::atomic<std::uint64_t> quotes{0}; // 行情worker进入自有SPI的报价次数，单位条。
+    std::atomic<std::uint64_t> connects{0}; // 插件连接事件计数，单位次；不代表策略已计算。
+    std::atomic<std::uint64_t> closes{0}; // 插件断开事件计数，单位次；停止过程同样保留。
+    std::atomic<std::uint64_t> logs{0}; // 插件日志事件计数，单位次；日志正文继续归原日志入口。
+};
+// 只观察现有SPI再交原Adapter；不改变证券转换、分钟算法、订阅或事件准入。
+class ObservedParserAdapter final:public wtp::ParserAdapter {
+    std::shared_ptr<ParserObservation> observation; // 与Session共享，覆盖全部在途回调的有效期。
+public:
+    explicit ObservedParserAdapter(std::shared_ptr<ParserObservation> value):observation(std::move(value)){}
+    void handleEvent(wtp::WTSParserEvent event,int32_t code)override {
+        if(event==wtp::WPE_Connect)++observation->connects;
+        if(event==wtp::WPE_Close)++observation->closes;
+        wtp::ParserAdapter::handleEvent(event,code);
+    }
+    void handleQuote(wtp::WTSTickData* tick,uint32_t flag)override {
+        ++observation->quotes;wtp::ParserAdapter::handleQuote(tick,flag);
+    }
+    void handleParserLog(wtp::WTSLogLevel level,const char* message)override {
+        ++observation->logs;wtp::ParserAdapter::handleParserLog(level,message);
+    }
+};
 bool name_valid(const std::string& value) {return !value.empty()&&value.size()<64&&value.find_first_of("/\\: \t\r\n")==std::string::npos&&value.find('\0')==std::string::npos;}
 std::string strategy_file_key(const char* id) {
     if(!id)return {};
@@ -87,6 +110,7 @@ public:
     wtp::WtCtaEngine engine;wtp::WtDtMgr data;wtp::ParserAdapterMgr parsers;wtp::TraderAdapterMgr engine_traders;
     std::atomic<bool> requested{false};
     std::atomic<std::uint64_t> initializes{0},schedules{0},sessions{0};
+    std::shared_ptr<ParserObservation> parser_observation=std::make_shared<ParserObservation>(); // Session及SPI共享的诊断owner。
     CtaExecutionPhase phase=CtaExecutionPhase::New;CtaExecutionFault fault=CtaExecutionFault::None;
     bool busy=false,engine_initialized=false,data_attempted=false,engine_stopped=false;
     HANDLE output_lease=INVALID_HANDLE_VALUE;
@@ -164,7 +188,7 @@ bool CtaExecutionSession::initialize(wtp::WTSVariant* env,wtp::WTSVariant* data,
             if(!cfg||cfg->type()!=wtp::WTSVariant::VT_Object){x.fail(CtaExecutionFault::Configuration);return false;}
             if(!cfg->getBoolean("active"))continue;
             const auto id=cfg->getString("id");if(!name_valid(id)||x.parsers.getAdapter(id.c_str())){x.fail(CtaExecutionFault::Configuration);return false;}
-            auto adapter=std::make_shared<wtp::ParserAdapter>();
+            wtp::ParserAdapterPtr adapter=std::make_shared<ObservedParserAdapter>(x.parser_observation);
             // 先归原manager所有，即使init局部失败也保持SPI树至统一停止。
             if(!x.parsers.addAdapter(id.c_str(),adapter)||!adapter->init(id.c_str(),cfg,&x.engine,&x.base,x.hot,true)||!adapter->supports_stop()){x.fail(CtaExecutionFault::Initialize);return false;}++count;
         }
@@ -206,7 +230,9 @@ int CtaExecutionSession::pump(std::uint32_t events,std::uint32_t commands){
 }
 CtaExecutionStatus CtaExecutionSession::status()const {
     auto& x=*impl_;if(!x.on_owner())throw std::runtime_error("cta_session_wrong_owner");
-    return {x.phase,x.fault,x.requested.load(),x.initializes.load(),x.schedules.load(),x.sessions.load()};
+    const auto& p=*x.parser_observation;
+    return {x.phase,x.fault,x.requested.load(),x.initializes.load(),x.schedules.load(),x.sessions.load(),
+        p.quotes.load(),p.connects.load(),p.closes.load(),p.logs.load()};
 }
 void CtaExecutionSession::request_stop()noexcept{impl_->requested.store(true);impl_->execution.request_stop();}
 int CtaExecutionSession::quiesce(std::uint32_t timeout)noexcept{

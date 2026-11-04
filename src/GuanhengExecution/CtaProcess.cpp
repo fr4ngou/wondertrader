@@ -243,13 +243,28 @@ bool settled(const guanheng::StandardQmtRecoveryV1& value){
     return value.query_first&&value.submissions_closed&&!value.open_group&&!value.unresolved_children
         &&!value.pending_commands&&!value.unsafe;
 }
-// 运行时长属于进程生命周期；原配置SHA仍完整核验，持仓模型比较仅去除此字段。
+// 比较投影仅去除运行时长和只读账户发布接线；原配置SHA、账户/环境及CAP读取绑定保持严格。
 bool same_business(const rj::Value& left,const rj::Value& right){
     rj::Document before,after;before.CopyFrom(left,before.GetAllocator());after.CopyFrom(right,after.GetAllocator());
     for(auto* value:{&before,&after}){
         const auto& budget=member(*value,"budget");need(budget.IsObject());
         const auto duration=number(budget,"run_ms",0,86400000);need(duration==0||duration>=1000);
         (*value)["budget"].RemoveMember("run_ms");
+        if(!value->HasMember("strategies")||!(*value)["strategies"].IsArray())continue;
+        for(auto& strategy:(*value)["strategies"].GetArray()){
+            if(!strategy.IsObject()||!strategy.HasMember("parameters")||!strategy["parameters"].IsObject())continue;
+            auto& parameters=strategy["parameters"];
+            if(!parameters.HasMember("python_strategy")||!parameters["python_strategy"].IsObject())continue;
+            auto& python=parameters["python_strategy"];if(!python.HasMember("capital_account"))continue;
+            auto& account=python["capital_account"];keys(account,{"path","config_sha256","account","environment"});
+            need(account.MemberCount()==4);absolute(text(account,"path"));
+            const auto config_sha=text(account,"config_sha256",64);need(config_sha.size()==64);
+            for(char digit:config_sha)need((digit>='0'&&digit<='9')||(digit>='a'&&digit<='f'));
+            text(account,"account",63);const auto environment=text(account,"environment",10);
+            need(environment=="simulation"||environment=="live");
+            // 只改深拷贝投影，发布程序升级不改金融身份；存在性、账户及环境仍逐项比较。
+            account.RemoveMember("path");account.RemoveMember("config_sha256");
+        }
     }
     return before==after;
 }
@@ -828,6 +843,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         bool stop_seen=false,stop_decoded=false;
         int last_read_waiting=-1;unsigned read_transitions=0;
         auto next_read_publish=Clock::time_point::min();
+        auto next_cta_publish=Clock::time_point::min(); // 诊断最多每秒一次，独立于交易及读取状态准入。
         while(Clock::now()<run_until){
             if(fs::exists(control/"stop.json")){
                 if(!stop_seen){
@@ -849,6 +865,21 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             }
             need(!health||health(health_user)==0);
             const auto pumped=session->pump(64,16);
+            if(Clock::now()>=next_cta_publish){
+              try {
+                const auto observed=session->status();
+                auto value=receipt("guanheng.execution.cta-observation.v1",id,expected_sha,false);auto& a=value.GetAllocator();
+                value.AddMember("initializes",observed.initializes,a);value.AddMember("schedules",observed.schedules,a);
+                value.AddMember("sessions",observed.sessions,a);value.AddMember("parser_quotes",observed.parser_quotes,a);
+                value.AddMember("parser_connects",observed.parser_connects,a);value.AddMember("parser_closes",observed.parser_closes,a);
+                value.AddMember("parser_logs",observed.parser_logs,a);
+                publish(control/"cta-observation.json",value,true);
+              }catch(...){
+                // 可重建旁证沿原发布方式；失败不改变策略、金融状态或关闭时序。
+                std::error_code error;fs::remove(control/"cta-observation.json.pending",error);
+              }
+              next_cta_publish=Clock::now()+std::chrono::seconds(1);
+            }
             if(pumped<0||session->status().fault!=guanheng::CtaExecutionFault::None){
                 // 有限枚举保留故障所在层；账户、配置及原始回报不进入进程诊断。
                 std::fprintf(stderr,"execution_runtime_failure session=%u host=%u queue=%u\n",

@@ -376,28 +376,19 @@ class RetainedStrategy:
         print('CTA retained strategy initialized',flush=True)
         print('CTA retained strategy initialized',file=sys.stderr,flush=True)
 
-    def _native_cash(self, context, broker):
-        """复用原WT已实现盈亏、费用和持仓成本；当前券商数量须与原账一致。"""
+    def _native_cash(self, funds, market_value):
+        """按R34计算策略剩余预算；理论目标和实际持仓在执行中可以不同。
+
+        WT flag0提供策略损益，完整券商数量和原价提供实际占用市值。
+        两者的差额属于策略预算，券商可用/冻结约束由observe_capital继续核验。
+        此处不据理论目标证明成交，也不要求成交先完成才能规划后续目标。
+        """
         from .execution_facts import _decimal
-        self.native_cash_basis=None
-        rows=self._broker_rows(broker);cost=Fraction(0);fund=None
-        read=getattr(context,'cash_basis',None)
-        if read is None:return None
-        for symbol,code in self.mapping.items():
-            quantity=rows.get(code,(0,0))[0]
-            if context.position(code).raw_position != quantity:return None
-            value=read(code)
-            if value is None or not all(math.isfinite(v) for v in (value.realized_pnl_cny,value.fees_cny,value.average_price_cny)):
-                return None
-            current=(Fraction(repr(value.realized_pnl_cny)),Fraction(repr(value.fees_cny)))
-            if fund is not None and current != fund:return None
-            fund=current
-            if quantity and value.average_price_cny <= 0:return None
-            cost+=quantity*Fraction(repr(value.average_price_cny))
-        if fund is None:return None
-        cash=Fraction(self.inputs.capital_baseline['total_cny'])+fund[0]-fund[1]-cost
-        self.native_cash_basis=dict(source='original-WT:flag1-flag3-position-average',
-            realized_pnl_cny=_decimal(fund[0]),fees_cny=_decimal(fund[1]),position_cost_cny=_decimal(cost),
+        _need(math.isfinite(funds.fund_pnl) and market_value>=0,'native_funds')
+        pnl=Fraction(repr(funds.fund_pnl))
+        cash=Fraction(self.inputs.capital_baseline['total_cny'])+pnl-market_value
+        self.native_cash_basis=dict(source='original-WT:flag0-minus-broker-position-market-value',
+            native_pnl_cny=_decimal(pnl),market_value_cny=_decimal(market_value),
             cash_balance_cny=_decimal(cash))
         return cash
 
@@ -455,13 +446,14 @@ class RetainedStrategy:
         _need(set(prices) == set(quantities),'capital_market_complete')
         return sum((prices[code]*quantity for code,quantity in quantities.items()),Fraction(0)), min(stamps)
 
-    def _retained_initial_valuation(self, broker, funds, cash, *, deadline):
+    def _retained_initial_valuation(self, broker, funds, *, deadline):
         """同账/数量/周期复用原事实估值；QMT与CTA来源、原价时点分别保持。"""
         from .execution_recovery import prior_strategy_observations
         expected = {code:value[0] for code,value in self._broker_rows(broker).items() if value[0]}
         for previous, source in prior_strategy_observations(self.recovery_native,self.id,deadline=deadline):
             capital = previous.get('capital')
             if type(capital) is not dict:continue
+            cash=self._native_cash(funds,Fraction(capital['market_value_cny']))
             prior_basis = previous.get('native_cash_basis')
             positions = previous.get('broker_observation',{}).get('positions',[])
             old = {row['symbol']:row['quantity'] for row in positions if row['quantity']}
@@ -531,9 +523,6 @@ class RetainedStrategy:
               'capital_market_age')
         deadline = min(self.start_deadline,time.monotonic()+self.seconds)
         quantities = self._broker_rows(broker)
-        # 原账现金先独立核实。报价暂缺时仍保留真实现金依据，避免报价失败抹掉原账。
-        cash = self._native_cash(context,broker)
-        _need(cash is not None,'capital_cash_unknown')
         funds = context.facts();_need(math.isfinite(funds.fund_pnl),'native_funds')
         codes = [code for symbol,code in self.mapping.items() if quantities.get(code,(0,0))[0]]
         value, response = Fraction(0), None
@@ -542,7 +531,7 @@ class RetainedStrategy:
         if codes:
             held = {code:quantities[code][0] for code in codes}
             try:
-                value,stamp,market_value_source,response = self._retained_initial_valuation(broker,funds,cash,deadline=deadline)
+                value,stamp,market_value_source,response = self._retained_initial_valuation(broker,funds,deadline=deadline)
             except (ValueError,CtaBridgeError):
                 client = MarketClient(market['base_url'],os.environ[market['token_env']],
                     timeout=min(market['timeout_seconds'],deadline-time.monotonic()),
@@ -551,6 +540,7 @@ class RetainedStrategy:
                 value,stamp = self._snapshot_valuation(response,held)
             valuation_stamps.append(stamp)
         cutoff = datetime.now(timezone.utc)
+        cash=self._native_cash(funds,value)
         account,qualified = self.capital_reader.read(cutoff,deadline)
         completed_at = datetime.now(timezone.utc)
         self.capital_observation = observe_capital(self.inputs.capital_baseline,Fraction(repr(funds.fund_pnl)),
@@ -622,7 +612,7 @@ class RetainedStrategy:
             actual_value = sum((Fraction(repr(prices[s]))*quantities.get(self.mapping[s],(0,0))[0]
                                 for s in self.execution), Fraction(0))
             account, qualified = self.capital_reader.read(datetime.now(timezone.utc), deadline)
-            ledger_cash=self._native_cash(context,broker)
+            ledger_cash=self._native_cash(facts,actual_value)
             self.capital_observation = None
             if ledger_cash is not None and cash_reconciles(nav,actual_value,ledger_cash):
                 self.capital_observation = observe_capital(self.inputs.capital_baseline, Fraction(repr(facts.fund_pnl)),
@@ -631,7 +621,7 @@ class RetainedStrategy:
                     cash_balance=ledger_cash,price_observed_at=price_observed_at)
             spendable = None if self.capital_observation is None else self.capital_observation['spendable_cash_cny']
             cash, verified = Fraction(spendable or '0'), spendable is not None
-            nav_source, cash_source = 'current-capital:explicit-baseline+WT-flag0', 'original-WT:cash-ledger+NAP-cash-constraint'
+            nav_source, cash_source = 'current-capital:explicit-baseline+WT-flag0', 'original-WT:NAV-minus-broker-holdings+NAP-cash-constraint'
             identity = _digest((identity,self.capital_observation,asdict(broker)))
         basis = Basis(cutoff.isoformat(),result_sha,_decimal(nav),repr(facts.fund_pnl),_decimal(cash),
                       self.inputs.fee_reserve_cny,nav_source,cash_source,self.inputs.fee_source,
