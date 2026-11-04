@@ -117,6 +117,7 @@ class SecurityReference:
     def __init__(self, reference=None, calendar=None):
         self._rows = {}  # WT证券身份到不可变资料，最多20000项，随本市场版本关闭。
         self._dynamic_symbols=set()  # 当前v2成员拥有名称/日期；保留成员继续沿其历史资料及原basic规则。
+        self._retained_symbols=set()  # 组合资料中的历史保留成员；只允许时间更近的完整basic替换资料字段。
         self.current_reference=reference  # v1/v2叶原件描述符；组合资料写入时展平，避免当前引用递归增长。
         self.reference_sha256 = None  # 固定资料原件SHA，未配置时None，区别于价格缺失。
         self._calendar = None  # 原官方日历对象；缺项时不推断任何交易日。
@@ -143,6 +144,7 @@ class SecurityReference:
                 current=_reference_catalog(_descriptor(self.current_reference,16777216))
                 if any(value['securities'].get(symbol)!=row for symbol,row in current['securities'].items()):
                     raise ValueError('retained security reference current identity changed')
+                self._retained_symbols=set(value['securities'])-set(current['securities'])
             else:
                 current=_reference_catalog(value)
             self._rows = value['securities']
@@ -170,7 +172,11 @@ class SecurityReference:
         if symbol in snapshot['basics']:
             result['security_type'] = 'stock'
             basic = snapshot['basics'][symbol]
-            if basic is not None and symbol not in self._dynamic_symbols:
+            newer=(result['observed_at']is None or basic is not None and basic['observed_at']is not None
+                   and datetime.fromisoformat(basic['observed_at'].replace('Z','+00:00'))
+                   >=datetime.fromisoformat(result['observed_at'].replace('Z','+00:00')))
+            if (basic is not None and symbol not in self._dynamic_symbols
+                    and (symbol not in self._retained_symbols or newer)):
                 for key in ('name', 'market', 'listed_on', 'expires_on', 'observed_at'):
                     result[key] = basic[key]
         return validate_security_identity(result)
@@ -226,6 +232,7 @@ class SecurityReference:
     def close(self):
         self._rows.clear()
         self._dynamic_symbols.clear()
+        self._retained_symbols.clear()
         self._calendar = None
         self._closed_days.clear()
         self._closed = True

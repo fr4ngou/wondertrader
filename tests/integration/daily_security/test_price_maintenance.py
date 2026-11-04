@@ -14,7 +14,7 @@ from integrations.guanheng.daily_data_update import _descriptor
 from integrations.guanheng.daily_gap_update import prepare_gap_plan
 from integrations.guanheng.daily_price_continuation import requires_price_continuation
 from integrations.guanheng.daily_price_scope import prepare_price_scope
-from integrations.guanheng.security_reference import SecurityReference,trade_day_state
+from integrations.guanheng.security_reference import SecurityReference,trade_day_state,prepare_retained_reference
 from integrations.guanheng.market_generation import encode
 from integrations.guanheng import daily_data_service as service
 
@@ -30,6 +30,25 @@ def security(symbol,kind):
 
 
 class PriceMaintenanceTests(unittest.TestCase):
+    def test_retained_stock_identity_keeps_newer_observation_and_accepts_newer_complete_basic(self):
+        with tempfile.TemporaryDirectory()as directory:
+            root=Path(directory);old=security('SSE.600000','stock')
+            old.update(name='较新Source名称',listed_on='1990-01-01',observed_at='2026-11-03T01:00:00+00:00')
+            leaf=write(root/'leaf.json',dict(schema='guanheng.security-reference.v1',
+                securities={'SSE.510300':security('SSE.510300','etf')},
+                provenance=dict(catalog_sha256='a'*64,details_sha256=None,indices_sha256=None)))
+            composite=prepare_retained_reference(leaf,{old['symbol']:old},[leaf],root/'combined.json')
+            reference=SecurityReference(composite)
+            try:
+                basic=dict(name='较早basic名称',market='SSE',listed_on=None,expires_on=None,
+                    observed_at='2026-11-02T01:00:00+00:00')
+                self.assertEqual(reference.security(dict(basics={old['symbol']:basic}),old['symbol']),old)
+                basic.update(name='后继资料名称',observed_at='2026-11-04T01:00:00+00:00')
+                result=reference.security(dict(basics={old['symbol']:basic}),old['symbol'])
+                self.assertEqual(result['name'],basic['name']);self.assertIsNone(result['listed_on'])
+                self.assertEqual(result['observed_at'],basic['observed_at'])
+            finally:reference.close()
+
     def test_reported_halt_with_missing_quantity_stays_distinct_from_confirmed_zero_trade(self):
         state=dict(qualification='qualified',tradestatus='0',volume='',close_reference='10')
         self.assertEqual(trade_day_state(state),'source_halted_quantity_unknown')
