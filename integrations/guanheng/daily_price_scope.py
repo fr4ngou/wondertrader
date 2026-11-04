@@ -15,7 +15,7 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
     股票指标池由其原公开日事实拥有，此处只从额外价格捕获中排除同日已处理成员。
     reference_connection为空或原能力未到时保存等待事实，已知证券继续价格推进。
     """
-    from .security_reference import SecurityReference
+    from .security_reference import SecurityReference,prepare_retained_reference
     from .source_reference_capture import capture_reference
     from .source_history_transport import BoundHistorySource,SourcePending
     from guanheng_qmt_shm.read_retention_client import RetainedReadPending,RetainedReadFailure
@@ -78,6 +78,10 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
         identity=dict(identity,security_type='stock');primary[symbol]=validate_security_identity(identity)
     all_members=dict(members);all_members.update(primary)
     if not 1<=len(all_members)<=20000:raise ValueError('daily price universe capacity')
+    retained_sources=[baseline]
+    if previous_reference is not None:retained_sources.append(previous_reference)
+    retained_sources.extend(previous_scopes);retained_sources.append(stock_universe)
+    reference=prepare_retained_reference(reference,all_members,retained_sources,root/'reference.json')
     expected={kind:(sum(g['expected_count']for g in groups if g['security_type']==kind)
                     if all(g['state']=='complete'for g in groups if g['security_type']==kind)else None)
               for kind in configuration['scope']['security_types']}

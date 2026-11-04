@@ -116,7 +116,7 @@ def capture_reference(source, scope, directory, *, deadline, cancelled=lambda:Fa
             if current['metadata']['binding']!=binding:
                 raise RetainedReadBindingChanged('reference_capture_binding_changed')
         method=source.universe if operation==UNIVERSE else source.details
-        observed=method(arguments,slot,deadline=deadline)
+        observed=method(arguments,slot,deadline=deadline,expected_binding=binding)
         if observed['state']!='observed':raise RetainedReadPending('reference_result_waiting')
         returned=observed['result']
         if returned['binding']!=binding:raise RetainedReadBindingChanged('reference_result_binding_changed')

@@ -142,6 +142,10 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 restore_plan))
             plan_value = _load(plan)
             if plan_value['tasks']:
+                if 'readback'in state['stages']and 'gap_readback_progress'not in state:
+                    # 既有回读先固定当时已保存的责任；后续advance的新观察不能改变旧价格来源时点。
+                    state['gap_readback_progress']=state.get('gap_progress')
+                    _save(journal,state)
                 if 'connections' not in request:
                     raise ValueError('daily update gaps require original connections')
                 connections = request['connections']
@@ -155,6 +159,9 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 _save(journal, state)
                 check()
                 source = BatchAnalysisSource(transport, lifetime_ms=30000)
+                if 'readback'not in state['stages']:
+                    state['gap_readback_progress']=progress  # 此次价格回读开始前的原任务状态，随阶段恢复保持。
+                    _save(journal,state)
                 reread = stage('readback', lambda: _capture(source, manifest['request'], root / 'readback', deadline,check))
                 capture = Path(reread['directory'])
                 read_fixed(capture / 'manifest.json', maximum=16777216, identity=reread['sha256'])
@@ -229,7 +236,9 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 completed_at=datetime.now(timezone.utc).isoformat())  # 本地完成UTC时刻，区别来源交易日期。
             if price_result is not None:
                 from .daily_price_continuation import requires_price_continuation
-                state['continuation_required']=requires_price_continuation(price_result,request.get('prior_pending_symbols',()))
+                state['continuation_required']=requires_price_continuation(price_result,request.get('prior_pending_symbols',()),
+                    stock_plan=plan,stock_progress=state.get('gap_readback_progress'),
+                    stock_observations=root/'gap-work'/'observations')
                 # 原HPR未闭合且相关目标Native仍缺，后继同日修订沿原槽接续；发布成功独立保存。
             _save(journal, state)
             return state

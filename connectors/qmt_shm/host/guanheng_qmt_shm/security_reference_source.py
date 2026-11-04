@@ -31,7 +31,7 @@ class SecurityReferenceSource:
             metadata=metadata,  # 原认证metadata及已校验profile，不把当前绑定冒充旧slot绑定。
         )
 
-    def _read(self, operation, request, slot, deadline):
+    def _read(self, operation, request, slot, deadline, expected_binding):
         path = Path(slot)
         if path.exists():
             # 旧slot即使Source换代也先沿原UUID续核，不以新metadata替换尚未知的原请求。
@@ -44,12 +44,16 @@ class SecurityReferenceSource:
                     state='waiting_reference_capability',  # 新能力尚未交付，本次未产生请求或slot。
                     result=None,  # 尚无原结果；调用方保留既有成功数据。
                 )
-            profile, binding = found['metadata']['profile'], found['metadata']['binding']
+            profile = found['metadata']['profile']
+            # 整次捕获的绑定由数据owner固定；最终准入仍由原客户端在创建slot前原子核验。
+            binding = expected_binding if expected_binding is not None else found['metadata']['binding']
         descriptor = profile['operation_profiles'][operation]
         arguments(operation, request, descriptor['limits'])
         try:
             result = self.client.read(operation, request, path, deadline=deadline, expected_binding=binding)
         except RetainedReadFailure:
+            if not path.exists():
+                raise  # 绑定换代等准入拒绝尚未创建原slot，保留原分类。
             record = json.loads(path.read_bytes())
             saved = record.get('result')
             if saved is not None:
@@ -66,10 +70,10 @@ class SecurityReferenceSource:
             result=result,  # 原UUID、绑定、请求/接收时刻及reply；原bytes/SHA继续保存在同一slot。
         )
 
-    def universe(self, request, slot, *, deadline):
-        """单页原请求；跨页目录/scope/时刻与完整性资格由调用方数据owner核对。"""
-        return self._read(UNIVERSE, request, slot, deadline)
+    def universe(self, request, slot, *, deadline, expected_binding=None):
+        """单页原请求；expected_binding为整次捕获的原绑定，旧slot始终沿原身份。"""
+        return self._read(UNIVERSE, request, slot, deadline, expected_binding)
 
-    def details(self, request, slot, *, deadline):
-        """逐只缺项仍保留证券；返回原binding/UUID和已持久确认的原结果。"""
-        return self._read(DETAILS, request, slot, deadline)
+    def details(self, request, slot, *, deadline, expected_binding=None):
+        """逐只缺项仍保留证券；expected_binding约束新slot，返回原binding/UUID。"""
+        return self._read(DETAILS, request, slot, deadline, expected_binding)

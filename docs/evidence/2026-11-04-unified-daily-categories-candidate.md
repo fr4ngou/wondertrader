@@ -40,3 +40,9 @@ Root冻结v9生产候选经过真实WinSHM、签名HTTP、原RetainedReadClient�
 
 
 完整prepare_update实际迁移探针OWNER-MAIN005完成7870项旧名单的原件采用及发布，公开事实HTTP/SDK均0、QMT新连接0、原HPR引用完整。最初验收脚本在发布后把8只状态停牌证券的空成交量假定为零而断言失败；原日事实实际为缺量，已保留失败回执，并按真实原件复核为source_halted_quantity_unknown。数据owner正常closed，补充分类与原公开assessment保持一致，缺量没有转成零。
+
+## review006根因修正
+
+双轴全量审查确认四项缺口：当前股票计划遗漏接续、旧身份只在内部名单保留、跨页绑定在SDK接缝被当前metadata覆盖、合法空补充未形成阶段结果。修正分别落在统一责任判断、组合资料发布、原保留客户端准入和不可变归档结果层。31项回归通过，包含真实run_update的股票pending及晚到观察恢复、保留ETF资料与叶原件SHA拒绝、换代前拒绝新slot，以及空补充全价格阶段与重入恢复。Source/Native替身没有触达正式实例。
+
+修正后REFERENCE-V9-MAIN002再次经真实WinSHM/签名HTTP和当前公开消费接缝取得3页5只合成证券，同目录恢复没有SDK重放，原线程及资源关闭通过。Root另已提供真实8项父node/name映射，成员数和当前上市资格仍待实际v9捕获；目录存在与完整市场范围分别验收。0.2.0a1+unified.2制品安装、完整真实数据owner及正式切换继续待验。

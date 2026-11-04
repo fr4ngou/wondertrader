@@ -3,7 +3,7 @@ from pathlib import Path
 import time
 
 from .analysis_price_capture import load_price_capture,price_batches,capture_metadata,original_price_quality
-from .daily_data_update import _load
+from .daily_data_update import _load,_save,_descriptor
 from .daily_archive_merge import merge_original_price_rows
 from .daily_archive_prepare import price_rows_identity
 from .market_generation import read_fixed
@@ -84,8 +84,14 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                         count=0,  # 连续相同原来源的实际记录数。
                         metadata=metadata))  # 逐段原数值/单位/复权资格，历史来源保持。
                 provenance[symbol][-1]['count']+=1;rows[symbol].append(bar)
-        return merge_original_price_rows(market,rows,fallback,output,helper['path'],helper['sha256'],
+        result=merge_original_price_rows(market,rows,fallback,output,helper['path'],helper['sha256'],
             deadline=deadline,addition_provenance=provenance,retain_unchanged=True,
             maximum_history_rows=maximum_history_rows,cancelled=cancelled,reusable_files=reusable_files)
+        if result is None:
+            # 合法空补充集也是已完成的不可变档案；不加载Helper、不制造任何价格条目。
+            check();output=Path(output);output.mkdir(parents=False,exist_ok=False)
+            _save(output/'archive.json',dict(schema='guanheng.daily-native-archive.v1',entries=[]))
+            result=_descriptor(output/'archive.json')
+        return result
     finally:
         if reader is not None:reader.close()

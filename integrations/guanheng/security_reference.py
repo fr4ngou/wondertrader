@@ -86,11 +86,38 @@ def _source_reference_lineage(value, securities):
         _hash(item['sha256'])
 
 
+def _reference_catalog(value):
+    """验证单份v1/v2当前资料；完整Source组只按这份当前名册计算。"""
+    if (type(value)is not dict or set(value)!={'schema','securities','provenance'}
+            or value['schema']not in('guanheng.security-reference.v1','guanheng.security-reference.v2')
+            or type(value['securities'])is not dict or not 1<=len(value['securities'])<=20000):
+        raise ValueError('security reference catalog invalid')
+    _identities(value['securities'])
+    original=value['provenance']
+    if value['schema']=='guanheng.security-reference.v1':
+        if type(original)is not dict or set(original)!={'catalog_sha256','details_sha256','indices_sha256'}:
+            raise ValueError('security reference lineage invalid')
+        _hash(original['catalog_sha256'])
+        if original['details_sha256']is not None:_hash(original['details_sha256'])
+        if original['indices_sha256']is not None:_hash(original['indices_sha256'])
+    else:_source_reference_lineage(original,value['securities'])
+    return value
+
+
+def _identities(rows):
+    if type(rows)is not dict or not 1<=len(rows)<=20000:
+        raise ValueError('security reference identity capacity invalid')
+    for symbol,row in rows.items():
+        validate_security_identity(row)
+        if row['symbol']!=symbol:raise ValueError('security reference key differs')
+
+
 class SecurityReference:
     """单个SnapshotSourceMarket拥有本对象；最多20000项/16MiB原JSON，关闭释放。"""
     def __init__(self, reference=None, calendar=None):
         self._rows = {}  # WT证券身份到不可变资料，最多20000项，随本市场版本关闭。
-        self._dynamic=False  # v2当前Source资料拥有名称/日期；旧snapshot.basics继续保存其原观察时刻。
+        self._dynamic_symbols=set()  # 当前v2成员拥有名称/日期；保留成员继续沿其历史资料及原basic规则。
+        self.current_reference=reference  # v1/v2叶原件描述符；组合资料写入时展平，避免当前引用递归增长。
         self.reference_sha256 = None  # 固定资料原件SHA，未配置时None，区别于价格缺失。
         self._calendar = None  # 原官方日历对象；缺项时不推断任何交易日。
         self._calendar_sha256 = None  # 日历原件字节SHA，供缺口复核。
@@ -98,25 +125,28 @@ class SecurityReference:
         self._closed = False  # 关闭后拒绝读；内存由本实例close归还。
         if reference is not None:
             value = _descriptor(reference, 16777216)
-            if (type(value) is not dict or set(value) != {'schema', 'securities', 'provenance'}
-                    or value['schema'] not in ('guanheng.security-reference.v1','guanheng.security-reference.v2')
-                    or type(value['securities']) is not dict or not 1 <= len(value['securities']) <= 20000):
-                raise ValueError('security reference catalog invalid')
-            for symbol, row in value['securities'].items():
-                validate_security_identity(row)
-                if row['symbol'] != symbol:
-                    raise ValueError('security reference key differs')
-            original = value['provenance']
-            if value['schema']=='guanheng.security-reference.v1':
-                if type(original) is not dict or set(original) != {'catalog_sha256', 'details_sha256', 'indices_sha256'}:
-                    raise ValueError('security reference lineage invalid')
-                _hash(original['catalog_sha256'])
-                if original['details_sha256'] is not None:_hash(original['details_sha256'])
-                if original['indices_sha256'] is not None:_hash(original['indices_sha256'])
+            if type(value)is dict and value.get('schema')=='guanheng.security-reference.v3':
+                if set(value)!={'schema','securities','provenance'}:
+                    raise ValueError('retained security reference fields invalid')
+                _identities(value['securities']);original=value['provenance']
+                if type(original)is not dict or set(original)!={'current_reference','retained_sources'}:
+                    raise ValueError('retained security reference lineage invalid')
+                sources=original['retained_sources']
+                if type(sources)is not list or not 1<=len(sources)<=370:
+                    raise ValueError('retained security reference sources invalid')
+                for item in sources:
+                    if (type(item)is not dict or set(item)!={'path','sha256'}
+                            or type(item['path'])is not str or not Path(item['path']).is_absolute()):
+                        raise ValueError('retained security reference source invalid')
+                    _hash(item['sha256'])  # 热读取只核声明；原件已由写入owner固定，不追读历史链。
+                self.current_reference=original['current_reference']
+                current=_reference_catalog(_descriptor(self.current_reference,16777216))
+                if any(value['securities'].get(symbol)!=row for symbol,row in current['securities'].items()):
+                    raise ValueError('retained security reference current identity changed')
             else:
-                _source_reference_lineage(original,value['securities'])
+                current=_reference_catalog(value)
             self._rows = value['securities']
-            self._dynamic=value['schema']=='guanheng.security-reference.v2'
+            if current['schema']=='guanheng.security-reference.v2':self._dynamic_symbols=set(current['securities'])
             self.reference_sha256 = reference['sha256']
         if calendar is not None:
             self._calendar = _calendar(_descriptor(calendar, 1048576))
@@ -140,7 +170,7 @@ class SecurityReference:
         if symbol in snapshot['basics']:
             result['security_type'] = 'stock'
             basic = snapshot['basics'][symbol]
-            if basic is not None and not(self._dynamic and symbol in self._rows):
+            if basic is not None and symbol not in self._dynamic_symbols:
                 for key in ('name', 'market', 'listed_on', 'expires_on', 'observed_at'):
                     result[key] = basic[key]
         return validate_security_identity(result)
@@ -195,9 +225,33 @@ class SecurityReference:
 
     def close(self):
         self._rows.clear()
+        self._dynamic_symbols.clear()
         self._calendar = None
         self._closed_days.clear()
         self._closed = True
+
+
+def prepare_retained_reference(current,securities,sources,output):
+    """将历史价格身份随同一快照发布；当前分组分母和资料优先级保持原叶事实。"""
+    reader=SecurityReference(current)
+    try:
+        leaf=reader.current_reference
+        current_rows=_reference_catalog(_descriptor(leaf,16777216))['securities']
+        rows=deepcopy(securities);rows.update(current_rows)
+    finally:reader.close()
+    _identities(rows)
+    if rows==current_rows:return leaf
+    value=dict(
+        schema='guanheng.security-reference.v3',  # 同一数据owner的当前/保留身份组合合同。
+        securities=rows,  # 完整价格身份并集；当前Source缺项保持当前None。
+        provenance=dict(
+            current_reference=leaf,  # 独立v1/v2原件，当前完整组在此核算，不含历史保留数。
+            retained_sources=sources))  # 原资料/历史价格池/股票池描述符，保留身份归属和原时点。
+    from .daily_data_update import _save,_descriptor as descriptor
+    path=Path(output).absolute();_save(path,value);result=descriptor(path)
+    check=SecurityReference(result)
+    check.close()
+    return result
 
 
 def prepare_security_reference(catalog, output, *, details=None, indices=None):
