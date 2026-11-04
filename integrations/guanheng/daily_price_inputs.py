@@ -84,7 +84,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
     earliest=min(bounds.values());last=target.strftime('%Y%m%d');capture_from=authorized.strftime('%Y%m%d')
     calendar=_load(request['calendar'])
     from guanheng_app.observation.calendars import official_calendar
-    from guanheng_qmt_shm.analysis_batch_source import BatchAnalysisSource
+    from .daily_batch_source import DailyBatchAnalysisSource
     from guanheng_qmt_shm.market_daily_preparation import MarketDailyPreparation
     from .source_history_transport import BoundHistorySource
     rows,_=official_calendar(calendar)
@@ -116,7 +116,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
         if not(output/'manifest.json').exists():
             transport=BoundHistorySource(request['connections']['batch'],environ=environ,reuse_connections=True)
             try:
-                BatchAnalysisSource(transport,lifetime_ms=30000).capture(capture_request,output,deadline=deadline,
+                DailyBatchAnalysisSource(transport,lifetime_ms=30000).capture(capture_request,output,deadline=deadline,
                     on_result=lambda *args:check(),minimum_new_request_seconds=30)
             finally:transport.close()
         descriptor=dict(directory=str(output),sha256=_descriptor(output/'manifest.json')['sha256'])

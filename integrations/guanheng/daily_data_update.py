@@ -47,7 +47,8 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
     from .daily_generation import materialize_generation
     from .market_snapshot_prepare import prepare_market_snapshot, load_snapshot_basics, _catalog
     from .daily_data_stages import prepare_directory
-    from guanheng_qmt_shm.analysis_batch_source import BatchAnalysisSource, read_capture
+    from guanheng_qmt_shm.analysis_batch_source import read_capture
+    from .daily_batch_source import DailyBatchAnalysisSource
     from guanheng_qmt_shm.market_daily_preparation import MarketDailyPreparation
     from guanheng_qmt_shm.market_daily_cache import assess
 
@@ -162,7 +163,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 state['gap_progress'] = progress  # 原调用结果，coverage仍由后续实际批读确认。
                 _save(journal, state)
                 check()
-                source = BatchAnalysisSource(transport, lifetime_ms=30000)
+                source = DailyBatchAnalysisSource(transport, lifetime_ms=30000)
                 if 'gap_readback_progress'not in state:
                     state['gap_readback_progress']=freeze_gap_progress(plan,progress,root/'gap-work'/'observations',
                         deadline=deadline,cancelled=cancelled)  # 此次回读前完整责任，随阶段恢复保持。

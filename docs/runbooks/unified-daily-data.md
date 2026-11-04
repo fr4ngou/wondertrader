@@ -54,5 +54,7 @@ read.json使用source-market-current，current_file与daily.template.publication
 
 程序更新先部署新目录，保留旧程序、原数据和运行描述符。数据回退沿原GenerationPublisher锁和expected_current_sha256采用已保留不可变配置；重新启动原入口后核对其数据日期、Source版本和实际查询。程序切换、数据采用和生产发布分别登记。来源价格冲突、未知单位/因子、覆盖不足和未执行自然新日的范围沿交付HANDOFF明确记录。
 
+同业务来源的Host正常重启后，日线批读沿原capture接续。原BINDING及slots保留，后续新批次通过原SDK认证当前通信代并在read-generations留存metadata；已有未知批次继续原ID。来源路由、权限、profile或额度变化保持明确失败。RetainedReadBindingChanged应先核实际变化字段及当前运行代，按[批读接续规则](../architecture/adr/0027-daily-batch-transport-generations.md)处理，保留当前成功日线和原请求。
+
 
 全类别接续由可选price_scope启用，同一publication锁覆盖Source名册、缓存准备、Native落盘和发布。baseline_reference只保留已知证券；reference_connection为空或缺少新Source能力时，各组应有数保持未知。价格任务使用独立于指标池的UNIVERSE，保存逐组应有/实际Native覆盖数、真实尾日分布和逐证券缺口原因。新增配置或扩展处理范围使用新的数据任务根，原CONFIGURATION、INDEX、任务和所有来源请求槽保持；publication_directory继续指向同一正式CURRENT。采用之前固定旧任务引用及跨任务保护槽，并先核旧同类owner实际退出；只有新数据owner取得唯一租约后切入读取。配置迁移、完整源端目录资格、原价/前复权和自然新日各自登记。

@@ -60,7 +60,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     from .daily_data_stages import prepare_directory
     from guanheng_app.observation.storage import ContentStore, SnapshotRepository
     from guanheng_app.observation.source_fetch import Fetcher, CollectionBudget, BoundedContentStore
-    from guanheng_qmt_shm.analysis_batch_source import BatchAnalysisSource
+    from .daily_batch_source import DailyBatchAnalysisSource
     from guanheng_qmt_shm.market_daily_preparation import MarketDailyPreparation
 
     def check():
@@ -239,7 +239,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         else:
             batch = BoundHistorySource(inputs['connections']['batch'], environ=environ, reuse_connections=True)
             try:
-                BatchAnalysisSource(batch, lifetime_ms=30000).capture(request, root / 'cache', deadline=deadline,
+                DailyBatchAnalysisSource(batch, lifetime_ms=30000).capture(request, root / 'cache', deadline=deadline,
                     minimum_new_request_seconds=30, on_result=lambda *args: check())
             finally:
                 batch.close()

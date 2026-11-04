@@ -1,5 +1,7 @@
 # 验证证据
 
+- [日线发布滞后与行情恢复](2026-11-05-daily-and-collection-recovery.md)：原采集连接恢复、HPR5612项返回、批读通信代根因及508批完成；正式当日发布与主线余项分别记录。
+
 - [全证券分钟投影容量修正](2026-11-04-minute-projection-capacity.md)：实际2MiB冲突、22947行及最大字段宽度原写入/消费红绿、ACL/原子替换、保留原producer的完整升级及实际回退现场接续。
 
 - [分钟角色实际启动接线修正](2026-11-04-minute-startup-runtime-repair.md)：primary旧解释器缺SDK及collector漏release根的无启动红绿验证；显式完整环境、Root013实际工厂构造及新完整候选，正式重试由Root。

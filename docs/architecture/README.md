@@ -53,3 +53,6 @@
 - [ADR-0024 Host HTTP read retirement](adr/0024-host-http-read-retirement.md): Host/Native lifetime ownership and immutable terminal accounting.
 
 - [ADR-0025 WT统一日线和定日事实归属](adr/0025-unified-daily-data-owner.md)：WT拥有来源采集、缺口补齐、原生落盘及版本发布，观衡只读同一版本并保留原指标公式。
+
+- [ADR-0026 日线HPR通信代接续](adr/0026-daily-hpr-transport-generations.md)：原补齐计划、旧槽和新通信代分别持有身份。
+- [ADR-0027 日线批读通信代接续](adr/0027-daily-batch-transport-generations.md)：原批读SDK保持，数据owner显式选择跨同业务来源的通信代接续。
