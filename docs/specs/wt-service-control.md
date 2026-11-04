@@ -28,6 +28,12 @@ WT运行侧入口支持start、stop、status。内部受控配置固定安装解
 
 该规则允许同账户及环境的只读发布程序更新路径或Scan配置摘要。原配置原字节SHA、实际读取时CAP发布SHA绑定、trader配置、BASELINE、策略模型/输入/持仓周期/费用及所有其它字段保持原验证，不新增origin快照、不改账。字段缺失/额外、相对路径、非法SHA继续拒绝；换账户/环境和任意其它业务字段变化继续拒绝。候选须验证Python/Native比较的一致正反例并复用原业务身份回归；Root同批编译Native与真实原账恢复后分别登记采用资格，候选比较通过只证明此适配模块行为。
 
+## 持续日线Reader的派生缓存恢复
+
+显式使用自有GuanhengRealtimeReader且配置daily.publication时，每个恢复代在本代generation根下选择尚不存在的daily-cache叶，由Reader独占创建。原cache及行情输入保留；冻结目录和其他Reader沿原路径。Python与自有Native的业务比较共同严格验证publication必需的status_file/publication_file/cache_root及可选source_root，仅在比较副本中移除cache_root定位。其余来源路径、数据配置、金融参数和账户身份继续严格比较，原配置SHA及输入原件保持。
+
+ServiceController先生成带新cache定位的Native模板，再沿原prepare_transition和实际Native恢复接收流程装配，日常停止/启动无需操作员手工移动派生目录。候选在同一公开Service入口完成连续两次恢复、实际012配置的Python/C++比较及原恢复回归；真实同账运行由Root采用后另验。
+
 ## 展示状态发布
 
 status.json属于可重建展示投影。Windows读者产生32/33共享冲突时保留上次完整快照，原健康检查与组件执行继续；下一正常周期尝试发布最新状态。单一发布owner最多持有一份自有候选，按实际文件身份复用，内存及临时文件保持有界。其余编码与I/O错误继续原失败语义，ready、stop、closed、failure控制收据沿严格原契约发布。失败旁证仅保存固定阶段、异常类别和系统错误码，原始异常正文与金融/凭证数据保持私有。

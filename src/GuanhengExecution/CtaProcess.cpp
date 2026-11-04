@@ -243,13 +243,28 @@ bool settled(const guanheng::StandardQmtRecoveryV1& value){
     return value.query_first&&value.submissions_closed&&!value.open_group&&!value.unresolved_children
         &&!value.pending_commands&&!value.unsafe;
 }
-// 比较投影仅去除运行时长和只读账户发布接线；原配置SHA、账户/环境及CAP读取绑定保持严格。
+// 自有持续Reader的缓存为派生位置；严格验证对象后，只从比较投影移除此定位。
+void normalize_publication_cache(rj::Value& value){
+    if(!value.HasMember("data")||!value["data"].IsObject())return;
+    auto& data=value["data"];if(!data.HasMember("store")||!data["store"].IsObject())return;
+    auto& store=data["store"];
+    if(!store.HasMember("module")||!store["module"].IsString()
+        ||std::string(store["module"].GetString(),store["module"].GetStringLength())!="GuanhengRealtimeReader")return;
+    if(!store.HasMember("daily")||!store["daily"].IsObject())return;
+    auto& daily=store["daily"];if(!daily.HasMember("publication"))return;
+    auto& publication=daily["publication"];keys(publication,{"status_file","publication_file","cache_root","source_root"});
+    for(const char* field:{"status_file","publication_file","cache_root"})absolute(text(publication,field));
+    if(publication.HasMember("source_root"))absolute(text(publication,"source_root"));
+    publication.RemoveMember("cache_root");
+}
+// 比较投影仅去除运行时长、账户发布接线和已核派生缓存定位；来源及金融身份保持严格。
 bool same_business(const rj::Value& left,const rj::Value& right){
     rj::Document before,after;before.CopyFrom(left,before.GetAllocator());after.CopyFrom(right,after.GetAllocator());
     for(auto* value:{&before,&after}){
         const auto& budget=member(*value,"budget");need(budget.IsObject());
         const auto duration=number(budget,"run_ms",0,86400000);need(duration==0||duration>=1000);
         (*value)["budget"].RemoveMember("run_ms");
+        normalize_publication_cache(*value);
         if(!value->HasMember("strategies")||!(*value)["strategies"].IsArray())continue;
         for(auto& strategy:(*value)["strategies"].GetArray()){
             if(!strategy.IsObject()||!strategy.HasMember("parameters")||!strategy["parameters"].IsObject())continue;

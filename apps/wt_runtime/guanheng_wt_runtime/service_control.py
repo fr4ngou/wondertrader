@@ -498,9 +498,15 @@ class ServiceController:
                          and ready.get("control_id") == observation["control_id"]
                          and ready.get("config_sha256") == previous_native_sha
                          and ready.get("pid") == observation["pid"])
+                store = native.get("data", {}).get("store", {})
+                daily = store.get("daily", {})
+                if store.get("module") == "GuanhengRealtimeReader" and "publication" in daily:
+                    # 新代只选择私有派生位置；Reader独占创建叶，旧缓存及全部来源原件保持。
+                    cache_root = generation / "daily-cache"
+                    _require(not os.path.lexists(cache_root))
+                    daily["publication"]["cache_root"] = str(cache_root)
                 native_template = generation / "native-template.json"
-                with native_template.open("xb") as stream:
-                    stream.write(previous_native_raw)
+                _write_exclusive(native_template, native)
                 transition_path = generation / "transition.json"
                 transition = prepare_transition(
                     native_template,

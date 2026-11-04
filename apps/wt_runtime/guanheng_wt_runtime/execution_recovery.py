@@ -82,13 +82,33 @@ def _business(value):
     return value
 
 
+def _normalize_publication_cache(value):
+    """仅在比较投影移除自有持续Reader派生缓存位置；原行情来源保持严格。"""
+    data=value.get('data')
+    store=data.get('store') if type(data) is dict else None
+    if type(store) is not dict or store.get('module') != 'GuanhengRealtimeReader':
+        return
+    daily=store.get('daily')
+    if type(daily) is not dict or 'publication' not in daily:
+        return
+    publication=daily['publication']
+    _require(type(publication) is dict and {'status_file','publication_file','cache_root'} <= set(publication)
+             <= {'status_file','publication_file','cache_root','source_root'})
+    for path in publication.values():
+        _require(type(path) is str and 0 < len(path.encode('utf-8')) <= 1024
+                 and all(ord(c) >= 32 and ord(c) != 127 for c in path)
+                 and Path(path).is_absolute() and '..' not in Path(path).parts)
+    publication.pop('cache_root')
+
+
 def _same_business(left, right):
-    """仅比较金融模型；运行时长和只读账户发布接线独立，原配置原件仍完整核验。"""
+    """仅比较金融模型；运行时长、发布接线和已核派生缓存定位独立，原件仍完整核验。"""
     left, right = copy.deepcopy(left), copy.deepcopy(right)
     for value in (left, right):
         duration = value['budget']['run_ms']
         _require(type(duration) is int and (duration == 0 or 1000 <= duration <= 86400000))
         value['budget'].pop('run_ms')
+        _normalize_publication_cache(value)
         strategies = value.get('strategies')
         if type(strategies) is not list:
             continue
