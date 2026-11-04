@@ -2,6 +2,8 @@
 
 日期：2026-11-04。范围：Root已接收`guanheng-wt-runtime==0.1.0a12+integrated.2.market.35.3.service.7`的永久源码闭包、版本谱系、固定重建和普通安装验证。任务只读取角色材料并写隔离worktree及新QA目录。
 
+后继service.8及service.9已由[service.9永久源码闭包](2026-11-04-wt-runtime-service9-permanent-source.md)接收；本记录继续作为service.7谱系前代证据。
+
 ## 输入身份与谱系
 
 前代service.5 wheel SHA256为`ca8d97f5eadf4f2058d93deb86e1508b5e52e1c8ba95ee52a08462f3a42cc548`。固定`account-wiring-runtime-role001/ROLE.json`声明service.6 wheel SHA256 `bab35d6df50c8a81e77e68abb8f7ed0ad59bd5942cd3b3913f4f18e6091af175`，只将`execution_recovery.py`从`00451f7c...`替换为`799e54d91f49ee6d6e9b79478c64ce2b9efbc325854420fcb66a99566c54a1c4`。固定`capital-formula-role001/ROLE.json`声明service.7 wheel SHA256 `465315505999c4de08386ed6b2e0ca075c07b42c51270b56f52e68e68727d97d`，只将`execution_configured.py`从`6126f64e...`替换为`2ac508f487677ea500ebf93c6bab4e4fa7356c4c3e95693d0d553a7efb489ba9`。
