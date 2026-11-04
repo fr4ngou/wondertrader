@@ -434,3 +434,13 @@ QMT委托状态48为未报，属于非终态，保留原状态及未成交余量
 新写任务使用当前完整B准备，沿原权限、金融配置、预算、排队截止和一次提交合同；取消仍要求原insert身份及当前完整ORDER/event券商证明。AuditOriginal仅查询原命令UUID及原账户票据，原命令/收据/历史B不改写、不重新POST；得到原终态只结束对应未决责任，已有unknown/hard-fault门禁按原规则保留。当前认证来源的发布和旧代票据退休均由原worker负责，全部代际继续受原max_queue/max_queue_bytes和最终join/drain约束。
 
 P31-C1：生产Factory→ITraderApi/SPI及真实HTTP/HMAC下，先完成原ORDER，再只切认证运输两字段，进入关闭新insert准入、原ORDER/持仓/账户刷新及取消原委托；旧实现应复现qmt_trade_binding_changed，新实现仅一次cancel POST、零新insert，原insert字节保持，实际终态后recovery_ready且完整关闭。P31-C2：取消结果在Host已保存但回复丢失后换代，只GET原cancel UUID取得原终态，无第二次金融POST，Pending清零且原unknown门禁保持；来源session、完整profile、route变化及过期B的取消proof均继续拒绝。P31-C3：源码/CAS、实际Native制品和有界资源证据分别固定；合成HTTP测试只授所覆盖的自有客户端路径资格。运行Source/Host、真实原委托处置、同批制品构建和现场切换由集成owner按原授权完成。
+
+## STQ-P32 完整查询与晚到事件之间的提交终态责任
+
+完整ORDER查询和原有序事件队列可以独立推进：较新的完整查询已确认某原委托终态，较早活动事件随后才交付。Standard提交责任索引对同一已核身份的终态保持单调收敛；活动观察保持原终态待协调责任和已有查询barrier，不将其降回ObservedActive或据此产生SubmissionUnknown。原事件原字节、序号和WTS活动状态继续原样交付；不把旧事件伪造成新终态，不跳序或丢弃事件。
+
+原批准query_first Adapter只用完整ORDER统一发布原订单表/未完成余量；活动推送仅通知原sink并请求O/P，不复活已终态订单。股票单元接收非撤单且left>0的活动回报时不增加监控、不重算或新发单。该既有职责保持，当前修正仅位于自有Standard责任合并层，WT框架不变。
+
+Fault/None组冲突、EventDeliveryIndex的真正有序回退/身份冲突及Started后Unknown交付保持原拒绝；SDK未知仍保留原Pending/收据，未派发或未知金融命令不重POST。原终态事件仍触发完整O核查，只有同来源的后继P实际应用、原SDK收据已移交且无原Pending时才退休对应组；活动单和缺证明责任保持。来源、账户、完整B、broker proof、任务身份、原截止及容量沿原合同。
+
+P32-C1：原3253/3255完整ORDER各44行及原事件85..102、原命令40..47的隔离回放；旧实现由晚活动事件85确定复现code9/空原因，新实现完整推进到102并交付17个订单及1个成交SPI，无新金融POST/SDK。P32-C2：真实冻结query_first Adapter与原股票单元接收原85活动WTS，原832770245保持不在活动表、另一原已报单余量1000保持1000；订单表数量不变，账户/成交通知增量0、执行重算和新下撤单0，原O/P刷新各1。P32-C3：原终态O→后继P只退休有完整证明的5组，3个仍活动组保持；真正事件回退、交付Unknown及SDK未知收据继续受保护。原失败Native及recovery_ready=false材料保留，隔离回放不授该历史失败正常关闭证明。最终Native同批构建和现场恢复由集成owner验真。

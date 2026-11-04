@@ -1749,11 +1749,13 @@ struct StandardQmtTrader::Impl {
     auto& retained=found->second;retained.broker.swap(value.broker);
     if(retained.group_id){
      // P8真实身份先于SPI；原SDK完成稍后到达时只能移交收据，不能回退此事实。
-     if(retained.observation==SubmissionObservation::Fault||retained.observation==SubmissionObservation::None
-        ||(retained.observation==SubmissionObservation::TerminalNeedsReconciliation&&order->isAlive())){
+     if(retained.observation==SubmissionObservation::Fault||retained.observation==SubmissionObservation::None){
       retained.observation=SubmissionObservation::Fault;submission_fault();
      }else {
-      retained.observation=order->isAlive()?SubmissionObservation::ObservedActive:SubmissionObservation::TerminalNeedsReconciliation;
+      // 完整查询与事件队列独立推进：已核终态可先于较早活动回报到达。
+      // 提交责任只单调收敛，不能用活动观察撤销终态或生成SDK未知；原事件仍由交付索引按序校验。
+      if(retained.observation!=SubmissionObservation::TerminalNeedsReconciliation||!order->isAlive())
+       retained.observation=order->isAlive()?SubmissionObservation::ObservedActive:SubmissionObservation::TerminalNeedsReconciliation;
       if(!order->isAlive()){
        // 事件终态先触发完整O补查；完整O确认后，排除此前已排队的P查询。
        if(!complete_query){retained.terminal_query_barrier=0;retained.terminal_query_source[0]=0;}
