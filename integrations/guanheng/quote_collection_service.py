@@ -21,8 +21,9 @@ import stat
 import threading
 import time
 from uuid import UUID, uuid4
-from guanheng.quote_collection import QuoteCollection
-from guanheng.collection_status import replace_status
+from integrations.guanheng.quote_collection import QuoteCollection
+from integrations.guanheng.collection_status import replace_status
+from integrations.guanheng.collection_coverage import CollectionCoverage
 
 # 配置/启动失败进入新的服务收尾阶段；外层原启动/停止D仍有最终Job终止权。
 # 正常控制停止只使用父进程发来的原绝对D，不使用此回退预算。
@@ -35,6 +36,7 @@ class _ServiceResources:
     def __init__(self):
         self.collection = None
         self.ownership = None
+        self.maintenance = None  # 与原管理线程同寿命，保留未确认关闭的原生Reader/补缺owner。
 
 
 def _need(value):
@@ -99,7 +101,10 @@ def _fields(value, names):
 
 def _configuration(path, expected):
     value = _json(_read(path, 65536, expected))
-    _fields(value, 'schema connection native archive_session status_interval_seconds')
+    _need(type(value) is dict and set(value)-{'maintenance'} == set('schema connection native archive_session status_interval_seconds'.split()))
+    if 'maintenance' in value:
+        _fields(value['maintenance'], 'path sha256')
+        _read(_path(value['maintenance']['path']), 16777216, value['maintenance']['sha256'])
     _need(value['schema'] == 'qmt.quote-collector.v1')
     connection, native = value['connection'], value['native']
     _need(type(connection) is dict and set(connection) in (
@@ -187,7 +192,7 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
     _need(_ACTIVE_SERVICE is None)
     resources = _ServiceResources()
     _ACTIVE_SERVICE = resources
-    collection = ownership = None
+    collection = ownership = maintenance = None
     directory_created = False
     stop_deadline = None
     stage, error = 'configuration', None
@@ -201,9 +206,9 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
                 'ValueError', 'RuntimeError', 'OSError', 'MemoryError') else 'other'
             winerror = getattr(exception, 'winerror', None)
             failure_winerror = winerror if type(winerror) is int and 0 <= winerror <= 65535 else None
-    def publish(name, value, replace=False):
+    def publish(name, value, replace=False, maximum=65536):
         raw = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('ascii')
-        _need(0 < len(raw) <= 65536)
+        _need(0 < len(raw) <= maximum)
         # ready/closed也先写完并关闭私有临时文件，名称出现即代表完整收据。
         # 直接创建最终名字会让父读取方观察到零字节或独占写句柄。
         temporary = control_directory/(name + '-' + str(uuid4()) + '.tmp')
@@ -222,9 +227,25 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
         ownership = _WriterOwnership(data_root)
         resources.ownership = ownership
         stage = 'native_start'
-        collection = QuoteCollection(settings, config_path, native_directory, value['archive_session'])
+        config = _json(native_raw)
+        contracts = _json(_read(_path(config['basefiles']['contract']), 16777216))
+        products = {'STK': 'stock', 'ETF': 'etf', 'IDX': 'index'}
+        native_types = {}
+        for symbol in settings['symbols']:
+            code, suffix = symbol.split('.')
+            exchange = {'SH': 'SSE', 'SZ': 'SZSE', 'BJ': 'BSE'}[suffix]
+            native_types[symbol] = products.get(contracts.get(exchange, {}).get(code, {}).get('product'), 'unknown')
+        coverage = CollectionCoverage(settings['symbols'], native_types=native_types)
+        collection = QuoteCollection(settings, config_path, native_directory, value['archive_session'], coverage=coverage)
         resources.collection = collection
         collection.start()
+        if 'maintenance' in value:
+            stage = 'maintenance_start'
+            from integrations.guanheng.collection_maintenance import MinuteCollectionMaintenance
+            descriptor = value['maintenance']
+            maintenance = MinuteCollectionMaintenance(_json(_read(_path(descriptor['path']), 16777216,
+                descriptor['sha256'])), coverage)
+            resources.maintenance = maintenance
         stage = 'ready_publish'
         publish('ready.json', dict(schema='qmt.quote-collector-ready.v1', control_id=control_id,
                 pid=os.getpid(), configuration_sha256=configuration_sha256, listener_ready=True))
@@ -245,13 +266,37 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
                 publish('status.json', dict(schema='qmt.quote-collector-status.v1', control_id=control_id,
                         pid=os.getpid(), configuration_sha256=configuration_sha256,
                         observed_wall_time=time.time(), collection=snapshot), True)
+                # 独立有界投影不改变原status/ready合同；源、接收和发布时刻分别保留。
+                publish('coverage.json', dict(
+                    schema='qmt.quote-collector-coverage.v1',  # 本代旁路只读投影，原状态格式保持。
+                    control_id=control_id, pid=os.getpid(),  # 原采集子代身份，不是额外owner。
+                    configuration_sha256=configuration_sha256,  # 固定本次原配置。
+                    coverage=coverage.snapshot(time.time())), True, maximum=8388608)  # 每证券纯时间/计数，总8MiB。
+                if maintenance is not None:
+                    publish('minute-maintenance.json', maintenance.snapshot(), True, maximum=16777216)
                 stage = 'collection'
                 next_status = now + value['status_interval_seconds']
+            if maintenance is not None:
+                stage = 'minute_maintenance'
+                try:
+                    maintenance.step()
+                    maintenance.last_error_type = None
+                except (OSError, ValueError, KeyError, TypeError) as exception:
+                    # 来源/资料可用性只影响本轮维护；原Writer继续接收并发布实际状态。
+                    maintenance.last_error_type = type(exception).__name__
+                    maintenance.next_step = time.monotonic() + maintenance.c['retry_seconds']
+                stage = 'collection'
             time.sleep(.05)
     except BaseException as exception:
         remember_failure(stage, exception)
     finally:
         # 正常停止不另起预算；失败收尾保持强引用，外层Job拥有最终原截止。
+        if maintenance is not None:
+            try:
+                maintenance.close()
+                resources.maintenance = None
+            except BaseException as exception:
+                remember_failure('maintenance_close_unconfirmed', exception)
         if collection is not None:
             deadline = stop_deadline if stop_deadline is not None else time.monotonic() + _FAILED_SERVICE_CLOSE_SECONDS
             try:
@@ -265,7 +310,7 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
         if ownership is not None and (collection is None or collection.closed_complete):
             ownership.close()
             resources.ownership = None
-        if collection is None or collection.closed_complete:
+        if (collection is None or collection.closed_complete) and resources.maintenance is None:
             _ACTIVE_SERVICE = None
         if directory_created and error is not None:
             try:

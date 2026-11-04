@@ -1,8 +1,9 @@
-"""原Writer的闭合DSB直接进入统一历史查询；状态和解码沿现有owner。"""
+"""原Writer数据进入统一历史查询；显式minute_native沿原标准Reader读取今日及归档。"""
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from datetime import datetime, timezone, timedelta
 import hashlib
 from pathlib import Path
 import re
@@ -23,17 +24,17 @@ class CollectedSourceMarket:
     """服务线程拥有原Reader；每次按当前DSB内容读取，归档追加后立即可见。
 
     collection.source声明采集数据集身份，不声称还原每根bar的原QMT传输会话。
-    本入口只读his/min1；盘中形成中的DMB和分钟通知继续由原NMR消费。
+    默认只读his/min1；显式minute_native将形成中数据交由原NMR读取。
     """
 
     def __init__(self, config, *, max_response_bytes=8 * 1024 * 1024):
         self._owner = threading.get_ident()
         self._closed = False
-        self._base = self._reader = None
+        self._base = self._reader = self._active_reader = None
         self._supplements = []
         try:
             fields = {'mode', 'base', 'collection', 'native_reader', 'max_bars', 'max_file_bytes'}
-            _require(type(config) is dict and set(config) in (fields, fields | {'supplements'}))
+            _require(type(config) is dict and fields <= set(config) <= fields | {'supplements', 'minute_native'})
             supplements = config.get('supplements', [])
             _require(type(supplements) is list)
             _require(config['mode'] == 'source-collected')
@@ -70,6 +71,21 @@ class CollectedSourceMarket:
             self._reader = NativeHistory(Path(native['library']), native['sha256'],
                                         max_bars=config['max_bars'], max_file_bytes=config['max_file_bytes'])
             self._max_file = config['max_file_bytes']
+            self._minute_native = (None if config.get('minute_native') is None else
+                strict_json(encode_json(config['minute_native'])))  # 显式固定原NMR配置；省略沿原DSB，调用方修改不改变本实例。
+            self._minute_codes = {}  # 本次原collection允许的规范身份到真实基础资料标准代码。
+            if self._minute_native is not None:
+                from .market_generation import read_fixed
+                profile = self._minute_native
+                _require(type(profile) is dict and set(profile) == {'library', 'reader', 'storage_root', 'basefiles'})
+                _require(Path(profile['storage_root']).resolve(strict=True) == self._root)
+                contract = profile['basefiles']['contract']
+                original = strict_json(read_fixed(contract['path'], maximum=16777216, identity=contract['sha256']))
+                for symbol in self._symbols:
+                    exchange, code = symbol.split('.')
+                    entry = original.get(exchange, {}).get(code)
+                    _require(type(entry) is dict and entry.get('product') in ('STK', 'ETF', 'IDX'))
+                    self._minute_codes[symbol] = exchange + '.' + entry['product'] + '.' + code
             # 独立导入根继续由原来源商店准入和读取；不修改base注册或Writer文件。
             for supplement in supplements:
                 self._supplements.append(NativeSourceMarket(supplement, max_response_bytes=max_response_bytes))
@@ -101,6 +117,8 @@ class CollectedSourceMarket:
         return digest.hexdigest(), used
 
     def _read(self, security, query):
+        if self._minute_native is not None:
+            return self._read_native(security, query)
         exchange, code = security.split('.')
         path = self._root / 'his' / 'min1' / exchange / (code + '.dsb')
         if not path.exists():
@@ -138,6 +156,71 @@ class CollectedSourceMarket:
         return dict(metadata=_metadata(history.metadata), bars=bars, coverage='Unknown',
                     missing_minutes=[], selection=dict(period_minutes=1, limit=query['limit']))
 
+    def _read_native(self, security, query):
+        """同一原Writer根由标准Reader读取DSB及DMB；本适配器不接触活动DMB字节。"""
+        from .collection_minute_reader import CollectionMinuteReader
+        code = self._minute_codes[security]
+        closed = int(datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d%H%M'))
+        end = min(query['to'], closed)
+        if query['from'] > end:
+            return None
+        _require(self._active_reader is None)
+        self._active_reader = reader = CollectionMinuteReader(self._minute_native, {code: security}, maximum=query['limit'])
+        try:
+            rows = reader.read_range(code, query['from'], end, query['limit'])
+        finally:
+            reader.close()
+            self._active_reader = None
+        if not rows:
+            return None
+        bars = [dict(symbol=security, **row) for row in rows]
+        profile_sha = hashlib.sha256(encode_json(self._minute_native)).hexdigest()
+        content = hashlib.sha256(encode_json(dict(symbol=security, bars=bars,
+            profile_sha256=profile_sha))).hexdigest()
+        metadata = replace(self._metadata(content),
+            dataset_version='wt-standard-native-min1-v1:' + profile_sha)
+        return dict(
+            metadata=_metadata(metadata),  # 原采集来源/未知单位；版本明确为标准Reader结果，不冒充DSB文件SHA。
+            bars=bars,  # 原Reader切片中的实际最近N根，形成中标签已受本次闭合截止约束。
+            coverage='Unknown', missing_minutes=[],  # 文件可读与全市场/全天完整性分别验收。
+            selection=dict(period_minutes=1, limit=query['limit']))  # 既有公开分钟查询合同保持。
+
+    def expected_minutes(self, security, day):
+        """同管理线程取得原WT session完整标签，用于已结束日的恢复核对。"""
+        self._check()
+        if self._minute_native is None or security not in self._minute_codes:
+            raise MarketUnavailable('原分钟Reader尚未配置')
+        from .collection_minute_reader import CollectionMinuteReader
+        code = self._minute_codes[security]
+        _require(self._active_reader is None)
+        self._active_reader = reader = CollectionMinuteReader(self._minute_native, {code: security})
+        try:
+            return reader.read_day(code, day, 2359)['expected_minutes']
+        finally:
+            reader.close()
+            self._active_reader = None
+
+    def source_batches(self, request):
+        """交原值批次给最终选择器；完整日选择前保留各自数据，避免提前冲突丢失今日值。"""
+        self._check()
+        request = validate_request(strict_json(encode_json(request)))
+        _require(request['action'] == 'history.source-query')
+        query = request['request']
+        security = query['exchange'] + '.' + query['code']
+        original = self._base.call(request)
+        recent = self._read(security, query) if security in self._symbols else None
+        batches = [recent] if recent is not None else []
+        if original['status']['code'] == 'Ok':
+            batches.append(original['data'])
+        for supplement in self._supplements:
+            if not supplement.has_source_history(security, '1m'):
+                continue
+            response = supplement.call(request)
+            if response['status']['code'] != 'Ok':
+                raise MarketUnavailable('原分钟补充根读取失败')
+            batches.append(response['data'])
+        return original, batches
+
     def call(self, request):
         self._check()
         raw = encode_json(request)
@@ -169,24 +252,8 @@ class CollectedSourceMarket:
         else:
             query = request['request']
             security = query['exchange'] + '.' + query['code']
-            original = self._base.call(request)
-            if security not in self._symbols and not self._supplements:
-                return original
             try:
-                recent = self._read(security, query) if security in self._symbols else None
-                if recent is None and not self._supplements:
-                    return original
-                batches = [recent] if recent is not None else []
-                if original['status']['code'] == 'Ok':
-                    batches.append(original['data'])
-                for supplement in self._supplements:
-                    # 注册表来自原NativeSourceMarket已验证的成功收据；区分未登记与读取失败。
-                    if not supplement.has_source_history(security,'1m'):
-                        continue
-                    response = supplement.call(request)
-                    if response['status']['code'] != 'Ok':
-                        return response
-                    batches.append(response['data'])
+                original, batches = self.source_batches(request)
                 if not batches:
                     return original
                 merged = select_sources(batches, query)
@@ -206,6 +273,9 @@ class CollectedSourceMarket:
         if self._closed:
             return
         failure = None
+        if self._active_reader is not None:
+            self._active_reader.close()
+            self._active_reader = None
         owners = [self._base, self._reader, *self._supplements]
         for owner in reversed(owners):
             try:

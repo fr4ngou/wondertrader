@@ -5,6 +5,7 @@
     "daily_batch.py",
     "daily_contract.py",
     "daily_facts.py",
+    "exchange_calendar.py",
     "history_calendar.py",
     "history_evidence.py",
     "history_factory.py",

@@ -148,7 +148,8 @@
     "src/GuanhengData/ReaderHttpClient.cpp": "483bbaf52f8f4475063ce3699f5f10109de47c806adf8f35d313a4760004a589",
     "src/GuanhengData/ReaderHttpClient.h": "d8f8c7b5f1961e3dbcd15093a3a3e0a67cf7c72dd8afb40b91396ae2afa82016",
     "src/GuanhengCommon/WinHttpSessionDrain.h": "31767424d4926f028ecdfdce41a6a5bc691b9dc615e9d7fb854f49006d62f565",
-    "src/GuanhengCommon/ProviderTypes.h": "7c9d8c514344ed9b9464cb269ab38b23f6bc15b530ac861036b5d40b73246e7f"
+    "src/GuanhengCommon/ProviderTypes.h": "7c9d8c514344ed9b9464cb269ab38b23f6bc15b530ac861036b5d40b73246e7f",
+    "src/GuanhengCollectionReader/CollectionReader.cpp": "b042dae65e42316a64558de20ee5d9f44a3d2c25d6435241f2fcecbf58d5dccd"
   },
   "approval_documents": [
     {

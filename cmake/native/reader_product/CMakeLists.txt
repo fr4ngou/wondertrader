@@ -93,6 +93,14 @@ target_link_libraries(GuanhengRealtimeReader PRIVATE WTSTools WTSUtils nqp_host_
 set_target_properties(GuanhengRealtimeReader PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
+# 自有采集桥只调用上面既有Reader的公开ABI，不包含Writer或改动其线程/归档行为。
+add_library(GuanhengCollectionReader SHARED
+  "${GH_FIXED_OWN_ROOT}/src/GuanhengCollectionReader/CollectionReader.cpp")
+target_include_directories(GuanhengCollectionReader PRIVATE "${GH_FIXED_UPSTREAM_ROOT}/src")
+target_link_libraries(GuanhengCollectionReader PRIVATE WTSTools WTSUtils nqp_host_dependencies)
+set_target_properties(GuanhengCollectionReader PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+  ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+
 foreach(pair "GuanhengNativeMinuteProbe|native_minute_reader/probe.cpp"
     "GuanhengNativeMinuteBoundary|native_minute_reader/boundary.cpp"
     "GuanhengNativeMinuteHost|native_minute_reader/host.cpp"
@@ -116,7 +124,7 @@ if(GH_BUILD_DATA_COMPONENTS)
   endif()
   include("${CMAKE_CURRENT_LIST_DIR}/data_components.cmake")
 endif()
-install(TARGETS GuanhengRealtimeReader WtDataStorage WtDtHelper RUNTIME DESTINATION app)
+install(TARGETS GuanhengRealtimeReader GuanhengCollectionReader WtDataStorage WtDtHelper RUNTIME DESTINATION app)
 install(TARGETS WtDataStorageNrc RUNTIME DESTINATION app/nrc)
 install(TARGETS GuanhengNativeMinuteProbe GuanhengNativeMinuteBoundary GuanhengNativeMinuteHost
   GuanhengPublishedDailyProbe RUNTIME DESTINATION validation/bin)

@@ -21,7 +21,7 @@ class QuoteCollection:
 
     def __init__(self, settings, datakit_config, native_directory, archive_session=None,
                  *, native_factory=None, receiver_factory=None,
-                 clock=time.monotonic, wall_clock=time.time):
+                 clock=time.monotonic, wall_clock=time.time, coverage=None):
         self._settings = settings
         self._datakit_config = datakit_config
         self._native_directory = native_directory
@@ -29,6 +29,7 @@ class QuoteCollection:
         self._native_factory = native_factory or NativeDataKitSession
         self._receiver_factory = receiver_factory
         self._clock, self._wall_clock = clock, wall_clock
+        self._coverage = coverage  # 可选纯时间投影；成功交付后更新，管理线程读取独立有界快照。
         self._guard = threading.Lock()
         self._owner = None
         self._operation = None
@@ -133,6 +134,8 @@ class QuoteCollection:
             pushed = native.push(ticks, kind)
             if pushed != len(ticks):
                 raise RuntimeError("quote_collection_batch_result_unknown")
+            if self._coverage is not None:
+                self._coverage.accept(ticks, observed)
             with self._guard:
                 self._pushed_ticks += pushed
             stage = "native_counts_failed"

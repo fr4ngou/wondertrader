@@ -8,6 +8,10 @@
 
 原Writer负责从接收到的累计快照构造分钟，并由原StateMonitor把实时缓存归档到storage_root/his/min1/SSE或SZSE/code.dsb。模块只读取这一份原生历史，使用原NativeHistory、文件ABI与Helper解码，不另写分钟算法或导入收据。盘中形成中的DMB和分钟订阅沿原NMR；本模块查询已归档DSB。
 
+显式`minute_native`配置将今日及归档统一交原NMR标准Reader读取；自有`GuanhengCollectionReader`仅复制原公开切片及session标签，生命周期由创建线程管理。配置固定桥/Reader/三份基础资料SHA和原Writer根，模块不读取活动DMB字节。省略该项保持下述DSB文件路径。
+
+显式`source-recovered`读方消费原采集owner发布的准备窗口收据和Importer根，不提交来源请求、不取得生产锁。已核完整闭合日可选择原来源整日版本，其他日期保持原选择/冲突规则。恢复请求、原件和导入归原`SourcePreparingMarket`；当前日来源准入及完整性保持其真实边界。日线消费保留自己的base/文件Reader，分钟数据集及标准Reader与生产者一致。配置与自然归档、自动补缺、重启证据见[MCC](../specs/continuous-minute-collection.md)。
+
 source-collected配置拥有base、collection、native_reader、max_bars和max_file_bytes，可选supplements为独立导入补齐来源列表。base及每项supplement沿原source-store/source-stores/source-catalog，拥有各自成功收据和Reader预算；base原注册范围保持。collection拥有storage_root、symbols、source、source_license、price_unit/volume_unit/amount_unit。source明确为QMT行情派生的WT采集数据集身份，不等同于原始逐tick通信会话。原始快照会话不从DSB猜测重建。
 
 原生记录为既有88字节WTSBar。API返回原标签minute及open/high/low/close/volume/amount；本模块保持这些已存数值。dataset_version以wt-collected-min1-v1前缀及声明摘要表示方法，content_id绑定本轮DSB字节，source_label表示该采集数据文件的分钟标签。分钟构造与厂商历史分钟逐值一致须另验，原价量额单位按声明保留unknown，不能据WT文件存在自动取得实盘标准化资格。

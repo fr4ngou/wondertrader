@@ -49,6 +49,10 @@ QuoteCollection（外部历史/待归仓路径：`../../integrations/guanheng/qu
 
 ## 心跳计数与证券覆盖
 
+持续分钟覆盖及恢复沿[MCC规格](../specs/continuous-minute-collection.md)。采集子配置可显式引用`maintenance={path,sha256}`；省略保持原采集路径。接收线程成功交付整包后只记录证券源毫秒、接收秒和计数。原管理循环运行`MinuteCollectionMaintenance`：消费资料owner当前指针、分批调用标准Reader、观察实际缺口，并接续原`SourcePreparingMarket`闭合日任务。原status/ready/closed合同保持，旁路`coverage.json`和`minute-maintenance.json`分别保存时间/名册差异与实际分钟覆盖；从未收到、当前未订、未知分母及不支持类别分别保留。
+
+完整行情Source由`guanheng_qmt_shm.market_source.render_market_source`复用原冻结器生成，包含原QST/HPR/v7/v8四owner、单`agent_tick` timer及四个生命周期回调。无消费者旧交易owner在新行情正文中移除，独立账户交易/v9正文保持原所有权。开发、实际来源和正式切换状态沿[MCC证据](../evidence/2026-11-04-continuous-minute-collection.md)分别登记。
+
 | 字段/观察 | 实际含义 | 使用边界 |
 |---|---|---|
 | 配置symbols | 本实例允许的证券集合，与配对profile绑定 | 板块可能含认购、到期及暂停交易代码，不能直接当作当天应有成交的证券数 |

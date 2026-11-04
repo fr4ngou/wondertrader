@@ -32,6 +32,16 @@ stop_seconds在部署启动前按证券规模和实际归档/回收时间确定�
 
 ## 正常停止与恢复
 
+### MCC完整候选
+
+`scripts/minute_collection.py`提供`stage-program`、`prepare-config`、`verify`、`adopt-source`、`rollback-source`、`run-role`、`stop-role`及`accept-minutes`。前两项只在新E盘根生成程序和配置；`verify`核完整文件集、原/新CAS及同一producer/Reader引用。`adopt-source`和`rollback-source`供Root停止对应GH行后显式调用，按完整正文before/after CAS采用或恢复；独立交易/v9保持。
+
+程序包从当前主线保留其他模块，仅覆盖MCC拥有的源；原Writer组件沿既有固定制品，新桥及Reader沿本次成功离线构建。数据根继续原单Writer，恢复产物仍由原Importer独占新根。完整配置准备同时固定7649等实际集合、contracts/commodities/session、QST双方profile、原HPR联合额度及完整Source，数量取本次名册差异证明，不能固定为历史常数。
+
+Root维护次序：确认HPR原批次完成及未知请求已核；停止原GH行；沿原owner正常停止旧data/quotes角色并核closed/进程树退出；按CAS采用新Source及运行配置；启动新data角色，保持原公开端口及凭据角色；恢复GH行；核认证、实际注册/投递和公开分钟；最后由原日线owner采用新的只读base并发布对应版本，保持18136、token和数据原件。回退先停新GH/角色，再按after CAS恢复完整旧正文，沿原角色/配置重启并核公开读取。
+
+`run-role`复用原`ManagedLocalProcess`及WRI命令，`stop-role`只发送该owner身份的正常停止；实际closed由原监督者发布。`accept-minutes`查询实际策略八ETF、股票和沪深指数，逐项记录该日原值与尾时刻；结果只证明所列样本。来源不支持的市场、当日历史准入、缺少分钟与覆盖未知继续保留。正式源采用和运行资格按[MCC证据](../evidence/2026-11-04-continuous-minute-collection.md)核定。
+
 启用原生day归档、50常用指数持续订阅与统一历史动态尾部时，按[持续日线手册](continuous-native-day.md)生成同批配置。维护窗口一次切换后复用原收盘归档，后续每日无需手工打包日线。
 
 停止观衡只收回观衡资源，采集继续运行。停止WT时，父运行入口向采集owner交付停止；Receiver结束并join后归档、关闭Native，父owner核实际子树退出、双管道EOF、线程join及句柄释放。closed.json只在原组件成功关闭时发布；生成文件仍由Helper/Reader回读确认。

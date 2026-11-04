@@ -411,6 +411,12 @@ def main(argv=None):
 
 def create_native_source_market(config, *, max_response_bytes=8 * 1024 * 1024):
     """显式来源配置选择实现；已有导入模式保持原Reader和缓存行为。"""
+    if type(config) is dict and config.get('mode') == 'source-recovered':
+        from .recovered_history import RecoveredSourceMarket
+        return RecoveredSourceMarket(config, max_response_bytes=max_response_bytes)
+    if type(config) is dict and config.get('mode') == 'source-preparing':
+        from .source_history_preparation import SourcePreparingMarket
+        return SourcePreparingMarket(config)
     if type(config) is dict and config.get('mode') == 'source-market-current':
         from .market_current import CurrentSourceMarket
         return CurrentSourceMarket(config,max_response_bytes=max_response_bytes)

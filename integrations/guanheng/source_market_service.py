@@ -39,7 +39,7 @@ def _configuration(path, expected):
     _need(type(timeout) in (int, float) and .1 <= timeout <= 30 and math.isfinite(timeout))
     _need(type(value['token_env']) is str and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', value['token_env']))
     source_config = _json(_read(_path(source['path']), 1024 * 1024, source['sha256']))
-    _need(source_config.get('mode') in ('source-store', 'source-stores', 'source-catalog', 'source-preparing', 'source-collected', 'source-shm-quotes', 'source-daily-overlay', 'source-market-snapshot', 'source-market-current'))
+    _need(source_config.get('mode') in ('source-store', 'source-stores', 'source-catalog', 'source-preparing', 'source-recovered', 'source-collected', 'source-shm-quotes', 'source-daily-overlay', 'source-market-snapshot', 'source-market-current'))
     if 'daily_update'in value:
         from integrations.guanheng.daily_data_service import validate_configuration
         descriptor=value['daily_update'];_fields(descriptor,'path sha256')

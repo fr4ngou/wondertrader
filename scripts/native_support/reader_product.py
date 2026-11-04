@@ -62,7 +62,10 @@ def main():
     if not 1 <= args.seconds <= 7200:
         raise ValueError("build budget must be 1..7200 seconds")
     work = args.work.resolve()
-    work.relative_to(ROOT / "build")
+    # 深工作树加Boost源码路径会超过Windows原生工具路径额度；允许独立E盘构建根。
+    # 输入始终从ROOT核验和快照，输出位置不改变任何源码身份或选择。
+    if not work.is_absolute() or work.drive.upper() != 'E:':
+        raise ValueError("reader build requires an absolute E: work directory")
     if work.exists():
         raise ValueError("use a new work directory")
     work.mkdir(parents=True)
@@ -101,8 +104,9 @@ def main():
     write_snapshot(work / "inputs/embedded", entries, commit=lock["commit"])
     remaining(deadline, "embedded snapshot returned")
     names = set(lock["owned_sources"])
-    names.update(["scripts/native.py", "config/native-dependencies.json", "config/native-reader-sources.json",
-                  "cmake/native/writer_lifecycle.cmake", lock["wlc"]["source"]])
+    names.update(["scripts/native.py", "config/native-dependencies.json", "config/native-reader-sources.json"])
+    if args.writer_lifecycle:
+        names.update(["cmake/native/writer_lifecycle.cmake", lock["wlc"]["source"]])
     names.update("scripts/native_support/" + n for n in ("__init__.py", "reader_product.py", "artifact.py",
         "qmt_readonly_fixed.py", "process_startup.py", "process_job.py"))
     for directory in ("cmake/native/reader_product",):

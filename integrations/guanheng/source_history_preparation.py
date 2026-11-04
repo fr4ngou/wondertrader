@@ -22,7 +22,9 @@ from .qmt_minute_import import import_dataset,_Native
 from .source_market import NativeSourceMarket,create_native_source_market
 from .quote_collection_service import _inspect,_read
 from .source_history_transport import BoundHistorySource,SourcePending,require
+from .source_history_reads import HistoryReadOperations
 from .source_history_selection import select_sources,SourceSelectionConflict
+from .source_history_repository import PreparedHistoryRepository,PreparedHistoryReader,PreparedHistoryBudget,recovery_preferences
 from . import source_history_followup as followup
 
 SHANGHAI=timezone(timedelta(hours=8))
@@ -52,17 +54,25 @@ class SourcePreparingMarket:
     """创建线程独占；旧根与至多一个窗口Reader各有显式缓存额度。"""
 
     def __init__(self,configuration,*,environ=None,clock=time.monotonic,wall_clock=time.time):
-        self.owner=threading.get_ident();self.base=self.overlay=self.lock=None
+        self.owner=threading.get_ident();self.base=self.overlay=self.lock=self.published_reader=None
         self.overlay_key=None;self.closed=False;self.clock=clock;self.wall_clock=wall_clock
         try:
             require(type(configuration)is dict and set(configuration)=={'mode','base','preparation'}and configuration['mode']=='source-preparing')
             self.base_configuration=configuration['base'];c=configuration['preparation']
-            require(type(c)is dict and set(c)-{'follow_up','symbols'}=={'enabled','workspace','host','helper','source_profile',
+            require(type(c)is dict and set(c)-{'follow_up','symbols','retained_reads','closed_day_recovery','partitioned_receipts'}=={'enabled','workspace','host','helper','source_profile',
                 'timeout_seconds','max_windows','max_window_minutes','max_pages','max_rows','max_bytes','overlay_cache_bars','max_import_attempts'})
             require(c['enabled']is True)
             self.follow=followup.configuration(c['follow_up'])if 'follow_up'in c else None
-            self.receipt_schema='qmt.source-history-preparation-receipt.v2'if self.follow else'qmt.source-history-preparation-receipt.v1'
-            for key,maximum in [('max_windows',1024),('max_window_minutes',7200),('max_pages',128),
+            require(type(c.get('retained_reads',False))is bool)
+            self.closed_day_recovery=c.get('closed_day_recovery',False)  # 显式完整闭合日恢复；原始Writer归档和旧默认冲突规则保持。
+            require(type(self.closed_day_recovery)is bool and(not self.closed_day_recovery or c.get('retained_reads',False)))
+            self.partitioned=c.get('partitioned_receipts',False)  # 新根按证券分目录；旧配置身份保持。
+            require(type(self.partitioned)is bool and(not self.partitioned or self.closed_day_recovery))
+            self.receipt_schema=('qmt.source-history-preparation-receipt.v5'if self.partitioned
+                else'qmt.source-history-preparation-receipt.v4'if self.closed_day_recovery
+                else'qmt.source-history-preparation-receipt.v3'if c.get('retained_reads',False)
+                else'qmt.source-history-preparation-receipt.v2'if self.follow else'qmt.source-history-preparation-receipt.v1')
+            for key,maximum in [('max_windows',1000000 if self.partitioned else 1024),('max_window_minutes',7200),('max_pages',128),
                     ('max_rows',100000),('max_bytes',67108864),('overlay_cache_bars',1000000),('max_import_attempts',16)]:
                 require(type(c[key])is int and 1<=c[key]<=maximum)
             require(type(c['timeout_seconds'])in(int,float)and .1<=c['timeout_seconds']<=30)
@@ -89,14 +99,18 @@ class SourcePreparingMarket:
             else:
                 import fcntl
                 fcntl.flock(self.lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            self._members()
+            self.repository=PreparedHistoryRepository(self.root,self.identity,self.receipt_schema,
+                c['max_windows'],partitioned=self.partitioned)
+            self.window_count=self.repository.count()  # 唯一写owner启动核实；新增窗口递增，避免逐次扫描全市场。
             self.source=BoundHistorySource(c['host'],environ=environ,clock=clock)
+            self.reads=HistoryReadOperations(self.source,self.root,retained=c.get('retained_reads',False))
             helper=Path(c['helper']['library'])
             require(helper.is_absolute());_inspect(helper)
             require(helper.stat().st_nlink==1)
             # 制品和ABI在任何SDK副作用前核验，仍复用Importer唯一加载逻辑。
             dependency=_Native(helper,c['helper']['sha256']);dependency.close()
             self.base=create_native_source_market(configuration['base'])
+            self.published_reader=PreparedHistoryReader(self.base_configuration,self.c,clock=self.clock)
             self._profile(None,'validation-only')
         except BaseException:
             self.close();raise
@@ -105,13 +119,7 @@ class SourcePreparingMarket:
         require(threading.get_ident()==self.owner and not self.closed)
 
     def _members(self):
-        count=0
-        for path in self.root.iterdir():
-            if path.name in ('configuration.json','owner.lock'):continue
-            require(re.fullmatch('[0-9a-f]{64}',path.name)is not None)
-            _inspect(path,True);count+=1
-            require(count<=self.c['max_windows'])
-        return count
+        return self.repository.count()
 
     def _save(self,directory,state):
         raw=canonical(state);require(len(raw)<=self.c['max_bytes'])
@@ -126,9 +134,11 @@ class SourcePreparingMarket:
 
     def _state(self,query):
         selected={key:query[key]for key in ('exchange','code','from','to')}
-        key=hashlib.sha256(canonical(selected)).hexdigest();directory=self.root/key
+        key,directory=self.repository.directory(selected)
         if not directory.exists():
-            budget(self._members()<self.c['max_windows']);create_private_directory(directory)
+            budget(self.window_count<self.c['max_windows'])
+            if self.partitioned and not directory.parent.exists():create_private_directory(directory.parent)
+            create_private_directory(directory);self.window_count+=1
         _inspect(directory,True)
         if (directory/'receipt.json').exists():
             state=decode(_read(directory/'receipt.json',self.c['max_bytes']))
@@ -181,7 +191,7 @@ class SourcePreparingMarket:
                 calendar_end=cursor.replace(hour=0,minute=0)+timedelta(days=calendar_days,minutes=-1)
                 last=min(end,cursor+timedelta(minutes=maximum-2),calendar_end)
                 arguments=dict(symbol=symbol,start_time=cursor.strftime('%Y%m%d%H%M00'),end_time=last.strftime('%Y%m%d%H%M00'),max_rows=maximum)
-                pages.append(self.source.plan('market.history_1m',arguments,metadata,deadline))
+                pages.append(self.reads.plan('market.history_1m',arguments,metadata,deadline,directory))
                 cursor=last+timedelta(minutes=1)
             holder[phase]=dict(binding=metadata['binding'],pages=pages);save()
         pages=holder[phase]['pages']
@@ -199,7 +209,7 @@ class SourcePreparingMarket:
                 and args['max_rows']==limits['max_rows']and(last.date()-cursor.date()).days<limits['max_calendar_days']
                 and int((last-cursor).total_seconds()/60)+1<args['max_rows'])
             cursor=last+timedelta(minutes=1)
-            result=self.source.observe(record,save,deadline)
+            result=self.reads.observe(record,save,deadline)
             require(result['ok']is True)
             data=result['data'];args=record['request']['arguments']
             require(type(data)is dict and set(data)=={'schema_version','symbol','period','start_time','end_time','max_rows','rows','coverage','source_options'}
@@ -242,6 +252,16 @@ class SourcePreparingMarket:
             and verified['securities'][0]['symbol']==symbol and verified['securities'][0]['count']==len(rows))
         if self.clock()>=deadline:raise SourcePending('native import returned after deadline')
         published=dict(root=str(store),import_receipt_sha256=hashlib.sha256(raw).hexdigest(),count=len(rows))
+        if self.closed_day_recovery:
+            query=state['query'];first,last=stamp(query['from']),stamp(query['to'])
+            if first.date()==last.date()and last.date()<datetime.now(SHANGHAI).date():
+                security=('SSE.'if symbol.endswith('.SH')else'SZSE.')+symbol[:6]
+                expected=self.base.expected_minutes(security,first.date().isoformat())
+                actual=[label(datetime.fromtimestamp(row[0]/1000,SHANGHAI))for row in rows]
+                if expected and actual==expected and query['from']==expected[0]and query['to']==expected[-1]:
+                    published['reconciled_day']=dict(
+                        **{'from':expected[0],'to':expected[-1]},  # 已闭合日的原WT session完整右端范围。
+                        dataset_version=profile['dataset_version'])  # 固定完整来源版本；原采集和部分恢复根均保留。
         # 注册前原Reader再次验成功收据、同一metadata、DSB和实际行，不把Helper返回当发布。
         self._select(state['window_id'],published,symbol)
         if self.clock()>=deadline:raise SourcePending('native readback returned after deadline')
@@ -281,21 +301,10 @@ class SourcePreparingMarket:
             return manifest_path,store
 
     def _select(self,key,published,symbol):
-        identity=(key,published['root'],published['import_receipt_sha256'])
-        if self.overlay_key==identity:return
-        if self.overlay is not None:self.overlay.close();self.overlay=None;self.overlay_key=None
-        require(published['count']<=self.c['overlay_cache_bars'])
-        security=('SSE.'if symbol.endswith('.SH')else'SZSE.')+symbol[:6]
-        config=dict(mode='source-store',store_root=published['root'],import_receipt_sha256=published['import_receipt_sha256'],
-            native_reader=self.base_configuration['native_reader'],max_bars=self.c['max_rows'],
-            max_cache_bars=self.c['overlay_cache_bars'],preload_symbols=[security])
-        self.overlay=NativeSourceMarket(config);self.overlay_key=identity
+        self.published_reader.select(key,published,symbol)
 
     def _selected_query(self,request,deadline):
-        if self.clock()>=deadline:raise SourcePending('source readback deadline')
-        result=self.overlay.call(request)
-        if self.clock()>=deadline:raise SourcePending('source readback returned after deadline')
-        return result
+        return self.published_reader.query(request,deadline)
 
     def _window(self,query,deadline):
         """选择范围之外的源工作只在这个显式有限窗口推进，原HPR至多一次。"""
@@ -320,14 +329,14 @@ class SourcePreparingMarket:
                 if self.follow:
                     self._capacity(metadata['limits'])
                     state['follow_up']=followup.initial(self.follow,self.source.uptime.seconds(),self.wall_clock())
-                state['prepare']=self.source.plan('market.history_prepare',self.source.prepare_arguments(symbol,
-                    start.strftime('%Y%m%d%H%M00'),end.strftime('%Y%m%d%H%M00'),metadata,deadline),metadata,deadline)
+                state['prepare']=self.reads.plan('market.history_prepare',self.source.prepare_arguments(symbol,
+                    start.strftime('%Y%m%d%H%M00'),end.strftime('%Y%m%d%H%M00'),metadata,deadline),metadata,deadline,directory)
                 self._save(directory,state)
             planned=state['prepare']['request']
             require(planned['operation_id']=='market.history_prepare'and planned['arguments']['symbol']==symbol
                 and planned['arguments']['period']=='1m'and planned['arguments']['start_time']==start.strftime('%Y%m%d%H%M00')
                 and planned['arguments']['end_time']==end.strftime('%Y%m%d%H%M00'))
-            prepared=self.source.observe(state['prepare'],lambda:self._save(directory,state),deadline)
+            prepared=self.reads.observe(state['prepare'],lambda:self._save(directory,state),deadline)
             require(prepared['ok']is True or prepared.get('error_code')=='preparation_unknown')
             rows,binding=self._reads(state,'after',directory,symbol,start,end,deadline)
         self._publish(state,directory,symbol,rows,binding,deadline)
@@ -353,32 +362,13 @@ class SourcePreparingMarket:
 
     def _published(self,request,preferred,deadline,budget):
         """仅原成功窗口收据作路由；无第二份价格索引，最多一个活动Reader。"""
-        query=request['request'];candidates=[];states={};count=0
-        for path in self.root.iterdir():
-            if path.name in('configuration.json','owner.lock'):continue
-            count+=1;require(count<=self.c['max_windows']);_inspect(path,True)
-            receipt=path/'receipt.json'
-            if not receipt.exists():continue
-            if self.clock()>=deadline:raise SourcePending('source registry deadline')
-            if _inspect(receipt).st_size>budget[0]:raise SourcePreparationBudget('source registry bytes')
-            raw=_read(receipt,budget[0]);budget[0]-=len(raw)
-            state=decode(raw)
-            require(state['schema']==self.receipt_schema and state['configuration_sha256']==self.identity)
-            selected=state['query']
-            require(set(selected)=={'exchange','code','from','to'})
-            validate_request(dict(api_version=API_VERSION,action='history.source-query',request=dict(selected,limit=query['limit'])))
-            require(path.name==hashlib.sha256(canonical(selected)).hexdigest())
-            if path.name==preferred:states[path.name]=state
-            if selected['exchange']!=query['exchange']or selected['code']!=query['code']or selected['to']<query['from']or selected['from']>query['to']:continue
-            if state['published']is not None:candidates.append((path.name,state))
-        def batches():
-            for key,state in sorted(candidates,key=lambda pair:(pair[0]!=preferred,pair[0])):
-                symbol=query['code']+('.SH'if query['exchange']=='SSE'else'.SZ')
-                self._select(state['window_id'],state['published'],symbol)
-                result=self._selected_query(request,deadline)
-                require(result['status']['code']=='Ok')
-                yield result['data']
-        return batches(),states
+        try:
+            candidates,states=self.repository.find(request['request'],preferred,deadline=deadline,
+                byte_budget=budget,clock=self.clock)
+        except PreparedHistoryBudget as error:
+            raise SourcePreparationBudget(str(error))from error
+        preferences=recovery_preferences(candidates)if self.closed_day_recovery else[]
+        return self.published_reader.batches(candidates,request,deadline),states,preferences
 
     def _observation(self,query,window,state,data,phase,reason,deadline):
         preparation='NotNeeded';rid=None;source_rows=0
@@ -388,7 +378,7 @@ class SourcePreparingMarket:
             if record is not None:
                 rid=record['request']['request_id'];preparation='Pending'
                 if record['result']is not None:
-                    terminal=self.source.observe(record,lambda:None,deadline)
+                    terminal=self.reads.observe(record,lambda:None,deadline)
                     preparation='CallReturned'if terminal['ok']else'Unknown'if terminal.get('error_code')=='preparation_unknown'else'Unavailable'
         if phase in('Pending','Unavailable','NotSupported','Budget'):preparation=phase if rid is None else preparation
         return dict(schema='qmt.source-selection-observation.v1',state=phase if phase in('Archive','Observed')else'Partial',
@@ -414,9 +404,9 @@ class SourcePreparingMarket:
             # 原from/to/limit先选已有值，准备预算不改变档案查询的允许范围。
             original=self.base.call(request)
             if self.clock()>=deadline:raise SourcePending('archive readback returned after deadline')
-            known,states=self._published(request,preferred,deadline,budget)
+            known,states,preferences=self._published(request,preferred,deadline,budget)
             batches=chain(known,[original['data']]if original['status']['code']=='Ok'else[])
-            data=select_sources(batches,query)
+            data=select_sources(batches,query,preferred_ranges=preferences)
             state=states.get(preferred)
             ready=data is not None and len(data['bars'])>=min(query['limit'],int((end-start).total_seconds()/60)+1)and data['bars'][-1]['minute']==query['to']
             if state is not None and state['published']is not None:
@@ -435,9 +425,9 @@ class SourcePreparingMarket:
                         phase='Budget';reason='已返回可读原值；有限准备预算已停，尾部待补：'+str(error)
                     except (OSError,ValueError,KeyError,TypeError,MarketUnavailable,IntegrationUnavailable):phase='Unavailable'
                     if self.clock()>=deadline:raise SourcePending('source original deadline')
-                    known,states=self._published(request,preferred,deadline,budget);state=states.get(preferred)
+                    known,states,preferences=self._published(request,preferred,deadline,budget);state=states.get(preferred)
                     batches=chain(known,[original['data']]if original['status']['code']=='Ok'else[])
-                    data=select_sources(batches,query)
+                    data=select_sources(batches,query,preferred_ranges=preferences)
                     if state is not None and state['published']is not None:
                         phase='Observed'if state['published']['count']>=min(query['limit'],int((end-start).total_seconds()/60)+1)else'Partial'
                         reason='有限尾窗已实际回读；返回最近可读原值，未授市场完整覆盖'
@@ -463,7 +453,7 @@ class SourcePreparingMarket:
 
     def close(self):
         require(threading.get_ident()==self.owner)
-        if self.overlay is not None:self.overlay.close();self.overlay=None
+        if self.published_reader is not None:self.published_reader.close();self.published_reader=None
         if self.base is not None:self.base.close();self.base=None
         if self.lock is not None:self.lock.close();self.lock=None
         self.closed=True
