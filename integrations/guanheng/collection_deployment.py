@@ -21,23 +21,30 @@ def prepare_configuration(request):
     """固定原/新CAS并新建全部私有配置；只读旧配置，继续使用同一Writer数据根。
 
     request的program、roster、data_runtime、hpr_pair_manifest、source_cas均为固定描述符；
+    process_pythonw固定新history/collection的完整运行环境，原HPR解释器保持。
     hpr_pair_manifest指向已由原产品工厂生成并验证的最终路径。metadata沿唯一资料owner。
     返回供Root启动/停止/回退的完整清单，不启动进程、不更改任何CURRENT或QMT文件。
     """
     require(type(request) is dict and set(request) - {'daily_role_service'} == {'schema', 'output', 'program', 'roster',
-        'data_runtime', 'hpr_pair_manifest', 'source_cas', 'metadata', 'priority_symbols', 'daily_base', 'history_credential'}
+        'data_runtime', 'hpr_pair_manifest', 'source_cas', 'metadata', 'priority_symbols', 'daily_base', 'history_credential', 'process_pythonw'}
         and request['schema'] == 'qmt.minute-collection-configuration-request.v1')
     root = Path(request['output'])
     require(root.is_absolute() and root.resolve().drive.upper() == 'E:' and not root.exists())
     program_manifest = verify_program(request['program'])
     program = Path(request['program']['path']).parent
+    process_pythonw = request['process_pythonw']  # 新服务完整解释器及其SHA；不沿旧角色的精简依赖继承。
+    require(set(process_pythonw) == {'path', 'sha256'} and Path(process_pythonw['path']).is_absolute()
+            and Path(process_pythonw['path']).name.lower() == 'pythonw.exe')
+    read_fixed(process_pythonw['path'], maximum=67108864, identity=process_pythonw['sha256'])
     roster = load(request['roster'])
     require(roster['schema'] == 'qmt.collection-roster-candidate.v1')
     original = load(request['data_runtime'])
     require(set(original['components']) == {'host', 'history', 'collection'})
     source_cas = load(request['source_cas'])
-    for key in ('source_before', 'source_after'):
-        read_fixed(source_cas[key]['path'], maximum=2097152, identity=source_cas[key]['sha256'])
+    read_fixed(source_cas['source_after']['path'], maximum=2097152, identity=source_cas['source_after']['sha256'])
+    # Root已采用完整after时可重新准备运行接线；任意第三种正文仍拒绝，原目标不写入。
+    require(descriptor(source_cas['source_before']['path'])['sha256'] in
+            {source_cas['source_before']['sha256'], source_cas['source_after']['sha256']})
     pair_manifest = load(request['hpr_pair_manifest'])
     require(pair_manifest['schema_version'] == 'qmt.history-preparation-product-pair.v1')
     pair = Path(request['hpr_pair_manifest']['path']).parent
@@ -117,6 +124,7 @@ def prepare_configuration(request):
     create_private_directory(root / 'collection-controls')
     entry = descriptor(program / 'integrations/guanheng/quote_collection_service.py')
     collection = dict(old_collection, configuration=files['worker']['path'], configuration_sha256=files['worker']['sha256'],
+        pythonw=process_pythonw['path'], pythonw_sha256=process_pythonw['sha256'],
         entry=entry['path'], entry_sha256=entry['sha256'], control_root=str(root / 'collection-controls'),
         startup_seconds=90, stop_seconds=60)
     files['collection_process'] = save('collection-process.json', collection)
@@ -140,6 +148,7 @@ def prepare_configuration(request):
     create_private_directory(root / 'history-controls')
     entry = descriptor(program / 'integrations/guanheng/source_market_service.py')
     history = dict(old_history, configuration=files['service']['path'], configuration_sha256=files['service']['sha256'],
+        pythonw=process_pythonw['path'], pythonw_sha256=process_pythonw['sha256'],
         entry=entry['path'], entry_sha256=entry['sha256'], control_root=str(root / 'history-controls'))
     files['history_process'] = save('history-process.json', history)
     create_private_directory(root / 'hpr-controls')

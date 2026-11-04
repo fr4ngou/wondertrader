@@ -38,6 +38,8 @@ stop_seconds在部署启动前按证券规模和实际归档/回收时间确定�
 
 程序包从当前主线保留其他模块，仅覆盖MCC拥有的源；原Writer组件沿既有固定制品，新桥及Reader沿本次成功离线构建。数据根继续原单Writer，恢复产物仍由原Importer独占新根。完整配置准备同时固定7649等实际集合、contracts/commodities/session、QST双方profile、原HPR联合额度及完整Source，数量取本次名册差异证明，不能固定为历史常数。
 
+配置准备请求的`process_pythonw={path,sha256}`显式选择新history/collection完整解释器，原HPR及日线环境独立保持。准入须以每份实际descriptor解释器在`-I -B`下加载其实际入口，核模块来自候选release；schema通过不替代入口依赖验证。Source已被Root按after CAS采用时，准备新目录仍保留原before/after身份及回退备份。实际启动接线修正见[后继验证](../evidence/2026-11-04-minute-startup-runtime-repair.md)。
+
 Root维护前确认当前HPR/日线轮次完成或原请求责任已交接，原未知请求保持原ID核查。动态日线组合先正常停止原日线owner；随后停止原GH行，沿原owner正常停止旧data/quotes并核closed及进程树退出，按CAS采用完整新Source，启动新data/quotes角色，恢复GH行，再启动新日线角色。逐段核认证、实际注册/投递、公开分钟及原日线查询。金融WT及其分析owner保持原所有权。回退先正常停止新日线、GH及新quotes/data，按after CAS恢复旧正文，沿固定原配置恢复data/quotes、GH及原日线控制器。
 
 当前正式日线为动态读取与每日生产同SMP时，`prepare-config`可增加`daily_role_service`固定引用；`daily_base`必须捕获实际当前Snapshot.base，不能用历史模板替代。工厂生成带delegate的`daily-source`、保留原`daily_update`的SMP配置及新角色控制配置，原市场CURRENT/日线任务根/保护槽/53指数等原件保持。此路径由Root先正常停止旧日线owner以释放共享来源与发布租约，统一维护Source/data/quotes，再采用新日线角色；回退停止新角色后沿原控制器恢复。新角色控制CURRENT独立，金融WT当前代及v7/v8所有者保持，避免控制旧HOSTS-RUNTIME。

@@ -1,5 +1,7 @@
 # 验证证据
 
+- [分钟角色实际启动接线修正](2026-11-04-minute-startup-runtime-repair.md)：primary旧解释器缺SDK及collector漏release根的无启动红绿验证；显式完整环境、Root013实际工厂构造及新完整候选，正式重试由Root。
+
 - [分钟与动态日线最终采用候选](2026-11-04-minute-daily-adoption-candidate.md)：`.9`实际安装入口、53指数及原日线保留、原HPR/未知请求、固定Source/程序/配置与可执行启停回退；正式切换及实际覆盖待Root。
 
 - [cash.4实际统一启停与精确资金](../releases/2026-11-04-cash4-unified-runtime.md)：八组件正常停止/启动、新cache自动创建、原资金/委托保持、持续新分析发布及观衡实际刷新。

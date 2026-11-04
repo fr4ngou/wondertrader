@@ -8,7 +8,7 @@ _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 _RELEASE_ROOT = _PACKAGE_ROOT.parent
 if not __package__:
     # 直接脚本才装配独立发行路径；按包导入helper保留宿主的SDK解析及模块身份。
-    for _root in (_PACKAGE_ROOT, _RELEASE_ROOT/'connectors/qmt_shm/agent', _RELEASE_ROOT/'connectors/qmt_shm/host'):
+    for _root in (_RELEASE_ROOT, _PACKAGE_ROOT, _RELEASE_ROOT/'connectors/qmt_shm/agent', _RELEASE_ROOT/'connectors/qmt_shm/host'):
         if str(_root) not in sys.path:
             sys.path.insert(0, str(_root))
 
