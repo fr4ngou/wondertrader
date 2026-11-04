@@ -6,8 +6,22 @@ from datetime import datetime, timezone
 import threading
 import time
 from guanheng_qmt_shm_agent.control_peer import ControlPeer
+from guanheng_qmt_shm_agent.builtin_shm import PendingIO
 from guanheng_qmt_shm_agent.protocol import ProtocolError, canonical, decode
 from .domain import HostDomainWorker
+
+
+class _ReadClaim(tuple):
+    """保留原(rid,body,queue_remaining_ms,queue_expiry_utc)四元组；关闭/Bulk仍按原合同消费。"""
+    def __new__(cls, active, queue_deadline, reply_deadline, wait_error=None):
+        value=super().__new__(cls,active)
+        object.__setattr__(value,'queue_deadline',queue_deadline)  # 领取时冻结的原排队monotonic截止，单位秒。
+        object.__setattr__(value,'reply_deadline',reply_deadline)  # 原票据monotonic上界，单位秒；无票据为None，跨域不续期。
+        object.__setattr__(value,'wait_error',wait_error)  # 元数据核查异常，原ID仍由四元组持有，先接管再向业务传播。
+        return value
+
+    def __setattr__(self,name,value):
+        raise AttributeError('original read claim is immutable')
 
 
 class HostControlLoop:
@@ -16,6 +30,11 @@ class HostControlLoop:
         self._binding=canonical(binding)
         self.peer=ControlPeer('host',session.generation,runtime.control_profile)
         self.active,self.read_future=None,None
+        self._read_queue_deadline=None  # Journal领取时冻结的monotonic原排队上界；UTC跳变不续期。
+        self._read_wait_deadline=None  # Journal冻结的原票据monotonic上界；无票据为None，I/O只取min。
+        self._read_reply_deadline=None  # 同一RPC提交时冻结的monotonic等待上界；后续周期不得延长。
+        self._trade_wait_future=None  # 同一原金融调用对象；只关联等待窗口，不持有或改写命令。
+        self._trade_wait_deadline=None  # 原命令业务D映射到monotonic后的保守截止。
         self._read_scan,self._read_commit=None,None
         self._read_finish=None
         self._read_commit_payload=None  # 原finish全文和原持久截止；与Future一起保留到确认完成。
@@ -36,7 +55,22 @@ class HostControlLoop:
 
     def _journal_call(self, operation, payload):
         if operation=='read.claim':
-            return self.runtime.claim_bound(self.binding)
+            active=self.runtime.claim_bound(self.binding)
+            if active is None:
+                return None
+            upper=queue_deadline=None
+            try:
+                sampled=time.monotonic()
+                remaining=min(active[2]/1000,max(0,active[3]-time.time()))
+                queue_deadline=sampled+remaining
+                read_upper=getattr(self.runtime.journal,'read_reply_upper',None)
+                if read_upper is not None:
+                    upper=read_upper(active[0],active[1],
+                        deadline=time.monotonic()+self.runtime.budget.io_seconds)
+            except Exception as error:
+                # 领取已发生。先交原四元组所有权，避免元数据失败使close丢失原ID。
+                return _ReadClaim(active,queue_deadline,upper,error)
+            return _ReadClaim(active,queue_deadline,upper)
         if operation=='read.finish':
             self.runtime.journal.finish_bound(payload['request_id'],payload['result'],self.binding,
                                              deadline=payload['deadline'])
@@ -54,14 +88,21 @@ class HostControlLoop:
 
     def _progress_domain(self):
         if self._read_scan is not None and self._read_scan.done():
-            self.active=self._domain_result(self._read_scan)
+            claimed=self._domain_result(self._read_scan)
+            self.active=claimed
+            self._read_queue_deadline=None if claimed is None else claimed.queue_deadline
+            self._read_wait_deadline=None if claimed is None else claimed.reply_deadline
             self._read_scan=None
+            if claimed is not None and claimed.wait_error is not None:
+                self.domain_failed=True
+                raise claimed.wait_error
         if self._read_commit is not None and self._read_commit.done():
             self._domain_result(self._read_commit)
             self._read_commit=None
             self._read_commit_payload=None
             # 先消除active再ACK；收据丢失不能用中断覆盖已提交成功。
             self.active=None
+            self._read_queue_deadline=self._read_wait_deadline=self._read_reply_deadline=None
             if self.read_future is not None:
                 self.read_future.ack()
 
@@ -74,9 +115,22 @@ class HostControlLoop:
             if self.active is not None:
                 unused_id,body,original_ms,expires=self.active
                 request=decode(body)
-                remaining=max(1,min(original_ms,int((expires-time.time())*1000)))
-                call_expiry=datetime.fromtimestamp(expires+request['timeout_ms']/1000
-                    +self.runtime.budget.io_seconds,timezone.utc).isoformat()
+                sampled=time.monotonic()
+                remaining=min(original_ms,int((self._read_queue_deadline-sampled)*1000))
+                self._read_reply_deadline=self._read_queue_deadline+request['timeout_ms']/1000+self.runtime.budget.io_seconds
+                if self._read_wait_deadline is not None:
+                    self._read_reply_deadline=min(self._read_reply_deadline,self._read_wait_deadline)
+                if remaining<=0 or sampled>=self._read_reply_deadline:
+                    raise TimeoutError('original read admission deadline elapsed')
+                # UTC仅编码现有RPC期限；本地等待始终沿域线程冻结的monotonic原D。
+                utc=time.time()
+                duration=min(self._read_reply_deadline-sampled,self.peer.profile.max_call_seconds)
+                upper=utc+duration
+                call_expiry=datetime.fromtimestamp(upper,timezone.utc)
+                if call_expiry.timestamp()>upper:
+                    from datetime import timedelta
+                    call_expiry-=timedelta(microseconds=1)
+                call_expiry=call_expiry.isoformat()
                 self.read_future=self.peer.submit('agent.read',{'kind':'read',
                     'body':base64.b64encode(body).decode('ascii'),'queue_timeout_ms':remaining,
                     'queue_expires_at':expires},call_expiry)
@@ -132,13 +186,57 @@ class HostControlLoop:
     def notify_read(self):
         self._read_wake.set();self._wake.set()
 
+    def _reply_deadline(self, idle_deadline):
+        """只等待已送出的原业务调用；多个责任取最早D，停止只能进一步收紧。"""
+        ends=[]
+        if (self.read_future is not None and self._read_reply_deadline is not None
+                and self.read_future.delivery in ('sending','sent')):
+            ends.append(self._read_reply_deadline)
+        future=getattr(self,'_trade_future',None)
+        record=getattr(self,'_trade_active',None)
+        if future is not None and record is not None and future.delivery in ('sending','sent'):
+            if future is not self._trade_wait_future:
+                sampled=time.monotonic()
+                self._trade_wait_deadline=sampled+record['deadline']-self.runtime.business_seconds()
+                self._trade_wait_future=future
+            ends.append(self._trade_wait_deadline)
+        else:
+            self._trade_wait_future=self._trade_wait_deadline=None
+        selected=min(ends) if ends else idle_deadline
+        for upper in (getattr(self.runtime,'_shutdown_deadline',None),
+                      getattr(self,'_interrupt_deadline',None)):
+            if upper is not None:
+                selected=min(selected,upper)
+        return selected
+
+    def _receive_packet(self):
+        """原builtin SHM非阻塞接缝保留单帧身份；等待可被原stop/截止立即收紧。"""
+        idle_deadline=time.monotonic()+self.runtime.budget.io_seconds
+        attempt=getattr(self.session.framer,'try_receive',None)
+        if attempt is None:
+            # 旧运输保持原单次I/O预算，不向未提供非阻塞接缝的运输授扩展等待。
+            return self.session.receive(idle_deadline)
+        while not self.runtime._stop.is_set():
+            end=self._reply_deadline(idle_deadline)
+            try:
+                return self.session.incoming(attempt(end))
+            except PendingIO:
+                remaining=end-time.monotonic()
+                if remaining<=0:
+                    raise TimeoutError('original Host reply deadline elapsed')
+                self._wake.wait(min(self.runtime.control_profile.poll_seconds,remaining))
+                self._wake.clear()
+        return None
+
     def run(self):
         while not self.runtime._stop.is_set():
             self._admit()
             batch=self.peer.prepare()
             self.session.send(batch.packet,time.monotonic()+self.runtime.budget.io_seconds)
             self.peer.sent(batch)
-            packet=self.session.receive(time.monotonic()+self.runtime.budget.io_seconds)
+            packet=self._receive_packet()
+            if packet is None:
+                return
             self.runtime.last_tick=self.peer.receive(packet)
             while True:
                 call=self.peer.take_call()

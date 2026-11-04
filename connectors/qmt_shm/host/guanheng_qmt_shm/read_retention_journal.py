@@ -107,6 +107,19 @@ class _RetainedJournal:
         db.execute('INSERT INTO read_retention(request_id,ticket) VALUES(?,?)',
             (rid, canonical(self._ticket_context.value)))
 
+    def read_reply_upper(self, rid, body, *, deadline):
+        """Journal域内核原请求/票据，返回原绝对D的保守monotonic上界；不续期、不消费。"""
+        import time
+        from guanheng_qmt_shm_agent.read_retention import now_ms
+        with self._transaction(deadline) as db:
+            row=db.execute('SELECT o.body,r.ticket FROM read_operations o '
+                'JOIN read_retention r USING(request_id) WHERE o.request_id=?',(rid,)).fetchone()
+            if row is None or bytes(row[0])!=body:
+                raise JournalConflict('original read wait ticket differs')
+            value=validate_identity(decode(body),decode(bytes(row[1])))
+            sampled=time.monotonic()
+            return sampled+(value['expires_ms']-now_ms(self.retention_clock))/1000
+
     def _reap(self, db, epoch):
         count = 0
         rows = db.execute('''SELECT o.request_id,o.result,r.ticket FROM read_operations o
