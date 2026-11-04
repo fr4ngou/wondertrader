@@ -15,6 +15,7 @@ from uuid import UUID,uuid4
 
 from integrations.guanheng.daily_data_update import run_update, _save, _load
 from integrations.guanheng.daily_data_inputs import prepare_update
+from integrations.guanheng.daily_input_recovery import observe_input_reads
 from integrations.guanheng.market_generation import GenerationPublisher, read_fixed
 from integrations.guanheng_market_client import strict_json
 
@@ -138,15 +139,38 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                 last_success=max(successful) if successful else None)  # 持久INDEX确认的最近成功市场日，首次为空。
             _save(directory / 'ready.json', status)
             retry_at = 0
+            next_input_observation = 0
+            input_recovery_failed = False
+            read_state = dict(consumed=set(),  # 本进程已准入的已消费原槽；重启沿原件重新核。
+                              pending=set(),  # 原读取仍未知/未确认消费的槽，保持原INDEX归属。
+                              checked={},  # 轮询顺序，避免旧未知槽长期阻挡其他已返回结果。
+                              slots={},  # 原槽到原连接的发现缓存，最多100000项。
+                              roots=set())  # 已封存输入根，避免持续扫描全部旧捕获。
             while not stopped():
                 now = datetime.now(timezone.utc) if clock is None else clock()
                 calendar = _load(config['template']['calendar'])
                 day = as_of if as_of is not None else target_date(calendar, now)
+                if time.monotonic() >= next_input_observation:
+                    try:
+                        status['input_reads'] = observe_input_reads(index, read_state, target_day=day,
+                            deadline=time.monotonic()+5, cancelled=stopped)  # 只核既有v8/v9身份，不补发旧页或旧批次。
+                        input_recovery_failed = False
+                        if 'input_recovery_error_type' in status:
+                            status['state'] = 'waiting'
+                        status.pop('input_recovery_error_type', None)
+                    except InterruptedError:
+                        break
+                    except Exception as failure:
+                        input_recovery_failed = True
+                        status['state'] = 'update_failed'
+                        status['input_recovery_error_type'] = type(failure).__name__  # 原件损坏等明确阻断，未吞成成功。
+                    next_input_observation = time.monotonic()+config['retry_seconds']
+                    _save(directory/'status.json', status)
                 scheduled = once or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
                 entry = index.get(day, {})
                 continuation=entry.get('continuation_required',False)
                 if type(continuation)is not bool:raise ValueError('daily service continuation flag invalid')
-                if scheduled and (entry.get('state') != 'published'or continuation) and time.monotonic() >= retry_at:
+                if scheduled and not input_recovery_failed and (entry.get('state') != 'published'or continuation) and time.monotonic() >= retry_at:
                     if day not in index and len(index) >= 366:
                         raise ValueError('daily service retained task capacity')
                     if entry.get('state')=='published'and continuation:
@@ -174,7 +198,11 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             for _,row in sorted(index.items()):
                                 previous.extend(row.get('history_requests',[]))
                                 if row.get('request')is not None and Path(row['request'])!=request_file:
-                                    previous.append(row['request'])
+                                    if Path(row['request']).exists():
+                                        previous.append(row['request'])
+                                    elif row.get('state')=='published':
+                                        raise FileNotFoundError('daily published original request missing')
+                                    # 未提交输入仍归原INDEX；既有读取槽由上方原身份续核，HPR只在提交后执行。
                             previous=list(dict.fromkeys(previous))
                             prepared = prepare_update(config, day, work / 'inputs', deadline=deadline,
                                 cancelled=stopped, previous_requests=previous)
@@ -205,6 +233,8 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             raise RuntimeError('daily service one cycle failed')
                         break
                 elif once:
+                    if input_recovery_failed:
+                        raise RuntimeError('daily retained input recovery failed')
                     break
                 # 来源/原生调用在本线程；轮询等待有界，原停止文件最多30秒内核查。
                 time.sleep(config['schedule']['poll_seconds'])

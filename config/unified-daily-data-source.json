@@ -381,10 +381,6 @@
       "sha256": "170cae9a79c0b0f041cf4181e637657ac014d5fe508846d764d64e74b70696a0",
       "source": "integrations/guanheng/collection_status.py"
     },
-    "integrations/guanheng/official_index_prices.py": {
-      "source": "integrations/guanheng/official_index_prices.py",
-      "sha256": "5a57e2907f7121c3e32cca0ae1cbac94c50ce9edc80f3a02fae0190a6da2c07c"
-    },
     "integrations/guanheng/daily_archive_merge.py": {
       "sha256": "9801d3737f5034084e7d1a1ff6bc9f5d5e6eae3ea7c43fb1e173adb98a55fca4",
       "source": "integrations/guanheng/daily_archive_merge.py"
@@ -398,7 +394,7 @@
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "879cb3d195eef4c1b696cc09a657d42761b53214731d06af41018a133324c2bd",
+      "sha256": "15632def531ca5dd85fdfcd49bf844ce69050ebacad316247a262ea189b665ca",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -420,6 +416,10 @@
     "integrations/guanheng/daily_generation.py": {
       "sha256": "df72fc463661640eb7e6fd9e3b5b8d0cc4df5baf15e457b6d31381e403474ef4",
       "source": "integrations/guanheng/daily_generation.py"
+    },
+    "integrations/guanheng/daily_input_recovery.py": {
+      "sha256": "7b3e1b7b9c92acd93761d9168444376ec75d0033cd0621aed50e5b8b303df1be",
+      "source": "integrations/guanheng/daily_input_recovery.py"
     },
     "integrations/guanheng/daily_overlay.py": {
       "sha256": "1cf80048b839e07daec090beff559892c235d5df6b571c7f685d5057526b3cd2",
@@ -496,6 +496,10 @@
     "integrations/guanheng/native_history.py": {
       "sha256": "e0a7d82e39f21dc6c189c22e1983be90671de5651735c07ff02fef8e79975449",
       "source": "integrations/guanheng/native_history.py"
+    },
+    "integrations/guanheng/official_index_prices.py": {
+      "source": "integrations/guanheng/official_index_prices.py",
+      "sha256": "5a57e2907f7121c3e32cca0ae1cbac94c50ce9edc80f3a02fae0190a6da2c07c"
     },
     "integrations/guanheng/price_quality.py": {
       "sha256": "191cf1cf80ea5c740b2f87176e64174d284a3acbfbfe651c63fc59b3b8e130f8",
