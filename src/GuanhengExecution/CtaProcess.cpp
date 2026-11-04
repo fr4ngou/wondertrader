@@ -670,6 +670,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
     bool success=false,closed=false,stop_deadline_fixed=false;unsigned stop_ms=10000,native_error=0;
     bool lifecycle_started=false; // 原Native start已完成；用于确认停止事件属于真实启动过的这一代。
     const char* stage="configuration";
+    decltype(&inspectStandardQmtEventChain) inspect_event_chain=nullptr; // 可选旁证；旧DLL缺导出继续原路径。
+    decltype(&findStandardQmtTrader) find_event_chain=nullptr; // 同一已装载DLL的实例查找，借用至进程退出。
     try{
         need(std::wstring(argv[1])==L"--config"&&std::wstring(argv[3])==L"--control"
              &&std::wstring(argv[5])==L"--control-id"&&std::wstring(argv[7])==L"--config-sha256");
@@ -784,6 +786,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         }
         guanheng::StandardPluginFunctions functions;
         functions.find=plugin.get<decltype(functions.find)>("findStandardQmtTrader");
+        find_event_chain=functions.find;
+        inspect_event_chain=reinterpret_cast<decltype(inspect_event_chain)>(GetProcAddress(plugin.module,"inspectStandardQmtEventChain"));
         functions.pump=plugin.get<decltype(functions.pump)>("pumpStandardQmtTrader");
         functions.inspect=plugin.get<decltype(functions.inspect)>("inspectStandardQmtTrader");
         functions.awaiting_observation=reinterpret_cast<decltype(functions.awaiting_observation)>(
@@ -939,6 +943,53 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                     diagnostic.AddMember("session_fault",session?static_cast<unsigned>(session->status().fault):0,a);
                     diagnostic.AddMember("native_error",native_error,a);
                     diagnostic.AddMember("reason_sha256",rj::Value(reason.c_str(),a),a);
+                    // 同批Standard冻结的首次截止旁证；固定字段不携账户/请求/异常原文。
+                    guanheng::EventChainDiagnosticsV1 event_chain;
+                    if(inspect_event_chain&&find_event_chain&&trader){
+                        auto* api=find_event_chain(trader->getString("instance_id").c_str());
+                        if(api)inspect_event_chain(api,&event_chain);
+                    }
+                    if(event_chain.captured){
+                        const auto& d=event_chain;rj::Value event(rj::kObjectType);
+                        event.AddMember("schema",rj::Value("guanheng.qmt-event-deadline.v1",a),a);
+                        event.AddMember("phase",d.phase,a);
+                        event.AddMember("queued",d.queued,a);
+                        event.AddMember("ready",d.ready,a);
+                        event.AddMember("outstanding",d.outstanding,a);
+                        event.AddMember("callback_reserved",d.callback_reserved,a);
+                        event.AddMember("callback_space",d.callback_space,a);
+                        event.AddMember("attempts",d.attempts,a);
+                        event.AddMember("drain_checks",d.drain_checks,a);
+                        event.AddMember("drain_pending",d.drain_pending,a);
+                        event.AddMember("worker_busy",d.worker_busy,a);
+                        event.AddMember("worker_kind",d.worker_kind,a);
+                        event.AddMember("worker_stage",d.worker_stage,a);
+                        event.AddMember("read_outcome",d.read_outcome,a);
+                        event.AddMember("read_stage",d.read_stage,a);
+                        event.AddMember("transport_from_prior_retry",d.transport_from_prior_retry,a);
+                        event.AddMember("transport_recovery",d.transport_recovery,a);
+                        event.AddMember("transport_origin",d.transport_origin,a);
+                        event.AddMember("transport_stage",d.transport_stage,a);
+                        event.AddMember("native_error",d.native_error,a);
+                        event.AddMember("http_status",d.http_status,a);
+                        event.AddMember("send_attempted",d.send_attempted,a);
+                        event.AddMember("response_complete",d.response_complete,a);
+                        event.AddMember("read_cursor",d.read_cursor,a);
+                        event.AddMember("handled_cursor",d.handled_cursor,a);
+                        event.AddMember("after_sequence",d.after_sequence,a);
+                        event.AddMember("page_index",d.page_index,a);
+                        event.AddMember("page_count",d.page_count,a);
+                        event.AddMember("task_id",d.task_id,a);
+                        event.AddMember("worker_task_id",d.worker_task_id,a);
+                        event.AddMember("transport_operation",d.transport_operation,a);
+                        event.AddMember("elapsed_ms",d.elapsed_ms,a);
+                        event.AddMember("remaining_ms",d.remaining_ms,a);
+                        event.AddMember("worker_queue_wait_ms",d.worker_queue_wait_ms,a);
+                        event.AddMember("worker_running_ms",d.worker_running_ms,a);
+                        event.AddMember("last_event_queue_wait_ms",d.last_event_queue_wait_ms,a);
+                        event.AddMember("last_event_running_ms",d.last_event_running_ms,a);
+                        diagnostic.AddMember("event_chain",event,a);
+                    }
                     publish(control/"failure.json",diagnostic);
                 }
             }catch(...){/* 诊断失败仍沿原关闭责任，不替换最初失败阶段。 */}

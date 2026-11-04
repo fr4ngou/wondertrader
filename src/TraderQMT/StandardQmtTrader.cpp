@@ -207,6 +207,7 @@ struct StandardQmtTrader::Impl {
  struct Task {
   Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0,read_generation=0; // 读取票据只跨线程传值，由worker拥有客户端。
   Clock::time_point deadline;OrderValue order;
+  Clock::time_point queued_at{}; // 实际进入原任务队列的 steady_clock 时刻；仅用于诊断。
   std::unique_ptr<QmtAccountIdentityPlan> plan;
   bool resume_read=false;QmtBoundReceipt original_read; // 原SDK读取只续核原UUID，不重发POST。
   QmtTradeEventReadContext event_context;QmtTradeEventRequestBounds event_bounds;
@@ -216,6 +217,7 @@ struct StandardQmtTrader::Impl {
  struct Completion {
   Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0,read_generation=0; // 读取票据只跨线程传值，由worker拥有客户端。
   Clock::time_point deadline;Status status;OrderValue order;
+  std::int64_t queue_wait_ms=0,running_ms=0; // 原任务实际排队/worker处理毫秒数；纯数值旁证。
   QmtAccountResult account;QmtTradeResult trade;
   bool resume_read=false; // 本完成值只核原读责任；终态不作为新的账户事实交付。
   bool read_not_dispatched=false; // 原Host已确定派发前终结；不含SDK调用责任，不作为账户事实交付。
@@ -311,6 +313,9 @@ struct StandardQmtTrader::Impl {
  struct EventChain {
   QmtTradeEventPage page;QmtValidatedTradeEventPage validated;
   QmtTradeEventRequestBounds bounds;Clock::time_point deadline;
+  Clock::time_point started{}; // 本链原建立时刻；诊断计时不改变原绝对D。
+  QmtTradeEventReadFailure last_read; // 最近实际读取返回的原运输分类；不保存正文。
+  std::int64_t last_queue_wait_ms=0,last_running_ms=0; // 最近已返回原事件任务的排队/处理毫秒数。
   std::unique_ptr<QmtAccountIdentityCandidate> candidate;
   std::size_t index=0;std::uint64_t task_id=0,read_generation=0; // 同一事件链固定原读取票据。
   EventPhase phase=EventPhase::ReadInFlight;
@@ -330,6 +335,14 @@ struct StandardQmtTrader::Impl {
  std::unique_ptr<EventChain> event_chain;
  Clock::time_point next_event_poll_at;
  std::uint64_t read_cursor=0,handled_cursor=0;
+ EventChainDiagnosticsV1 event_deadline; // 首次截止旁证；owner冻结，关闭保持。
+ bool diagnostic_worker_busy=false; // mutex保护的当前原worker处理状态；不参与调度。
+ Kind diagnostic_worker_kind=Kind::Prepare; // 当前原任务种类；busy时有效。
+ unsigned diagnostic_worker_stage=0; // 当前原任务datatype；busy时有效。
+ std::uint64_t diagnostic_worker_task=0; // 当前原任务ID；不含命令/账户身份。
+ Clock::time_point diagnostic_worker_started{}; // 原worker取出任务的steady_clock时刻。
+ std::int64_t diagnostic_worker_wait_ms=0; // 原worker取出时冻结的实际排队毫秒数。
+
  // 这里只保留有限通信收据；券商持仓/资金与业务订单归约仍归WT。
  struct KeyLess {bool operator()(const std::string& a,const std::string& b)const noexcept{return a.compare(b)<0;}};
  std::map<std::string,Pending,KeyLess> pending;
@@ -530,7 +543,7 @@ struct StandardQmtTrader::Impl {
      identities.emplace(value.entrust_id,std::move(identity));indexed=true;}
     catch(...){uncharge(index_charge);throw;}
    }
-   task.generation=generation;task.id=++next_task;const auto accepted_charge=task.charge;tasks.push_back(std::move(task));
+   task.generation=generation;task.id=++next_task;const auto accepted_charge=task.charge;queue_task(std::move(task));
    if(callback_slot){--event_callback_reserved;uncharge(ordinary_reserve-accepted_charge);}else ++outstanding;
    if(accepted_id)*accepted_id=next_task;
    if(indexed&&query_first)++submission.accepted;
@@ -566,6 +579,7 @@ struct StandardQmtTrader::Impl {
  }
  void fail(const Status& status)
  {
+  if(status.code==ErrorCode::Timeout&&status.reason=="qmt_standard_event_chain_deadline")capture_event_chain_deadline();
   block(status);try{trader_error(status);callback([&]{spi->handleEvent(wtp::WTE_Close,StandardQmtFailure);});}catch(...){spi=nullptr;}
   request_stop();
  }
@@ -748,7 +762,7 @@ struct StandardQmtTrader::Impl {
     try{
      Task task;task.kind=Kind::AuditOriginal;task.pending_key=it->first;task.generation=generation;task.id=next_task+1;
      task.deadline=now+std::chrono::milliseconds(request_ms);task.charge=reserve;
-     tasks.push_back(std::move(task));p.inflight_task=++next_task;++outstanding;audit_inflight=true;
+     queue_task(std::move(task));p.inflight_task=++next_task;++outstanding;audit_inflight=true;
      audit_cursor=(audit_cursor+i+1)%count;
     }catch(...){uncharge(reserve);throw;}
     cv.notify_all();return;
@@ -1446,6 +1460,8 @@ struct StandardQmtTrader::Impl {
   // 原错误完成值仍交owner，SPI与原close D由owner形成。
   hard_fault=true;writes_blocked=true;worker_stop=true;
  }
+ // 调用者持mutex；记录实际入队时刻，原任务身份/绝对D/容量和顺序保持。
+ void queue_task(Task&& task){task.queued_at=Clock::now();tasks.push_back(std::move(task));}
  // 连续阶段继承原绝对D；在同一worker选择较早D，等D沿原入队顺序。
  // 调用者已持mutex且队列非空；只移动原Task，不改身份、收费或截止。
  Task take_task()
@@ -1557,6 +1573,10 @@ struct StandardQmtTrader::Impl {
      // 槽必须先于I/O取得；异常满环只在取任务之前等待，stop直接唤醒退出。
      cv.wait(lock,[&]{return worker_stop.load()||results.can_reserve();});if(worker_stop)break;
      auto& slot=results.reserve();reserved=&slot;task=take_task();
+     diagnostic_worker_started=Clock::now();diagnostic_worker_busy=true;diagnostic_worker_kind=task.kind;
+     diagnostic_worker_stage=task.stage;diagnostic_worker_task=task.id;
+     diagnostic_worker_wait_ms=std::chrono::duration_cast<std::chrono::milliseconds>(diagnostic_worker_started-task.queued_at).count();
+     slot.queue_wait_ms=diagnostic_worker_wait_ms;
      slot.kind=task.kind;slot.stage=task.stage;slot.id=task.id;slot.generation=task.generation;
      slot.deadline=task.deadline;slot.charge=task.charge;slot.event_index=task.event_index;slot.read_generation=task.read_generation;slot.resume_read=task.resume_read;}
     Completion& result=*reserved;result.order=task.order;
@@ -1681,6 +1701,9 @@ struct StandardQmtTrader::Impl {
     }
     if(task.kind==Kind::EventPage||task.kind==Kind::EventQuery||task.kind==Kind::EventResolve)task.event_context={};
     task.original_read={}; // 原收据副本先销毁，再按完成值寿命归还原银行。
+    {std::lock_guard<std::mutex> lock(mutex);
+     result.running_ms=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-diagnostic_worker_started).count();
+     diagnostic_worker_busy=false;}
     if(!publish(std::move(result),wanted)){publish_worker_failure();break;}
    }
   }catch(...){
@@ -1847,7 +1870,7 @@ struct StandardQmtTrader::Impl {
    Task task;task.kind=Kind::Query;task.id=original.first;task.generation=generation;
    task.stage=original.second.stage;task.read_generation=original.second.generation;
    task.resume_read=true;task.original_read=original.second.receipt;task.deadline=deadline();task.charge=original.second.charge;
-   tasks.push_back(std::move(task));original.second.charge=0;original.second.inflight=true;
+   queue_task(std::move(task));original.second.charge=0;original.second.inflight=true;
    observation_refresh_task=original.first;cv.notify_all();return;
   }
   Task task;task.kind=Kind::Query;task.stage=observation_refresh_stage;task.deadline=deadline();
@@ -2097,7 +2120,7 @@ struct StandardQmtTrader::Impl {
     // task局部独立context先销毁，随后才能退本次新预留。
     task.event_context={};uncharge(reserved);return;
    }
-   tasks.push_back(std::move(task));
+   queue_task(std::move(task));
    chain.query.origin_task_id=credit.id;chain.query.generation=generation;chain.query.event_index=chain.index;
    chain.missing_event_row=std::move(row);chain.query_budget=budget;chain.query_charge=reserved;
    chain.task_id=credit.id;chain.phase=EventPhase::QueryInFlight;control_charge=0;
@@ -2137,7 +2160,7 @@ struct StandardQmtTrader::Impl {
   {
    std::lock_guard<std::mutex> lock(mutex);require(control_charge==512,"qmt_standard_event_control_accounting");
    if(stop_requested||event_detached||event_control.stop_requested())return;
-   tasks.push_back(std::move(task));chain.candidate=std::move(begun.candidate);
+   queue_task(std::move(task));chain.candidate=std::move(begun.candidate);
    chain.task_id=credit.id;chain.phase=EventPhase::ResolveInFlight;control_charge=0;
   }
   credit.transfer();cv.notify_all();
@@ -2191,7 +2214,7 @@ struct StandardQmtTrader::Impl {
   task.id=credit.id;task.deadline=chain.deadline;task.event_index=chain.index;task.plan=std::move(begun.plan);task.charge=512;
   task.read_generation=chain.read_generation;task.event_context=event_context;task.event_bounds=chain.bounds;
   {std::lock_guard<std::mutex> lock(mutex);require(control_charge==512,"qmt_standard_event_control_accounting");
-   tasks.push_back(std::move(task));control_charge=0;
+   queue_task(std::move(task));control_charge=0;
    chain.candidate=std::move(begun.candidate);chain.task_id=credit.id;chain.phase=EventPhase::ResolveInFlight;}
   credit.transfer();cv.notify_all();
  }
@@ -2200,7 +2223,7 @@ struct StandardQmtTrader::Impl {
  {
   require(event_chain&&event_chain->task_id==result.id&&event_chain->phase==EventPhase::ReadInFlight,
    "qmt_standard_event_read_ticket");
-  auto& chain=*event_chain;chain.read_generation=result.read_generation;
+  auto& chain=*event_chain;chain.read_generation=result.read_generation;chain.last_read=result.event_failure;
   require(!chain.candidate&&chain.page.page_json.empty()&&chain.index==0,"qmt_standard_event_retry_after_page");
   require(chain.attempts<chain.task_limit||!result.event_read_attempted,"qmt_standard_event_attempt_limit");
   if(result.event_read_attempted)++chain.attempts;
@@ -2263,6 +2286,36 @@ struct StandardQmtTrader::Impl {
    else spi->onPushOrder(mapped.batch.array->at<wtp::WTSOrderInfo>(0));
   });
  }
+ // 首次截止前冻结纯POD旁证；捕获失败不覆盖原错误、不改变停止/原D。
+ void capture_event_chain_deadline()
+ {
+  try{
+   std::lock_guard<std::mutex> lock(mutex);
+   if(event_chain&&!event_deadline.captured){
+    const auto now=Clock::now();const auto& chain=*event_chain;auto& d=event_deadline;
+    d.phase=static_cast<unsigned>(chain.phase)+1;d.queued=static_cast<unsigned>(tasks.size());
+    d.ready=static_cast<unsigned>(results.size());d.outstanding=outstanding;d.callback_reserved=event_callback_reserved;
+    d.callback_space=event_callback_space();d.attempts=chain.attempts;d.drain_checks=chain.drain_checks;d.drain_pending=chain.drain_pending;
+    d.read_cursor=read_cursor;d.handled_cursor=handled_cursor;d.after_sequence=chain.bounds.after_seq;
+    d.page_index=chain.index;d.page_count=chain.page.event_count;d.task_id=chain.task_id;
+    d.elapsed_ms=std::chrono::duration_cast<std::chrono::milliseconds>(now-chain.started).count();
+    d.remaining_ms=std::chrono::duration_cast<std::chrono::milliseconds>(chain.deadline-now).count();
+    d.last_event_queue_wait_ms=chain.last_queue_wait_ms;d.last_event_running_ms=chain.last_running_ms;
+    d.worker_busy=diagnostic_worker_busy;
+    if(diagnostic_worker_busy){d.worker_kind=static_cast<unsigned>(diagnostic_worker_kind)+1;
+     d.worker_stage=diagnostic_worker_stage;d.worker_task_id=diagnostic_worker_task;
+     d.worker_queue_wait_ms=diagnostic_worker_wait_ms;
+     d.worker_running_ms=std::chrono::duration_cast<std::chrono::milliseconds>(now-diagnostic_worker_started).count();}
+    d.read_outcome=static_cast<unsigned>(chain.last_read.outcome);d.read_stage=static_cast<unsigned>(chain.last_read.stage);
+    const bool prior=chain.last_transport.transport.recovery==SignedHttpRecovery::TransportInterrupted;
+    const auto& read=prior?chain.last_transport:chain.last_read;const auto& transport=read.transport;
+    d.transport_from_prior_retry=prior;d.transport_recovery=static_cast<unsigned>(transport.recovery);
+    d.transport_origin=static_cast<unsigned>(transport.origin);d.transport_stage=static_cast<unsigned>(transport.stage);
+    d.native_error=transport.native_error;d.transport_operation=transport.native_operation;
+    d.http_status=read.http_status;d.send_attempted=read.send_attempted;d.response_complete=read.response_complete;d.captured=1;
+   }
+  }catch(...){/* 旁证不改变原错误及清理。 */}
+ }
  // owner的原D维护独立于本次pump完成数量。这里只处理已交回owner的等待/页状态；
  // 在途任务仍由原完成值保留真实Failure、delivery_fault与通信责任。
  void maintain_event_deadline()
@@ -2293,7 +2346,7 @@ struct StandardQmtTrader::Impl {
       Task task;task.kind=Kind::EventPage;task.id=next_task+1;task.generation=generation;task.deadline=chain.deadline;
       task.read_generation=chain.read_generation;task.event_context=event_context;task.event_bounds=chain.bounds;task.event_failure=chain.last_transport;
       task.event_drain_only=chain.drain_pending;task.charge=512;
-      tasks.push_back(std::move(task));++next_task;++outstanding;++chain.read_tasks;
+      queue_task(std::move(task));++next_task;++outstanding;++chain.read_tasks;
       chain.task_id=next_task;chain.phase=EventPhase::ReadInFlight;
      }catch(...){uncharge(512);throw;}
      cv.notify_all();return;
@@ -2305,12 +2358,12 @@ struct StandardQmtTrader::Impl {
    }else {
     const auto reserve=add_size(chain_reserve,512);require(charge(reserve),"qmt_standard_event_page_capacity");
     try {
-     std::unique_ptr<EventChain> chain(new EventChain);chain->deadline=now+std::chrono::milliseconds(request_ms);
+     std::unique_ptr<EventChain> chain(new EventChain);chain->started=now;chain->deadline=now+std::chrono::milliseconds(request_ms);
      chain->task_limit=static_cast<unsigned>(add_size(1,add_size(request_ms,event_poll_ms-1)/event_poll_ms));
      chain->bounds={read_cursor,static_cast<std::size_t>(event_context.admitted_limits.max_events),event_context.admitted_event_page_capacity};
      Task task;task.kind=Kind::EventPage;task.id=++next_task;task.generation=generation;task.deadline=chain->deadline;
      task.event_context=event_context;task.event_bounds=chain->bounds;task.charge=512;chain->task_id=task.id;
-     tasks.push_back(std::move(task));event_chain=std::move(chain);chain_charge=chain_reserve;++outstanding;
+     queue_task(std::move(task));event_chain=std::move(chain);chain_charge=chain_reserve;++outstanding;
     }catch(...){uncharge(reserve);throw;}
     cv.notify_all();return;
    }
@@ -2598,6 +2651,10 @@ int StandardQmtTrader::pump(std::uint32_t limit)
    }charge{x,result.charge,x.callback_credit,result};
    x.callback_credit=&credit;
    ++delivered;
+   if(x.event_chain&&x.event_chain->task_id==result.id
+    &&(result.kind==Impl::Kind::EventPage||result.kind==Impl::Kind::EventQuery||result.kind==Impl::Kind::EventResolve)){
+    x.event_chain->last_queue_wait_ms=result.queue_wait_ms;x.event_chain->last_running_ms=result.running_ms;
+   }
    const bool write=result.kind==Impl::Kind::Insert||result.kind==Impl::Kind::Cancel;
    if(x.wait_read(result,credit,charge.n))continue;
    if(result.kind==Impl::Kind::EventQuery||result.kind==Impl::Kind::EventResolve){
@@ -2678,7 +2735,7 @@ int StandardQmtTrader::pump(std::uint32_t limit)
      require(x.candidates.emplace(result.id,std::move(candidate)).second,"qmt_standard_candidate_duplicate");candidate_saved=true;
      Impl::Task task;task.kind=Impl::Kind::Resolve;task.stage=result.stage;task.id=result.id;task.generation=x.generation;
      task.read_generation=result.read_generation;task.deadline=result.deadline;task.plan=std::move(begun.plan);task.charge=next_charge;
-     {std::lock_guard<std::mutex> lock(x.mutex);x.tasks.push_back(std::move(task));}credit.transfer();x.cv.notify_all();
+     {std::lock_guard<std::mutex> lock(x.mutex);x.queue_task(std::move(task));}credit.transfer();x.cv.notify_all();
     }catch(...){
      if(candidate_saved)x.candidates.erase(result.id);
      x.finish_charge(candidate_reserve);throw;
@@ -2817,6 +2874,12 @@ int StandardQmtTrader::diagnostics(StandardQmtDiagnostics& out)const
  const auto& reason=x.first_error.ok()&&x.read_waiting?std::string("qmt_read_source_waiting"):x.first_error.reason;
  std::strncpy(value.reason,reason.c_str(),sizeof(value.reason)-1);
  std::strncpy(value.last_command_id,x.last_command.c_str(),sizeof(value.last_command_id)-1);out=value;return 0;
+}
+int StandardQmtTrader::event_chain_diagnostics(EventChainDiagnosticsV1& out)const
+{
+ if(!owner())return StandardQmtWrongOwner;
+ if(out.version!=1||out.size!=sizeof(out))return StandardQmtInvalid;
+ std::lock_guard<std::mutex> lock(impl_->mutex);out=impl_->event_deadline;return 0;
 }
 int StandardQmtTrader::awaiting_observation()const
 {

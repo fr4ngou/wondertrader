@@ -444,3 +444,12 @@ P31-C1：生产Factory→ITraderApi/SPI及真实HTTP/HMAC下，先完成原ORDER
 Fault/None组冲突、EventDeliveryIndex的真正有序回退/身份冲突及Started后Unknown交付保持原拒绝；SDK未知仍保留原Pending/收据，未派发或未知金融命令不重POST。原终态事件仍触发完整O核查，只有同来源的后继P实际应用、原SDK收据已移交且无原Pending时才退休对应组；活动单和缺证明责任保持。来源、账户、完整B、broker proof、任务身份、原截止及容量沿原合同。
 
 P32-C1：原3253/3255完整ORDER各44行及原事件85..102、原命令40..47的隔离回放；旧实现由晚活动事件85确定复现code9/空原因，新实现完整推进到102并交付17个订单及1个成交SPI，无新金融POST/SDK。P32-C2：真实冻结query_first Adapter与原股票单元接收原85活动WTS，原832770245保持不在活动表、另一原已报单余量1000保持1000；订单表数量不变，账户/成交通知增量0、执行重算和新下撤单0，原O/P刷新各1。P32-C3：原终态O→后继P只退休有完整证明的5组，3个仍活动组保持；真正事件回退、交付Unknown及SDK未知收据继续受保护。原失败Native及recovery_ready=false材料保留，隔离回放不授该历史失败正常关闭证明。最终Native同批构建和现场恢复由集成owner验真。
+
+
+## STQ-P33 事件链首次截止诊断
+
+事件链仍继承读取、原页内身份解析及SPI交付的原绝对D，原错误码和原因保持。首次事件链截止在停止/资源退休前冻结有界纯数值旁证，经独立可选EventChainDiagnosticsV1/inspectStandardQmtEventChain纯值接口与自有Native写入原failure.json的event_chain对象，schema为guanheng.qmt-event-deadline.v1。原failure.v1收据字段、失败/关闭/恢复判定保持。
+
+旁证仅含原phase、读取/交付cursor、原页index/count、任务/队列/回调预留、实际排队和处理毫秒数、原D余量，以及原事件读取返回的运输枚举/系统码。transport_from_prior_retry明确运输字段来自已发生的中断重试，最近成功读取不冒充失败；默认零值表示未捕获该类错误。计时使用steady_clock，零任务/空闲worker字段不授业务证明。固定字段不含账户、金融数量、请求正文、私有路径或异常正文。首次旁证一旦冻结保持，诊断失败继续原业务首因和关闭D。
+
+P33-C1：隔离反馈让真实Standard在PageReady与ReadRetryWait的原截止分支失败，核原code/reason、固定纯值来源与第一次快照保持；该反馈仅验诊断接线，不宣称复现现场截止根因。P33-C2：同批自有Native/Standard编译核独立诊断ABI，原StandardQmtDiagnostics/ManagedTrader/ExecutionHost布局与接口严格保持；旧DLL缺少可选导出继续原失败收据。独立version/size严格核验。现场下一次原身份恢复由集成owner采证；现场页/重试耗尽原因在新旁证到达前保持unknown，预算或调度修正另以实际链证据决定。
