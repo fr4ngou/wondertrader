@@ -424,3 +424,13 @@ QMT原委托/成交字段中的无分隔HHMMSS允许数值式字符串省略前�
 
 QMT委托状态48为未报，属于非终态，保留原状态及未成交余量；共用mapper接收48至57已知状态。WT较粗的ABI沿未成交排队状态承载48，原事实仍区分48/49/50，不将未报当作已报、成交或撤单成功。数量、时间、身份及余量关系继续核验，未知状态不作终态推断。依据为[内置枚举常量](https://dict.thinktrader.net/innerApi/enum_constants.html)与本机xtconstant.py的ORDER_UNREPORTED=48；真实48→50原回报用于回归。
 
+
+## STQ-P31 认证换代后的新金融任务与原责任核查
+
+根因、独立核验和最终合并DLL主链见[认证代际与停止证据](../evidence/2026-11-04-qmt-trade-generation-stop.md)。
+
+在原Host显式认证接续合同内，Standard唯一worker让新Insert、Cancel及AuditOriginal借用当前已准入的认证代际。每代Common客户端继续固定完整B并核对read-binding、trade-status及Source业务session；发现当前认证运输变化时，沿既有代际owner创建新客户端，保留旧客户端及旧票据直到原责任与网络资源排空。账户、完整profile、资源能力、route（含epoch）及B的其他稳定字段继续与原来源严格比较，只有transport_generation和host_instance_id属于可变化的认证连接身份。原金融配置binding_id/binding_sha256继续由原交易准入核验，同Host的v4账户发布接线属于同一完整B；独立只读Host的binding不得替代交易来源。
+
+新写任务使用当前完整B准备，沿原权限、金融配置、预算、排队截止和一次提交合同；取消仍要求原insert身份及当前完整ORDER/event券商证明。AuditOriginal仅查询原命令UUID及原账户票据，原命令/收据/历史B不改写、不重新POST；得到原终态只结束对应未决责任，已有unknown/hard-fault门禁按原规则保留。当前认证来源的发布和旧代票据退休均由原worker负责，全部代际继续受原max_queue/max_queue_bytes和最终join/drain约束。
+
+P31-C1：生产Factory→ITraderApi/SPI及真实HTTP/HMAC下，先完成原ORDER，再只切认证运输两字段，进入关闭新insert准入、原ORDER/持仓/账户刷新及取消原委托；旧实现应复现qmt_trade_binding_changed，新实现仅一次cancel POST、零新insert，原insert字节保持，实际终态后recovery_ready且完整关闭。P31-C2：取消结果在Host已保存但回复丢失后换代，只GET原cancel UUID取得原终态，无第二次金融POST，Pending清零且原unknown门禁保持；来源session、完整profile、route变化及过期B的取消proof均继续拒绝。P31-C3：源码/CAS、实际Native制品和有界资源证据分别固定；合成HTTP测试只授所覆盖的自有客户端路径资格。运行Source/Host、真实原委托处置、同批制品构建和现场切换由集成owner按原授权完成。

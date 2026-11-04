@@ -1465,10 +1465,18 @@ struct StandardQmtTrader::Impl {
   QmtTradeEventReadContext read_origin;
   // 固定实例/账户/profile与Source业务session。运输binding只属于该轮，不作为业务session。
   auto same_read_source=[&](const QmtTradeEventReadContext& value) {
-   return !read_origin.source.session_id.empty()&&value.source.session_id==read_origin.source.session_id
-    &&value.read_profile_body==read_origin.read_profile_body
-    &&value.read_result_capacity==read_origin.read_result_capacity
-    &&value.admitted_event_page_capacity==read_origin.admitted_event_page_capacity;
+   if(read_origin.source.session_id.empty()||value.source.session_id!=read_origin.source.session_id
+    ||value.read_profile_body!=read_origin.read_profile_body
+    ||value.read_result_capacity!=read_origin.read_result_capacity
+    ||value.admitted_event_page_capacity!=read_origin.admitted_event_page_capacity)return false;
+   // 业务来源固定账户/profile/session及完整route等原字段；仅认证连接的两项随机身份可换代。
+   // 当前完整B仍归各代Core精确钉住；原票据、命令、query proof及event来源绝不改绑。
+   rapidjson::Document origin,current;
+   if(!parse_bounded_qmt_json(read_origin.source.binding_json,origin,4096,4096)
+    ||!parse_bounded_qmt_json(value.source.binding_json,current,4096,4096)
+    ||!qmt_host_codec::binding(origin,nullptr,"2.0")||!qmt_host_codec::binding(current,nullptr,"2.0"))return false;
+   for(const auto key:{"transport_generation","host_instance_id"}){origin.RemoveMember(key);current.RemoveMember(key);}
+   return qmt_host_codec::encode(origin)==qmt_host_codec::encode(current);
   };
   auto callback_wait=[](Clock::time_point until) {
    const auto left=std::chrono::duration_cast<std::chrono::milliseconds>(until-Clock::now()).count();
@@ -1522,6 +1530,10 @@ struct StandardQmtTrader::Impl {
         Status{ErrorCode::StaleSession,"qmt_standard_read_source_changed"}};
    }catch(...){read.released=true;throw;}
    if(active_read){auto& previous=*reads.at(active_read);if(!previous.users)previous.released=true;}
+   // 新代已经完成read-binding与trade-status的同次完整准入及固定业务来源复核。
+   // 发布当前认证来源供后续新写/审计使用；历史收据仍由原代、原ID和原B解释。
+   auto current_source=read.context.source;
+   {std::lock_guard<std::mutex> lock(mutex);audit_source=std::move(current_source);audit_source_ready=true;}
    active_read=created;id=created;read.users=1;
    return read;
   };
@@ -1554,7 +1566,13 @@ struct StandardQmtTrader::Impl {
     if(task.kind==Kind::AuditOriginal)result.command_id.swap(task.pending_key);
     try {
      SignedHttpDeadline end(task.deadline);
-     if(task.kind==Kind::AuditOriginal)run_audit(task,result,*account,*trade);
+     if(task.kind==Kind::AuditOriginal){
+      // 只为本次核查借用当前已认证代；resume仍只GET原收据UUID，不重派旧命令。
+      auto& current=open_read(result.read_generation,end,nullptr,nullptr);
+      auto status=current.account->prepare(end);
+      if(!status.ok())throw ReadGenerationFailure{std::move(status)};
+      run_audit(task,result,*current.account,*current.identity);
+     }
      else if(!end.remaining()){
       if(task.kind==Kind::EventPage)event_timeout(result);
       else if(task.kind==Kind::EventQuery||task.kind==Kind::EventResolve){result.status=fixed_failure(ErrorCode::Timeout);result.local_failure=true;}
@@ -1612,8 +1630,14 @@ struct StandardQmtTrader::Impl {
        auto& read=open_read(result.read_generation,end,&result.event_failure,&event_control);
        run_event_read(task,result,*read.identity,end);
       }
-     }else run_write(task,result,*trade);
+     }else {
+      // 新取消/委托沿当前完整B准备，避免只读已换代而长期交易Core仍钉住初代。
+      // 原Core的pin、同代状态和当前取消proof校验保持；每个金融任务仍只提交一次。
+      auto& current=open_read(result.read_generation,end,nullptr,nullptr);
+      run_write(task,result,*current.identity);
+     }
     }catch(ReadGenerationFailure& failure){
+     if(task.kind==Kind::AuditOriginal)audit_error(result.audit,failure.status); // 准备失败仍沿原审计分类，Pending原组保持。
      result.status=std::move(failure.status);
     }catch(const std::bad_alloc&){
      if(task.kind==Kind::EventPage)event_local_failure(result);
@@ -1635,12 +1659,14 @@ struct StandardQmtTrader::Impl {
     result.read_not_dispatched=read_not_dispatched(result);
     const bool held_query=task.kind==Kind::Query&&result.query_step>=QueryStep::SubmitEntered
       &&!result.account.bound.result.terminal&&temporary_read(result);
-    if(result.read_generation&&(task.kind==Kind::Resolve||(task.kind==Kind::Query
+    const bool financial=task.kind==Kind::Insert||task.kind==Kind::Cancel||task.kind==Kind::AuditOriginal;
+    if(result.read_generation&&(financial||task.kind==Kind::Resolve||(task.kind==Kind::Query
         &&(task.resume_read?settled_read(result):!result.status.ok()&&!held_query)))){
      auto found=reads.find(result.read_generation);if(found!=reads.end()){
       require(found->second->users>0,"qmt_standard_read_generation_ticket");
       --found->second->users;if(!found->second->users&&found->first!=active_read)found->second->released=true;
      }
+     if(financial)result.read_generation=0; // 金融完成只携原收据；本次连接借用已在worker收尾，不交owner重复释放。
     }
     reap_reads(Clock::now());
     // 写任务已在POST前预留2*C+原收据+4096，审计已预留完整Peak+Sigma。
@@ -1676,14 +1702,14 @@ struct StandardQmtTrader::Impl {
   {std::lock_guard<std::mutex> lock(mutex);drained=true;worker_done=true;worker_live=false;}cv.notify_all();
  }
  // 网络客户端只存在于IO worker；Task/Completion和owner只持有有限数值票据。
- // 一代覆盖整轮Query→Resolve或事件页全部续段，写命令客户端保持独立原身份。
+ // 一代覆盖整轮Query→Resolve或事件页续段；新金融任务短借当前代，旧命令仍持有独立原收据。
  struct ReadGenerationFailure {Status status; /* 原握手结果，逐值保留固定错误与停止语义。 */};
  struct ReadGeneration {
   std::unique_ptr<QmtHostAccountClient> account; // 本轮账户查询及原结果收束，仅worker使用。
-  std::unique_ptr<QmtHostTradeClient> identity; // 本轮只读身份/事件解析，不承接写命令。
+  std::unique_ptr<QmtHostTradeClient> identity; // 本代身份/事件解析及已授权新金融调用；Core完整B固定，不改绑旧请求。
   QmtTradeEventReadContext context; // 同次完整认证来源、profile及资源上限。
   std::size_t charge=0; // 原总预算内持有到全部HTTP回调排空。
-  unsigned users=0; // 当前仍借用该运输代际的查询/事件链票据，仅worker增减。
+  unsigned users=0; // 当前借用该运输代际的查询/事件链及金融任务票据，仅worker增减。
   bool released=false; // owner已交还票据；网络资源仍由worker判定退役。
  };
  std::deque<std::uint64_t> released_reads; // owner到worker的有限退役票据，受max_queue约束。
