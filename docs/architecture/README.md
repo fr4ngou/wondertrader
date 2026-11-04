@@ -1,5 +1,7 @@
 # 架构与决策
 
+- [ADR-0026 日线计划与HPR通信代分别恢复](adr/0026-daily-hpr-transport-generations.md)：原请求保持原代，新任务在同一业务身份下接续当前认证代。
+
 - [ADR-0022 年末成员事实与财报更新分责](adr/0022-admitted-year-end-membership.md)：复用已准入成员及原件身份，财报刷新与成员修订分别拥有。
 
 - [ADR-0016 WT运行与观衡只读服务独立部署](adr/0016-independent-wt-runtime-and-observer.md)：WT拥有通信、采集、策略与交易生命周期，观衡独立发布和只读消费。

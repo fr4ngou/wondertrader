@@ -219,6 +219,59 @@ def freeze_gap_progress(plan,progress,observations=None,*,deadline,cancelled=lam
         rows=rows)  # 每个计划索引恰好一项，包括未推进项；完整回读恢复时保持。
 
 
+def _hpr_business_identity(metadata):
+    """同一HPR业务身份；Host进程及运输代次由各请求原槽分别持有。"""
+    identity = strict_json(encode(metadata))
+    # binding摘要随运输代变化；其正确性由原RetainedReadClient认证时核实。
+    identity.pop('binding_sha256')
+    for key in ('host_instance_id', 'transport_generation'):
+        identity['binding'].pop(key)
+    return identity
+
+
+def _gap_hpr_metadata(preparation_owner, directory, deadline):
+    """保留原anchor，按认证通信代保存不可变metadata；仅给新槽选择当前代。"""
+    from guanheng_qmt_shm.market_daily_preparation import _original
+    from guanheng_qmt_shm.read_retention_client import RetainedReadClient, RetainedReadBindingChanged
+    from guanheng_qmt_shm_agent.history_preparation import OPERATION
+    client = RetainedReadClient(preparation_owner.factory(), lifetime_ms=30000)
+    try:
+        metadata = client.metadata(deadline=deadline)
+    finally:
+        client.transport.close()
+    if (metadata['profile']['read_profile_version'] != 'qmt.read-profile.v6'
+            or OPERATION not in metadata['profile']['operation_profiles']):
+        raise ValueError('daily gap HPR profile or operation differs')
+    anchor_path = directory / 'HPR-BINDING.json'
+    anchor = strict_json(read_fixed(anchor_path, maximum=1048576)) if anchor_path.exists() else metadata
+    # 来源路由、能力正文、限制及其它认证字段必须完全相同；原anchor永不换写。
+    if _hpr_business_identity(anchor) != _hpr_business_identity(metadata):
+        raise RetainedReadBindingChanged('daily_gap_hpr_business_identity_changed')
+    _original(anchor_path, anchor)
+    generations = directory / 'hpr-generations'
+    generations.mkdir(exist_ok=True)
+    generation_path = generations / (hashlib.sha256(encode(metadata['binding'])).hexdigest() + '.json')
+    _original(generation_path, metadata)
+    return metadata, anchor, generations
+
+
+def _gap_slot_metadata(slot, current, anchor, generations):
+    """已有槽仅使用它所属代的metadata，保留UUID、票据和未知执行责任。"""
+    if not slot.exists():
+        return current
+    original = strict_json(read_fixed(slot, maximum=1048576))
+    binding = original['binding']
+    if binding == anchor['binding']:
+        selected = anchor
+    else:
+        path = generations / (hashlib.sha256(encode(binding)).hexdigest() + '.json')
+        selected = strict_json(read_fixed(path, maximum=1048576))
+    if (selected['binding'] != binding or selected['profile'] != original['profile']
+            or _hpr_business_identity(selected) != _hpr_business_identity(anchor)):
+        raise ValueError('daily gap original slot generation differs')
+    return selected
+
+
 def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
                      cancelled=lambda: False, on_progress=None, task_indices=None):
     """调用方持排他写锁；每项复用原执行器，Pending保留slot并让其他项推进。
@@ -228,7 +281,7 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
     """
     from guanheng_qmt_shm.market_daily_preparation import _original
     from guanheng_qmt_shm.market_daily_preparation_cli import _reason_code
-    from guanheng_qmt_shm.read_retention_client import RetainedReadClient, RetainedReadPending, RetainedReadFailure
+    from guanheng_qmt_shm.read_retention_client import RetainedReadPending, RetainedReadFailure
     from guanheng_qmt_shm_agent.history_preparation import OPERATION
     if (type(max_tasks) is not int or not 1 <= max_tasks <= 10000 or not callable(cancelled)
             or type(deadline) not in (int, float) or not math.isfinite(deadline)):
@@ -253,12 +306,7 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
         cursor = previous_progress['next_index']
         if type(cursor) is not int or not 0 <= cursor < max(1, len(tasks)):
             raise ValueError('daily gap progress cursor invalid')
-    client = RetainedReadClient(preparation_owner.factory(), lifetime_ms=30000)
-    try:
-        metadata = preparation_owner._pinned(client, directory / 'HPR-BINDING.json', 'qmt.read-profile.v6', OPERATION, deadline)
-        _original(directory / 'HPR-BINDING.json', metadata)
-    finally:
-        client.transport.close()
+    metadata, anchor, generations = _gap_hpr_metadata(preparation_owner, directory, deadline)
     scope = metadata['profile']['operation_profiles'][OPERATION]['limits']
     observations = directory / 'observations'
     observations.mkdir(exist_ok=True)
@@ -276,8 +324,9 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
                 continue  # 已返回原任务保留单项凭据，后续只实读缓存，不再执行SDK准备。
         slot = directory / 'preparation' / ('%06d.json' % task['index'])
         try:
+            selected_metadata = _gap_slot_metadata(slot, metadata, anchor, generations)
             records = preparation_owner._prepare_items([(task['index'], task['symbol'], task['start_date'], task['end_date'], slot)],
-                directory, metadata, scope, deadline, None, len(value['tasks']), minimum_new_request_seconds=30)
+                directory, selected_metadata, scope, deadline, None, len(value['tasks']), minimum_new_request_seconds=30)
             row = dict(index=task['index'], state='call_returned', record=records[0], coverage='unknown')
         except (RetainedReadPending, RetainedReadFailure) as error:
             original = strict_json(read_fixed(slot, maximum=1048576)) if slot.exists() else None
