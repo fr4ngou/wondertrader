@@ -21,7 +21,7 @@
 | 7649原生注册/QST/维护同运行 | `E:/workspace/wondertrader-qa/mcc-service004/RESULT.json` | 真WinSHM/原Native；SDK替身股票、ETF、双指数可读，正常关闭，原实例未改变 |
 | 完整Source冻结与目标SDK冷验 | `complete-source003/SDK36-COLD.json`；完整正文SHA `75c19b3158aa553f17a5a9091d728dab7f580177facdfd833d691ed73900338d` | 真实3.6.8冷加载；单timer/四owner、启动失败及停止失败均回收；SDK调用为0 |
 | 原HPR产品工厂配对 | `source001/hpr-pair`，完整Source的QST/HPR字段与原产品片段一致 | 配对/联合额度准入；原HPR/SDK未切换 |
-| 原WRI独立角色 | `role-smoke002/RESULT.json`实际启动、HTTP分钟、正常角色/管道/进程树关闭；停止原子发布修正后的003另行复验 | 自有薄启动适配；原WRI/ManagedLocalProcess继续负责监督 |
+| 原WRI独立角色 | `role-smoke003/RESULT.json`实际启动、HTTP分钟、正常角色/管道/进程树关闭，已含停止原子发布修正 | 自有薄启动适配；原WRI/ManagedLocalProcess继续负责监督 |
 | Source采用与回退 | `source-adoption-regression001/RESULT.json`，一次采用、幂等、回退及冲突保原件 | 隔离文件测试，实际GH正文未改变 |
 | 根因回归 | `tests/integration/minute_collection`九项通过，原生fixture为`mcc-final-001/producer.json` | 完整日排除累计量重复、逐段metadata、日历摘要、合法float毫秒/坏批次不部分更新、停止文件关闭后发布 |
 | 部分/空/同数错标签→完整、未知读取重启 | `test_partial_recovery.py`首轮200/240、0/240及240条中11:31替代09:32三场景，真实Importer及Reader最终均240标签；原准备UUID不变、实际准备一次，未知读取重建后同UUID续核 | Source传输为可控替身；持久收据/Importer/Reader/最终选择为正式实现；错标签场景首轮base返回亦受控；不授真实断线现场资格 |
@@ -32,7 +32,9 @@
 
 当前日原归档可读；原HPR分钟读合同拒绝当日，缺口由采集owner在该日期进入可读范围后接续。原HPR/来源、分钟存档、整日完整性、价格单位与正式运行分别验收。Source参数、覆盖与恢复对象属于自有适配，不新建金融账本、行情数据库或系统定时任务。
 
-首次full独立评审分别发现部分来源停止后继、停止文件提前可见两项P2；当前修正复用原有界follow_up，控制收据先关闭临时文件再原子换名，delta复核继续。原生fixture回归用锚定CPython3.12执行`-B -m unittest discover -s tests/integration/minute_collection -p 'test_*.py' -v`，显式`MCC_NATIVE_FIXTURE`；省略fixture时原生场景跳过，跳过不授通过资格。
+首次full独立评审分别发现部分来源停止后继、停止文件提前可见两项P2；delta又确认同数错标签短路。三处均已根因修正，最终Spec/Standards报告003未发现剩余P1/P2。原生fixture回归用锚定CPython3.12执行`-B -m unittest discover -s tests/integration/minute_collection -p 'test_*.py' -v`，显式`MCC_NATIVE_FIXTURE`；省略fixture时原生场景跳过，跳过不授通过资格。Spec最终独立复跑九项全部通过、无跳过。
+
+最终程序program006的INSTALLATION SHA为`dbbf5b3596a053918b75be33e27d802180c2787651a886212fddec200e721610`，309文件与8db468b自有源码匹配。完整configuration003部署SHA为`aac090356e092128f9d33818c2cd7d44832beb148b82e2d071bc23f8c28e002a`，全部角色配置准入和原日线base响应保留通过。实际策略优先八ETF已跟随Root改用589680；589000仍保留于全市场订阅。原quotes运行配置与原data/quotes回退分别用role-bindings003固定，复用同一已审DataRoleProcess，纯准入通过。具体操作在QA根HANDOFF-001.md，Root统一执行，当前未切换。
 
 本工作树`project.py check`报七个基线缺失链接：股票资料覆盖材料及security-search六个UI文件。它们未由本模块改变，最终主线合入后需再核完整正文。最终源码提交、固定最终包及Root正式切换/公开18136与页面验真继续，整体目标active。
 
