@@ -10,6 +10,7 @@ from .pair import _TRADE_CALLBACKS, _render_memory_entry
 from .account_read_composition import admit_account_read
 from .analysis_read_composition import admit_analysis_read
 from .analysis_batch_read_composition import admit_analysis_batch_read
+from .security_reference_composition import admit_security_reference_read
 from guanheng_qmt_shm_agent.source_runtime import source_runtime as admit_source_runtime, TICK_PERIOD
 
 
@@ -286,6 +287,49 @@ def _batch_analysis_callbacks(has_market, has_account, has_analysis):
     return body
 
 
+
+def _security_reference_callbacks(has_market, has_account, has_analysis, has_batch):
+    """在同一原timer追加独立只读owner；旧模板仅显式新增时才改写。"""
+    body = _batch_analysis_callbacks(has_market, has_account, has_analysis)
+    replacements = [
+        ('_analysis_batch_read, _context, _thread = None, None, None, None, None, None, None, None',
+         '_analysis_batch_read, _security_reference_read, _context, _thread = None, None, None, None, None, None, None, None, None'),
+        ('global _quote, _preparation, _trade, _account_read, _analysis_read, _analysis_batch_read, _context, _thread',
+         'global _quote, _preparation, _trade, _account_read, _analysis_read, _analysis_batch_read, _security_reference_read, _context, _thread'),
+        ('for owner in (_trade, _account_read, _analysis_read, _analysis_batch_read, _preparation, _quote):',
+         'for owner in (_trade, _account_read, _analysis_read, _analysis_batch_read, _security_reference_read, _preparation, _quote):'),
+        ("        if 'quotes' in _settings:",
+         "        _security_reference_read = _ReadAgent(ContextInfo,\n"
+         "            trusted_bootstrap=_settings['security_reference_read']['agent'], enabled=True,\n"
+         "            sector_list_query=globals().get('get_sector_list'),\n"
+         "            reconnect_seconds=_settings['security_reference_read']['reconnect_seconds'])\n"
+         "        if 'quotes' in _settings:"),
+        ('        _analysis_batch_read.start()',
+         '        if _analysis_batch_read is not None:\n            _analysis_batch_read.start()\n        _security_reference_read.start()'),
+        ('    batch_work = _analysis_batch_read.tick(allow_heavy=not (trade_work or account_work or analysis_work))',
+         '    batch_work = False\n    if _analysis_batch_read is not None:\n'
+         '        batch_work = _analysis_batch_read.tick(allow_heavy=not (trade_work or account_work or analysis_work))\n'
+         '    reference_work = _security_reference_read.tick(allow_heavy=not (trade_work or account_work or analysis_work or batch_work))'),
+        ('preparation_work = _preparation.tick(allow_heavy=not (trade_work or account_work or analysis_work or batch_work))',
+         'preparation_work = _preparation.tick(allow_heavy=not (trade_work or account_work or analysis_work or batch_work or reference_work))'),
+        ('return trade_work or account_work or analysis_work or batch_work or preparation_work',
+         'return trade_work or account_work or analysis_work or batch_work or reference_work or preparation_work'),
+        ('重任务依次让给交易、只读账户、v7分析、v8批量、HPR。', '重任务依次让给交易、只读账户、v7分析、v8批量、证券资料、HPR。'),
+    ]
+    for old,new in replacements:
+        if body.count(old)!=1:
+            raise ValueError('original batch callback template changed')
+        body=body.replace(old,new)
+    if not has_batch:
+        block="""        _analysis_batch_read = _ReadAgent(ContextInfo,
+            trusted_bootstrap=_settings['analysis_batch_read']['agent'], enabled=True,
+            reconnect_seconds=_settings['analysis_batch_read']['reconnect_seconds'])
+"""
+        if body.count(block)!=1:
+            raise ValueError('original batch construction changed')
+        body=body.replace(block,'')
+    return body
+
 def _market_settings(market, trade):
     """复用原准入；组合层只核同Windows会话、独立映射及IPC秘密角色。"""
     if (type(market) is not dict or set(market) !=
@@ -305,7 +349,7 @@ def _market_settings(market, trade):
 
 def render_trade_source(trade_bootstrap, *, agent_root, sdk_metadata, stdlib_license,
                         reconnect_seconds, market=None, account_read=None, analysis_read=None,
-                        analysis_batch_read=None, source_runtime=None, reader=None):
+                        analysis_batch_read=None, source_runtime=None, reader=None, security_reference_read=None):
     """返回完整ASCII内存正文bytes和一次冻结的闭包身份，不创建运行资源。
 
     market=None只生成原交易回调；显式market装配三owner及单一定时器。
@@ -386,8 +430,30 @@ def render_trade_source(trade_bootstrap, *, agent_root, sdk_metadata, stdlib_lic
         settings['analysis_batch_read'] = analysis_batch_read
         roots += (_ACCOUNT_ROOT,)
         body = _batch_analysis_callbacks(market is not None, account_read is not None, analysis_read is not None)
+    if security_reference_read is not None:
+        security_reference_read, reference_profile = admit_security_reference_read(security_reference_read)
+        if market is None and account_read is None and analysis_read is None and analysis_batch_read is None:
+            settings = dict(trade=_private_trade(trade), trade_reconnect_seconds=interval)
+        values, profiles = [_private_trade(trade)], [trade.profile]
+        if market is not None:
+            quote = validate_settings(settings['quotes'])
+            preparation = validate_configuration(settings['preparation'])
+            values += [quote, dict(preparation.value, secret=preparation.secret)]
+            profiles += [quote['profile'], preparation.profile]
+        for item, profile in ((account_read, read_profile if account_read is not None else None),
+                              (analysis_read, analysis_profile if analysis_read is not None else None),
+                              (analysis_batch_read, batch_profile if analysis_batch_read is not None else None)):
+            if item is not None:
+                values += [item['agent']]
+                profiles += [profile]
+        _distinct_owners(values+[security_reference_read['agent']], profiles+[reference_profile])
+        settings['security_reference_read'] = security_reference_read  # 原v9设置，独立映射/IPC身份；不扩交易能力。
+        roots += (_ACCOUNT_ROOT,)
+        injected += ('get_sector_list',)
+        body = _security_reference_callbacks(market is not None, account_read is not None,
+                                             analysis_read is not None, analysis_batch_read is not None)
     source_runtime = admit_source_runtime(source_runtime)
-    if (analysis_read is not None or analysis_batch_read is not None) and (source_runtime is None or source_runtime['mode'] != 'strategy_tick'):
+    if (analysis_read is not None or analysis_batch_read is not None or security_reference_read is not None) and (source_runtime is None or source_runtime['mode'] != 'strategy_tick'):
         raise ValueError('analysis composition requires explicit strategy_tick source runtime')
     if source_runtime is not None and source_runtime['mode'] == 'strategy_tick':
         # 一个来源驱动服务全部业务owner；默认模板及金融profile保持。

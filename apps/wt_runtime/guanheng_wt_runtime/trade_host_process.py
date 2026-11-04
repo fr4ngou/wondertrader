@@ -64,22 +64,31 @@ class TradeHostProcess(ManagedLocalProcess):
         value = _json(raw)
         source_runtime = value.get('source_runtime')
         pair_schema = value.get('schema_version')
-        if pair_schema in ('qmt.trade-product-pair.v2', 'qmt.trade-product-pair.v3', 'qmt.trade-product-pair.v4'):
+        # 证券资料连接只由显式v5声明；旧版本保持原连接形状。
+        if 'security_reference_read' in value:
+            _require(pair_schema == 'qmt.trade-product-pair.v5')
+        if pair_schema in ('qmt.trade-product-pair.v2', 'qmt.trade-product-pair.v3',
+                           'qmt.trade-product-pair.v4', 'qmt.trade-product-pair.v5'):
             _require(type(source_runtime) is dict and set(source_runtime) == {'schema_version', 'mode'}
                 and source_runtime['schema_version'] == 'qmt.source-runtime.v1'
                 and source_runtime['mode'] in ('thread', 'strategy_tick'))
-            if pair_schema in ('qmt.trade-product-pair.v3', 'qmt.trade-product-pair.v4'):
+            if pair_schema in ('qmt.trade-product-pair.v3', 'qmt.trade-product-pair.v4', 'qmt.trade-product-pair.v5'):
                 _require(source_runtime['mode'] == 'strategy_tick')
                 if pair_schema == 'qmt.trade-product-pair.v3' or 'analysis_read' in value:
                     _analysis_identity(value, 'analysis_read', 'qmt.read-profile.v7',
                         ['market.divid_factors', 'market.market_data'])
-                if pair_schema == 'qmt.trade-product-pair.v4':
-                    # 批量通道显式选用 v4；仍复用原 owner 和 QMT 策略线程。
+                if pair_schema == 'qmt.trade-product-pair.v4' or (
+                        pair_schema == 'qmt.trade-product-pair.v5' and 'analysis_batch_read' in value):
+                    # v4固定选用批量通道，v5按字段存在性选用；两者复用原owner和QMT策略线程。
                     _analysis_identity(value, 'analysis_batch_read', 'qmt.read-profile.v8', ['market.market_data'])
+                if pair_schema == 'qmt.trade-product-pair.v5':
+                    # v5只在原策略线程增加独立v9只读连接；v7/v8各按存在性核身份。
+                    _analysis_identity(value, 'security_reference_read', 'qmt.read-profile.v9',
+                        ['market.security_details', 'market.security_universe'])
         else:
             _require(value.get('schema_version') == 'qmt.trade-product-pair.v1' and 'source_runtime' not in value)
         _require(pair_schema in ('qmt.trade-product-pair.v1', 'qmt.trade-product-pair.v2',
-                'qmt.trade-product-pair.v3', 'qmt.trade-product-pair.v4')
+                'qmt.trade-product-pair.v3', 'qmt.trade-product-pair.v4', 'qmt.trade-product-pair.v5')
             and value.get('qualified_in_qmt') is False and value.get('order_ready') is False
             and value.get('strategy_name') == 'GH_WT_MEMORY_VERIFY'
             and _path(value.get('agent_package')) == Path(cfg.installed_agent)
@@ -112,3 +121,4 @@ class TradeHostProcess(ManagedLocalProcess):
 def create_process(descriptor_path, expected_sha256):
     """WT固定工厂接缝；构造只核部署身份，start才取得进程与Job。"""
     return TradeHostProcess(TradeHostProcessConfig.from_path(descriptor_path, expected_sha256))
+

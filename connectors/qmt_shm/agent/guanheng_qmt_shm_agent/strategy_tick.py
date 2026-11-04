@@ -141,7 +141,10 @@ class _TickResident(object):
 
 class TickReadAgent(_TickResident, ReconnectingReadAgent):
     def _make_agent(self):
-        return _ReadConnection(self._context, trusted_bootstrap=self._bootstrap, trade_detail_query=self._read)
+        kwargs = dict(trusted_bootstrap=self._bootstrap, trade_detail_query=self._read)
+        if self._sector_list_query is not None:
+            kwargs['sector_list_query'] = self._sector_list_query
+        return _ReadConnection(self._context, **kwargs)
 
 
 class TickPreparationAgent(_TickResident, ReconnectingHistoryPreparationAgent):

@@ -86,7 +86,7 @@ class RetainedReadClient:
         self.lifetime_ms, self.poll_seconds = lifetime_ms, poll_seconds
         self.wait_for_active_capacity = wait_for_active_capacity
 
-    def _binding(self, deadline):
+    def _binding(self, deadline, *, require_retention=True):
         code, value = self.transport.exchange('GET', '/internal/v1/read-binding', b'', deadline)
         if code != 200:
             raise RetainedReadPending('read_source_waiting')
@@ -98,8 +98,14 @@ class RetainedReadClient:
                 or bound.digest(raw) != checked['capability_sha256']):
             raise ValueError('retained_read_binding')
         profile = validate_read_profile(decode(raw), max_result_bytes=value['limits']['max_result_bytes'])
-        retention(profile.get('read_retention'))
+        if require_retention:
+            retention(profile.get('read_retention'))
         return dict(value, profile=profile)
+
+    def metadata(self, *, deadline):
+        """只读已认证能力metadata；缺少新能力时消费方可明确等待，不生成请求或slot。"""
+        with self._rpc_budget(deadline):
+            return self._binding(deadline, require_retention=False)
 
     @contextmanager
     def _rpc_budget(self, deadline):

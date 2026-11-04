@@ -9,6 +9,7 @@ from .trade_pair import _read, _market_material, create_product_pair, verify_pro
 from .account_read_composition import load_account_read_pair
 from .analysis_read_composition import load_analysis_read_pair
 from .analysis_batch_read_composition import load_analysis_batch_read_pair
+from .security_reference_composition import load_security_reference_read_pair
 
 
 class Parser(argparse.ArgumentParser):
@@ -30,6 +31,7 @@ def main(argv=None):
         create.add_argument('--account-read-pair', type=Path)
         create.add_argument('--analysis-read-pair', type=Path)
         create.add_argument('--analysis-batch-read-pair', type=Path)
+        create.add_argument('--security-reference-read-pair', type=Path)
         create.add_argument('--source-mode', choices=('thread', 'strategy_tick'))
         for name in ('verify', 'run'):
             entry = sub.add_parser(name)
@@ -53,6 +55,7 @@ def main(argv=None):
                 account_read=None if args.account_read_pair is None else load_account_read_pair(args.account_read_pair),
                 analysis_read=None if args.analysis_read_pair is None else load_analysis_read_pair(args.analysis_read_pair),
                 analysis_batch_read=None if args.analysis_batch_read_pair is None else load_analysis_batch_read_pair(args.analysis_batch_read_pair),
+                security_reference_read=None if args.security_reference_read_pair is None else load_security_reference_read_pair(args.security_reference_read_pair),
                 source_runtime=None if args.source_mode is None else
                 dict(schema_version='qmt.source-runtime.v1', mode=args.source_mode))
         elif args.command == 'verify':

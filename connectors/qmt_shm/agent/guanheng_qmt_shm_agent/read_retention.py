@@ -3,6 +3,7 @@
 import re
 from uuid import UUID, uuid5
 from .protocol import canonical, decode
+from .security_reference import OPERATIONS as REFERENCE_OPERATIONS, CONFIRMED_ERRORS as REFERENCE_ERRORS
 
 SCHEMA = 'qmt.read-retention.v1'
 TICKET = 'qmt.read-ticket.v1'
@@ -21,7 +22,8 @@ def result_confirmed(result):
     Host 回收和外部消费者使用同一分类，避免外部把未知当作下一轮读取。
     本函数只适用于独立读取/HPR，金融写命令不进入该合同。
     """
-    return result.get('ok') is True or result.get('error_code') in (
+    return (result.get('operation_id') in REFERENCE_OPERATIONS
+            and result.get('error_code') in REFERENCE_ERRORS) or result.get('ok') is True or result.get('error_code') in (
         'preparation_not_executed', 'queue_timeout', 'source_binding_changed',
         'queue_full', 'invalid_arguments', 'capability_unavailable')
 

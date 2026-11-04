@@ -189,7 +189,7 @@ def render_strategy(settings, *, installed_agent, config_sha256, memory_source=N
     if settings['transport']['kind'] == 'builtin-shm':
         body = (_CALLBACKS if lifecycle is None else _resident_callbacks(lifecycle)).format(
             namespace='guanheng_qmt_shm_agent')
-        if settings.get('read_profile_version') in ('qmt.read-profile.v7', 'qmt.read-profile.v8'):
+        if settings.get('read_profile_version') in ('qmt.read-profile.v7', 'qmt.read-profile.v8', 'qmt.read-profile.v9'):
             # 新分析来源显式沿原timer推进运输；默认旧profile正文保持原字节。
             original = ('restricted import RestrictedReadAgent' if lifecycle is None else
                         'reconnecting_read import ReconnectingReadAgent')
@@ -199,7 +199,11 @@ def render_strategy(settings, *, installed_agent, config_sha256, memory_source=N
                 raise ValueError('original read callback template changed')
             from guanheng_qmt_shm_agent.source_runtime import TICK_PERIOD
             body = body.replace(original, replacement).replace('"1nSecond"', repr(TICK_PERIOD))
-        return _render_memory_entry(settings, memory_source, body, ('get_trade_detail_data',),
+        injected = ('get_trade_detail_data',)
+        if settings.get('read_profile_version') == 'qmt.read-profile.v9':
+            body = body.replace('trade_detail_query=', 'sector_list_query=globals().get("get_sector_list"), trade_detail_query=', 1)
+            injected = ('get_sector_list',)
+        return _render_memory_entry(settings, memory_source, body, injected,
             ('init', 'agent_tick', 'handlebar', 'stop'))
     if memory_source is not None:
         raise ValueError('disk transport cannot carry memory-runtime material')
@@ -303,7 +307,7 @@ def _configuration_sha(config,settings,lifecycle):
 def _prepare_pair_runtime(installed, sdk_metadata, stdlib_license, lifecycle, config):
     """生成与verify共用同一来源闭包选择；分析连接带入原timer驱动实现。"""
     from .memory_runtime import prepare_runtime, prepare_read_service_runtime, _prepare_runtime
-    if config.get('read_profile_version') in ('qmt.read-profile.v7', 'qmt.read-profile.v8'):
+    if config.get('read_profile_version') in ('qmt.read-profile.v7', 'qmt.read-profile.v8', 'qmt.read-profile.v9'):
         return _prepare_runtime(installed, sdk_metadata, stdlib_license,
                                 ('guanheng_qmt_shm_agent.strategy_tick',))
     prepare = prepare_runtime if lifecycle is None else prepare_read_service_runtime

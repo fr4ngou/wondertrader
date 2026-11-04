@@ -17,18 +17,18 @@ from .encoding import ConversionBudget, to_json_value
 from .errors import GatewayError
 from .protocol import ProtocolError, canonical, decode
 from .transport import LocalTransport
-from .read_capabilities import (validate_read_request, operation_descriptor, HISTORY, ACCOUNT, PREPARATION)
+from .read_capabilities import (validate_read_request, operation_descriptor, HISTORY, ACCOUNT, PREPARATION, UNIVERSE, DETAILS)
 from .history_1m import History1mAdapter
 from .account_query import AccountQueryAdapter, account_projection_version
 from .results import finalize_result
 from .completion import MemoryCompletion as _ReadCompletion
 
 class RestrictedReadAgent(object):
-    def __init__(self, context, *, trusted_bootstrap, trade_detail_query=None):
+    def __init__(self, context, *, trusted_bootstrap, trade_detail_query=None, sector_list_query=None):
         admitted = validate_read_configuration(trusted_bootstrap)
-        self._initialize(context, admitted, trade_detail_query)
+        self._initialize(context, admitted, trade_detail_query, sector_list_query=sector_list_query)
 
-    def _initialize(self, context, admitted, trade_detail_query, *, account_observer=None):
+    def _initialize(self, context, admitted, trade_detail_query, *, account_observer=None, sector_list_query=None):
         """显式子类复用已准入布局及读owner；公开只读构造仍只接受旧配置。"""
         value, profile = admitted.value, admitted.profile
         self.route, self.budget = admitted.route, admitted.budget
@@ -57,6 +57,12 @@ class RestrictedReadAgent(object):
                     from .analysis_batch import DailyBatchAdapter
                     adapter = DailyBatchAdapter
                 analysis_adapters[operation] = adapter(context, descriptor['limits'], max_result)
+        if UNIVERSE in profile['read_operations']:
+            from .security_reference import SecurityReferenceAdapter, ReferenceOperation
+            descriptor = operation_descriptor(profile, UNIVERSE, max_result_bytes=max_result)
+            reference = SecurityReferenceAdapter(context, descriptor['limits'], max_result, sector_list_query)
+            for operation in (UNIVERSE, DETAILS):
+                analysis_adapters[operation] = ReferenceOperation(reference, operation)
         self.bindings = QMTBindings(context)
         self.adapters = StockOperationAdapters(history_adapter, account_adapter=account_adapter,
                                                 analysis_adapters=analysis_adapters)
@@ -197,13 +203,14 @@ class RestrictedReadAgent(object):
             result.update(error_code=exc.code, error_message=exc.message)
         except Exception:
             result.update(error_code="qmt_call_failed", error_message="原生读取失败")
-        if request['operation_id'] in (HISTORY, ACCOUNT, PREPARATION):
+        if request['operation_id'] in (HISTORY, ACCOUNT, PREPARATION, UNIVERSE, DETAILS):
             result['execution_ms']=max(0,int((time.monotonic()-start)*1000))
         result["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         sealed = finalize_result(result, self._max_result)
-        if request['operation_id'] in (HISTORY, ACCOUNT, PREPARATION) and sealed['ok'] and time.monotonic()>=deadline:
+        if request['operation_id'] in (HISTORY, ACCOUNT, PREPARATION, UNIVERSE, DETAILS) and sealed['ok'] and time.monotonic()>=deadline:
             # 封装期间到期：同owner/同finalizer替换尚未发布的成功，SDK不重调。
             result.update(ok=False,data=None,error_code='execution_timeout',error_message=('历史读取已超出同一执行截止，原生调用状态按原ID核查' if request['operation_id']==HISTORY
+                    else '证券资料读取已超出同一执行截止，按原ID核查' if request['operation_id'] in (UNIVERSE, DETAILS)
                     else '账户读取已超出同一执行截止，原生调用状态按原ID核查'),
                 completed_at=datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
                 execution_ms=max(0,int((time.monotonic()-start)*1000)))

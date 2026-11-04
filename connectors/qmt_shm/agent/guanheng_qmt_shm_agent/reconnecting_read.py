@@ -10,7 +10,7 @@ from .restricted import RestrictedReadAgent
 
 class ReconnectingReadAgent(object):
     def __init__(self, context, *, trusted_bootstrap, reconnect_seconds,
-                 enabled=False, trade_detail_query=None):
+                 enabled=False, trade_detail_query=None, sector_list_query=None):
         if enabled is not True:
             raise ValueError("read reconnect requires explicit enabled=True")
         if (type(reconnect_seconds) not in (int, float)
@@ -24,6 +24,7 @@ class ReconnectingReadAgent(object):
         self._bootstrap = dict(self._configuration.value)
         self._bootstrap['secret'] = self._configuration.secret
         self._context, self._read = context, trade_detail_query
+        self._sector_list_query = sector_list_query  # 固定只读板块目录全局函数；只由显式v9原策略线程调用。
         self._interval = float(reconnect_seconds)
         self._owner = threading.get_ident()
         self._condition = threading.Condition(threading.RLock())
@@ -44,8 +45,10 @@ class ReconnectingReadAgent(object):
 
     def _make_agent(self):
         """每代沿原构造入口，子类复用相同退休和停止顺序。"""
-        return RestrictedReadAgent(self._context,
-            trusted_bootstrap=self._bootstrap, trade_detail_query=self._read)
+        kwargs = dict(trusted_bootstrap=self._bootstrap, trade_detail_query=self._read)
+        if self._sector_list_query is not None:
+            kwargs['sector_list_query'] = self._sector_list_query
+        return RestrictedReadAgent(self._context, **kwargs)
 
     def _retire_agent(self, agent, deadline):
         """默认仍关闭完整读Agent；显式子类可退休其借用的运输代际。"""

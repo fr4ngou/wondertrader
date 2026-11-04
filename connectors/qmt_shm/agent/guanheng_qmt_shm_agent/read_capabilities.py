@@ -10,6 +10,7 @@ from uuid import UUID
 from .protocol import ProtocolError, canonical, decode
 from .account_query import POLICY_VERSION, IDENTITY_POLICY_VERSION, IDENTITY_SCHEMA
 from .analysis_reads import DAILY, FACTORS, DAILY_POLICY, FACTORS_POLICY, PROFILE_VERSION as ANALYSIS_PROFILE_VERSION
+from .security_reference import UNIVERSE, DETAILS, POLICY as REFERENCE_POLICY, PROFILE_VERSION as REFERENCE_VERSION
 
 FULL_TICK = 'market.full_tick'
 HISTORY = 'market.history_1m'
@@ -20,9 +21,9 @@ TRADE_READ_PROFILE_VERSION = 'qmt.read-profile.v4'
 BULK_READ_PROFILE_VERSION = 'qmt.read-profile.v5'
 PREPARATION = 'market.history_prepare'
 PREPARATION_PROFILE_VERSION = 'qmt.read-profile.v6'
-_OPERATIONS = (FULL_TICK, HISTORY, ACCOUNT, PREPARATION, DAILY, FACTORS)
+_OPERATIONS = (FULL_TICK, HISTORY, ACCOUNT, PREPARATION, DAILY, FACTORS, UNIVERSE, DETAILS)
 _POLICIES = ('qmt.standard-read.v1', 'qmt.history-read.v1', 'qmt.account-read.v1', 'qmt.history-preparation.v1',
-             DAILY_POLICY, FACTORS_POLICY)
+             DAILY_POLICY, FACTORS_POLICY, REFERENCE_POLICY, REFERENCE_POLICY)
 _CONTROL_FIELDS = ('schema_version', 'max_pending_calls', 'max_call_bytes', 'max_reply_bytes',
     'max_retained_bytes', 'max_cycle_messages', 'max_cycle_bytes', 'poll_seconds', 'max_call_seconds')
 
@@ -85,6 +86,10 @@ def explicit_profile_version(read_operations, operation_profiles=None):
             or any(not known_operation(op) for op in read_operations)
             or read_operations != sorted(set(read_operations))):
         _reject()
+    if UNIVERSE in read_operations or DETAILS in read_operations:
+        if read_operations != sorted((UNIVERSE, DETAILS)):
+            _reject()
+        return REFERENCE_VERSION
     if DAILY in read_operations or FACTORS in read_operations:
         if PREPARATION in read_operations or ACCOUNT in read_operations:
             _reject()
@@ -124,6 +129,9 @@ def _operation_profiles(profile, operations, max_result_bytes):
             _fields(limits, ())
         elif op == HISTORY:
             _history_limits(limits, max_result_bytes)
+        elif op in (UNIVERSE, DETAILS):
+            from .security_reference import limits as reference_limits
+            reference_limits(limits, max_result_bytes)
         elif op in (DAILY, FACTORS):
             from .analysis_reads import limits as analysis_limits
             if op == DAILY and profile.get("read_profile_version") == "qmt.read-profile.v8":
@@ -144,6 +152,8 @@ def _operation_profiles(profile, operations, max_result_bytes):
             except GatewayError:
                 _reject()
     if maximum != profile['execution_timeout_ms']:
+        _reject()
+    if profile.get('read_profile_version') == REFERENCE_VERSION and entries[UNIVERSE]['limits'] != entries[DETAILS]['limits']:
         _reject()
 
 
@@ -234,6 +244,10 @@ def operation_descriptor(profile, operation, *, max_result_bytes=None):
 
 def validate_read_result_projection(request, result):
     """核原请求选择的账户结果版本；不改原文、不解释金融字段。"""
+    if request['operation_id'] in (UNIVERSE, DETAILS):
+        from .security_reference import validate_result
+        validate_result(request, result)
+        return
     if request['operation_id'] == PREPARATION:
         from .history_preparation import validate_result
         validate_result(request, result)
@@ -296,6 +310,9 @@ def validate_read_request(request, profile, *, as_of_date=None, max_result_bytes
                       limits['max_calendar_days'], limits['max_rows'])
         except HistoryError:
             _reject()
+    elif request['operation_id'] in (UNIVERSE, DETAILS):
+        from .security_reference import arguments
+        arguments(request['operation_id'], request['arguments'], descriptor['limits'])
     elif request['operation_id'] in (DAILY, FACTORS):
         from .analysis_reads import arguments
         if descriptor['policy_id'] == 'qmt.daily-batch-read.v1':

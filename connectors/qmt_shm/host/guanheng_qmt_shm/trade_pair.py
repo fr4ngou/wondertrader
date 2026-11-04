@@ -23,11 +23,13 @@ from .trade_event_records import CONTINUITY_VERSION
 from .account_read_composition import account_read_material, admit_account_read
 from .analysis_read_composition import analysis_read_material, admit_analysis_read
 from .analysis_batch_read_composition import analysis_batch_read_material, admit_analysis_batch_read
+from .security_reference_composition import security_reference_read_material, admit_security_reference_read
 
 SCHEMA = 'qmt.trade-product-pair.v1'
 SOURCE_SCHEMA = 'qmt.trade-product-pair.v2'
 ANALYSIS_SCHEMA = 'qmt.trade-product-pair.v3'
 BATCH_ANALYSIS_SCHEMA = 'qmt.trade-product-pair.v4'
+REFERENCE_SCHEMA = 'qmt.trade-product-pair.v5'  # 显式新增证券资料连接；旧v1至v4材料保持原形状。
 from guanheng_qmt_shm_agent.source_runtime import source_runtime as admit_source_runtime
 FILES = frozenset(('host.py', 'strategy.py', 'deployment.json', 'policy.json', 'CPYTHON-LICENSE.txt'))
 FIELDS = frozenset(('schema_version', 'config_sha256', 'host_python', 'host_python_sha256',
@@ -182,7 +184,7 @@ def _market_material(market, *, decode_secrets=False):
     return value
 
 
-def _deployment(config, credentials, reconnect_seconds, market=None, account_read=None, source_runtime=None, analysis_read=None, analysis_batch_read=None):
+def _deployment(config, credentials, reconnect_seconds, market=None, account_read=None, source_runtime=None, analysis_read=None, analysis_batch_read=None, security_reference_read=None):
     value = dict(schema_version='qmt.trade-deployment.v1', host=config,
         credentials=dict(ipc_secret_hex=credentials['ipc_secret'].hex(), http_keys=credentials['http_keys']),
         reconnect_seconds=reconnect_seconds, connection_continuity=CONTINUITY_VERSION)
@@ -200,6 +202,9 @@ def _deployment(config, credentials, reconnect_seconds, market=None, account_rea
     if analysis_batch_read is not None:
         value['analysis_batch_read'] = analysis_batch_read_material(analysis_batch_read)
         value['schema_version'] = 'qmt.trade-deployment.v4'
+    if security_reference_read is not None:
+        value['security_reference_read'] = security_reference_read_material(security_reference_read)  # 私有原IPC材料，金融profile独立。
+        value['schema_version'] = 'qmt.trade-deployment.v5'
     return value
 
 
@@ -222,12 +227,13 @@ def _account_identity(account_read):
     return dict(profile=profile, settings_sha256=_hash(canonical(account_read_material(account_read))))
 
 
-def _decode_all_deployment(raw):
-    """唯一完整解析器显式消费六连接，旧元组接口在外层拒绝新增设置。"""
+def _decode_reference_deployment(raw):
+    """完整解析器显式消费证券资料连接；旧元组接口在外层拒绝新增设置。"""
     value = decode(raw)
     fields = {'schema_version', 'host', 'credentials', 'reconnect_seconds', 'connection_continuity'}
-    _need(type(value) is dict and fields <= set(value) <= fields | {'market', 'account_read', 'source_runtime', 'analysis_read', 'analysis_batch_read'}
-        and value['schema_version'] == ('qmt.trade-deployment.v4' if 'analysis_batch_read' in value else
+    _need(type(value) is dict and fields <= set(value) <= fields | {'market', 'account_read', 'source_runtime', 'analysis_read', 'analysis_batch_read', 'security_reference_read'}
+        and value['schema_version'] == ('qmt.trade-deployment.v5' if 'security_reference_read' in value else
+            'qmt.trade-deployment.v4' if 'analysis_batch_read' in value else
             'qmt.trade-deployment.v3' if 'analysis_read' in value else
             'qmt.trade-deployment.v2' if 'source_runtime' in value else 'qmt.trade-deployment.v1')
         and value['connection_continuity'] == CONTINUITY_VERSION)
@@ -243,8 +249,16 @@ def _decode_all_deployment(raw):
         None if 'account_read' not in value else account_read_material(value['account_read'], decode_secrets=True),
         None if 'source_runtime' not in value else admit_source_runtime(value['source_runtime']),
         None if 'analysis_read' not in value else analysis_read_material(value['analysis_read'], decode_secrets=True),
-        None if 'analysis_batch_read' not in value else analysis_batch_read_material(value['analysis_batch_read'], decode_secrets=True))
+        None if 'analysis_batch_read' not in value else analysis_batch_read_material(value['analysis_batch_read'], decode_secrets=True),
+        None if 'security_reference_read' not in value else security_reference_read_material(value['security_reference_read'], decode_secrets=True))
 
+
+
+def _decode_all_deployment(raw):
+    """旧八项decoder保持形状；v5必须由完整九项入口显式消费新增连接。"""
+    value=_decode_reference_deployment(raw)
+    _need(value[8] is None)
+    return value[:8]
 
 def _decode_complete_deployment(raw):
     """原 v3 七项调用者继续原形状；v4 必须显式消费完整批量连接。"""
@@ -279,16 +293,16 @@ def _launcher(agent):
         "str(Path(__file__).resolve().parent), '--installed-agent', " + repr(str(agent)) + "]))\n").encode('utf8')
 
 
-def _freeze(agent, metadata, license_bytes, settings, reconnect_seconds, market=None, account_read=None, source_runtime=None, analysis_read=None, analysis_batch_read=None):
+def _freeze(agent, metadata, license_bytes, settings, reconnect_seconds, market=None, account_read=None, source_runtime=None, analysis_read=None, analysis_batch_read=None, security_reference_read=None):
     """完整依赖闭包和原正文生成器共用一次输入快照，终端运行仅加载内存。"""
     return render_trade_source(settings, agent_root=agent, sdk_metadata=metadata,
         stdlib_license=license_bytes, reconnect_seconds=reconnect_seconds, market=market,
         account_read=account_read, analysis_read=analysis_read, analysis_batch_read=analysis_batch_read,
-        source_runtime=source_runtime, reader=_read)
+        source_runtime=source_runtime, reader=_read, security_reference_read=security_reference_read)
 
 
 def create_product_pair(config, *, credentials, output, sdk_metadata, stdlib_license,
-                        reconnect_seconds, installed_agent=None, market=None, account_read=None, source_runtime=None, analysis_read=None, analysis_batch_read=None):
+                        reconnect_seconds, installed_agent=None, market=None, account_read=None, source_runtime=None, analysis_read=None, analysis_batch_read=None, security_reference_read=None):
     """只生成新私有材料；不创建Journal、SHM、HTTP或QMT SDK owner。"""
     agent, host, pythonw = _installation(installed_agent)
     agent_sources, host_sources = _sources(agent), _sources(host)
@@ -309,12 +323,15 @@ def create_product_pair(config, *, credentials, output, sdk_metadata, stdlib_lic
     analysis_batch_read = None if analysis_batch_read is None else analysis_batch_read_material(
         analysis_batch_read_material(analysis_batch_read), decode_secrets=True)
     _account_credentials(analysis_batch_read, credentials)
+    security_reference_read = None if security_reference_read is None else security_reference_read_material(
+        security_reference_read_material(security_reference_read), decode_secrets=True)
+    _account_credentials(security_reference_read, credentials)
     source_runtime = admit_source_runtime(source_runtime)
-    strategy, memory = _freeze(agent, sdk_metadata, stdlib_license, settings, lifecycle['reconnect_seconds'], market, account_read, source_runtime, analysis_read, analysis_batch_read)
-    deployment = canonical(_deployment(config, credentials, lifecycle['reconnect_seconds'], market, account_read, source_runtime, analysis_read, analysis_batch_read))
+    strategy, memory = _freeze(agent, sdk_metadata, stdlib_license, settings, lifecycle['reconnect_seconds'], market, account_read, source_runtime, analysis_read, analysis_batch_read, security_reference_read)
+    deployment = canonical(_deployment(config, credentials, lifecycle['reconnect_seconds'], market, account_read, source_runtime, analysis_read, analysis_batch_read, security_reference_read))
     materials = {'deployment.json': deployment, 'policy.json': policy_raw, 'strategy.py': strategy,
         'host.py': _launcher(agent), 'CPYTHON-LICENSE.txt': stdlib_license}
-    manifest = dict(schema_version=BATCH_ANALYSIS_SCHEMA if analysis_batch_read is not None else ANALYSIS_SCHEMA if analysis_read is not None else SCHEMA if source_runtime is None else SOURCE_SCHEMA, config_sha256=_hash(deployment), host_python=str(pythonw),
+    manifest = dict(schema_version=REFERENCE_SCHEMA if security_reference_read is not None else BATCH_ANALYSIS_SCHEMA if analysis_batch_read is not None else ANALYSIS_SCHEMA if analysis_read is not None else SCHEMA if source_runtime is None else SOURCE_SCHEMA, config_sha256=_hash(deployment), host_python=str(pythonw),
         host_python_sha256=_hash(_read(pythonw, 67108864)), host_package=str(host), host_sources=host_sources,
         agent_package=str(agent), agent_sources=agent_sources, memory_runtime=memory,
         files={name: _hash(raw) for name, raw in materials.items()}, qualified_in_qmt=False,
@@ -328,6 +345,12 @@ def create_product_pair(config, *, credentials, output, sdk_metadata, stdlib_lic
         unused_settings, profile = admit_analysis_batch_read(analysis_batch_read)
         manifest['analysis_batch_read'] = dict(profile=profile,
             settings_sha256=_hash(canonical(analysis_batch_read_material(analysis_batch_read))))
+    if security_reference_read is not None:
+        unused_settings, profile = admit_security_reference_read(security_reference_read)
+        manifest['security_reference_read'] = dict(
+            profile=profile,  # 两项只读能力、实际分类和有限预算；不扩充金融权限。
+            settings_sha256=_hash(canonical(security_reference_read_material(security_reference_read))),  # 原私有设置摘要，含独立IPC身份。
+        )
     if source_runtime is not None:
         manifest['source_runtime'] = source_runtime
     _need(_sources(agent) == agent_sources and _sources(host) == host_sources)
@@ -355,8 +378,8 @@ def _verified_material(directory, installed_agent=None, *, with_schema=False):
     _need(_directory_names(directory) == FILES | {'manifest.json'})
     raw = _read(directory / 'manifest.json')
     manifest = decode(raw)
-    _need(type(manifest) is dict and set(manifest) == FIELDS | ({'account_read'} if 'account_read' in manifest else set()) | ({'source_runtime'} if 'source_runtime' in manifest else set()) | ({'analysis_read'} if 'analysis_read' in manifest else set()) | ({'analysis_batch_read'} if 'analysis_batch_read' in manifest else set())
-        and manifest['schema_version'] == (BATCH_ANALYSIS_SCHEMA if 'analysis_batch_read' in manifest else ANALYSIS_SCHEMA if 'analysis_read' in manifest else SOURCE_SCHEMA if 'source_runtime' in manifest else SCHEMA)
+    _need(type(manifest) is dict and set(manifest) == FIELDS | ({'account_read'} if 'account_read' in manifest else set()) | ({'source_runtime'} if 'source_runtime' in manifest else set()) | ({'analysis_read'} if 'analysis_read' in manifest else set()) | ({'analysis_batch_read'} if 'analysis_batch_read' in manifest else set()) | ({'security_reference_read'} if 'security_reference_read' in manifest else set())
+        and manifest['schema_version'] == (REFERENCE_SCHEMA if 'security_reference_read' in manifest else BATCH_ANALYSIS_SCHEMA if 'analysis_batch_read' in manifest else ANALYSIS_SCHEMA if 'analysis_read' in manifest else SOURCE_SCHEMA if 'source_runtime' in manifest else SCHEMA)
         and manifest['qualified_in_qmt'] is False and manifest['order_ready'] is False
         and manifest['strategy_name'] == 'GH_WT_MEMORY_VERIFY' and type(manifest['files']) is dict
         and set(manifest['files']) == FILES)
@@ -367,7 +390,7 @@ def _verified_material(directory, installed_agent=None, *, with_schema=False):
     materials = {name: _read(directory / name) for name in FILES}
     _need(all(_hash(body) == manifest['files'][name] for name, body in materials.items())
         and manifest['config_sha256'] == _hash(materials['deployment.json']) and materials['host.py'] == _launcher(agent))
-    config, credentials, interval, market, account_read, source_runtime, analysis_read, analysis_batch_read = _decode_all_deployment(materials['deployment.json'])
+    config, credentials, interval, market, account_read, source_runtime, analysis_read, analysis_batch_read, security_reference_read = _decode_reference_deployment(materials['deployment.json'])
     _need(manifest.get('source_runtime') == source_runtime)
     _need(('analysis_read' in manifest) == (analysis_read is not None))
     if analysis_read is not None:
@@ -378,6 +401,11 @@ def _verified_material(directory, installed_agent=None, *, with_schema=False):
         unused_settings, profile = admit_analysis_batch_read(analysis_batch_read)
         _need(manifest['analysis_batch_read'] == dict(profile=profile,
             settings_sha256=_hash(canonical(analysis_batch_read_material(analysis_batch_read)))))
+    _need(('security_reference_read' in manifest) == (security_reference_read is not None))
+    if security_reference_read is not None:
+        unused_settings, profile = admit_security_reference_read(security_reference_read)
+        _need(manifest['security_reference_read'] == dict(profile=profile,
+            settings_sha256=_hash(canonical(security_reference_read_material(security_reference_read)))))
     _need(('account_read' in manifest) == (account_read is not None))
     if account_read is not None:
         _need(manifest['account_read'] == _account_identity(account_read))
@@ -388,9 +416,10 @@ def _verified_material(directory, installed_agent=None, *, with_schema=False):
     _account_credentials(account_read, credentials)
     _account_credentials(analysis_read, credentials)
     _account_credentials(analysis_batch_read, credentials)
+    _account_credentials(security_reference_read, credentials)
     _need(manifest['capabilities'] == settings['allowed_operations']
-        and canonical(_deployment(config, credentials, lifecycle['reconnect_seconds'], market, account_read, source_runtime, analysis_read, analysis_batch_read)) == materials['deployment.json'])
-    strategy, memory = _freeze(agent, manifest['memory_runtime']['sdk'], materials['CPYTHON-LICENSE.txt'], settings, interval, market, account_read, source_runtime, analysis_read, analysis_batch_read)
+        and canonical(_deployment(config, credentials, lifecycle['reconnect_seconds'], market, account_read, source_runtime, analysis_read, analysis_batch_read, security_reference_read)) == materials['deployment.json'])
+    strategy, memory = _freeze(agent, manifest['memory_runtime']['sdk'], materials['CPYTHON-LICENSE.txt'], settings, interval, market, account_read, source_runtime, analysis_read, analysis_batch_read, security_reference_read)
     _need(strategy == materials['strategy.py'] and memory == manifest['memory_runtime']
         and _sources(agent) == manifest['agent_sources'] and _sources(host) == manifest['host_sources']
         and all(_read(directory / name) == body for name, body in materials.items())

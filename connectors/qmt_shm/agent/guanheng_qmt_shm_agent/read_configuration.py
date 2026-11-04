@@ -75,7 +75,7 @@ def validate_read_configuration(trusted_bootstrap, *, allow_preparation=False):
         raise ValueError("missing trusted bootstrap secret")
     value = decode(canonical({key: item for key, item in trusted_bootstrap.items() if key != 'secret'}))
     version = explicit_profile_version(value['allowed_operations'], value.get('operation_profiles'))
-    if version in ('qmt.read-profile.v7', 'qmt.read-profile.v8') and (type(value['transport']) is not dict
+    if version in ('qmt.read-profile.v7', 'qmt.read-profile.v8', 'qmt.read-profile.v9') and (type(value['transport']) is not dict
             or value['transport'].get('kind') != 'builtin-shm'):
         raise ValueError('analysis source requires memory-backed builtin SHM')
     if version == 'qmt.read-profile.v6' and allow_preparation is not True:
