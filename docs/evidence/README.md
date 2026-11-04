@@ -5,6 +5,7 @@
 - [WT 35.3.service.7最终源码闭包](2026-11-04-wt-runtime-service7-source-closure.md)：保留service.5的五模块追溯，按固定角色材料接入service.6恢复模块和service.7资金公式；43模块、元数据、入口和全新Python 3.12安装逐项闭合，运行及交易状态未操作。
 
 - [WT 35.3.service.5前代源码闭包](2026-11-04-wt-runtime-source-closure.md)：43个Python模块与service.5角色逐字节闭合，固定后端和依赖离线重建、全新Python 3.12安装及入口通过；后继见service.7最终闭包。
+- [WT统一日线动态全类别正式验真](2026-11-04-unified-daily-full-scope.md)：实际8013目录、8086保留范围、原身份及正式价格/指标/重启验收。
 
 - [唯一策略上一闭合日日线恢复](2026-11-04-strategy-closed-day-input.md)：八只ETF真实补齐、逐项回读与原分析发布入口接续到11月3日；金融运行保持原代，自然策略与委托另验。
 
