@@ -30,8 +30,10 @@ _READY = {'schema', 'control_id', 'pid', 'pair_manifest_sha256', 'pair_config_sh
           'listen_host', 'listen_port'}
 _CLOSED = {'schema', 'control_id', 'pid', 'pair_manifest_sha256', 'pair_config_sha256',
            'status', 'runtime_closed', 'monitor_joined', 'error_code'}
+# v9证券资料沿原只读Host准入；资格、manifest与原Host完整核验继续保持。
 _READS = {'market.full_tick', 'market.history_1m', 'account.trade_detail',
-          'market.market_data', 'market.divid_factors'}
+          'market.market_data', 'market.divid_factors',
+          'market.security_details', 'market.security_universe'}
 
 
 def _read(path, maximum, *, clock=None, deadline=None):
