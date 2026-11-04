@@ -13,6 +13,7 @@ from integrations.guanheng import daily_data_service as service
 from integrations.guanheng.daily_input_recovery import observe_input_reads, close_input_discovery
 from integrations.guanheng.market_generation import encode
 from guanheng_qmt_shm.read_retention_client import RetainedReadPending
+from integrations.guanheng_market_client import MarketProtocolError
 
 
 def write(path, value):
@@ -239,6 +240,21 @@ class InputRecoveryTests(unittest.TestCase):
                 close_input_discovery(state)
             self.assertEqual(len(yielded), 3)
             self.assertEqual(closed, [True])
+
+    def test_failed_directory_iterator_never_becomes_a_completed_old_root_on_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            old, slot, _, index = self.fixtures(Path(directory), published=True, reference=True)
+            scope = old.parent/'inputs/prices/SCOPE.json'
+            scope.parent.mkdir(parents=True, exist_ok=True)
+            scope.write_bytes(b'{broken-original')
+            before = slot.read_bytes()
+            state = memory()
+            for _ in range(3):
+                with self.assertRaises(MarketProtocolError):
+                    observe_input_reads(index, state, target_day='2026-11-04', deadline=time.monotonic()+5, cancelled=lambda: False)
+                self.assertNotIn(old.parent/'inputs', state['roots'])
+                self.assertFalse(state['discovery'])
+            self.assertEqual(slot.read_bytes(), before)
 
 
 if __name__ == '__main__':

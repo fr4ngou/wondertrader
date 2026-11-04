@@ -102,6 +102,11 @@ def observe_input_reads(index, state, *, target_day, deadline, cancelled):
                 if day < started_target:
                     state['roots'].add(root)
                 break
+            except BaseException:
+                del discovery[root]
+                discovered.discard(root)
+                iterator.close()  # 异常终止不授完整扫描资格；后继从同原件再次明确失败。
+                raise
             if slot not in slots and len(slots) >= 100000:
                 iterator.close()
                 del discovery[root]  # 容量拒绝不丢掉刚枚举的原槽；后继仍从原根明确拒绝。

@@ -418,7 +418,7 @@
       "source": "integrations/guanheng/daily_generation.py"
     },
     "integrations/guanheng/daily_input_recovery.py": {
-      "sha256": "81ca30403d56afb34c8a68b64aa806b221a610b5d040c28425a556505d42dccf",
+      "sha256": "6208d7123b188e496691eb6752caa7965d1b4c82ffc1c210ab57fa5260d4c5ac",
       "source": "integrations/guanheng/daily_input_recovery.py"
     },
     "integrations/guanheng/daily_overlay.py": {
