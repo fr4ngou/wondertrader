@@ -4,9 +4,77 @@ from hashlib import sha256
 from pathlib import Path
 import json
 import math
+from types import MappingProxyType
 
 class SessionError(ValueError):
     """回放准入或原生事实失配。"""
+
+
+def native_price_ticks(mapping, frozen):
+    """由已准入且SHA绑定的WT commodities生成原生代码→CNY/份最小报价档位。
+
+    WT的parseCommodity/getPriceTick与此处消费同一品种pricetick；不是成交均价、
+    手续费或金额的小数位。返回不可变本代快照，不读取新文件或猜测ETF统一精度。
+    """
+    commodities = _native_json(frozen['commodities'])
+    result = {}
+    for code in mapping.values():
+        exchange, product, unused = code.split('.')
+        tick = commodities[exchange][product]['pricetick']
+        if type(tick) not in (int, float) or not math.isfinite(tick) or tick <= 0:
+            raise SessionError('native_price_tick_invalid')
+        result[code] = Fraction(repr(tick))
+    return MappingProxyType(result)
+
+
+def canonical_raw_price(value, tick):
+    """将原报价恢复为精确整数档位，返回CNY/份Fraction；真实离档明确报错。
+
+    value来自WT/QMT double，或原报告保存的同一报价十进制文本。仅消除距本代
+    合约档位不超过4*double epsilon*价格尺度的表示尾差；界限须严格小于1/4档，
+    整数档数在double精确整数范围内，沿StandardQmtTrader::price_text同一数值界。
+    不改调用者原值；原快照/捕获身份和审计保留。此接口不用于均价、费率或资金。
+    """
+    if type(value) not in (int, float, str) or type(tick) is not Fraction or tick <= 0:
+        raise SessionError('native_raw_price_invalid')
+    try:
+        floating = float(value)
+        if not math.isfinite(floating) or floating <= 0:
+            raise ValueError('nonpositive_or_nonfinite')
+        raw = Fraction(value if type(value) is str else repr(value))
+    except (ValueError, OverflowError, ZeroDivisionError):
+        raise SessionError('native_raw_price_invalid') from None
+    steps = raw/tick
+    nearest = (2*steps.numerator+steps.denominator)//(2*steps.denominator)
+    if nearest < 1:
+        raise SessionError('native_raw_price_off_tick')
+    if nearest > 9007199254740991:
+        raise SessionError('native_raw_price_tick_ambiguous')
+    canonical = nearest*tick
+    # 先通过现有C++委托转换的double判定；精确十进制归一化只可收紧其集合。
+    try:
+        native_tick = float(tick)
+    except OverflowError:
+        raise SessionError('native_price_tick_invalid') from None
+    if not math.isfinite(native_tick) or native_tick <= 0:
+        raise SessionError('native_price_tick_invalid')
+    scaled = floating/native_tick
+    if not math.isfinite(scaled):
+        raise SessionError('native_raw_price_tick_ambiguous')
+    native_steps = math.floor(scaled+0.5)
+    native_canonical = native_steps*native_tick
+    native_bound = 4*(2.0**-52)*max(floating,abs(native_canonical))
+    if not math.isfinite(native_canonical) or native_bound >= native_tick/4:
+        raise SessionError('native_raw_price_tick_ambiguous')
+    if native_steps != nearest or abs(floating-native_canonical) > native_bound:
+        raise SessionError('native_raw_price_off_tick')
+    # epsilon=2^-52；用精确分式计算既有double表示误差界，不向现金比较传播容差。
+    bound = Fraction(4, 2**52)*max(raw, canonical)
+    if bound >= tick/4:
+        raise SessionError('native_raw_price_tick_ambiguous')
+    if abs(raw-canonical) > bound:
+        raise SessionError('native_raw_price_off_tick')
+    return canonical
 
 
 def _native_json(data):

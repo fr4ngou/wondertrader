@@ -160,7 +160,7 @@ class RetainedStrategy:
         from guanheng_strategy_v1 import SYMBOLS
         from .retained_evaluation import evaluate_retained
         from guanheng_strategy_core.contracts import EvaluationBudget
-        from .execution_facts import admit_native_files
+        from .execution_facts import admit_native_files, native_price_ticks
         _need(type(native.get('strategies')) is list and len(native['strategies'])==1, 'retained_cycle_scope')
         parameters = item['parameters'].get('python_strategy')
         required = {'schema','input_file','input_sha256','main_symbol','evaluation_seconds','broker_max_age_seconds'}
@@ -231,6 +231,7 @@ class RetainedStrategy:
                   for n,_ in identities) and time.monotonic() < deadline, 'native_cash_model_identity')
         self.native_fees = _json(frozen['fees'])  # 原WT已准入模板的本代只读副本；open为CNY/份或成交金额比例，实际费用仍由WT记账。
         self.native_fee_source = 'original-WT:fees-sha256:'+hashlib.sha256(frozen['fees']).hexdigest()  # 冻结原文件SHA；只证明配置模型来源。
+        self.native_price_ticks = native_price_ticks(self.mapping, frozen)  # 本代已SHA绑定WT品种报价档位，CNY/份；不可变，原价估值和NSQ共用。
         self.takeover = 'takeover' in native
         identity = (self.id, self.input_sha, tuple(sorted(self.mapping.items())), asdict(self.inputs.policy), code_identity)
         if self.market_window is not None:
@@ -445,9 +446,9 @@ class RetainedStrategy:
                 reason='market_history_mismatch'
         self._publish_initial_observation(context,broker,response,reason,deadline=self.start_deadline)
 
-    @staticmethod
-    def _snapshot_valuation(response, quantities):
+    def _snapshot_valuation(self, response, quantities):
         """原QMT快照的完整原价与时点；恢复和首次读取复用同一校验。"""
+        from .execution_facts import canonical_raw_price
         _need(type(response) is dict and response['status']['code'] == 'Ok'
             and response['data']['metadata']['qualification'] in ('NativeVerified','ProductionQualified'),
             'capital_market_source')
@@ -462,12 +463,13 @@ class RetainedStrategy:
             _need(key in quantities and key not in prices and row['source_time_verified'] is True
                 and stamp <= now and type(price) in (int,float) and math.isfinite(price) and price > 0,
                 'capital_market_snapshot')
-            prices[key] = Fraction(repr(price));stamps.append(stamp)
+            prices[key] = canonical_raw_price(price, self.native_price_ticks[key]);stamps.append(stamp)
         _need(set(prices) == set(quantities),'capital_market_complete')
         return sum((prices[code]*quantity for code,quantity in quantities.items()),Fraction(0)), min(stamps)
 
     def _retained_initial_valuation(self, broker, funds, *, deadline):
         """同账/数量/周期复用原事实估值；QMT与CTA来源、原价时点分别保持。"""
+        from .execution_facts import canonical_raw_price
         from .execution_recovery import prior_strategy_observations
         expected = {code:value[0] for code,value in self._broker_rows(broker).items() if value[0]}
         for previous, source in prior_strategy_observations(self.recovery_native,self.id,deadline=deadline):
@@ -507,7 +509,7 @@ class RetainedStrategy:
                         and row.get('source') == expected_source and code not in prices
                         and type(row.get('raw_cny_per_share')) is str,
                         'retained_capital_price_source')
-                    price = Fraction(row['raw_cny_per_share']);_need(price > 0,'retained_capital_price_source')
+                    price = canonical_raw_price(row['raw_cny_per_share'],self.native_price_ticks[code])
                     prices[code] = price
                 _need(set(expected) <= set(prices),'retained_capital_market_complete')
                 value = sum((prices[code]*quantity for code,quantity in expected.items()),Fraction(0))
@@ -601,7 +603,10 @@ class RetainedStrategy:
 
     def _capture(self, context, prices, cutoff, result_sha, *, price_source=None, price_observed_at=None, deadline=float('inf'), broker=None):
         from guanheng_strategy_native import Basis, NativePosition, Observation, Price
-        from .execution_facts import _decimal
+        from .execution_facts import _decimal, canonical_raw_price
+        _need(set(prices) == set(self.execution), 'native_price_complete')
+        canonical_prices = {s:canonical_raw_price(prices[s],self.native_price_ticks[self.mapping[s]])
+                            for s in self.execution}  # 本帧唯一规范原价；原prices及其审计身份保持原double字节语义。
         raw, positions = [], []
         for symbol in self.execution:
             p = context.position(self.mapping[symbol]);total = self._shares(p.raw_position)
@@ -618,7 +623,7 @@ class RetainedStrategy:
         facts = context.facts();_need(math.isfinite(facts.fund_pnl), 'native_funds')
         identity = _digest((self.id,self.sequence,raw,prices,asdict(facts)))
         nav = Fraction(self.inputs.policy.initial_capital_cny)+Fraction(repr(facts.fund_pnl))
-        cash = nav-sum((p.actual*Fraction(repr(prices[p.symbol])) for p in positions),Fraction(0))
+        cash = nav-sum((p.actual*canonical_prices[p.symbol] for p in positions),Fraction(0))
         verified = True
         basis_pnl = Fraction(repr(facts.fund_pnl))
         nav_source, cash_source = 'original-CTA:explicit-genesis+flag0', 'original-CTA:NAV-minus-complete-theoretical-holdings'
@@ -626,7 +631,7 @@ class RetainedStrategy:
             from .strategy_capital import observe_broker_capital
             _need(broker is not None and broker.positions_known and broker.position_received_ms is not None, 'capital_positions')
             quantities = self._broker_rows(broker)
-            actual_value = sum((Fraction(repr(prices[s]))*quantities.get(self.mapping[s],(0,0))[0]
+            actual_value = sum((canonical_prices[s]*quantities.get(self.mapping[s],(0,0))[0]
                                 for s in self.execution), Fraction(0))
             account, qualified = self.capital_reader.read(datetime.now(timezone.utc), deadline)
             ledger_cash=self._native_cash(facts,actual_value,account)
@@ -646,7 +651,7 @@ class RetainedStrategy:
             identity = _digest((identity,self.capital_observation,asdict(broker)))
         basis = Basis(cutoff.isoformat(),result_sha,_decimal(nav),_decimal(basis_pnl),_decimal(cash),
                       self.inputs.fee_reserve_cny,nav_source,cash_source,self.inputs.fee_source,
-                      tuple(Price(s,repr(prices[s]),price_source or self.inputs.market_manifest_source) for s in self.execution),verified,identity)
+                      tuple(Price(s,_decimal(canonical_prices[s]),price_source or self.inputs.market_manifest_source) for s in self.execution),verified,identity)
         observed = Observation(cutoff.isoformat(),'original-CTA:cash-long-theoretical',tuple(positions),True,identity)
         return facts,raw,basis,observed
 
@@ -828,6 +833,7 @@ class RetainedStrategy:
                              reason='analysis_only'if outcome is None else outcome.reason,core_result=result,
                              outcome=None if outcome is None else asdict(outcome),
                              quantity_basis=asdict(basis),native_observation=asdict(observed),raw_positions=raw,
+                             raw_prices=tuple((s,prices[s]) for s in self.execution),  # 本帧原始未复权double报价，CNY/份，仅审计；规范原价仍在quantity_basis.prices。
                              execution_observation=asdict(execution),execution_position_qualified=True,
                              native_clock=asdict(facts),previous_status=previous_status)
             if vector:candidate['target_readback'] = dict(vector)
