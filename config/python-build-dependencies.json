@@ -2,19 +2,24 @@
   "schema_version": 1,
   "client_sources": [
     "__init__.py",
-    "history_runner.py",
-    "history_evidence.py",
-    "history_worker.py",
+    "daily_batch.py",
+    "daily_contract.py",
+    "daily_facts.py",
     "history_calendar.py",
-    "strategy_market.py",
+    "history_evidence.py",
     "history_factory.py",
+    "history_runner.py",
+    "history_worker.py",
+    "market_snapshot.py",
+    "minute_factory.py",
     "minute_owner.py",
     "minute_worker.py",
-    "minute_factory.py",
-    "reader_protocol.py",
     "reader_client.py",
+    "reader_protocol.py",
+    "runtime_status.py",
+    "security.py",
     "source_history.py",
-    "runtime_status.py"
+    "strategy_market.py"
   ],
   "client_optional_dependencies": {
     "storage": [

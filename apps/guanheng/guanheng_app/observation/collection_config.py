@@ -10,7 +10,7 @@ from .contracts import ObservationError
 
 KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmoney','shenwan','irs',
          'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance','legulegu_gdp',
-         'pbc_custody','wealth_allocation','citic_broker','chinabond_wealth'}
+         'pbc_custody','wealth_allocation','citic_broker','chinabond_wealth','wt_t2108','wt_breadth'}
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
@@ -108,7 +108,7 @@ def validate_configuration(value):
     for key,maximum in [('seconds',600),('max_requests',1024),('max_bytes',256*1024*1024),('response_bytes',16*1024*1024)]:
         _need(type(budget[key]) is int and 1<=budget[key]<=maximum)
     _need(type(value['models']) is dict and type(value['sources']) is list and 1<=len(value['sources'])<=32)
-    _need(hosts or all(type(source) is dict and source.get('kind') in ('qmt_t2108','ashare_snapshot') for source in value['sources']))
+    _need(hosts or all(type(source) is dict and source.get('kind') in ('qmt_t2108','ashare_snapshot','wt_t2108','wt_breadth') for source in value['sources']))
     identities=set()
     for source in value['sources']:
         _need(type(source) is dict and {'id','kind'}<=set(source) and not set(source)-SOURCE_FIELDS
@@ -123,8 +123,20 @@ def validate_configuration(value):
         for key in ('url','referer'):
             if key not in source:continue
             _url(source[key],hosts)
-        _need('url' in source or source['kind'] in ('baostock','wondertrader','qmt_t2108','ashare_snapshot'))
-        if source['kind']=='qmt_t2108':
+        _need('url' in source or source['kind'] in ('baostock','wondertrader','qmt_t2108','ashare_snapshot','wt_t2108','wt_breadth'))
+        if source['kind']=='wt_breadth':
+            from .breadth_models import ASHARE_METRICS
+            _need(set(source.get('datasets',[]))==set(ASHARE_METRICS)and source.get('tables')==['source.ashare_day_universe'])
+            _need(not {'url','referer','symbols','input_manifest','input_sha256','input_directory','scope','bse_history','replace_tables','window_mode'}&set(source))
+            calendar=value['models'].get('calendars',{}).get('cn',{})
+            _need(type(calendar)is dict and calendar.get('kind')=='official-exchange-calendar/v1')
+        elif source['kind']=='wt_t2108':
+            from .t2108_models import METRIC,UNIVERSE
+            _need(source.get('datasets')==[METRIC] and source.get('tables')==[UNIVERSE])
+            _need(not {'url','referer','symbols','input_manifest','input_sha256','input_directory','scope','bse_history','replace_tables','window_mode'} & set(source))
+            calendar=value['models'].get('calendars',{}).get('cn',{})
+            _need(type(calendar)is dict and calendar.get('kind')=='official-exchange-calendar/v1')
+        elif source['kind']=='qmt_t2108':
             from .t2108_models import METRIC,UNIVERSE
             if 'input_directory' in source:
                 _need(not {'input_manifest','input_sha256'} & set(source)

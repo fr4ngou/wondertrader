@@ -7,6 +7,7 @@ import json
 import re
 from datetime import datetime
 from uuid import UUID
+from .daily_contract import SOURCE_DAILY_MARKETS, source_price_basis
 
 from . import (MarketProtocolError, _enum, _integer, _list, _minute,
               _number, _object, _source, _symbol, _text)
@@ -44,8 +45,9 @@ def validate_source_metadata(value, *, period="1m", selection=False):
     _enum(value["qualification"], ("DevelopmentVerified",))
     _text(value["dataset_version"], limit=256)
     _text(value["source_license"], limit=1024)
-    _enum(value["adjustment"], ("none",))
-    _enum(value["factor_version"], ("",))
+    if not source_price_basis(value["adjustment"], value["factor_version"],
+            allow_reference=period == "1d" and value["source"].get("provider") == "Qmt"):
+        raise MarketProtocolError("source daily price basis is invalid")
     _enum(value["minute_boundary"], ("left", "right", "unknown"))
     _enum(value["timezone"], ("Asia/Shanghai",))
     _enum(value["value_semantics"], ("source",))
@@ -144,10 +146,18 @@ def _date(value):
 
 
 def validate_source_daily_request(value):
-    _object(value, ("exchange", "code", "from", "to", "limit"))
-    _enum(value["exchange"], ("SSE", "SZSE"))
+    fields = ("exchange", "code", "from", "to", "limit")
+    _object(value, fields + ("adjustment", 'snapshot_id', 'view', 'include_archive'), required=fields)
+    _enum(value["exchange"], SOURCE_DAILY_MARKETS)
     _text(value["code"], limit=6)
-    _symbol(value["exchange"] + "." + value["code"])
+    if re.fullmatch('[0-9]{6}', value['code']) is None:
+        raise MarketProtocolError("source daily code is invalid")
+    _enum(value.get('adjustment', 'none'), ('none', 'front_ratio'))
+    if 'snapshot_id'in value:_sha(value['snapshot_id'])
+    if 'view'in value:_enum(value['view'],('archive',))
+    if 'include_archive'in value:
+        if type(value['include_archive'])is not bool or value['include_archive']and value.get('view')!='archive':
+            raise MarketProtocolError('source daily archive details require an explicit archive view')
     if _date(value["from"]) > _date(value["to"]):
         raise MarketProtocolError("source daily range is invalid")
     _integer(value["limit"], 1, 2000)
@@ -157,9 +167,22 @@ def validate_source_daily_request(value):
 def validate_source_daily_data(value, request):
     validate_source_daily_request(request)
     fields = ("metadata", "bars", "coverage", "missing_dates", "selection")
-    _object(value, fields + ("provenance",), required=fields)
+    _object(value, fields + ("provenance", 'source_snapshot_id', 'archive'), required=fields)
     composite = "provenance" in value
     validate_source_metadata(value["metadata"], period="1d", selection=composite)
+    if value['metadata']['adjustment'] != request.get('adjustment', 'none'):
+        raise MarketProtocolError("source daily price basis differs from request")
+    if 'snapshot_id'in request and value.get('source_snapshot_id')!=request['snapshot_id']:
+        raise MarketProtocolError('source daily snapshot differs from request')
+    if 'source_snapshot_id'in value:_sha(value['source_snapshot_id'])
+    if 'archive'in value:
+        if not request.get('include_archive',False):raise MarketProtocolError('source daily archive details were not requested')
+        archive=_object(value['archive'],('first_date','last_date','count'))
+        if _date(archive['first_date'])>_date(archive['last_date']):
+            raise MarketProtocolError('source daily archive dates invalid')
+        _integer(archive['count'],1,1000000)
+    elif request.get('include_archive',False):
+        raise MarketProtocolError('source daily archive details missing')
     _enum(value["coverage"], ("Unknown",))
     _list(value["missing_dates"], 0)
     selection = _object(value["selection"], ("period", "limit"))
@@ -170,16 +193,20 @@ def validate_source_daily_data(value, request):
     previous = 0
     for bar in _list(value["bars"], request["limit"]):
         _object(bar, ("symbol", "date", "open", "high", "low", "close", "volume", "amount"))
-        if _symbol(bar["symbol"]) != symbol:
+        if bar["symbol"] != symbol:
             raise MarketProtocolError("source daily security differs from request")
         day = _date(bar["date"])
         if not request["from"] <= day <= request["to"] or day <= previous:
             raise MarketProtocolError("source daily bars are out of range, repeated or unordered")
+        if 'archive'in value and not archive['first_date']<=day<=archive['last_date']:
+            raise MarketProtocolError('source daily bar outside archive range')
         for key in ("open", "high", "low", "close"):
             _number(bar[key], positive=True)
         for key in ("volume", "amount"):
             _number(bar[key])
         previous = day
+    if 'archive'in value and len(value['bars'])>archive['count']:
+        raise MarketProtocolError('source daily archive count differs')
     if composite:
         offset = 0
         for part in _list(value["provenance"], request["limit"]):

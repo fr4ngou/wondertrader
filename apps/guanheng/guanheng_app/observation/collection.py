@@ -23,6 +23,8 @@ from . import financial_models, executive_models, t2108_models
 from .financial_source import annual_reports
 from .executive_source import executive_changes
 from .t2108_feed import history as t2108_history
+from .wt_t2108_source import history as wt_t2108_history
+from .wt_breadth_source import history as wt_breadth_history
 from .ashare_source import history as ashare_history
 from .ashare_public import history as public_ashare_history
 from .breadth_trends import attach_trends, attach_benchmark
@@ -139,6 +141,14 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                     retry_seconds=config['retry_seconds'],max_attempts=config['max_window_attempts'],admitted_records=admitted)
             elif source['kind']=='qmt_t2108':
                 updates=t2108_history(fetch,source,start,end,calendar=config['models'].get('calendars',{}).get('cn'))
+            elif source['kind']=='wt_breadth':
+                if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                updates=wt_breadth_history(fetch,source,start,end,market_client_factory,
+                    calendar=config['models'].get('calendars',{}).get('cn'),snapshot_date=effective)
+            elif source['kind']=='wt_t2108':
+                if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                updates=wt_t2108_history(fetch,source,start,end,market_client_factory,
+                    calendar=config['models'].get('calendars',{}).get('cn'))
             elif source['kind']=='financial_annual':
                 key='source.financial_'+source.get('scope','shsz')+'_universe'
                 updates=annual_reports(fetch,source,start,end,admitted_rows=tables.get(key,()))
@@ -151,7 +161,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 # market.sh000001同时有源表和页面投影，必须先更新原表再统一派生。
                 is_table=key in source.get('tables',[])
                 budget.remaining();old=tables.get(key,[]) if is_table else datasets.get(key,[])
-                if source['kind']=='qmt_t2108' and key==t2108_models.METRIC:
+                if source['kind']in ('qmt_t2108','wt_t2108') and key==t2108_models.METRIC:
                     old=t2108_models.versioned_history(old,definitions[key]['definition_version'])
                 if key in BREADTH_METRICS:
                     prepared_definitions[key]=admit_definition(key,definitions.get(key),old,rows)
@@ -170,7 +180,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 revisions.extend(dict(metric_id=key,**item) for item in changes);count+=len(rows)
             raw_manifest=reader.objects.put(encode(fetch.records),kind='standard')
             definitions.update(prepared_definitions)
-            if source['kind']=='qmt_t2108':definitions[t2108_models.METRIC]=t2108_models.definition()
+            if source['kind']in ('qmt_t2108','wt_t2108'):definitions[t2108_models.METRIC]=t2108_models.definition()
             for key,rows in prepared.items():
                 if key in source.get('tables',[]):
                     tables[key]=rows

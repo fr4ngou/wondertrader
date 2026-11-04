@@ -27,7 +27,8 @@ from guanheng_qmt_shm.private_files import create_private_directory, write_priva
 def _configuration(path, expected):
     """父配置及source配置各读一次，核原字节身份后才创建原生Reader。"""
     value = _json(_read(path, 65536, expected))
-    _fields(value, 'schema source_configuration listen token_env socket_timeout')
+    fields='schema source_configuration listen token_env socket_timeout'
+    _fields(value,fields+' daily_update' if 'daily_update'in value else fields)
     _need(value['schema'] == 'guanheng.source-market-service.v1')
     source, listen = value['source_configuration'], value['listen']
     _fields(source, 'path sha256')
@@ -38,7 +39,14 @@ def _configuration(path, expected):
     _need(type(timeout) in (int, float) and .1 <= timeout <= 30 and math.isfinite(timeout))
     _need(type(value['token_env']) is str and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', value['token_env']))
     source_config = _json(_read(_path(source['path']), 1024 * 1024, source['sha256']))
-    _need(source_config.get('mode') in ('source-store', 'source-stores', 'source-catalog', 'source-preparing', 'source-collected', 'source-shm-quotes', 'source-daily-overlay'))
+    _need(source_config.get('mode') in ('source-store', 'source-stores', 'source-catalog', 'source-preparing', 'source-collected', 'source-shm-quotes', 'source-daily-overlay', 'source-market-snapshot', 'source-market-current'))
+    if 'daily_update'in value:
+        from integrations.guanheng.daily_data_service import validate_configuration
+        descriptor=value['daily_update'];_fields(descriptor,'path sha256')
+        update=validate_configuration(_json(_read(_path(descriptor['path']),16777216,descriptor['sha256'])))
+        _need(source_config.get('mode')=='source-market-current'
+            and os.path.normcase(str(Path(source_config['current_file']).absolute()))==os.path.normcase(
+                str(Path(update['template']['publication_directory']).absolute()/'CURRENT.json')))
     return value, source_config
 
 
@@ -58,7 +66,7 @@ def serve(configuration, expected_sha256, directory, control_id):
     """当前线程独占服务/Reader；父Job拥有原生阻塞与进程树的硬截止。"""
     _need(str(UUID(control_id)) == control_id and directory.name == control_id)
     _sha(expected_sha256)
-    native = server = None
+    native = server = daily_owner = None
     created = server_closed = native_closed = False
     stop_deadline = None
     error = None
@@ -85,6 +93,11 @@ def serve(configuration, expected_sha256, directory, control_id):
             native = SourcePreparingMarket(source)
         else:
             native = create_native_source_market(source)
+        if 'daily_update'in value:
+            from integrations.guanheng.market_daily_owner import MarketDailyOwner
+            stage='daily_update_start'
+            daily_owner=MarketDailyOwner(value['daily_update'],directory)
+            daily_owner.start(time.monotonic()+30.,stop_request=lambda:_stop(directory,control_id))
         stage = 'http_start'
         server = MarketHTTPServer((value['listen']['host'], value['listen']['port']), native,
                                   token, socket_timeout=value['socket_timeout'])
@@ -99,11 +112,20 @@ def serve(configuration, expected_sha256, directory, control_id):
             if stop_deadline is not None:
                 _need(time.monotonic() < stop_deadline)
                 break
+            if daily_owner is not None:daily_owner.check()
             # 原server/Reader始终在创建线程处理；这里不引入第二套读取池。
             server.handle_request()
     except BaseException as exc:
         error = {'stage': stage, 'exception_kind': type(exc).__name__}
     finally:
+        if stop_deadline is None and created:
+            try:stop_deadline=_stop(directory,control_id)
+            except Exception:pass
+        closing_deadline=stop_deadline if stop_deadline is not None else time.monotonic()+30.
+        if daily_owner is not None:
+            try:daily_owner.request_close(closing_deadline)
+            except BaseException as exc:
+                error=error or {'stage':'daily_update_stop','exception_kind':type(exc).__name__}
         try:
             if server is not None:
                 server.server_close()
@@ -117,6 +139,10 @@ def serve(configuration, expected_sha256, directory, control_id):
         except BaseException as exc:
             if error is None:
                 error = {'stage': 'close', 'exception_kind': type(exc).__name__}
+        if daily_owner is not None:
+            try:daily_owner.close(closing_deadline)
+            except BaseException as exc:
+                error=error or {'stage':'daily_update_close','exception_kind':type(exc).__name__}
         if created:
             try:
                 if error is None and server_closed and native_closed:

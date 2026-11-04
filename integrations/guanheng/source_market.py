@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 import argparse
 import hashlib
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -19,6 +20,7 @@ from ..guanheng_market_client import (
     MarketUnavailable, encode_json, strict_json, validate_request, validate_response,
 )
 from ..guanheng_market_client.source_history import validate_source_metadata
+from ..guanheng_market_client.daily_contract import SOURCE_DAILY_MARKETS, source_price_basis
 from .models import SourceSession, IntegrationUnavailable
 from .native_history import NativeHistory
 
@@ -53,10 +55,11 @@ def _minute(value):
 class _SourceStore:
     """路由只保存原成功根与身份；行情事实仍由原Reader负责。"""
 
-    root: Path
-    receipt_sha256: str
-    source: SourceSession
-    period: str
+    root: Path  # 数据侧已完成导入的原生历史根。
+    receipt_sha256: str  # 本根成功收据的完整字节身份。
+    source: SourceSession  # 原件归属的数据采集会话；每批查询保留原身份。
+    period: str  # 本根基础周期1m或1d。
+    adjustment: str  # 本根来源价格口径；none或显式front_ratio参考。
 
 
 class NativeSourceMarket:
@@ -90,13 +93,16 @@ class NativeSourceMarket:
         preload_keys = []
         for item in preload:
             if catalog:
-                _require(type(item) is dict and set(item) == {"symbol", "period"})
+                _require(type(item) is dict and {"symbol", "period"} <= set(item) <= {"symbol", "period", "adjustment"})
                 security, period = item["symbol"], item["period"]
                 _require(period in ("1m", "1d"))
+                adjustment = item.get('adjustment', 'none')
+                _require(adjustment in (('none', 'front_ratio') if period == '1d' else ('none',)))
             else:
                 security, period = item, "1m"
-            _require(type(security) is str and re.fullmatch(r"(?:SSE|SZSE)\.[0-9]{6}", security))
-            preload_keys.append((security, period))
+                adjustment = 'none'
+            _require(type(security) is str and re.fullmatch(r"(?:SSE|SZSE|BSE)\.[0-9]{6}" if period == '1d' else r"(?:SSE|SZSE)\.[0-9]{6}", security))
+            preload_keys.append((security, period, adjustment))
         _require(len(set(preload_keys)) == len(preload_keys))
         specs = ([{key: config[key] for key in ("store_root", "import_receipt_sha256")}]
                  if mode == "source-store" else config["stores"])
@@ -118,21 +124,23 @@ class NativeSourceMarket:
             remaining -= len(raw)
             receipt = strict_json(raw)
             _require(type(receipt) is dict and type(receipt.get("schema_version")) is int
-                     and receipt["schema_version"] in ((2, 3) if catalog else (2,))
+                     and receipt["schema_version"] in ((2, 3, 4) if catalog else (2,))
                      and receipt.get("status") == "passed")
-            period = "1d" if receipt["schema_version"] == 3 else "1m"
+            period = "1d" if receipt["schema_version"] in (3, 4) else "1m"
             _require(period != "1d" or receipt.get("period") == "1d")
             profile = receipt["profile"]
+            adjustment = profile['adjustment']
+            _require(source_price_basis(adjustment, profile['factor_version'], allow_reference=receipt['schema_version'] == 4))
             source = SourceSession(**{k: profile[k] for k in ("provider", "instance_id", "session_id", "generation")})
-            store = _SourceStore(root, receipt_sha, source, period)
+            store = _SourceStore(root, receipt_sha, source, period, adjustment)
             stores.append(store)
             entries = receipt["securities"]
             _require(type(entries) is list and 1 <= len(entries) <= 10000)
             for entry in entries:
                 exchange, code, count = entry["exchange"], entry["code"], entry["count"]
-                _require(exchange in ("SSE", "SZSE") and type(code) is str and re.fullmatch(r"[0-9]{6}", code))
+                _require(exchange in (SOURCE_DAILY_MARKETS if receipt['schema_version'] == 4 else ('SSE', 'SZSE')) and type(code) is str and re.fullmatch(r"[0-9]{6}", code))
                 security = exchange + "." + code
-                key = (security, period)
+                key = (security, period, adjustment)
                 _require(key not in self._registered and type(count) is int and 1 <= count <= 1000000)
                 _require(len(self._registered) < (20000 if catalog else 10000))
                 self._registered[key] = (store, count)
@@ -153,8 +161,8 @@ class NativeSourceMarket:
         try:
             self._reader = NativeHistory(Path(library), library_sha,
                 max_bars=self._max_bars, max_file_bytes=268435456)
-            for security, period in preload_keys:
-                self._load(security, period)
+            for security, period, adjustment in preload_keys:
+                self._load(security, period, adjustment)
         except BaseException:
             self.close()
             raise
@@ -163,9 +171,9 @@ class NativeSourceMarket:
         if threading.get_ident() != self._owner:
             raise MarketUnavailable("来源历史reader属于创建线程")
 
-    def _load(self, security, period="1m"):
+    def _load(self, security, period="1m", adjustment="none"):
         # 同标的分钟/日线分别缓存；总记录预算仍归同一LRU所有者。
-        key = (security, period)
+        key = (security, period, adjustment)
         if key in self._cache:
             self._cache.move_to_end(key)
             return self._cache[key]
@@ -181,7 +189,7 @@ class NativeSourceMarket:
         history = self._reader.read_source_store(store.root, exchange, code,
             expected_import_sha256=store.receipt_sha256)
         _require(len(history.bars) == count and history.metadata.source == store.source
-                 and history.metadata.period == period)
+                 and history.metadata.period == period and history.metadata.adjustment == adjustment)
         _metadata(history.metadata, period)
         minutes = tuple((_minute(bar.occurred_at) // 10000 if period == "1d" else _minute(bar.occurred_at))
                         for bar in history.bars)
@@ -190,6 +198,11 @@ class NativeSourceMarket:
         self._cache[key] = cached
         self._cache_bars += count
         return cached
+
+    def has_source_history(self, security, period, *, adjustment='none'):
+        """只读注册事实，不解码文件；已注册与日期覆盖、数据完整性分别核实。"""
+        self._check_owner()
+        return not self._closed and (security,period,adjustment) in self._registered
 
     def call(self, request):
         self._check_owner()
@@ -208,13 +221,16 @@ class NativeSourceMarket:
                     else "已绑定原生来源历史，保留源值单位与时间标签")))
         elif action in ("history.source-query", "history.source-daily-query"):
             query = request["request"]
+            if 'snapshot_id' in query:
+                return dict(api_version=API_VERSION,status=dict(code='NotSupported',reason='market snapshot is not configured'),data={})
             security = query["exchange"] + "." + query["code"]
             period = "1d" if action == "history.source-daily-query" else "1m"
-            if (security, period) not in self._registered:
+            adjustment = query.get('adjustment', 'none') if period == '1d' else 'none'
+            if (security, period, adjustment) not in self._registered:
                 code, reason = "Unavailable", "导入收据未登记此证券"
             else:
                 try:
-                    history, minutes = self._load(security, period)
+                    history, minutes = self._load(security, period, adjustment)
                     start = bisect_left(minutes, query["from"])
                     end = bisect_right(minutes, query["to"])
                     start = max(start, end - query["limit"])
@@ -228,10 +244,19 @@ class NativeSourceMarket:
                     data = dict(metadata=_metadata(history.metadata, period), bars=bars, coverage="Unknown")
                     if period == "1d":
                         data.update(missing_dates=[], selection=dict(period="1d", limit=query["limit"]))
+                        if query.get('include_archive',False):
+                            data['archive']=dict(first_date=minutes[0],  # 本价格口径实际首日，不授上市前缺失判断。
+                                last_date=minutes[-1],  # 原成功根实际末日，与请求截止分别保留。
+                                count=len(minutes))  # 整个原归档实际条数，独立于本次limit。
                     else:
                         data.update(missing_minutes=[], selection=dict(period_minutes=1, limit=query["limit"]))
-                except (OSError, ValueError, IntegrationUnavailable, MarketUnavailable):
-                    code, reason = "Unavailable", "来源历史读取或绑定验证未完成"
+                except (OSError, ValueError, IntegrationUnavailable, MarketUnavailable) as error:
+                    # 已登记数据的读取失败属于操作故障，不能作为无行情参与统计。
+                    logging.getLogger(__name__).warning(
+                        'source_history_read_failed security=%s period=%s adjustment=%s error_type=%s errno=%s winerror=%s',
+                        security, period, adjustment, type(error).__name__,
+                        getattr(error,'errno',None),getattr(error,'winerror',None))
+                    code, reason = "IoError", "来源历史读取失败，请检查数据存储和来源绑定"
         else:
             code, reason = "NotSupported", "来源历史商店仅提供显式来源历史查询"
         result = dict(api_version=API_VERSION, status=dict(code=code, reason=reason), data=data)
@@ -320,7 +345,7 @@ def prepare_source_config(catalog, output_config, *, native_reader, native_reade
     try:
         # 复用运行期唯一注册实现，目录不能少列证券或暗中带入其他批次。
         actual = {security: (store.root, store.receipt_sha256, count)
-                  for (security, period), (store, count) in market._registered.items() if period == "1m"}
+                  for (security, period, adjustment), (store, count) in market._registered.items() if period == "1m" and adjustment == 'none'}
         _require(actual == expected)
     finally:
         market.close()
@@ -386,6 +411,12 @@ def main(argv=None):
 
 def create_native_source_market(config, *, max_response_bytes=8 * 1024 * 1024):
     """显式来源配置选择实现；已有导入模式保持原Reader和缓存行为。"""
+    if type(config) is dict and config.get('mode') == 'source-market-current':
+        from .market_current import CurrentSourceMarket
+        return CurrentSourceMarket(config,max_response_bytes=max_response_bytes)
+    if type(config) is dict and config.get('mode') == 'source-market-snapshot':
+        from .market_snapshot import SnapshotSourceMarket
+        return SnapshotSourceMarket(config,max_response_bytes=max_response_bytes)
     if type(config) is dict and config.get('mode') == 'source-daily-overlay':
         from .daily_overlay import DailyOverlayMarket
         return DailyOverlayMarket(config, max_response_bytes=max_response_bytes)

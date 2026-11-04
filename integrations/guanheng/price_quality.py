@@ -47,14 +47,15 @@ def summarize_source_bars(bars):
     return quality.result()
 
 
-def validate_price_quality(value, expected_count):
-    """校验有界摘要类型；实际行重算由读取owner核对。"""
+def validate_price_quality(value, expected_count, *, allow_consistent=False):
+    """校验有界摘要；旧异常声明须有异常，完整归档显式允许零异常。"""
+    if type(allow_consistent)is not bool:raise ValueError("价格质量校验模式不合格")
     fields = {"schema", "checked_rows", "inconsistent_rows", "counts", "first_labels"}
     if (type(value) is not dict or set(value) != fields
             or value["schema"] != "qmt.source-price-range.v1"
             or type(value["checked_rows"]) is not int or value["checked_rows"] != expected_count
             or type(value["inconsistent_rows"]) is not int
-            or not 1 <= value["inconsistent_rows"] <= expected_count
+            or not (0 if allow_consistent else 1) <= value["inconsistent_rows"] <= expected_count
             or type(value["counts"]) is not dict or set(value["counts"]) != set(STATUSES)
             or any(type(count) is not int or count < 0 for count in value["counts"].values())
             or sum(value["counts"].values()) != expected_count

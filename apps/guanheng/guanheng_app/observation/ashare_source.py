@@ -209,8 +209,8 @@ def _history(fetch, config, start, end):
     return normalize(capture, manifest, start, end)
 
 
-def normalize(capture, manifest, start, end):
-    """固定文件包与公开源归档共用全部同日、字段和统一计算准入。"""
+def normalize_inputs(capture, manifest, start, end):
+    """固定原件解析为定日事实；数据侧和原指标入口共用同一来源准入。"""
     fetch = capture.fetch
     _need(type(manifest) is dict and set(manifest) ==
           {'schema', 'date', 'closed_at', 'universe', 'shsz_daily', 'bse_quotes', 'bse_static'}
@@ -289,8 +289,21 @@ def normalize(capture, manifest, start, end):
     for record in capture.input_records:
         if 'retrieved_at' in record:
             _need(_clock(record['retrieved_at']) >= closed, 'ashare_source_clock')
-    result = stock_day([*FIELDS,'qualification'], normalized, members, day, scope='ashare', check=fetch.budget.remaining)
-    result.update(stats,missing_quote_count=result['missing_stock_count'],
-        known_market_count=len(members)-len(unverified))
-    return {**{key: [row] for key, row in rows_for_metrics(result, ASHARE_METRICS).items()},
-            UNIVERSE: [universe_row(day, members, manifest['universe']['sha256'])]}
+    return dict(
+        date=day,  # 原件共同的市场日期YYYY-MM-DD。
+        fields=[*FIELDS,'qualification'],  # 原字段顺序及每行来源资格。
+        rows=normalized,  # 原价格、前收盘、成交股数、换手%、状态的字符串值，保持来源单位。
+        members=members,  # 原定日普通A股池，包含缺报价/资料的证券。
+        stats=stats,  # 原身份/状态/缺股本/特殊参考事实统计，未计算市场指标。
+        universe_sha256=manifest['universe']['sha256'])  # 原定日股票池对象身份。
+
+
+def normalize(capture, manifest, start, end):
+    """原观察指标入口复用事实解析；既有stock_day/rows_for_metrics公式保持。"""
+    inputs=normalize_inputs(capture,manifest,start,end)
+    members,day=inputs['members'],inputs['date']
+    result=stock_day(inputs['fields'],inputs['rows'],members,day,scope='ashare',check=capture.fetch.budget.remaining)
+    result.update(inputs['stats'],missing_quote_count=result['missing_stock_count'],
+        known_market_count=len(members)-inputs['stats']['identity_unverified_count'])
+    return {**{key:[row]for key,row in rows_for_metrics(result,ASHARE_METRICS).items()},
+        UNIVERSE:[universe_row(day,members,inputs['universe_sha256'])]}

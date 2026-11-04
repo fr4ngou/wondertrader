@@ -39,3 +39,111 @@ Reader、缓存、owner和关闭实现共用。LRU以证券+周期为键，总ba
 已有QMT分钟仓可以按[分钟来源日线规格](qmt-minute-source-daily.md)准入完整标签日，并调用原WT Helper按日聚合、原schema3导入及Reader回读。dataset_version明确为qmt-native-session-daily.v1，原分钟收据、DSB、chunks、profile和逐日排除原因留在独立PROVENANCE.json；QMT原日线及聚合日线分别登记唯一证券+周期路由。聚合标签完整仍保持coverage unknown、源分钟边界及量额单位，不提升实际交易日历或历史知晓时刻资格。
 
 来源日线的unknown量单位保持原值并允许只读价格消费；观察适配器继续拒绝跨窗口单位变化。量活跃度对显式unknown日输出null并重新积累同单位预热，原量字段保持可核。既有未带单位字段的归档保持原来源口径。本规则不改账户、执行和标准MarketBar准入。
+
+## DSH7 全市场指标统一日线入口
+
+按2026-11-03用户要求，市场指标统一经WT数据入口读取，数据侧拥有来源请求、补齐与落盘，观察侧拥有计算和展示。复用原QMI/Helper/day DSB/Reader；显式schema4仅用于SH/SZ/BJ日线，保存none或供应商front_ratio原值。none的factor_version保持空；front_ratio以qmt-front-ratio-reference:<原捕获SHA256>标识当前可见参考，不授独立因子、历史首次可知或因果回测资格。旧schema1/2/3保持原市场、周期与价格合同。
+
+统一source日线查询默认none；显式adjustment选择front_ratio。目录路由键为证券、周期和价格口径，同键重复拒绝。批量查询复用原owner和Reader，最多64证券、每证券最多2000条，并沿原响应字节及总截止。北交所只扩展来源日线读取，标准分钟、报价及交易合同保持原支持范围。
+
+验证覆盖原价/前复权原值原生读回、三市场、批量部分缺失、原分钟/日线兼容、容量与正常关闭；原股票行情直采及本地QMT包直读在观察侧接收WT入口后退出活动配置。
+
+固定expected_import_sha256的Windows原生来源商店由Reader完整准入一次并建立证券索引。Reader持有只允许共享读取的原收据句柄，生命周期内禁止同文件写入和替换；更新发布到新数据根。索引总原件字节最多16MiB、最多1024根，随Reader关闭释放。每次读取仍核该证券DSB和sidecar的内容身份。没有固定SHA的直接读取保持逐次核验语义。原先逐证券扫描完整市场收据的重复工作退出读取主路径。
+
+数据导入以新输出根和显式existing_stores描述接续同一捕获。每个描述严格包含store_root和import_receipt_sha256；沿原Reader收据准入核对成功状态、捕获派生profile、原Helper及观察证券集合。已成功口径直接复用，数据文件在Reader实际读取时按原SHA核验；本轮只转换和写入缺少口径。中断的未成功根保留，后继使用新根。原价与前复权相互独立，来源请求和已完成导入均不重做。
+
+数据owner确认原作业已关闭并独占未成功根后，可显式resume同捕获：已转换CSV按原件重建值核对，既有原生文件按同一Helper逐字段回读；完整证券的DSB和sidecar保持字节及修改时间。QMI的resume_manifest_sha256必须匹配原清单，成功根拒绝续写。无sidecar且写入中断的文件保留为interrupted原件后重建，新DSB经暂存/验证后原子替换。完整sidecar与原输入不符时停止并报告，避免用重写掩盖损坏。每代仍服从自己的原业务及清理截止，后继沿关闭证明新建作业。
+
+market.source-snapshot-query精确按定日返回原股票池、source_received_at、none/front_ratio口径和当前证券资料。股票池拥有证券类型和市场资格；资料的名称、上市/到期日期、当前股本与observed_at来自原qmt_api归档，股本单位未核时保持unknown，资料缺失保持None。snapshot_id绑定整个正文和原Reader配置；后续带同身份的批量读取只走该版本归档，版本更换返回Conflict，目标日期未发布返回Unavailable。观察侧不能以当前股本填补历史换手率。
+
+单只及批量查询显式view=archive、include_archive=true时返回archive.first_date/last_date/count，分别为本口径整库实际首末YYYYMMDD及实际记录条数，独立于请求日期及limit。默认响应保持旧字段集合，旧严格SDK继续可读。冻结视图包含绑定SHA的静态指数归档，并排除运行Writer尾部；原静态归档与当前固定基准组合，旧准备物的动态采集配置不替代当前身份。coverage继续Unknown，missing_dates空列表保留旧合同含义；实际未返回日期须结合数据侧交易日历、上市区间、停牌及来源状态判定，不能直接称为数据丢失。快照的price_reference保存原请求日期、捕获SHA及supplier_current_front_ratio性质；原响应缺少的reference_date和independent_factors保持None，不赋予独立因子或历史时点资格。
+
+转换阶段单独保存CONVERSION收据及PROVENANCE身份，绑定Helper、原捕获、已完成口径及待入库QMI清单。后继按原准备收据SHA直接进入原生阶段；已完成转换不重读QAB slot或重复转换CSV。各阶段保持原截止和独占工作根，最终RESULT仅在两种口径均验证成功后产生。
+
+未登记的证券返回Unavailable。已登记证券的文件读取、摘要或来源核验失败返回IoError，不能改成无行情。批量接口保留逐项故障；指标采集遇到IoError、Conflict、Timeout等操作失败时结束本次来源，沿原发布事务保留上一成功快照，避免将读失败统计成市场缺失。只有Unavailable及成功返回的空序列参与真实缺项统计。
+
+## UDI 日终补充事实
+
+UDI-R1：同一WT入口提供`market.source-day-facts-query`（`date`、`snapshot_id`），返回定日股票池和原始前收盘、成交股数、流通股换手百分数及交易状态。固定JSON原件目录由数据侧拥有；既有公开源只贡献这些有明确单位的补充事实，日线价格继续经WT Reader读取。补充事实中的close_reference仅为同日跨源价格一致性核对依据。不同来源或日期不自动拼接成完整口径。
+
+UDI-R2：`source-market-snapshot`可声明`daily_facts`目录path/sha256；其摘要同时进入snapshot.provenance.daily_facts_sha256，冻结资料、价格目录与补充事实。目录及单日对象分别绑定SHA；目录最多366日，单日最多20000证券、8MiB，内存按LRU保留最多8日/16MiB。读取不触发外部补数；数据任务拥有采集、补齐、采用和停止恢复。旧配置省略此字段时维持原价格读取。
+
+UDI-R3：价格读取错误中止本次计算，保留上一成功结果；未登记或真实缺日按证券记录缺口。资料/换手缺项不阻断可读日线。观察侧通过固定同一snapshot_id取得RAW价格及补充事实，核同日close参考后沿原stock_day与趋势公式计算，不访问QMT或公开股票日线来源。独立披露来源沿原owner。
+
+UDI-R4：历史补充事实可复用已审官方日K、既有沪深日表、定日上市区间及供应商当前修订的逐日非限售股本；资格保留membership_method/as_of、turnover_method、point_in_time=false与未知首次可见时间。历史特殊参考/停牌且成交辅助数量缺证据时为null。目录准备按日期流式编码，最大366日、总JSON 256MiB和200万行；单日8MiB。成功后写最终目录；失败的独占根保留且不作为活动目录采用。历史范围由已有官方日历及真实事实目录决定，MSI/广度推力沿原EMA预热、断日和累计规则；缺值保留。
+
+UDI-R5：历史上市池包含当前QMT池已退出的证券时，按实际登记集合求缺数。已有公开原始OHLCV原件可经原Helper写读为旧daily-native-archive，保留BaoStock身份及CNY/股/元单位；仅补未登记的日线，不覆盖已导入QMT原价。来源停牌且量额为空时保留定日状态，归档跳过该未知量额记录，禁止编造成零成交bar。来源与当前QMT/供应商前复权参考分别保留。
+
+UDI-R6：持续日线版本使用显式daily-native-archive.v2，为(symbol,adjustment)登记独立DSB及原件、单位、来源参考、CSV身份与价格质量；v1原价归档保持。QAB转换冻结后，将原成功收据中相同口径/同一原Helper/布局且CSV完整SHA相同的DSB绑定到新目录；原DSB摘要仍逐件验证，原成功根只读，变化证券才经原Helper写读。新版本的来源metadata归当次实际QAB捕获，CSV相同证明所复用数值逐字相同；不凭尾日或条数判相同。版本目录在全部条目核验后发布，原价与前复权保持独立键和来源参考，缺证券保持缺项。源OHLC质量声明必须绑定实际文件并在回读重算，不能通过宽松读取吞掉错误。
+
+UDI-R7：原件读取额度是拒绝超限的上界，实际read缓冲按已核文件大小加一字节构造。保留普通文件、前后size/mtime与内容SHA检查；增长、修订及超限仍失败。禁止对几KB的日线按256MiB政策上界反复分配缓冲。必要回归绑定小原件/大额度的实际分配峰值、摘要及批量主链，不把缓存/文件额度当RSS承诺。
+
+## UDI 运行读取版本与数据侧发布
+
+UDI-R8：显式 `source-market-current` 配置只含 `mode` 和绝对 `current_file`。原HTTP单线程owner在每个请求开始读取最多64KiB的原子指针，校验配置SHA和snapshot身份，再建立新SnapshotSourceMarket；新实例成功后关闭旧实例。单次批量查询固定同一实例，批内文件切换延后到下一请求。原始归档、证券资料和日补充事实一起换代；旧snapshot_id请求保持Conflict。指针缺失、非法或新版本准入失败返回IoError，保留原实例以供恢复，原读服务进程继续运行。Reader关闭释放当前实例及全部原生缓存。
+
+UDI-R9：数据侧发布owner持有控制目录的跨进程排他锁，统一publish/rollback指针写入。配置为已完成的不可变snapshot配置，发布前通过同一工厂准入并关闭验证实例；凭证留在原环境。每次发布携带expected_current_sha256，首次为空；身份不符报冲突，不覆盖其他发布。先保存不可变generation记录，后以同目录原子替换CURRENT.json，异常残留仅保留本任务的至多一个.pending；下次取得同一锁后清理该未提交候选。generation记录及历史数据持续保留。进程退出释放锁，重启从实际CURRENT恢复；锁占用保持明确失败。原线上入口不受私有候选发布影响。
+
+UDI-R10：Windows读取指针使用允许READ/WRITE/DELETE共享的句柄；发布统一采用SetFileInformationByHandle/FileRenameInfoEx的REPLACE_IF_EXISTS|POSIX_SEMANTICS，同目录替换后已打开旧句柄继续读旧对象，新打开者读新对象。目标UTF-16缓冲包含结尾空字符，FileNameLength排除它；RootDirectory为空且目标为完整绝对路径。最低平台Windows 10 1607。外部非删除共享句柄阻塞发布时保留唯一CURRENT.pending和原generation_id；同owner在预期旧指针SHA不变时续接该候选，避免累计新文件/新身份。读服务只读不共享源码；回退按同一CAS发布保留的不可变配置。技术依据：[FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)、[FILE_RENAME_INFORMATION](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information)。
+
+## UDI 证券资料与实际日期缺口
+
+UDI-R11：新增`market.source-security-query`，同一WT服务/SDK入口请求symbol、from/to（YYYYMMDD、闭区间最多366自然日）、adjustment和snapshot_id。返回证券名称/类型/市场、来源资料日期、实际全库首尾及条数、请求窗口内实际日期和按日缺口分类。证券身份优先使用同snapshot股票池与QMT资料，ETF/指数复用已发布证券目录及原资料捕获；资料未知以None/unknown表达，价格可读性沿原Reader。每次查询固定snapshot_id，已登记价格读错保持IoError。未配置资料/日历也能返回可读价格及已知原生首尾。
+
+UDI-R12：snapshot可显式绑定security_reference和calendar（绝对path/sha256），摘要同时进入provenance；两者与原价、前复权、股票池、日事实一起换代。证券参考最多20000项/16MiB，来源目录与资料捕获按原SHA只读准备；不新增公开股票报价获取。日历沿原官方年度休市表和覆盖范围，verified_through单独公开表示原校验时点。请求窗口内实际bar优先；其余计划交易日仅在明确IPO前归before_listing、明确到期后归after_expiry、合格原日事实为停牌且成交为0归no_trade、合格原日事实确认交易归missing。缺少来源资格归unresolved，日历覆盖外不推测交易日；明确calendar_covered=false。分类互斥，listed_on/到期沿原资料含义；不推断退市或将缺失空量编造成无成交。
+
+## UDI 缓存优先真实缺口推进
+
+UDI-R13：数据侧对原已完成QAB捕获按原read_capture/assess验证；计划使用none/front_ratio共同实际日期、原官方日历和原上市日期，明确跳过上市前和到期后。定日事实确认停牌的日期作为暂缓事实保留，不计确认丢失；缺资料/空证券单独记录。真实缺口按已授权日期窗口合并，原未知HPR的证券/日期区间在全局责任目录中保持原slot/UUID，重叠区间留待原ID核查，其他证券可推进。旧未知批读按原operation单独保存，不能误标为HPR。
+
+UDI-R14：同一数据发布owner持有排他锁，缺口计划与输入原件摘要写入独立任务根。每项沿原MarketDailyPreparation/RetainedReadClient执行，先核现行签名绑定；每个SDK准备调用有原30秒总预算。call_returned只表示原调用已返回，coverage仍unknown。Pending/Failure保留原slot和原因码；后续只续核原身份，不重置截止或重派。作业按项检查取消及外层截止，停止前等待原客户端线程退出。补齐后通过原BatchAnalysisSource再读缓存，只有实际读到的价格才能进入新原生版本；下载返回不构成覆盖证明。源数据更新前，旧版本与指标快照保持可读。
+
+UDI-R15：原未知HPR阻止重派的原价缺口，可复用已归档公开日K完整OHLCV/金额原件，经原Helper写入独立静态DSB并逐段保留原来源/单位。已有WT日期优先，补充仅填缺日，保持原历史所有日期；超过单档完整读取容量时明确失败，保持当前版本。供应商前复权仍沿原QMT参考，原价补入不推造前复权或解除未知HPR责任。新Snapshot以显式additional_archives组合补充，摘要进入base身份；所有指标仍只读WT。
+
+UDI-R16：观衡读取广度历史时，本来源的effective_as_of绑定WT快照日期，requested_start/requested_end仅限定本批历史窗口。窗口可结束在快照日期之前；各日股票池来自同一snapshot_id下的定日事实，只有快照当日股票池要求与快照members相等。快照日期不符或历史价格读取失败时保持原失败语义与已发布数据。重叠回算窗口连同新增日期须处于配置的单批自然日容量内；本次61交易日回算采用93自然日容量。
+
+WT T2108来源只请求当前effective_as_of快照和截至该日的最后40条前复权记录，单次有界批读沿原T2108/2公式；历史自然日分批上限不改变该当前快照日期。长期停机后直接接续最新日，原指标历史沿同一原合并流程保留。
+
+## UDI 持续数据owner与阶段恢复
+
+UDI-R17：`daily_data_service`在WT受管进程中持有publication目录唯一写锁，沿北京时间每天09:00处理此前最近闭合交易日；周末/休市不重复成功日期。`--once --as-of YYYY-MM-DD`为显式单轮入口。输入生产、缺口推进、原缓存回读、原Helper落盘和CURRENT发布在同一owner内依次执行，外层WT Job拥有SDK/DLL不可协作阻塞时的最终进程树回收。独立披露来源保持原归属，观衡指标来源配置只读WT。
+
+UDI-R18：日任务保存INPUTS、CAPTURE-REQUEST、REQUEST及STATE，完成阶段先保存输出后登记阶段；恢复沿原capture_id、原slot与固定请求。CURRENT已成功、阶段回执尚未保存的窗口通过实际配置身份确认，避免重复发布。已完成同日缓存必须核manifest、股票池正文/日期及原slot；已完成原生结果绑定同一capture及Helper，避免重复转换和原价重导。恢复仍复核固定输入摘要。失败保留当前版本和全部成功历史，任务恢复使用原阶段根。
+
+UDI-R19：缺口计划与快照共用`load_snapshot_basics`解析已有QMT资料；上市前、到期后及缺资料沿原明确事实分类。后继日任务将先前任务的原HPR槽统一加入保护，只续核已有未返回槽；未开始的旧计划项交本次实际缓存判定。INDEX最多366个保留任务，保护引用最多100000个；超限明确失败，历史不删除。固定缓存起日至目标日的请求条数至少覆盖官方交易日总数，最多2000条；日事实目录沿原366日/总字节额度，容量用尽保持当前版本并要求扩容或显式归档设计。
+
+UDI-R20：控制代ready/status/stop/closed使用独立control_id。正常停止在阶段检查点或原有界调用完成后收束，释放连接、Reader、事实LRU和发布锁；原未知副作用保持原身份。closed记录入口上下文退出，实际进程树、EOF、线程和Job句柄关闭另取父owner收据。每日已成功任务重启后直接等待；失败按有限retry_seconds续接同任务。日志只记录固定阶段/异常类型及计数。
+
+UDI-R21：facts、gap-plan、snapshot共用不可变输出阶段事务。固定任务写锁内先登记尝试UUID，准备器在独立新尝试目录构建；完成marker及其全套输出核对后保存提交结果。marker已完成而阶段提交前中断时核对并采用原输出；未完成或半份marker的旧尝试保留，新尝试不改旧HPR槽。已提交结果变化明确失败；每阶段至多16个尝试，超限保留当前版本。共享CONFIGURATION、INDEX、REQUEST、STATE及活动ready/status均在原发布租约内写入，同目录原子替换复用R10的Windows语义。控制代独有的closed/failure收据在上下文退出后登记实际关闭事实，独有控制目录不抢占共享任务身份。阶段事务的schema/name/attempts/result分别表示合同版本、准备器名称、有界尝试目录身份和已提交描述符；None表示尚未提交。
+
+UDI-R22：构建后继原生版本时，旧档存在则必须声明同一原文件Reader的library/sha256，身份进入任务INTENT。旧价格键在本次输入完全缺席时，沿旧DSB、完整provenance、复权参考和质量声明保留到新目录；成员是否属于当日池由快照members另行决定。CSV完整身份相同的原文件继续直接复用；发生变化的键通过原Reader核旧日期集合，新来源遗漏任一旧日期时明确拒绝该候选，保留当前版本，不用新复权参考拼接旧分析价。新结果input_rows为本次捕获行数，rows包括沿用的退出/缺项证券历史，retained_price_files为沿用旧价格键数量；三者分别登记，不把旧数据计入新股票池覆盖。原生读取与写入资源在同一轮finally关闭。
+
+UDI-R23：原`source-market-service.v1`可显式增加`daily_update`描述符（path为受控绝对配置路径，sha256绑定完整配置原字节）。此时source_configuration必须为source-market-current，并精确指向该生产者publication_directory的同一CURRENT.json。原SourceMarketProcess/SMP父Job管理同一服务进程：HTTP线程独占原Reader，单个数据线程执行原持续入口、持发布租约并使用独有控制UUID。ready同时要求数据owner已取得租约；轮次来源失败保持最后成功版本并沿原任务重试，整个owner意外终止则服务明确失败。SMP正常关闭先请求原截止，再确认HTTP/Reader关闭和数据线程join，成功后沿原严格closed协议返回；硬阻塞仍由父Job在原D内回收。启动中收到原stop时使用同一关闭截止，数据控制目录尚未出现时继续保存同一stop而不延长。省略daily_update沿原单读服务；原WT组件工厂、账户、交易及QMT正文保持原归属。
+
+UDI-R24：后继输入准备对已有未返回HPR槽续核时，来源换代、原责任暂不可用或原传输Pending记录原计划SHA、固定异常类型和原索引。原执行器逐任务正常返回的pending/source_unavailable也逐项进入回执，包含原状态、固定原因码、索引、slot、request_id及unknown覆盖；原ID/slot和保护区间保持。该原责任的不可续核不阻断其他原计划及本次实际缓存获取。截止、取消、配置/完整性错误沿原失败边界处理，继续工作仍服从本轮原D；不把旧责任转为新下载。INPUT-RECEIPT的prior_request_observations记录上述原责任事实，不代表新覆盖或原SDK已失败。
+
+### 持续入口配置与状态字段
+
+| 字段 | 中文定义与生命周期 |
+|---|---|
+| schema | 配置、单轮请求或状态的明确合同版本，各自分别校验。 |
+| directory / raw_store | 数据owner持久任务根、原件/来源回执根；使用受控绝对路径，历史持续保留。 |
+| template | 单轮更新固定配置；包含原基准、资料、Helper、证券参考、日历和已有事实。 |
+| inputs.connections | 原HPR与原批读连接声明；凭据以环境引用注入，状态不保存凭据值。 |
+| inputs.public_facts | 原公开事实适配器的source、allowed_hosts、总秒数、请求/字节/单响应上限及每次超时。 |
+| inputs.cache_from / max_rows / source_kind | 固定授权起日YYYYMMDD、每只口径的最少读取条数、实际来源或显式SDK替身身份。 |
+| inputs.cache_seed | 可选同日已完成缓存directory/sha256；日期、股票池及原slot均须匹配，其他日期继续实际来源。 |
+| schedule | 时区Asia/Shanghai、09:00及有限轮询秒数；预算和停止使用单调时钟。 |
+| cycle_seconds / retry_seconds | 每轮原总截止的秒数、失败续接间隔；原源请求的截止保持原slot事实。 |
+| publication_directory | CURRENT和generation的唯一写目录，跨进程锁覆盖数据轮次。 |
+| cache / universe / daily_facts | 完成缓存、定日股票池、定日事实的固定路径/摘要；资料日期与价格日期分别保留。 |
+| security_reference / calendar / basic_capture | 证券参考、官方日历的固定描述符，以及原QMT资料捕获根；未知资料保持未知。 |
+| base_configuration / additional_archives | 原价、指数/ETF及补充静态原生目录，按原优先级组合，已有价格日期保持优先。 |
+| helper / previous_stores / previous_archives / prepared_native | 固定原Helper、旧QMI收据/原生版本、可选同捕获成功结果；原成功根只读。 |
+| protected_slots / authorized_from / authorized_to | 原业务请求槽引用及允许补齐的YYYYMMDD闭区间，未知HPR继续原UUID。 |
+| request_sha256 / stages / active_stage | 固定请求身份、已成功阶段结果、正在推进阶段；状态归单任务目录拥有。 |
+| gap_progress / coverage_qualified | 原准备调用观察及实际缓存全覆盖资格，调用返回与覆盖分别登记。 |
+| current_sha256 / generation / completed_at | 已确认活动指针身份、原发布记录及本地带UTC时区完成时刻，区别来源日期。 |
+| control_id / pid / configuration_sha256 | 本控制代UUID、实际owner PID和固定配置摘要；旧stop不能控制新代。 |
+| state / status / last_success / active_date | 入口或工作流所处阶段、上次成功市场日期和活动日期；进程存活需另取实际句柄证据。 |
+| error_type / owner_closed / close_deadline_exceeded | 固定异常类型、owner上下文已退出、是否超过原关闭截止；物理回收沿父Job独立证明。 |

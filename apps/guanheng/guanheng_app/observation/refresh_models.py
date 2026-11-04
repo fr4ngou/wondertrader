@@ -164,7 +164,10 @@ def source_window(last,as_of,source,config):
     start=(date.fromisoformat(last)-timedelta(days=source.get('overlap_days',7))).isoformat()
     # Report endpoints have bounded row/page budgets, rather than one request per day.
     # A quarterly source must be able to reach the next disclosure after a 90-day gap.
-    end=as_of if source.get('window_mode')=='report_latest' else min(as_of,(date.fromisoformat(start)+timedelta(days=config['max_days_per_batch']-1)).isoformat())
+    # WT T2108只读当前定日快照的最后40条，并非逐日历史抓取；长期停机后
+    # 直接请求有效截止日，既有历史仍由原合并流程保留。
+    latest=source.get('window_mode')=='report_latest' or source.get('kind')=='wt_t2108'
+    end=as_of if latest else min(as_of,(date.fromisoformat(start)+timedelta(days=config['max_days_per_batch']-1)).isoformat())
     return start,end
 
 def source_observation_dates(datasets, definitions, metrics):

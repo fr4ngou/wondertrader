@@ -1,0 +1,18 @@
+[build-system]
+requires = ["flit_core==3.12.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "guanheng-daily-data"
+version = "0.1.0a1+unified.1"
+description = "WT-owned unified daily prices, securities and persistent data updates"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+classifiers = ["Private :: Do Not Upload"]
+dynamic = []
+
+[project.scripts]
+guanheng-daily-data = "integrations.guanheng.daily_data_service:main"
+
+[tool.flit.module]
+name = "guanheng_daily_data"

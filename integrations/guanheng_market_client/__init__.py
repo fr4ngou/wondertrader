@@ -27,6 +27,10 @@ PATHS = {
     "history.query": "/api/market/v1/history/query",
     "history.source-query": "/api/market/v1/history/source-query",
     "history.source-daily-query": "/api/market/v1/history/source-daily-query",
+    "history.source-daily-batch-query": "/api/market/v1/history/source-daily-batch-query",
+    "market.source-snapshot-query": "/api/market/v1/source-snapshot/query",
+    "market.source-day-facts-query": "/api/market/v1/source-day-facts/query",
+    "market.source-security-query": "/api/market/v1/source-security/query",
     "history.read": "/api/market/v1/history/read",
     "history.prepare": "/api/market/v1/history/prepare",
     "history.work": "/api/market/v1/history/work",
@@ -200,6 +204,22 @@ def validate_request(value):
         from .source_history import validate_source_daily_request
         keys.add("request")
         validate_source_daily_request(value.get("request"))
+    elif action == "history.source-daily-batch-query":
+        from .daily_batch import validate_daily_batch_request
+        keys.add('request')
+        validate_daily_batch_request(value.get('request'))
+    elif action == 'market.source-security-query':
+        from .security import validate_security_request
+        keys.add('request')
+        validate_security_request(value.get('request'))
+    elif action == 'market.source-day-facts-query':
+        from .daily_facts import validate_facts_request
+        keys.add('request')
+        validate_facts_request(value.get('request'))
+    elif action == 'market.source-snapshot-query':
+        from .market_snapshot import validate_snapshot_request
+        keys.add('request')
+        validate_snapshot_request(value.get('request'))
     elif action in ("history.query", "history.read", "history.prepare", "history.task.prepare"):
         keys.add("request")
         r = value.get("request")
@@ -328,6 +348,20 @@ def validate_response(value, request):
     elif action == "history.source-daily-query":
         from .source_history import validate_source_daily_data
         validate_source_daily_data(data, request["request"])
+    elif action == "history.source-daily-batch-query":
+        from .daily_batch import validate_daily_batch_data
+        validate_daily_batch_data(data,request['request'])
+    elif action == 'market.source-security-query':
+        from .security import validate_security_data
+        validate_security_data(data,request['request'])
+    elif action == 'market.source-day-facts-query':
+        from .daily_facts import validate_facts_data
+        validate_facts_data(data,request['request'])
+    elif action == 'market.source-snapshot-query':
+        from .market_snapshot import validate_market_snapshot
+        validate_market_snapshot(data)
+        if data['observation_date'] != request['request']['date']:
+            raise MarketProtocolError('market snapshot date differs from request')
     elif action in ("history.query", "history.read"):
         r = request["request"]
         selected = "period_minutes" in r or "limit" in r
@@ -666,6 +700,23 @@ class MarketClient(_JSONTransport):
     def source_daily_history_query(self, request):
         """读取原生源日线；返回交易日期及原单位，不授闭合/知晓时刻。"""
         return self.call({"api_version": API_VERSION, "action": "history.source-daily-query", "request": request})
+
+    def source_daily_history_batch_query(self, request):
+        """同一WT入口批读最多64证券；逐项保留原来源、价格口径、缺失及覆盖状态。"""
+        return self.call(dict(api_version=API_VERSION,action='history.source-daily-batch-query',request=request))
+
+    def source_market_snapshot_query(self, day):
+        """读取定日股票池、资料和落盘版本；供后续批次固定同一snapshot_id。"""
+        return self.call(dict(api_version=API_VERSION,action='market.source-snapshot-query',request=dict(date=day)))
+
+    def source_security_query(self, request):
+        """同版本读取证券资料、实际首尾和窗口内日期缺口；最多366自然日。"""
+        return self.call(dict(api_version=API_VERSION,action='market.source-security-query',request=request))
+
+    def source_day_facts_query(self, day, snapshot_id):
+        """读取同一WT版本的定日前收盘、成交股数、换手及交易状态。"""
+        return self.call(dict(api_version=API_VERSION,action='market.source-day-facts-query',
+            request=dict(date=day,snapshot_id=snapshot_id)))
 
     def history_read(self, request):
         """一次有界读取及服务内补齐；请求结束不保留客户端需要释放的任务。"""

@@ -1,5 +1,7 @@
 # 模块导航
 
+- [WT统一日线与证券资料](unified-daily-data.md)：同一Reader/原价及供应商前复权、日期缺口、缓存优先持续更新与独立安装角色。
+
 - [WT闭合日线读取](collected-daily-history.md)：原Writer日线/收盘快照、统一历史与独立图表消费；持续原生日线配置后继单独核实。
 
 - [观衡行情工作区](observer-market-workspace.md)：单搜索、自选五日小图、日周月范围与偏好状态。

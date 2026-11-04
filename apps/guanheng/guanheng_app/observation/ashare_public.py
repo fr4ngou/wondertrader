@@ -43,7 +43,10 @@ class ObjectCapture:
 
 class Archive:
     """原runs记录尝试和成功原件锚；采集lease由原refresh或服务调用者持有。"""
-    def __init__(self,reader,fetch,source,*,retry_seconds=60,max_attempts=8,now=None,admitted_records=()):
+    def __init__(self,reader,fetch,source,*,retry_seconds=60,max_attempts=8,now=None,admitted_records=(),normalizer=None,published_inputs=True):
+        self.normalizer=normalize if normalizer is None else normalizer  # 原默认指标准入或显式数据事实回调；在本采集线程执行。
+        _need(callable(self.normalizer) and type(published_inputs) is bool)
+        self.published_inputs=published_inputs  # 原观察角色可复用已发布PB原件；数据角色只读自己的原件/回执域。
         self.reader,self.fetch,self.source=reader,fetch,source
         self.now=now or datetime.now(timezone.utc)
         self.retry_seconds,self.max_attempts=retry_seconds,max_attempts
@@ -58,14 +61,15 @@ class Archive:
         合同。没有合格原件时调用者继续原网络入口，不把旧日数据改日期。
         """
         records=list(self.admitted_records)
-        _version,manifest=self.reader.snapshot()
-        item=manifest['datasets'].get('pb_shsz_daily',{})
-        # freshness允许为空；首次采集尚无前代来源回执，仍可消费本批原件。
-        for receipt in (item.get('definition',{}).get('freshness') or {}).get('source_results',[]):
-            if receipt.get('status')=='success' and receipt.get('source_manifest'):
-                captured=_decode(self.fetch.objects.get(receipt['source_manifest']))
-                _need(type(captured) is list,'ashare_source_schema')
-                records.extend(captured)
+        if self.published_inputs:
+            _version,manifest=self.reader.snapshot()
+            item=manifest['datasets'].get('pb_shsz_daily',{})
+            # freshness允许为空；首次采集尚无前代来源回执，仍可消费本批原件。
+            for receipt in (item.get('definition',{}).get('freshness') or {}).get('source_results',[]):
+                if receipt.get('status')=='success' and receipt.get('source_manifest'):
+                    captured=_decode(self.fetch.objects.get(receipt['source_manifest']))
+                    _need(type(captured) is list,'ashare_source_schema')
+                    records.extend(captured)
         required=('code','type','ipoDate','outDate') if kind=='stock_basic' else tuple(FIELDS)
         for record in records:
             self.fetch.budget.remaining()
@@ -269,7 +273,7 @@ class Archive:
                 closed_at=datetime.combine(date.fromisoformat(day),time(15,30),ZONE).isoformat(),
                 universe=self.describe(encode(universe)),shsz_daily=daily,
                 bse_quotes=bse['bse_quotes'],bse_static=bse['bse_static'])
-            rows=normalize(ObjectCapture(fetch),manifest,day,day)
+            rows=self.normalizer(ObjectCapture(fetch),manifest,day,day)
             identity=fetch.objects.put(encode(manifest))
             fetch.records.append(dict(kind='ashare_public_inputs',sha256=identity,media_type='application/json'))
             source_manifest=fetch.objects.put(encode(fetch.records))
@@ -293,7 +297,7 @@ class Archive:
         if success:
             self.restore_records(success)
             manifest=_decode(self.fetch.objects.get(success['packet_sha256']))
-            return manifest,normalize(ObjectCapture(self.fetch),manifest,day,day)
+            return manifest,self.normalizer(ObjectCapture(self.fetch),manifest,day,day)
         return self.create(day)
 
 

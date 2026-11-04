@@ -1,5 +1,7 @@
 # 观衡量化交易系统文档
 
+- [WT统一日线角色安装与回退](runbooks/unified-daily-data.md)：固定源码/轮子、原SMP组合、原身份恢复及数据版本回退。
+
 本索引是开发与维护的任务路由。每次从 [AGENTS.md](../AGENTS.md) 和 `python -B scripts/project.py start` 进入，按任务读取相关正文。
 
 ## 系统与模块

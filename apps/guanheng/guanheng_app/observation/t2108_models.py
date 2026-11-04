@@ -55,7 +55,7 @@ def definition():
 
 
 def prepare_definitions(definitions, datasets, sources):
-    if any(source['kind']=='qmt_t2108' for source in sources) and METRIC not in definitions:
+    if any(source['kind']in ('qmt_t2108','wt_t2108') for source in sources) and METRIC not in definitions:
         definitions[METRIC]=definition();datasets[METRIC]=[]
 
 

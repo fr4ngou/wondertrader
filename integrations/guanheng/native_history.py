@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .qmt_dat_layout import local_dat_counters_valid
+from ..guanheng_market_client.daily_contract import source_daily_symbol, source_daily_security, source_price_basis
 
 from .price_quality import price_range_status, summarize_source_bars, validate_price_quality
 
@@ -123,8 +124,8 @@ class SourceHistoryMetadata:
     minute_boundary: str  # 来源分钟边界；日线固定unknown。
     value_semantics: str = "source"  # 保留来源原值。
     timestamp_semantics: str = "source_label"  # 分钟标签或日线交易日期；不授知晓时刻。
-    adjustment: str = "none"  # 本读取合同为未复权来源。
-    factor_version: str = ""  # 未复权时为空；不推定复权因子。
+    adjustment: str = "none"  # 原来源价格口径；显式日线可保存供应商front_ratio参考，默认none。
+    factor_version: str = ""  # none为空；供应商分析价绑定原捕获SHA，不代表独立因子已验证。
     timezone: str = "Asia/Shanghai"  # 来源标签解释时区。
     price_range_inconsistent_rows: int = 0  # 明确记录的OHLC异常行数，默认0。
 
@@ -135,7 +136,9 @@ class SourceHistoryMetadata:
                 or self.value_semantics != "source"
                 or (self.period == "1m" and self.timestamp_semantics != "source_label")
                 or (self.period == "1d" and (self.timestamp_semantics != "source_date" or self.minute_boundary != "unknown"))
-                or self.adjustment != "none" or self.factor_version != "" or self.timezone != "Asia/Shanghai"
+                or not source_price_basis(self.adjustment, self.factor_version,
+                    allow_reference=self.period == "1d" and self.source.provider == "Qmt")
+                or self.timezone != "Asia/Shanghai"
                 or self.price_unit not in ("CNY", "unknown") or self.amount_unit not in ("CNY", "unknown")
                 or self.volume_unit not in ("share", "lot", "unknown")
                 or self.minute_boundary not in ("left", "right", "unknown")
@@ -149,6 +152,26 @@ class SourceHistoryMetadata:
         for value in (self.source.instance_id, self.source.session_id):
             _source_text(value, 128)
         _source_hash(self.content_id)
+
+
+def source_file_metadata(metadata, content_id, expected_count, *, decoding_version=None, quality=None):
+    """原生文件读取的唯一来源头构造；CSV身份与当前DSB字节身份分别保留。
+
+    复合归档可声明自身解码布局版本；原段来源/单位/复权继续由metadata拥有。
+    quality仅赋已绑定文件的异常行计数，缺项保持严格零异常准入。
+    """
+    values = {key: metadata[key] for key in ('qualification', 'dataset_version', 'source_license', 'period',
+        'price_unit', 'volume_unit', 'amount_unit', 'minute_boundary', 'value_semantics',
+        'timestamp_semantics', 'adjustment', 'factor_version', 'timezone')}
+    if decoding_version is not None:
+        values['dataset_version'] = decoding_version
+    return SourceHistoryMetadata(
+        source=SourceSession(**metadata['source']),  # 原提供者/实例/会话/代际，与WT当前目录版本区分。
+        content_id=content_id,  # 正在读取的DSB完整SHA，非CSV原件身份。
+        expected_count=expected_count,  # 该冻结文件实际记录条数，原生解压前校验。
+        price_range_inconsistent_rows=quality['inconsistent_rows'] if quality is not None else 0,
+        # 上述计数只授绑定文件的原OHLC质量声明，缺项保持严格原行为。
+        **values)
 
 
 def _source_hash(value):
@@ -190,7 +213,7 @@ def _source_bytes(path, limit):
     with path.open("rb") as stream:
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
             raise ValueError("来源历史输入必须为普通文件")
-        raw = stream.read(limit + 1)
+        raw = stream.read(min(limit, os.fstat(stream.fileno()).st_size) + 1)
     if len(raw) > limit:
         raise ValueError("来源历史文件超过预算")
     return raw
@@ -203,6 +226,89 @@ class HistoryResult:
     coverage: str
     missing: tuple[datetime, ...]
     calendar_version: str
+
+
+def _parse_source_receipt(receipt_raw):
+    """完整准入一次收据并建立证券索引；直接读取与冻结读取共用同一规则。"""
+    receipt = _source_json(receipt_raw)
+    daily = receipt.get("schema_version") in (3, 4)
+    _source_keys(receipt, "schema_version status qualification coverage manifest_sha256 helper_sha256 profile securities"
+        + (" period" if daily else ""))
+    if (type(receipt["schema_version"]) is not int or receipt["schema_version"] not in (2, 3, 4)
+            or (daily and receipt["period"] != "1d")
+            or receipt["status"] != "passed" or receipt["qualification"] != "DevelopmentVerified"
+            or receipt["coverage"] != "unknown"):
+        raise ValueError("来源导入收据未完成或版本不合格")
+    _source_hash(receipt["manifest_sha256"])
+    _source_hash(receipt["helper_sha256"])
+    profile = receipt["profile"]
+    _source_keys(profile, "provider instance_id session_id generation dataset_version source_license input_kind timezone minute_boundary adjustment factor_version value_semantics price_unit volume_unit amount_unit")
+    if (profile["provider"] != "Qmt" or profile["input_kind"] not in ("synthetic", "qmt_export")
+            or not source_price_basis(profile["adjustment"], profile["factor_version"],
+                allow_reference=receipt["schema_version"] == 4)):
+        raise ValueError("来源导入 profile 不合格")
+    source = SourceSession(profile["provider"], profile["instance_id"], profile["session_id"], profile["generation"])
+    entries = receipt["securities"]
+    if type(entries) is not list or not 1 <= len(entries) <= 10000:
+        raise ValueError("来源导入证券清单不合格")
+    indexed, seen, chunk_count = {}, set(), 0
+    for entry in entries:
+        _source_keys(entry, "symbol exchange code path sha256 metadata_path metadata_sha256 count chunks first_label last_label"
+            + (" price_range_quality" if "price_range_quality" in entry else ""))
+        entry_symbol = source_daily_symbol(entry["symbol"], allow_bse=receipt["schema_version"] == 4)
+        if entry_symbol in seen:
+            raise ValueError("来源导入证券重复")
+        seen.add(entry_symbol)
+        entry_code, suffix = entry_symbol.split(".")
+        entry_exchange = {"SH": "SSE", "SZ": "SZSE", "BJ": "BSE"}[suffix]
+        storage = "day" if daily else "min1"
+        relative = f"his/{storage}/{entry_exchange}/{entry_code}.dsb"
+        if (entry["code"] != entry_code or entry["exchange"] != entry_exchange
+                or entry["path"] != relative or entry["metadata_path"] != relative + ".metadata.json"
+                or type(entry["count"]) is not int or not 1 <= entry["count"] <= 1000000):
+            raise ValueError("来源导入证券路径或记录数错配")
+        _source_hash(entry["sha256"])
+        _source_hash(entry["metadata_sha256"])
+        for key in ("first_label", "last_label"):
+            _source_text(entry[key], 32)
+        if type(entry["chunks"]) is not list or not entry["chunks"]:
+            raise ValueError("来源导入分片缺失")
+        chunk_count += len(entry["chunks"])
+        if chunk_count > 10000:
+            raise ValueError("来源导入分片超过预算")
+        for chunk in entry["chunks"]:
+            _source_keys(chunk, "path sha256")
+            _source_text(chunk["path"], 4096)
+            _source_hash(chunk["sha256"])
+        indexed[entry_symbol] = entry
+    return profile, source, daily, indexed
+
+
+@dataclass(frozen=True)
+class _SourceReceiptIndex:
+    receipt_hash: str  # 原成功收据完整SHA，固定本次读取事实。
+    profile: dict  # 已准入的原来源profile，Reader内部独占，不交给调用者修改。
+    source: SourceSession  # 原采集或导入会话，不由缓存产生新来源身份。
+    daily: bool  # 原收据周期是否为日线；分钟保持原规则。
+    entries: dict  # 原供应商证券到已准入原记录的索引，无调用者别名。
+    lease: object | None  # Windows只读、禁止写入/删除的文件句柄，归NativeHistory关闭。
+    bytes: int  # 收据原字节数，用于Reader总索引额度。
+
+
+def _pin_source_receipt(path):
+    """冻结Windows成功收据；允许并发只读，保持物理文件不可替换或改写。"""
+    import msvcrt
+    kernel=C.WinDLL('kernel32',use_last_error=True)
+    create=kernel.CreateFileW
+    create.argtypes=[C.c_wchar_p,C.c_uint32,C.c_uint32,C.c_void_p,C.c_uint32,C.c_uint32,C.c_void_p]
+    create.restype=C.c_void_p
+    handle=create(str(path),0x80000000,1,None,3,0x80,None)
+    if handle==C.c_void_p(-1).value:raise C.WinError(C.get_last_error())
+    try:descriptor=msvcrt.open_osfhandle(handle,os.O_RDONLY|os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle.argtypes=[C.c_void_p];kernel.CloseHandle(handle);raise
+    try:return os.fdopen(descriptor,'rb')
+    except BaseException:os.close(descriptor);raise
 
 
 class NativeHistory:
@@ -220,6 +326,8 @@ class NativeHistory:
         self.library = Path(library).resolve()
         self.max_bars, self.max_file_bytes = max_bars, max_file_bytes
         self._dll_directory = None
+        self._receipt_indexes = {}  # 当前拥有线程的冻结收据索引；不缓存可变收据。
+        self._receipt_index_bytes = 0  # 冻结原件总字节，硬上限16MiB，与source-catalog准入一致。
         try:
             if digest(self.library) != library_sha256:
                 raise ValueError("自有历史文件适配制品摘要变化")
@@ -246,9 +354,32 @@ class NativeHistory:
             raise IntegrationUnavailable("原生历史依赖不可用：" + str(exc), "history") from exc
 
     def close(self):
+        for index in self._receipt_indexes.values():
+            if index.lease is not None:index.lease.close()
+        self._receipt_indexes.clear()
+        self._receipt_index_bytes = 0
         if self._dll_directory is not None:
             self._dll_directory.close()
             self._dll_directory = None
+
+    def _admit_source_receipt(self, root, expected):
+        """固定SHA的Windows商店完整准入一次；可变/无固定SHA读取继续逐次核验。"""
+        key=(root,_source_hash(expected))if expected is not None else None
+        if key in self._receipt_indexes:return self._receipt_indexes[key]
+        path=root/'qmt-import.json';lease=None
+        try:
+            if key is not None and os.name=='nt':lease=_pin_source_receipt(path)
+            raw=_source_bytes(path,self.max_file_bytes);identity=hashlib.sha256(raw).hexdigest()
+            if expected is not None and identity!=expected:raise ValueError('来源导入收据身份不匹配')
+            profile,source,daily,entries=_parse_source_receipt(raw)
+            index=_SourceReceiptIndex(identity,profile,source,daily,entries,lease,len(raw))
+            if lease is not None:
+                if self._receipt_index_bytes+len(raw)>16*1024*1024 or len(self._receipt_indexes)>=1024:
+                    raise ValueError('来源收据索引超过读取预算')
+                self._receipt_indexes[key]=index;self._receipt_index_bytes+=len(raw);lease=None
+            return index
+        finally:
+            if lease is not None:lease.close()
 
     def read_store(self, root: Path, exchange: str, code: str, market_bar_type=MarketBar, *,
                    expected_times=(), calendar_version=""):
@@ -302,65 +433,14 @@ class NativeHistory:
 
     def read_source_store(self, root: Path, exchange: str, code: str, *, expected_import_sha256=None) -> HistoryResult:
         """相对成功收据核源值；独立 expected_import_sha256 才绑定读前整套替换。"""
-        if exchange not in ("SSE", "SZSE"):
+        if exchange not in ("SSE", "SZSE", "BSE"):
             raise ValueError("未知 WT 证券交易所")
-        security = symbol(code + (".SH" if exchange == "SSE" else ".SZ"))
+        security = source_daily_security(exchange, code)
         root = Path(root).resolve(strict=True)
         receipt_path = root / "qmt-import.json"
-        receipt_raw = _source_bytes(receipt_path, self.max_file_bytes)
-        receipt_hash = hashlib.sha256(receipt_raw).hexdigest()
-        if expected_import_sha256 is not None and receipt_hash != _source_hash(expected_import_sha256):
-            raise ValueError("来源导入收据身份不匹配")
-        receipt = _source_json(receipt_raw)
-        daily = receipt.get("schema_version") == 3
-        _source_keys(receipt, "schema_version status qualification coverage manifest_sha256 helper_sha256 profile securities"
-            + (" period" if daily else ""))
-        if (type(receipt["schema_version"]) is not int or receipt["schema_version"] not in (2, 3)
-                or (daily and receipt["period"] != "1d")
-                or receipt["status"] != "passed" or receipt["qualification"] != "DevelopmentVerified"
-                or receipt["coverage"] != "unknown"):
-            raise ValueError("来源导入收据未完成或版本不合格")
-        _source_hash(receipt["manifest_sha256"])
-        _source_hash(receipt["helper_sha256"])
-        profile = receipt["profile"]
-        _source_keys(profile, "provider instance_id session_id generation dataset_version source_license input_kind timezone minute_boundary adjustment factor_version value_semantics price_unit volume_unit amount_unit")
-        if profile["provider"] != "Qmt" or profile["input_kind"] not in ("synthetic", "qmt_export"):
-            raise ValueError("来源导入 profile 不合格")
-        source = SourceSession(profile["provider"], profile["instance_id"], profile["session_id"], profile["generation"])
-        entries = receipt["securities"]
-        if type(entries) is not list or not 1 <= len(entries) <= 10000:
-            raise ValueError("来源导入证券清单不合格")
-        selected, seen, chunk_count = None, set(), 0
-        for entry in entries:
-            _source_keys(entry, "symbol exchange code path sha256 metadata_path metadata_sha256 count chunks first_label last_label"
-                + (" price_range_quality" if "price_range_quality" in entry else ""))
-            entry_symbol = symbol(entry["symbol"])
-            if entry_symbol in seen:
-                raise ValueError("来源导入证券重复")
-            seen.add(entry_symbol)
-            entry_code, suffix = entry_symbol.split(".")
-            entry_exchange = "SSE" if suffix == "SH" else "SZSE"
-            storage = "day" if daily else "min1"
-            relative = f"his/{storage}/{entry_exchange}/{entry_code}.dsb"
-            if (entry["code"] != entry_code or entry["exchange"] != entry_exchange
-                    or entry["path"] != relative or entry["metadata_path"] != relative + ".metadata.json"
-                    or type(entry["count"]) is not int or not 1 <= entry["count"] <= 1000000):
-                raise ValueError("来源导入证券路径或记录数错配")
-            _source_hash(entry["sha256"])
-            _source_hash(entry["metadata_sha256"])
-            for key in ("first_label", "last_label"):
-                _source_text(entry[key], 32)
-            if type(entry["chunks"]) is not list or not entry["chunks"]:
-                raise ValueError("来源导入分片缺失")
-            chunk_count += len(entry["chunks"])
-            if chunk_count > 10000:
-                raise ValueError("来源导入分片超过预算")
-            for chunk in entry["chunks"]:
-                _source_keys(chunk, "path sha256")
-                _source_text(chunk["path"], 4096)
-                _source_hash(chunk["sha256"])
-            if entry_symbol == security:
-                selected = entry
+        index = self._admit_source_receipt(root, expected_import_sha256)
+        receipt_hash, profile, source, daily = index.receipt_hash, index.profile, index.source, index.daily
+        selected = index.entries.get(security)
         if selected is None:
             raise ValueError("来源导入收据缺少证券")
         path = root / selected["path"]
@@ -393,7 +473,7 @@ class NativeHistory:
         if (result.bars[0].occurred_at.isoformat() != selected["first_label"]
                 or result.bars[-1].occurred_at.isoformat() != selected["last_label"]):
             raise ValueError("来源历史标签与收据不匹配")
-        if (hashlib.sha256(_source_bytes(receipt_path, self.max_file_bytes)).hexdigest() != receipt_hash
+        if ((index.lease is None and hashlib.sha256(_source_bytes(receipt_path, self.max_file_bytes)).hexdigest() != receipt_hash)
                 or hashlib.sha256(_source_bytes(sidecar, 65536)).hexdigest() != selected["metadata_sha256"]):
             raise ValueError("来源历史读取期间收据或元数据变化")
         return result
@@ -410,7 +490,10 @@ class NativeHistory:
 
     def _read(self, path, security, metadata, market_bar_type, *, expected_times=(), calendar_version=""):
         """两个显式语义入口共用唯一文件 ABI 和回调解码内核。"""
-        symbol(security)
+        if isinstance(metadata, SourceHistoryMetadata) and metadata.period == "1d":
+            source_daily_symbol(security)
+        else:
+            symbol(security)
         path = Path(path).resolve(strict=True)
         if (metadata.expected_count is not None and metadata.expected_count > self.max_bars) or path.stat().st_size > self.max_file_bytes:
             raise ValueError("历史读取超过受管预算")
@@ -477,13 +560,21 @@ class NativeHistory:
             except Exception as exc:
                 failures.append(str(exc))
 
-        logger = LOG_CALLBACK(lambda unused: None)
+        native_reasons = []
+
+        @LOG_CALLBACK
+        def logger(reason):
+            # 只接收自有ABI的固定分类；日志不复制原始路径或配置。
+            allowed = (b"native_file_busy", b"native_read_budget_exceeded", b"native_read_validation_failed")
+            if reason in allowed and not native_reasons:
+                native_reasons.append(reason.decode("ascii"))
         # 文件所有者在同一句柄下核 SHA，并让原 Helper 读取不可变私有快照。
         returned = self.native.gh_native_bar_file_read(str(path), metadata.content_id.encode("ascii"),
             self.max_bars, self.max_file_bytes, {"1m": 21, "5m": 22, "1d": 23}[metadata.period], receive, count, logger)
         if (failures or returned == 0 or counts != [returned] or returned != len(bars)
                 or (metadata.expected_count is not None and returned != metadata.expected_count)):
-            raise ValueError("原生历史读取失败：" + (failures[0] if failures else "记录或回调不完整"))
+            reason = failures[0] if failures else (native_reasons[0] if native_reasons else "记录或回调不完整")
+            raise ValueError("原生历史读取失败：" + reason)
         if digest(path) != metadata.content_id:
             raise ValueError("历史读取期间文件发生修订")
         expected = tuple(expected_times)

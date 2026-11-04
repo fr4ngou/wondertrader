@@ -49,3 +49,5 @@
 - [ADR-0023 执行恢复准入](adr/0023-execution-recovery-admission.md)：正常/故障依据及兼容发行分别核验，原金融owner与命令身份保持。
 
 - [ADR-0024 Host HTTP read retirement](adr/0024-host-http-read-retirement.md): Host/Native lifetime ownership and immutable terminal accounting.
+
+- [ADR-0025 WT统一日线和定日事实归属](adr/0025-unified-daily-data-owner.md)：WT拥有来源采集、缺口补齐、原生落盘及版本发布，观衡只读同一版本并保留原指标公式。

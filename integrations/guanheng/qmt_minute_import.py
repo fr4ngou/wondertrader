@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .price_quality import PriceRangeQuality, price_range_status
+from ..guanheng_market_client.daily_contract import source_price_basis
 from .qmt_dat_layout import local_dat_counters_valid
 
 import argparse
@@ -49,7 +50,7 @@ def _read(path, maximum):
     with path.open("rb") as stream:
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
             _fail("输入必须为普通文件")
-        data = stream.read(maximum + 1)
+        data = stream.read(min(maximum, os.fstat(stream.fileno()).st_size) + 1)
     if len(data) > maximum:
         _fail("输入字节数超过预算", "budget")
     return data
@@ -109,20 +110,24 @@ def _chunk_path(base, value):
     return resolved
 
 
-def _manifest(data, base):
+def _json(data):
     try:
-        document = json.loads(data.decode("utf-8"), object_pairs_hook=_pairs,
+        return json.loads(data.decode("utf-8"), object_pairs_hook=_pairs,
                               parse_constant=lambda unused: _fail("JSON 数值不合格"))
     except (UnicodeError, json.JSONDecodeError, RecursionError):
         _fail("manifest 编码或 JSON 不合格")
-    daily = type(document) is dict and document.get("schema_version") == 3
+
+
+def _manifest(data, base):
+    document = _json(data)
+    daily = type(document) is dict and document.get("schema_version") in (3, 4)
     _keys(document, "schema_version profile securities" + (" period" if daily else ""))
-    if type(document["schema_version"]) is not int or document["schema_version"] not in (1, 2, 3):
+    if type(document["schema_version"]) is not int or document["schema_version"] not in (1, 2, 3, 4):
         _fail("manifest 版本不合格")
     if daily and document["period"] != "1d":
         _fail("源日线周期不合格")
     profile = document["profile"]
-    source_values = document["schema_version"] in (2, 3)
+    source_values = document["schema_version"] in (2, 3, 4)
     _keys(profile, "provider instance_id session_id generation dataset_version source_license input_kind timezone minute_boundary adjustment factor_version " +
           ("value_semantics price_unit volume_unit amount_unit" if source_values else "volume_to_shares amount_to_yuan"))
     for key in ("instance_id", "session_id", "dataset_version", "source_license"):
@@ -130,7 +135,8 @@ def _manifest(data, base):
     if (profile["provider"] != "Qmt" or profile["input_kind"] not in ("synthetic", "qmt_export")
             or profile["timezone"] != "Asia/Shanghai"
             or profile["minute_boundary"] not in (("left", "right", "unknown") if source_values else ("left", "right"))
-            or profile["adjustment"] != "none" or profile["factor_version"] != ""
+            or not source_price_basis(profile["adjustment"], profile["factor_version"],
+                allow_reference=document["schema_version"] == 4)
             or type(profile["generation"]) is not int or not 1 <= profile["generation"] <= 2**64 - 1):
         _fail("来源、分钟边界、复权或代次声明不合格")
     if source_values:
@@ -150,7 +156,8 @@ def _manifest(data, base):
     for security in securities:
         _keys(security, "symbol chunks")
         symbol = security["symbol"]
-        if not isinstance(symbol, str) or re.fullmatch(r"[0-9]{6}\.(SH|SZ)", symbol) is None or symbol in seen:
+        pattern = r"[0-9]{6}\.(SH|SZ|BJ)" if document["schema_version"] == 4 else r"[0-9]{6}\.(SH|SZ)"
+        if not isinstance(symbol, str) or re.fullmatch(pattern, symbol) is None or symbol in seen:
             _fail("证券身份重复或不合格")
         seen.add(symbol)
         if type(security["chunks"]) is not list or not security["chunks"]:
@@ -259,6 +266,19 @@ class _Native:
         self.lib.store_bars(os.fsencode(path), array, len(rows), b"d" if period == "1d" else b"m1", logger)
         if not path.is_file():
             _fail("原生历史写入未产生文件", "native")
+        self.verify(path, rows, period=period)
+
+    def verify(self, path, rows, *, period="1m"):
+        """只读核对已写文件与本次原输入；供独占离线导入的中断续接共用。"""
+        import struct
+        with path.open('rb')as stream:header=stream.read(20)
+        if len(header)!=20:
+            _fail("原生历史文件头未完整写出", "native")
+        flag,kind,version,size=struct.unpack('<8sHHQ',header)
+        if (flag!=b'&^%$#@!\0'or version!=4 or kind!={'1m':21,'1d':23}[period]
+                or size!=path.stat().st_size-20):
+            _fail("原生历史文件类型或长度不符", "native")
+        logger = LOG_CALLBACK(lambda unused: None)
         counts, events, failures, offset = [], [], [], 0
 
         @COUNT_CALLBACK
@@ -293,8 +313,12 @@ class _Native:
             _fail("原生历史回读字段或回调不完整", "native")
 
 
+def _json_bytes(value):
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False, separators=(",", ":")) + "\n").encode("utf-8")
+
+
 def _write_json(path, value):
-    data = (json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False, separators=(",", ":")) + "\n").encode("utf-8")
+    data = _json_bytes(value)
     with path.open("xb") as stream:
         stream.write(data)
         stream.flush()
@@ -303,11 +327,16 @@ def _write_json(path, value):
 
 
 def import_dataset(manifest, output_root, helper, helper_sha256, *, max_bars=1000000,
-                   max_input_bytes=268435456, max_total_bars=10000000) -> dict:
+                   max_input_bytes=268435456, max_total_bars=10000000,
+                   resume_manifest_sha256=None) -> dict:
     """同步导入一个显式清单；输出新根，成功收据最后落盘，失败根保留诊断。
 
-    v1量额转股/元和右端分钟；v2保留源分钟；v3保留源交易日期。只产生开发资格、
-    coverage=unknown。输入和原生失败抛出安全 ImportFailure；重试使用新根。
+    v1量额转股/元和右端分钟；v2保留源分钟；v3保留源交易日期；v4显式保存
+    三市场原价或供应商前复权日线参考。只产生开发资格、
+    coverage=unknown。输入和原生失败抛出安全 ImportFailure。
+    resume_manifest_sha256仅用于调用方已确认关闭、独占的未成功输出根，
+    必须等于原输入清单SHA。逐证券沿同一CSV/原生字段验证复用，成功根不可续写。
+    缺sidecar的不完整DSB保留为.interrupted，再原子写出完整证券；完整文件不改写。
     """
     native = None
     try:
@@ -318,13 +347,20 @@ def import_dataset(manifest, output_root, helper, helper_sha256, *, max_bars=100
         source = _read(manifest, 4 * 1024 * 1024)
         document = _manifest(source, manifest.parent)
         root = Path(output_root).absolute()
-        try:
-            root.mkdir(parents=False, exist_ok=False)
-        except FileExistsError:
-            _fail("目标根已存在，请选择新根", "target")
+        resuming = resume_manifest_sha256 is not None
+        if resuming:
+            _hash(resume_manifest_sha256)
+            if (_sha(source) != resume_manifest_sha256 or not root.is_dir()
+                    or (root / "qmt-import.json").exists()):
+                _fail("续接清单或未完成根身份不合格", "target")
+        else:
+            try:
+                root.mkdir(parents=False, exist_ok=False)
+            except FileExistsError:
+                _fail("目标根已存在，请选择新根", "target")
         native = _Native(helper, helper_sha256)
         profile, results, total = document["profile"], [], 0
-        source_values = document["schema_version"] in (2, 3)
+        source_values = document["schema_version"] in (2, 3, 4)
         period = document.get("period", "1m")
         for security in document["securities"]:
             rows, first, last = [], None, None
@@ -342,15 +378,45 @@ def import_dataset(manifest, output_root, helper, helper_sha256, *, max_bars=100
                 _fail("证券没有分钟记录")
             total += len(rows)
             code, market = security["symbol"].split(".")
-            exchange = "SSE" if market == "SH" else "SZSE"
+            exchange = {"SH": "SSE", "SZ": "SZSE", "BJ": "BSE"}[market]
             storage = "day" if period == "1d" else "min1"
             relative = f"his/{storage}/{exchange}/{code}.dsb"
             path = root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
-            if period == "1d":
-                native.write_verify(path, rows, period=period)
-            else:
-                native.write_verify(path, rows)
+            metadata_path = root / (relative + ".metadata.json")
+            write = not path.exists()
+            if not write:
+                if not resuming:
+                    _fail("新导入目标出现已有证券文件", "target")
+                try:
+                    native.verify(path, rows, period=period)
+                except ImportFailure:
+                    # 已完成sidecar表示完整证券，内容不一致按损坏处理；
+                    # 中断于原生写入的无sidecar文件保留原字节后重新生成。
+                    if metadata_path.exists():
+                        raise
+                    from uuid import uuid4
+                    retained = path.with_suffix(path.suffix + ".interrupted-" + uuid4().hex)
+                    path.rename(retained)
+                    write = True
+            if write:
+                pending = path.with_suffix(path.suffix + ".importing")
+                if pending.exists():
+                    if not resuming:
+                        _fail("新根出现已有原生暂存文件", "target")
+                    try:
+                        native.verify(pending, rows, period=period)
+                    except ImportFailure:
+                        from uuid import uuid4
+                        pending.rename(pending.with_name(pending.name + ".interrupted-" + uuid4().hex))
+                    else:
+                        write = False
+                if write:
+                    if period == "1d":
+                        native.write_verify(pending, rows, period=period)
+                    else:
+                        native.write_verify(pending, rows)
+                pending.replace(path)
             quality = PriceRangeQuality()
             if source_values:
                 for row in rows:
@@ -374,7 +440,23 @@ def import_dataset(manifest, output_root, helper, helper_sha256, *, max_bars=100
                                 format=1, minute_boundary="right")
             metadata.update(provider=0, qualification=1, content_id=identity)
             metadata_relative = relative + ".metadata.json"
-            metadata_identity = _write_json(root / metadata_relative, metadata)
+            if metadata_path.exists():
+                body = _read(metadata_path, max_input_bytes)
+                if not resuming or body != _json_bytes(metadata):
+                    _fail("已有证券来源元数据与原输入不符", "target")
+                metadata_identity = _sha(body)
+            else:
+                pending_metadata = metadata_path.with_name(metadata_path.name + '.importing')
+                if pending_metadata.exists():
+                    if not resuming:
+                        _fail("新根出现已有元数据暂存文件", "target")
+                    if _read(pending_metadata, max_input_bytes) != _json_bytes(metadata):
+                        from uuid import uuid4
+                        pending_metadata.rename(pending_metadata.with_name(pending_metadata.name + '.interrupted-' + uuid4().hex))
+                if not pending_metadata.exists():
+                    _write_json(pending_metadata, metadata)
+                metadata_identity = _digest(pending_metadata)
+                pending_metadata.replace(metadata_path)
             item = dict(symbol=security["symbol"], exchange=exchange, code=code, path=relative,
                                 sha256=identity, metadata_path=metadata_relative, metadata_sha256=metadata_identity,
                                 count=len(rows), chunks=security["chunks"])
