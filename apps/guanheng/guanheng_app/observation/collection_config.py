@@ -114,7 +114,9 @@ def validate_configuration(value):
         _need(type(source) is dict and {'id','kind'}<=set(source) and not set(source)-SOURCE_FIELDS
             and type(source['kind']) is str and source['kind'] in KINDS)
         if schedule.get('date_policy')=='source-aware-v1':
-            _need(source.get('date_policy') in ('calendar-day','cn-closed-day','hk-closed-day'))
+            _need(source.get('date_policy') in ('calendar-day','cn-closed-day','hk-closed-day','cn-prior-day'))
+            # WT统一生产全天以北京时间前日最近交易日为目标；独立来源沿原日期策略。
+            if source['date_policy']=='cn-prior-day':_need(source['kind'] in ('wt_breadth','wt_t2108'))
             markets=('cn','hk') if source['date_policy']=='hk-closed-day' else ('cn',)
             _need(all(value['models'].get('calendars',{}).get(market,{}).get('kind')=='official-exchange-calendar/v1' for market in markets))
         else:_need('date_policy' not in source)

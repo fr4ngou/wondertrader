@@ -68,4 +68,9 @@ def source_as_of(source,as_of,config,when,*,check=lambda:None):
     if config.get('schedule',{}).get('date_policy')!='source-aware-v1':return as_of
     policy=source['date_policy']
     if policy=='calendar-day':return local_now(when).date().isoformat()
+    if policy=='cn-prior-day':
+        # 与WT数据owner的全天目标一致；显式历史as_of仍限定查询上限，不推进未来日。
+        from .calendars import last_open_day
+        upper=min(as_of,(local_now(when)-timedelta(days=1)).date().isoformat())
+        return last_open_day(config['models']['calendars']['cn'],upper,check=check)
     return closed_market_day(when,'cn' if policy=='cn-closed-day' else 'hk',config['models'],check=check)

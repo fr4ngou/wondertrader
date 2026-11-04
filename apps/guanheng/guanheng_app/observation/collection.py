@@ -117,7 +117,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             fetch=fetcher_factory(reader.objects,config['allowed_hosts'],timeout=timeout,budget=budget)
             observed=source_observation_dates(datasets,definitions,source.get('datasets',[]))
             existing=[row['date'] for key in source.get('tables',[]) for row in tables.get(key,[])]
-            effective=source_as_of(source,as_of,config,cutoff,check=budget.remaining)
+            # 手工历史as_of是所选日期；WT前日上限由实际观察时钟限定，避免历史再退一天。
+            policy_clock=observed_now if not window_key and source.get('date_policy')=='cn-prior-day' else cutoff
+            effective=source_as_of(source,as_of,config,policy_clock,check=budget.remaining)
             last=max(observed+existing) if observed or existing else effective
             start,end=source_window(last,effective,source,config)
             if source['kind']=='wondertrader':
