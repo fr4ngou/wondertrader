@@ -35,7 +35,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
     """持同一publication排他锁运行；directory仅供本次固定请求恢复。
 
     输入为数据侧已完成的原缓存、日事实和资料，网络捕获由同一数据角色先行保存。
-    prepared_native仅允许复用同capture的原成功结果；未提供时沿原转换/Helper写读。
+    prepared_native为已核复用候选；实际capture/Helper相同时复用，否则沿实际回读转换。
     失败保留阶段、原slot及当前版本；同任务恢复沿原slot，首次成功阶段保持只读。
     原SDK及DLL的物理硬截止由外层WT进程Job负责，返回前关闭本轮全部Reader/连接。
     """
@@ -178,11 +178,12 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 prepared = request.get('prepared_native')
                 if prepared is not None:
                     result = _load(prepared)
-                    if (result['state'] != 'completed' or result['capture_sha256'] != reread['sha256']
-                            or result['helper_sha256'] != request['helper']['sha256']):
-                        raise ValueError('daily update prepared native capture differs')
+                    if result['state'] != 'completed':
+                        raise ValueError('daily update prepared native is not completed')
                     _load(result['archive'])
-                    return prepared
+                    if (result['capture_sha256'] == reread['sha256']
+                            and result['helper_sha256'] == request['helper']['sha256']):
+                        return prepared
                 conversion_path = root / 'conversion' / 'CONVERSION.json'
                 conversion = _descriptor(conversion_path) if conversion_path.exists() else prepare_analysis_capture(
                     capture, root / 'conversion', request['helper']['sha256'], deadline=deadline,

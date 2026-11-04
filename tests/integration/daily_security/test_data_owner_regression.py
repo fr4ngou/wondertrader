@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from integrations.guanheng import daily_data_update as update
 from integrations.guanheng import daily_data_service as service
+from integrations.guanheng import daily_price_update  # 在替身资料owner安装前固定真实模块依赖。
 from integrations.guanheng.daily_price_scope import prepare_price_scope
 from integrations.guanheng.security_reference import SecurityReference
 
@@ -112,7 +113,10 @@ class DataOwnerRegressionTests(unittest.TestCase):
     def test_legacy_sparse_readback_progress_cannot_grant_completed_time_identity(self):
         self._assert_stock_readback_recovery(legacy_manifest='legacy_progress')
 
-    def _assert_stock_readback_recovery(self,unadvanced=False,legacy_manifest=None):
+    def test_changed_readback_rebuilds_native_and_resumes_without_repeating_capture(self):
+        self._assert_stock_readback_recovery(stale_prepared=True)
+
+    def _assert_stock_readback_recovery(self,unadvanced=False,legacy_manifest=None,stale_prepared=False):
         root=self.root()
         pool=write(root/'pool.json',dict(date='2026-11-03',members=['sh.600000']))
         cache=root/'cache';manifest=dict(request=dict(universe=pool))
@@ -127,7 +131,7 @@ class DataOwnerRegressionTests(unittest.TestCase):
             **({'SSE.600001':dict(target_readable=False,reason='confirmed_missing_native')}if unadvanced else{})}))
         request=dict(schema='guanheng.daily-data-update.v1',publication_directory=str(root/'publication'),
             cache=cache_descriptor,universe=pool,daily_facts={},security_reference={},calendar={},
-            base_configuration=base,basic_capture={},helper=dict(sha256='a'*64),previous_stores=[],
+            base_configuration=base,basic_capture={},helper=dict(path='synthetic-helper',sha256='a'*64),previous_stores=[],
             previous_archives=[],protected_slots=[],authorized_from='20261103',authorized_to='20261103',
             additional_archives=[],connections=dict(batch={},hpr={}),prepared_native=prepared,price_maintenance={})
         def plan(capture,reference,snapshot,output,**kwargs):
@@ -175,12 +179,23 @@ class DataOwnerRegressionTests(unittest.TestCase):
             'integrations.guanheng.daily_data_update._capture':lambda *a:cache_descriptor,
             'integrations.guanheng.market_generation.GenerationPublisher.publish':lambda *a,**kw:({'configuration':a[1]},'b'*64),
         }
-        work=root/'work';readbacks=[]
+        work=root/'work';readbacks=[];conversions=[];native_writes=[]
         def readback(*args):
             marker=Path(args[2])/'manifest.json'
             if not marker.exists():
-                readbacks.append(True);write(marker,manifest)
-            return cache_descriptor
+                readbacks.append(True);write(marker,dict(manifest,completed_source_readback=True)if stale_prepared else manifest)
+            return dict(directory=str(marker.parent),sha256=update._descriptor(marker)['sha256'])if stale_prepared else cache_descriptor
+        def convert(capture,output,helper_sha256,**kwargs):
+            self.assertEqual(Path(capture),work/'readback');conversions.append(True)
+            return write(Path(output)/'CONVERSION.json',dict(capture_sha256=update._descriptor(Path(capture)/'manifest.json')['sha256']))
+        def materialize(conversion,stores,output,helper,helper_sha256,**kwargs):
+            native_writes.append(True)
+            return write(Path(output)/'RESULT.json',dict(state='completed',capture_sha256=update._load(conversion)['capture_sha256'],helper_sha256=helper_sha256,archive=archive))
+        if stale_prepared:
+            replacements.update({
+                'integrations.guanheng.qmt_analysis_import.prepare_analysis_capture':convert,
+                'integrations.guanheng.daily_generation.materialize_generation':materialize,
+                'integrations.guanheng.market_snapshot_prepare._catalog':lambda *args:dict(native_reader={})})
         replacements['integrations.guanheng.daily_data_update._capture']=readback
         with ExitStack()as stack:
             for name,value in replacements.items():stack.enter_context(patch(name,value))
@@ -203,6 +218,9 @@ class DataOwnerRegressionTests(unittest.TestCase):
         self.assertEqual(first['gap_progress']['rows'][0]['state'],'call_returned'if unadvanced else'pending')
         self.assertEqual(resumed['gap_progress']['rows'],[dict(index=1,state='call_returned')]if unadvanced else[])
         self.assertEqual(len(readbacks),1)
+        self.assertEqual(len(conversions),int(stale_prepared));self.assertEqual(len(native_writes),int(stale_prepared))
+        if stale_prepared:
+            self.assertNotEqual(update._load(prepared)['capture_sha256'],update._load(update._descriptor(work/'native/RESULT.json'))['capture_sha256'])
         if unadvanced:self.assertEqual(resumed['gap_readback_progress']['rows'][1]['state'],'unattempted')
 
     def test_published_reference_preserves_old_etf_identity_and_current_group_count(self):

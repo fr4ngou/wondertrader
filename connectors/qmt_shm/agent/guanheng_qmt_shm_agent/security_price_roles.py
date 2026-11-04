@@ -1,5 +1,5 @@
 """证券业务用途归价格资料边界；已知Source类型与官方规则共同准入，不猜证券类型。"""
-from datetime import date
+from datetime import datetime
 import re
 
 
@@ -23,7 +23,10 @@ def non_price_role(identity, day):
     identity已由原SecurityReference核验；类型来自实际Source或保留原件。仅在该类型
     的业务域内解释官方代码用途，未知类型和规范生效前日期均不据代码补推类型。
     """
-    date.fromisoformat(day)
+    # Source最低Python3.6.8不提供date.fromisoformat；固定ISO日历日期走同一标准库准入。
+    if type(day)is not str or re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}',day)is None:
+        raise ValueError('price role requires ISO calendar day')
+    datetime.strptime(day,'%Y-%m-%d')
     if (type(identity) is not dict or re.fullmatch(r'(SSE|SZSE|BSE)\.[0-9]{6}',identity.get('symbol','')) is None
             or identity.get('security_type') not in ('stock','etf','index','unknown')):
         raise ValueError('price role requires verified canonical security identity')

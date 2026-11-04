@@ -315,7 +315,7 @@
     },
     "guanheng_qmt_shm_agent/security_price_roles.py": {
       "source": "connectors/qmt_shm/agent/guanheng_qmt_shm_agent/security_price_roles.py",
-      "sha256": "1b085cdc73c5a2989acd01b33279dcc4ad6d862d4046d2bd32d603cc0dbb8f4d"
+      "sha256": "0ffdf89f80bf30de4f19af9ff7f29ed809b6958c6c9766528aa5eba70b9a638e"
     },
     "guanheng_qmt_shm_agent/security_reference.py": {
       "sha256": "a176d5c9efa6576114c651bb55b7e43b66a82ca5dbc3176e1406045875479d61",
@@ -406,7 +406,7 @@
       "source": "integrations/guanheng/daily_data_stages.py"
     },
     "integrations/guanheng/daily_data_update.py": {
-      "sha256": "136bc32d0f0c0a64c11da7a7c7758763a7d267fcfebd13d29c0d85c5e4dbc92f",
+      "sha256": "f0aa8165e37dd256ce1813aaa0d60fad808abcbeea127262175a3778506b78a9",
       "source": "integrations/guanheng/daily_data_update.py"
     },
     "integrations/guanheng/daily_front_archive.py": {
@@ -670,5 +670,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.6"
+  "version": "0.2.0a1+unified.7"
 }
