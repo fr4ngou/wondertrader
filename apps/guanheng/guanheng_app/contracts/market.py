@@ -71,7 +71,7 @@ class MarketChartBenchmarkPoint(MarketModel):
 
 
 class MarketChartBenchmark(MarketModel):
-    symbol: str = Field(pattern=r"^[0-9]{6}\.(SH|SZ)$")
+    symbol: str = Field(pattern=r"^[0-9]{6}\.(SH|SZ|BJ)$")  # 基准沿主图同一沪深北证券边界。
     points: list[MarketChartBenchmarkPoint] = Field(default_factory=list, max_length=2000)
     data_available: bool
     missing_reason: str | None = Field(default=None, max_length=500)
@@ -117,7 +117,7 @@ class MarketChartSourceLabelSource(MarketModel):
 class MarketChartSourceDateSource(MarketChartSourceLabelSource):
     """1.6日期标签保留来源日线；00:00标签不授闭合或知晓时间资格。"""
     # 日线原提供者或已核分段组合；分钟与快照仍沿各自原合同。
-    provider: Literal["Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "Mixed"]
+    provider: Literal["Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI", "Mixed"]
     source_minute_boundary: Literal["unknown"]
     chart_minute_boundary: Literal["source_date"] = "source_date"
     timestamp_semantics: Literal["source_date"] = "source_date"
@@ -180,7 +180,7 @@ class MarketChartSourceProvenance(MarketModel):
 
 class MarketChartBundle(MarketModel):
     schema_version: Literal["1.4", "1.5", "1.6", "1.7", "1.8"] = "1.4"
-    symbol: str = Field(pattern=r"^[0-9]{6}\.(SH|SZ)$")
+    symbol: str = Field(pattern=r"^[0-9]{6}\.(SH|SZ|BJ)$")  # 沪深北证券；北交所日线沿SDK BSE路由读取。
     period: Literal["1m", "5m", "1d", "1w", "1mo"]
     candles: list[MarketChartCandle] = Field(default_factory=list, max_length=2000)
     data_available: bool

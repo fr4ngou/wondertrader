@@ -72,6 +72,58 @@ def test_main_daily_single_sdk_preserves_source_date_and_units():
     assert MarketChartBundle.model_validate_json(value.model_dump_json()) == value
 
 
+@pytest.mark.parametrize('provider', ['Qmt', 'Tdx', 'BaoStock', 'Tencent', 'CSI', 'CNI'])
+def test_sdk017_daily_provider_roundtrip(provider):
+    """公开CNI与旧提供者沿同一日线投影，日期和单位保持原声明。"""
+    def behavior(request):
+        value = daily_response(request)
+        value['data']['metadata']['source']['provider'] = provider
+        return value
+    value = chart(DailyFactory(behavior))
+    assert value.data_available
+    assert value.native_source.provider == provider
+    assert value.native_source.volume_unit == 'unknown'
+    assert MarketChartBundle.model_validate_json(value.model_dump_json()) == value
+
+
+def test_bse_daily_routes_to_original_exchange_without_shenzhen_substitution():
+    factory = DailyFactory()
+    value = build_native_chart(symbol='920002.bj', period='1d', limit=2, before=BEFORE,
+        settings=settings(), now=NOW, client_factory=factory)
+    assert value.data_available and value.symbol == '920002.BJ'
+    assert factory.calls[0][0]['exchange'] == 'BSE'
+    assert MarketChartBundle.model_validate_json(value.model_dump_json()) == value
+    unsupported = build_native_chart(symbol='920002.BJ', period='1m', limit=2, before=BEFORE,
+        settings=settings(), now=NOW, client_factory=factory)
+    assert not unsupported.data_available and len(factory.calls) == 1
+
+
+def test_sdk017_cni_response_reaches_real_app_http(monkeypatch):
+    import guanheng_app.native_chart as projection
+    monkeypatch.setattr(projection, 'utc_now', lambda: NOW)
+    def behavior(request):
+        value = daily_response(request)
+        value['data']['metadata']['source']['provider'] = 'CNI'
+        return value
+    app = create_app(settings(), DailyFactory(behavior))
+    with TestClient(app) as client:
+        value = client.get('/v1/ui/market/chart/399303.SZ', params={'period':'1d','limit':2}).json()
+        assert value['data_available'] and value['native_source']['provider'] == 'CNI'
+    assert app.state.shutdown_complete
+
+
+def test_bse_daily_benchmark_uses_same_symbol_boundary(monkeypatch):
+    import guanheng_app.native_chart as projection
+    monkeypatch.setattr(projection, 'utc_now', lambda: NOW)
+    app = create_app(settings(), DailyFactory())
+    with TestClient(app) as client:
+        response = client.get('/v1/ui/market/chart/510300.SH',
+            params={'period':'1d','limit':2,'benchmark_symbol':'920002.BJ'})
+        assert response.status_code == 200
+        assert response.json()['benchmark']['symbol'] == '920002.BJ'
+        assert response.json()['benchmark']['data_available']
+
+
 def test_main_daily_actual_app_http_and_shutdown(monkeypatch):
     import guanheng_app.native_chart as projection
     monkeypatch.setattr(projection, "utc_now", lambda: NOW)
@@ -198,7 +250,7 @@ def test_daily_response_boundaries(case):
         data = response["data"]
         row = data["bars"][0]
         if case == "source":
-            data["metadata"]["source"]["provider"] = "Tdx"
+            data["metadata"]["source"]["provider"] = "UnsupportedProvider"
         elif case == "selection-period":
             data["selection"]["period"] = "1m"
         elif case == "selection-limit":

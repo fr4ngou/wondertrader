@@ -28,10 +28,10 @@ _STATUS_REASONS = {
 
 
 def normalize_chart_symbol(symbol: str) -> str:
-    """共享证券边界：接受带空白/小写后缀的输入，输出标准沪深代码。"""
+    """共享证券边界：接受带空白/小写后缀的输入，输出标准沪深北代码。"""
     normalized = symbol.strip().upper()
-    if re.fullmatch(r"[0-9]{6}\.(SH|SZ)", normalized) is None:
-        raise ValueError("证券代码须为六位数字及 .SH/.SZ 后缀")
+    if re.fullmatch(r"[0-9]{6}\.(SH|SZ|BJ)", normalized) is None:
+        raise ValueError("证券代码须为六位数字及 .SH/.SZ/.BJ 后缀")
     return normalized
 
 
@@ -89,7 +89,7 @@ def _calendar_year_cutoff(stamp, years):
 
 
 def _daily_projection(response, request, symbol, period, limit, years):
-    """复用SDK0.14封闭来源协议；图表层另核OHLC及日期标签身份。"""
+    """复用SDK0.17来源协议及CNI身份；图表层另核OHLC和日期标签。"""
     from guanheng_market_client.source_history import validate_source_daily_data
 
     data = validate_source_daily_data(response["data"], request)
@@ -163,6 +163,8 @@ def build_native_chart(
         raise ValueError("分钟图表证券或周期无效")
     source_values = settings.wondertrader_history_semantics == "source"
     daily = period in ("1d", "1w", "1mo")
+    if symbol.endswith('.BJ') and not daily:
+        return unavailable_native_chart(symbol, period, "当前公开SDK北交所路由提供来源日线")
     if daily and not source_values:
         return unavailable_native_chart(symbol, period, "来源日线需要显式配置source历史语义")
     if source_values and period == "5m":
@@ -224,7 +226,7 @@ def build_native_chart(
     except Exception:
         return unavailable_native_chart(symbol, period, "WonderTrader 行情连接配置不可用")
     request = {
-        "exchange": "SSE" if symbol.endswith(".SH") else "SZSE",
+        "exchange": {"SH": "SSE", "SZ": "SZSE", "BJ": "BSE"}[symbol[-2:]],
         "code": symbol[:6],
         "from": first,
         "to": end,
