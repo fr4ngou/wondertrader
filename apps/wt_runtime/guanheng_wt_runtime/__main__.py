@@ -12,6 +12,8 @@ from guanheng_market_client.runtime_status import replace_status
 
 from .managed_local_process import _inspect, _json, _path, _read, _require, _sha
 from .runtime import Runtime, RuntimeConfig
+from .runtime_diagnostics import FailureDiagnostic
+from .snapshot_publisher import SnapshotPublisher
 
 
 def _publish(directory, name, value, *, replace=False):
@@ -75,44 +77,71 @@ def run(config, configuration_sha256, directory, control_id):
     previous_handlers, stopped, failed = {}, False, None
     with _InstanceLease(directory.parent, config.instance_id):
         directory.mkdir()
-        try:
-            runtime = Runtime(config)
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                previous_handlers[sig] = signal.signal(sig, lambda *unused: runtime.request_close())
-            if not runtime.start(time.monotonic() + config.startup_seconds):
-                raise RuntimeError('WT component startup failed')
-            _publish(directory, 'status.json', {**runtime.status(), **identity}, replace=True)
-            _publish(directory, 'ready.json', {'schema': 'guanheng.wt-runtime-ready.v1', **identity})
-            while not runtime.wait_close_request(0):
-                _publish(directory, 'status.json', {**runtime.status(), **identity}, replace=True)
-                try:
-                    stop = _json(_read(directory / 'stop.json', 4096))
-                except FileNotFoundError:
-                    stop = None
-                if stop is not None:
-                    expected = {'schema': 'guanheng.wt-runtime-stop.v1', 'control_id': control_id,
-                                'instance_id': config.instance_id,
-                                'configuration_sha256': configuration_sha256}
-                    _require(stop == expected)
-                    runtime.request_close()
-                elif not runtime.check():
-                    failed = 'component_runtime'
-                    runtime.request_close()
-                runtime.wait_close_request(.2)
-        except Exception:
-            failed = failed or 'runtime_failure'
-        finally:
-            if runtime is not None:
-                stopped = runtime.close(config.stop_seconds)
-                _publish(directory, 'status.json', {**runtime.status(), **identity}, replace=True)
-            for sig, handler in previous_handlers.items():
-                signal.signal(sig, handler)
-            # closed只在所有原owner实际退出、Job/管道/线程确认后发布；故障不伪装成功。
-            success = stopped and failed is None
-            name = 'closed.json' if success else 'failure.json'
-            _publish(directory, name, {'schema': 'guanheng.wt-runtime-' + ('closed' if success else 'failure') + '.v1',
-                **identity, 'components_closed': stopped, 'error_code': failed,
-                'status': 'stopped' if success else 'faulted'})
+        with FailureDiagnostic(directory, identity, _publish) as diagnostic:
+            try:
+                snapshots = SnapshotPublisher(directory, replace=replace_status)
+                runtime = Runtime(config)
+                diagnostic.phase = 'signal_register'
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    previous_handlers[sig] = signal.signal(sig, lambda *unused: runtime.request_close())
+                diagnostic.phase = 'runtime_start'
+                if not runtime.start(time.monotonic() + config.startup_seconds):
+                    raise RuntimeError('WT component startup failed')
+                diagnostic.phase = 'initial_status_snapshot'
+                snapshot = runtime.status()
+                diagnostic.phase = 'initial_status_publish'
+                snapshots.publish({**snapshot, **identity})
+                diagnostic.phase = 'ready_publish'
+                _publish(directory, 'ready.json', {'schema': 'guanheng.wt-runtime-ready.v1', **identity})
+                diagnostic.phase = 'stop_poll'
+                while not runtime.wait_close_request(0):
+                    diagnostic.phase = 'loop_status_snapshot'
+                    snapshot = runtime.status()
+                    diagnostic.phase = 'loop_status_publish'
+                    snapshots.publish({**snapshot, **identity})
+                    diagnostic.phase = 'stop_read'
+                    try:
+                        stop = _json(_read(directory / 'stop.json', 4096))
+                    except FileNotFoundError:
+                        stop = None
+                    if stop is not None:
+                        diagnostic.phase = 'stop_validate'
+                        expected = {'schema': 'guanheng.wt-runtime-stop.v1', 'control_id': control_id,
+                                    'instance_id': config.instance_id,
+                                    'configuration_sha256': configuration_sha256}
+                        _require(stop == expected)
+                        diagnostic.phase = 'close_request'
+                        runtime.request_close()
+                    else:
+                        diagnostic.phase = 'component_check'
+                        if not runtime.check():
+                            failed = 'component_runtime'
+                            diagnostic.phase = 'close_request'
+                            runtime.request_close()
+                    diagnostic.phase = 'cycle_wait'
+                    runtime.wait_close_request(.2)
+                    diagnostic.phase = 'stop_poll'
+            except Exception as error:
+                failed = failed or 'runtime_failure'
+                diagnostic.capture(error)
+            finally:
+                if runtime is not None:
+                    diagnostic.phase = 'runtime_close'
+                    stopped = runtime.close(config.stop_seconds)
+                    diagnostic.phase = 'final_status_snapshot'
+                    snapshot = runtime.status()
+                    diagnostic.phase = 'final_status_publish'
+                    snapshots.publish({**snapshot, **identity})
+                diagnostic.phase = 'signal_restore'
+                for sig, handler in previous_handlers.items():
+                    signal.signal(sig, handler)
+                # closed只在所有原owner实际退出、Job/管道/线程确认后发布；故障不伪装成功。
+                success = stopped and failed is None
+                name = 'closed.json' if success else 'failure.json'
+                diagnostic.phase = 'receipt_publish'
+                _publish(directory, name, {'schema': 'guanheng.wt-runtime-' + ('closed' if success else 'failure') + '.v1',
+                    **identity, 'components_closed': stopped, 'error_code': failed,
+                    'status': 'stopped' if success else 'faulted'})
     return 0 if success else 2
 
 
@@ -174,7 +203,7 @@ def record_process_loss(config, configuration_sha256, directory, control_id):
         for component in components.values():
             component.update(state='faulted', ready=False, error_code='owner_process_lost')
         status.update(state='faulted', ready=False, error_code='owner_process_lost')
-        _publish(directory, 'status.json', status, replace=True)
+        SnapshotPublisher(directory, replace=replace_status).publish(status)
         if not failure_path.exists():
             _publish(directory, 'failure.json', dict(
                 schema='guanheng.wt-runtime-failure.v1', **identity,
