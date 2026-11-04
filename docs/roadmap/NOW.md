@@ -19,6 +19,8 @@
 
 日线program013/daily-service004正在同一r001接续，RetainedReadPending期间保留原ID和已成功CURRENT。下一步完成ETF/指数余缺、回读实际日期；保持五服务，观察1.2.1自然调度并复用既有交易验收；完成分钟余项和安全清理。此前一干净worktree、约461MiB重复依赖、六旧Web已清理，原HPR依赖根仍被引用。
 
+r001当前在第94批前复权缓存查询卡住：0093-front_ratio.json已保存并consumed，原只读结果ok=false/error_code=operation_interrupted，SDK继续报告read_original_terminal_unknown。188槽之后尚未推进，不能只描述为短暂等待。当前批读Host认证正常，retained=2/capacity=64、held_unknown=2。下一项根因修复是在自有日线只读层处理被中断查询的后继观察，保留原槽/结果和身份，金融/下单及HPR不套用重读语义；原CURRENT和策略8ETF已到11月4日保持。
+
 独立市场观察spread_sw在11月4日的sse_reference仍为空，需原更新owner用已恢复的上证日线重新生成观察快照；普通行情恢复与观察图恢复分别验收。本次两处构建依赖清理被自动审批拒绝（仅返回blocked by policy），文件保留。
 
 当前无需用户新增决策。开发者1/2目标保持清除；协作执行[必要沟通](../development/workflow.md#会话协作)。新增WT框架行为仍先解释并获批准。

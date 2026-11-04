@@ -28,6 +28,8 @@ E:/workspace/wondertrader-data/wt-service的启动/停止快捷方式采用wt-co
 
 同日修订深目录实际触发277/283字符路径失败；新修订使用rNNN，本次未提交REQUEST且无新槽的准备根保留后改登r001。r001按原身份和间隔继续，短暂RetainedReadPending保留原责任与已成功11月4日CURRENT。
 
+后继检查定位到实际停止点：r001缓存188槽中0093-front_ratio.json为已保存/consumed的operation_interrupted失败结果；原SDK将其归read_original_terminal_unknown，持续复读无法推进。Host认证正常，2份held_unknown占64份容量，不是容量已满。该只读查询的后继观察适配尚未完成，保留原件及正式CURRENT，继续作为明确功能阻断处理。
+
 旧HPR在02:03实际退出，曾使旧采集组合关闭；最早异常原因未知。新HPR独立于实时采集并保留首故障诊断，不能称原异常根因已解决。此前把旧成功快照当作仍运行的判断已更正，现在同时核实际进程、原身份和业务日期。原分钟program007/Source/Writer保持，既有8ETF/2股票实读保持，两项指数及北交所分钟范围继续。
 
 ## 剩余与决策
