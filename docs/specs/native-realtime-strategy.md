@@ -310,7 +310,7 @@ B消费A已核ReplayCatalog的逐日原生窗口，保留manifest、逐窗SHA、
 
 R28-C5的有限历史对照使用固定原WtCtaEngine、CtaStraContext、ManagedStrategyBridge和同一正式RetainedStrategy/唯一核/NSQ。测试宿主只调用原公开日期、会话、行情、bar和调度接口；原持仓、成本、可卖、费用、KV及文件仍由原WT生成。A ReplayCatalog拥有逐日原价和分析值，历史接收时间保持；比较适配器显式选择原RetainedHistoricalModel和历史时钟，不把当日15:00假设授为实际首次可知。原实时部署继续当前接收时间/新鲜度规则。
 
-原实时Reader只提供当前日期之前的闭合日线；对照显式以每个基准日的下一原交易日期触发一分钟主调度，前一日收盘报价与后继原价成交分别标明模型及时间。原m1调度输入由冻结日线生成明确的单分钟模型，经原Helper落盘/回读；原d1读取继续原Reader，不自行产生复权价格。有限broker观察/成交来源只用于该模型并与原生持仓和提交来源绑定，不授真实Source/SDK/WinSHM或存量接管资格。每期保存完整决策、经济目标、数量状态及原生财务，并按时间、价格、成交/T+1和状态身份逐字段解释差异；全400期原CTA对照、正式WRI/持续AWP组合及真实来源分别验收。此接缝不增加WT核心行为或金融账本。
+普通冻结目录Reader只提供当前日期之前的闭合日线；对照显式以每个基准日的下一原交易日期触发一分钟主调度，前一日收盘报价与后继原价成交分别标明模型及时间。原m1调度输入由冻结日线生成明确的单分钟模型，经原Helper落盘/回读；原d1读取继续原Reader，不自行产生复权价格。有限broker观察/成交来源只用于该模型并与原生持仓和提交来源绑定，不授真实Source/SDK/WinSHM或存量接管资格。每期保存完整决策、经济目标、数量状态及原生财务，并按时间、价格、成交/T+1和状态身份逐字段解释差异；全400期原CTA对照、正式WRI/持续AWP组合及真实来源分别验收。此接缝不增加WT核心行为或金融账本。
 
 历史验证的Reader输入采用显式发布替身：A原逐窗raw数值经原Helper写入及完整回读为当期原价DSB，原因子文件、原分组native输出和目录元数据保持原字节，原Reader按已有publication入口切换并负责缓存清理。替身输入、收据和发布使用专用model schema并登记原窗SHA；该证据不授真实AWP生产者资格。INIT只读取当前已闭合的单分钟模型归档，后续分钟事件逐期调用原公开入口；整段未来归档进入原Reader被拒绝的试验保留为测试输入错误。
 
@@ -323,6 +323,8 @@ R28-C5的有限历史对照使用固定原WtCtaEngine、CtaStraContext、Managed
 状态：accepted / in-progress。对应 WT-D03/D04/D05/D09、R3/R18/R24。AWP 每轮生成新的只读 DSB 和原生因子目录；自有 RealtimeReader 的原 WtDataReader 委托当前固定于初始化目录。原 WtDtMgr 在基础周期倍数1且 force_cache=false 时直接调用 IDataReader，此公开接缝承担同一 CTA 的日线更新。实现限自有 Reader、配置与验证，WT 框架源码保持。
 
 显式配置 `daily.publication={status_file,publication_file,cache_root}`，可选 `source_root`。路径均为绝对规范路径；status_file、publication_file 是可原子替换的普通文件，cache_root 是父目录已存在、由本 Reader 新建且独占的输入投影根。省略 publication 对象保持冻结目录读取。source_root 缺省为 status_file 的父目录；显式值只改变被授权的来源读取根，支持发布定位与不可变原件分开放置，保持路径后代准入。status_file 消费 AWP 已发布的 guanheng.qna-producer-status.v1/last_success，publication_file 为原 QNA 窗口。AWP 拥有目录、身份和发布时机；Reader 消费 last_success.work 下原 NATIVE-READ.json、request.json、prepared/INPUTS.json 及其声明的原 DSB、因子、原输出和元数据。窗口、输入、原输出及实际原文件 SHA、来源/因子修订和基准必须相符；每次读取仍核当前可变窗口和本次闭合截止，命中缓存只复用原件与委托。新来源目录限于 source_root；原生配置及符号与已准入映射一致，单文件4MiB（原输出/窗口32MiB）、每代固定与复制字节总计64MiB、句柄1024、切片和原总截止有界。目录按根到叶固定并核实际句柄的重解析属性，原文件在委托存活期固定为只读。可变 status/窗口采用可替换的短期读取，不阻碍生产者原子发布。
+
+持续publication的当前日闭合由实际已准入合约的共同日盘session收盘时间、原请求截止和publication.analysis.known_at共同核定。所有映射会话均须为无跨日偏移的日盘，当前上下文及请求已到共同收盘；原known_at须在收盘至请求截止之间，当前基准日才能进入读取。时区按原ISO8601偏移解析为沪深UTC+08:00，比较精度沿原Native上下文毫秒；保留原known_at字符串、K线日期及全部原值。过去日期继续原路径，普通冻结目录继续日期之前规则。当日收盘前出版、未来known_at、未来基准及坏时间格式返回不可用；已命中代际仍逐次核当前截止。原K线日期还须不晚于本代已核basis_date，因子沿同一闭合条件选择原Reader。Python native_history_matches逐字段比较保持。
 
 每次日线或因子读取在原 daily_mutex 下选择发布代际。新身份通过准入后，原 DSB 和因子按已核原字节复制到本 Reader 独占代际目录；原 WtDataReader 只读取此投影，源目录中的未声明 +/- 复权缓存或 RT 文件不进入输入。原 DSB 解码、因子查询和复权计算继续由原实现完成；同日修订按完整身份切换，基准日期相同仍能更新。旧 DailySlice 持有独立原输出副本，其 retain/release 和容量预算保持。缺发布、发布交接中或新身份失配返回不可用，由 R24 原生历史核对使策略等待。旧委托释放后只清理本 owner 创建的副本和空目录，意外新增文件保留供诊断；停止沿既有准入/排空/委托销毁顺序，无新增线程、金融状态或调度行为。
 
