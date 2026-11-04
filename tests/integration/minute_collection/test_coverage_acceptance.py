@@ -65,7 +65,10 @@ class CoverageAcceptanceTests(unittest.TestCase):
         self.assertEqual(result['known_and_retained_count'], 3)
         self.assertEqual(result['quote_states']['not_received'], 1)
         self.assertEqual(result['missing_subscriptions'], 1)
-        self.assertEqual(result['current_day_missing_labels'], 2)
+        self.assertEqual(result['current_day_known_missing_labels'], 2)
+        self.assertIsNone(result['current_day_missing_labels'])
+        self.assertEqual(result['current_day_checked_count'], 1)
+        self.assertEqual(result['current_day_unknown_count'], 1)
         self.assertFalse(result['scan_completed'])
         self.assertFalse(result['market_complete_coverage'])
 
@@ -81,6 +84,19 @@ class CoverageAcceptanceTests(unittest.TestCase):
         self.assertFalse(result['passed'])
         self.assertEqual(result['observation']['status'], 'stale')
         self.assertEqual(result['subscribed_count'], 2)
+
+    def test_reader_failure_stays_unknown_instead_of_zero_missing(self):
+        path = self.directory / 'minute-maintenance.json'
+        value = json.loads(path.read_bytes())
+        value['rows'] = [dict(date='2026-11-04', state='reader_unavailable', missing_count=None)]
+        self.save(path, value)
+        result = accept_coverage(self.selected, self.directory)
+        self.assertFalse(result['passed'])
+        self.assertEqual(result['current_day_checked_count'], 0)
+        self.assertEqual(result['current_day_unreported_count'], 1)
+        self.assertEqual(result['current_day_unknown_count'], 2)
+        self.assertEqual(result['current_day_reader_unavailable_count'], 1)
+        self.assertIsNone(result['current_day_missing_labels'])
 
 
 if __name__ == '__main__':
