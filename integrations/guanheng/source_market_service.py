@@ -44,8 +44,11 @@ def _configuration(path, expected):
         from integrations.guanheng.daily_data_service import validate_configuration
         descriptor=value['daily_update'];_fields(descriptor,'path sha256')
         update=validate_configuration(_json(_read(_path(descriptor['path']),16777216,descriptor['sha256'])))
-        _need(source_config.get('mode')=='source-market-current'
-            and os.path.normcase(str(Path(source_config['current_file']).absolute()))==os.path.normcase(
+        # 分钟组合仅接管分钟请求；每日owner仍绑定原动态市场CURRENT，任务及发布身份保持。
+        current_source = (source_config.get('delegate', {})
+            if source_config.get('mode') == 'source-recovered' else source_config)
+        _need(current_source.get('mode')=='source-market-current'
+            and os.path.normcase(str(Path(current_source['current_file']).absolute()))==os.path.normcase(
                 str(Path(update['template']['publication_directory']).absolute()/'CURRENT.json')))
     return value, source_config
 

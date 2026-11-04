@@ -24,7 +24,7 @@ def prepare_configuration(request):
     hpr_pair_manifest指向已由原产品工厂生成并验证的最终路径。metadata沿唯一资料owner。
     返回供Root启动/停止/回退的完整清单，不启动进程、不更改任何CURRENT或QMT文件。
     """
-    require(type(request) is dict and set(request) == {'schema', 'output', 'program', 'roster',
+    require(type(request) is dict and set(request) - {'daily_role_service'} == {'schema', 'output', 'program', 'roster',
         'data_runtime', 'hpr_pair_manifest', 'source_cas', 'metadata', 'priority_symbols', 'daily_base', 'history_credential'}
         and request['schema'] == 'qmt.minute-collection-configuration-request.v1')
     root = Path(request['output'])
@@ -164,14 +164,25 @@ def prepare_configuration(request):
         require('base' in value)
         value = deepcopy(value); value['base'] = replace_leaf(value['base'])
         return value
-    files['daily_base_candidate'] = save('daily-base-candidate.json', replace_leaf(daily))
+    daily_originals = {}
+    daily_adoption = None
+    if 'daily_role_service' in request:
+        from .collection_daily_connection import prepare_daily_connection
+        extra, daily_originals, daily_adoption = prepare_daily_connection(
+            request['daily_role_service'], request['daily_base'], program, root,
+            files['producer'], source, save)
+        files.update(extra)
+    else:
+        files['daily_base_candidate'] = save('daily-base-candidate.json', replace_leaf(daily))
     plan = dict(
         schema='qmt.minute-collection-deployment.v1',  # 完整候选及回退固定引用，不代表已切换。
         request=request, program=request['program'],  # 本次程序闭包与输入请求身份。
         source=source_cas, hpr_pair_manifest=request['hpr_pair_manifest'],  # 完整Source与原产品配对的独立CAS。
         originals=dict(runtime=request['data_runtime'], worker=worker_descriptor, native=native_descriptor,
-                       history_service=old_service_descriptor, daily_base=request['daily_base']),  # 原件仅读保留。
+                       history_service=old_service_descriptor, daily_base=request['daily_base'], **daily_originals),  # 原件仅读保留。
         files=dict(files), quote_count=len(collection_symbols),  # 同一QST/基础资料/Reader声明集合。
         source_current_unchanged=True, runtime_started=False, trading_changed=False)  # Root后续正式采用。
+    if daily_adoption is not None:
+        plan['daily_adoption'] = daily_adoption  # 当前正式日线的独立读方采用；原生产配置及任务根保持。
     files['plan'] = save('DEPLOYMENT.json', plan)
     return files['plan']

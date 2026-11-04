@@ -1,5 +1,6 @@
 """采集owner已发布的分钟恢复只读接线；查询不持有生产锁、不访问来源Host。"""
 from itertools import chain
+from contextlib import contextmanager
 from pathlib import Path
 import hashlib
 import threading
@@ -18,12 +19,13 @@ class RecoveredSourceMarket:
 
     def __init__(self, configuration, *, max_response_bytes=8388608, clock=time.monotonic):
         self.owner = threading.get_ident()  # 原服务线程拥有全部原生对象和关闭。
-        self.base = self.reader = None  # 原行情读取与原已发布窗口读取，各沿既有生命周期。
+        self.base = self.reader = self.delegate = None  # 分钟base、窗口Reader及可选原动态读方均由本线程拥有。
         self.closed = False  # 成功关闭后禁止继续读取。
         self.clock = clock  # 同次读取共用一个绝对截止。
         self.maximum = max_response_bytes  # 原公开服务响应字节上限。
         try:
-            require(type(configuration) is dict and set(configuration) == {'mode', 'base', 'producer'}
+            require(type(configuration) is dict and {'mode', 'base', 'producer'} <= set(configuration)
+                    <= {'mode', 'base', 'producer', 'delegate'}
                     and configuration['mode'] == 'source-recovered')
             descriptor = configuration['producer']
             require(type(descriptor) is dict and set(descriptor) == {'path', 'sha256'}
@@ -50,6 +52,11 @@ class RecoveredSourceMarket:
             self.reader = PreparedHistoryReader(producer['base'], c, clock=clock)
             from .source_market import create_native_source_market
             self.base = create_native_source_market(configuration['base'], max_response_bytes=max_response_bytes)
+            if 'delegate' in configuration:
+                # 当前日线/资料动态入口完整保留；分钟接入不改Snapshot基准或每日任务配置身份。
+                require(type(configuration['delegate']) is dict
+                        and configuration['delegate'].get('mode') == 'source-market-current')
+                self.delegate = create_native_source_market(configuration['delegate'], max_response_bytes=max_response_bytes)
         except BaseException:
             self.close()
             raise
@@ -58,7 +65,7 @@ class RecoveredSourceMarket:
         require(threading.get_ident() == self.owner and not self.closed)
         request = validate_request(decode(canonical(request)))
         if request['action'] != 'history.source-query':
-            return self.base.call(request)
+            return (self.delegate if self.delegate is not None else self.base).call(request)
         c = self.producer['preparation']
         deadline = self.clock() + c['timeout_seconds']
         def failure(code, reason):
@@ -88,8 +95,21 @@ class RecoveredSourceMarket:
         except (OSError, ValueError, KeyError, TypeError):
             return failure('Unavailable', '分钟恢复收据、固定身份或原生读取未通过')
 
+    @contextmanager
+    def read_scope(self):
+        """HTTP整批沿原动态读方的同一Snapshot域；分钟连接不拆开原批量版本边界。"""
+        require(threading.get_ident() == self.owner and not self.closed)
+        if self.delegate is not None:
+            with self.delegate.read_scope():
+                yield
+        else:
+            yield
+
     def close(self):
         require(threading.get_ident() == self.owner)
+        if self.delegate is not None:
+            self.delegate.close()
+            self.delegate = None
         if self.reader is not None:
             self.reader.close()
             self.reader = None

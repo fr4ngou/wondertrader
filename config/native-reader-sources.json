@@ -141,8 +141,8 @@
     "sha256": "e4a6301b1b6713987862ab792735738117f210d6bd7bfba8b5ebb2f2978aa64c"
   },
   "owned_sources": {
-    "src/ReaderGuanhengRealtime/Factory.cpp": "2a41830d304c354846dd62cbb1cd53ee28067015407391da9dd81847fecbc165",
-    "src/ReaderGuanhengRealtime/PublishedDaily.h": "4729a8c6c9fbde8bacf4f9dceae11b0433637958db65f12287c47cab2fef533c",
+    "src/ReaderGuanhengRealtime/Factory.cpp": "37fc3f8fce88984a5ea125c08a04e548a67311699e94ffbd39f0f08f0fe7c0a9",
+    "src/ReaderGuanhengRealtime/PublishedDaily.h": "bd37b831220ca4a484f9c237426989d06be000285463425beb8945592f7bdaa7",
     "src/GuanhengData/StrategyReader.cpp": "208abc5d498c6251ea3886d9b36c60de82f1ef4a09ec91a56bf7e29dc8c6e30c",
     "src/GuanhengData/StrategyReader.h": "703654c78a900399cdc743f12f79cf3fb8c933c6eca5c13d57a6612dc36fd47a",
     "src/GuanhengData/ReaderHttpClient.cpp": "483bbaf52f8f4475063ce3699f5f10109de47c806adf8f35d313a4760004a589",

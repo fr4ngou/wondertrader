@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from integrations.guanheng.collection_installation import descriptor, stage_program, verify_program
 from integrations.guanheng.collection_deployment import load, prepare_configuration
+from integrations.guanheng.collection_source import prepare_source
 from integrations.guanheng.market_generation import read_fixed
 from integrations.guanheng.source_history_transport import require
 from guanheng_market_client import MarketClient
@@ -44,6 +45,18 @@ def verify_deployment(selected, *, adopted=False):
     native = load(plan['files']['native'])
     require(native['writer']['path'] == producer['base']['minute_native']['storage_root'])
     require(len(producer['base']['collection']['symbols']) == plan['quote_count'])
+    if 'daily_adoption' in plan:
+        # 只替换公开分钟读方；原每日任务和所有非分钟请求继续沿当前正式配置。
+        daily = load(plan['files']['daily_smp'])
+        original_daily = load(plan['originals']['daily_smp'])
+        daily_source = load(plan['files']['daily_source'])
+        require(daily['daily_update'] == original_daily['daily_update']
+                and daily['listen'] == original_daily['listen']
+                and daily['token_env'] == original_daily['token_env']
+                and daily_source['delegate'] == load(plan['originals']['daily_read'])
+                and daily_source['producer'] == plan['files']['producer'])
+        for key in ('collection', 'minute_native'):
+            require(daily_source['base'][key] == producer['base'][key])
     return dict(schema='qmt.minute-collection-verification.v1', passed=True,
         deployment_sha256=selected['sha256'], program_files=len(program['files']),
         quote_count=plan['quote_count'], source_adopted=adopted, resources_started=False)
@@ -136,9 +149,10 @@ def main():
     stage.add_argument('--native-build', type=Path, required=True)
     stage.add_argument('--collection-component', type=Path, required=True)
     stage.add_argument('--output', type=Path, required=True)
-    prepare = commands.add_parser('prepare-config')
-    prepare.add_argument('--request', type=Path, required=True)
-    prepare.add_argument('--request-sha256', required=True)
+    for name in ('prepare-config', 'prepare-source'):
+        prepare = commands.add_parser(name)
+        prepare.add_argument('--request', type=Path, required=True)
+        prepare.add_argument('--request-sha256', required=True)
     for name in ('verify', 'adopt-source', 'rollback-source'):
         command = commands.add_parser(name)
         command.add_argument('--deployment', type=Path, required=True)
@@ -160,11 +174,17 @@ def main():
     accept.add_argument('--endpoint')
     accept.add_argument('--credential-file')
     accept.add_argument('--token-env')
+    coverage = commands.add_parser('accept-coverage')
+    coverage.add_argument('--deployment', type=Path, required=True)
+    coverage.add_argument('--deployment-sha256', required=True)
+    coverage.add_argument('--control-directory', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'stage-program':
         result = stage_program(args.mainline, ROOT, descriptor(args.native_build), args.collection_component, args.output)
     elif args.command == 'prepare-config':
         result = prepare_configuration(load(dict(path=str(args.request), sha256=args.request_sha256)))
+    elif args.command == 'prepare-source':
+        result = prepare_source(load(dict(path=str(args.request), sha256=args.request_sha256)))
     elif args.command == 'run-role':
         from integrations.guanheng.collection_role import run_role
         selected = dict(path=str(args.deployment), sha256=args.deployment_sha256)
@@ -176,6 +196,9 @@ def main():
     elif args.command == 'accept-minutes':
         result = accept_minutes(dict(path=str(args.deployment), sha256=args.deployment_sha256), args.day,
             endpoint=args.endpoint, credential_file=args.credential_file, token_env=args.token_env)
+    elif args.command == 'accept-coverage':
+        from integrations.guanheng.collection_acceptance import accept_coverage
+        result = accept_coverage(dict(path=str(args.deployment), sha256=args.deployment_sha256), args.control_directory)
     else:
         selected = dict(path=str(args.deployment), sha256=args.deployment_sha256)
         if args.command == 'verify':

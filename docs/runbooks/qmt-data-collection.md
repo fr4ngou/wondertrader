@@ -34,11 +34,17 @@ stop_seconds在部署启动前按证券规模和实际归档/回收时间确定�
 
 ### MCC完整候选
 
-`scripts/minute_collection.py`提供`stage-program`、`prepare-config`、`verify`、`adopt-source`、`rollback-source`、`run-role`、`stop-role`及`accept-minutes`。前两项只在新E盘根生成程序和配置；`verify`核完整文件集、原/新CAS及同一producer/Reader引用。`adopt-source`和`rollback-source`供Root停止对应GH行后显式调用，按完整正文before/after CAS采用或恢复；独立交易/v9保持。
+`scripts/minute_collection.py`提供`stage-program`、`prepare-source`、`prepare-config`、`verify`、`adopt-source`、`rollback-source`、`run-role`、`stop-role`、`accept-minutes`及`accept-coverage`。准备命令只在新E盘根生成程序、完整Source和配置；`verify`核完整文件集、原/新CAS及同一producer/Reader引用。`adopt-source`和`rollback-source`供Root停止对应GH行后显式调用，按完整正文before/after CAS采用或恢复；独立交易/v9保持。
 
 程序包从当前主线保留其他模块，仅覆盖MCC拥有的源；原Writer组件沿既有固定制品，新桥及Reader沿本次成功离线构建。数据根继续原单Writer，恢复产物仍由原Importer独占新根。完整配置准备同时固定7649等实际集合、contracts/commodities/session、QST双方profile、原HPR联合额度及完整Source，数量取本次名册差异证明，不能固定为历史常数。
 
 Root维护次序：确认HPR原批次完成及未知请求已核；停止原GH行；沿原owner正常停止旧data/quotes角色并核closed/进程树退出；按CAS采用新Source及运行配置；启动新data角色，保持原公开端口及凭据角色；恢复GH行；核认证、实际注册/投递和公开分钟；最后由原日线owner采用新的只读base并发布对应版本，保持18136、token和数据原件。回退先停新GH/角色，再按after CAS恢复完整旧正文，沿原角色/配置重启并核公开读取。
+
+当前正式日线为动态读取与每日生产同SMP时，`prepare-config`可增加`daily_role_service`固定引用；`daily_base`必须捕获实际当前Snapshot.base，不能用历史模板替代。工厂生成带delegate的`daily-source`、保留原`daily_update`的SMP配置及新角色控制配置，原市场CURRENT/日线任务根/保护槽/53指数等原件保持。此路径由Root先正常停止旧日线owner以释放共享来源与发布租约，统一维护Source/data/quotes，再采用新日线角色；回退停止新角色后沿原控制器恢复。新角色控制CURRENT独立，金融WT当前代及v7/v8所有者保持，避免控制旧HOSTS-RUNTIME。
+
+`prepare-source`从已固定原全文和当前名册生成完整正文，只改同一QST两端集合并移除无消费者旧trade。原HPR配对、profile、Journal与v7/v8设置逐值保留时，旧未知请求继续沿原ID核查；分页读取和后继预算先按实际绑定额度核验。Source产品冻结在已安装原Host环境执行，普通核验/读取保持原轻依赖。
+
+`accept-coverage --deployment <path> --deployment-sha256 <sha> --control-directory <当前采集控制代>`只读原有界投影，核配置/控制UUID/Windows进程身份，按原65秒状态合同报告来源连接、逐类分母/实订/收到/旧日/未收到和分钟扫描进度。命令通过表示身份与投影可核；未扫项、缺标签、当日历史准入及BSE等未接入类别分别列出。实际12样本和整集合计数共同存证，不能据注册数量或缓存存在宣称全日完整。
 
 `run-role`复用原`ManagedLocalProcess`及WRI命令，`stop-role`只发送该owner身份的正常停止；实际closed由原监督者发布。`accept-minutes`查询实际策略八ETF、股票和沪深指数，逐项记录该日原值与尾时刻；结果只证明所列样本。来源不支持的市场、当日历史准入、缺少分钟与覆盖未知继续保留。正式源采用和运行资格按[MCC证据](../evidence/2026-11-04-continuous-minute-collection.md)核定。
 
