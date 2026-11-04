@@ -7,6 +7,7 @@ if str(_RELEASE_ROOT) not in sys.path:
     sys.path.insert(0, str(_RELEASE_ROOT))
 
 import argparse
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import math
 import os
@@ -15,7 +16,7 @@ from uuid import UUID,uuid4
 
 from integrations.guanheng.daily_data_update import run_update, _save, _load
 from integrations.guanheng.daily_data_inputs import prepare_update
-from integrations.guanheng.daily_input_recovery import observe_input_reads
+from integrations.guanheng.daily_input_recovery import observe_input_reads, close_input_discovery, registered_requests
 from integrations.guanheng.market_generation import GenerationPublisher, read_fixed
 from integrations.guanheng_market_client import strict_json
 
@@ -118,7 +119,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
 
     error = None
     try:
-        with GenerationPublisher(config['template']['publication_directory']) as publisher:
+        with GenerationPublisher(config['template']['publication_directory']) as publisher, ExitStack() as input_resources:
             root.mkdir(parents=False, exist_ok=True)
             original = root / 'CONFIGURATION.json'
             if original.exists():
@@ -145,26 +146,34 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                               pending=set(),  # 原读取仍未知/未确认消费的槽，保持原INDEX归属。
                               checked={},  # 轮询顺序，避免旧未知槽长期阻挡其他已返回结果。
                               slots={},  # 原槽到原连接的发现缓存，最多100000项。
-                              roots=set())  # 已封存输入根，避免持续扫描全部旧捕获。
+                              roots=set(),  # 跨日后完整扫描过的封存根，当前日后续回读仍可发现。
+                              discovery={},  # 未完成目录迭代及其开始观察的目标日，退出租约前关闭。
+                              discovered=set())  # 已完整发现过的根；用于区分待发现与已确认无新槽。
+            input_resources.callback(close_input_discovery, read_state)
             while not stopped():
                 now = datetime.now(timezone.utc) if clock is None else clock()
                 calendar = _load(config['template']['calendar'])
                 day = as_of if as_of is not None else target_date(calendar, now)
-                if time.monotonic() >= next_input_observation:
-                    try:
+                observed_inputs = False
+                try:
+                    registered = registered_requests(index)  # 创建输入和已有REQUEST恢复共用同一原件损坏准入。
+                    if time.monotonic() >= next_input_observation:
                         status['input_reads'] = observe_input_reads(index, read_state, target_day=day,
                             deadline=time.monotonic()+5, cancelled=stopped)  # 只核既有v8/v9身份，不补发旧页或旧批次。
                         input_recovery_failed = False
                         if 'input_recovery_error_type' in status:
                             status['state'] = 'waiting'
                         status.pop('input_recovery_error_type', None)
-                    except InterruptedError:
-                        break
-                    except Exception as failure:
-                        input_recovery_failed = True
-                        status['state'] = 'update_failed'
-                        status['input_recovery_error_type'] = type(failure).__name__  # 原件损坏等明确阻断，未吞成成功。
-                    next_input_observation = time.monotonic()+config['retry_seconds']
+                        next_input_observation = time.monotonic()+config['retry_seconds']
+                        observed_inputs = True
+                except InterruptedError:
+                    break
+                except Exception as failure:
+                    input_recovery_failed = True
+                    status['state'] = 'update_failed'
+                    status['input_recovery_error_type'] = type(failure).__name__  # 原件损坏等明确阻断，未吞成成功。
+                    observed_inputs = True
+                if observed_inputs:
                     _save(directory/'status.json', status)
                 scheduled = once or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
                 entry = index.get(day, {})
@@ -195,16 +204,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                     try:
                         if not request_file.exists():
                             previous=list(config['inputs'].get('previous_requests',[]))
-                            for _,row in sorted(index.items()):
-                                previous.extend(row.get('history_requests',[]))
-                                if row.get('request')is not None and Path(row['request'])!=request_file:
-                                    if Path(row['request']).exists():
-                                        previous.append(row['request'])
-                                    elif (row.get('state')=='published'
-                                          or (Path(row['request']).parent/'work'/'REQUEST.json').exists()
-                                          or (Path(row['request']).parent/'work'/'STATE.json').exists()):
-                                        raise FileNotFoundError('daily published original request missing')
-                                    # 未提交输入仍归原INDEX；既有读取槽由上方原身份续核，HPR只在提交后执行。
+                            previous.extend(path for path in registered if Path(path)!=request_file)
                             previous=list(dict.fromkeys(previous))
                             prepared = prepare_update(config, day, work / 'inputs', deadline=deadline,
                                 cancelled=stopped, previous_requests=previous)

@@ -394,7 +394,7 @@
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "ffee0c2af69fa392e15bcb8ca6826930386dfdcdf19c14420a8d4ffd1e4c8b24",
+      "sha256": "ef665e4acc7c7f53457b34c9a1bc2b11cdb90c3b5ea806c70822366693c0ea25",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -418,7 +418,7 @@
       "source": "integrations/guanheng/daily_generation.py"
     },
     "integrations/guanheng/daily_input_recovery.py": {
-      "sha256": "de02abedbb09788846998e97154a154da8308ca169e28de29f4cd3b84b392ef4",
+      "sha256": "81ca30403d56afb34c8a68b64aa806b221a610b5d040c28425a556505d42dccf",
       "source": "integrations/guanheng/daily_input_recovery.py"
     },
     "integrations/guanheng/daily_overlay.py": {

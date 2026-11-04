@@ -10,7 +10,7 @@ from unittest.mock import patch
 import uuid
 
 from integrations.guanheng import daily_data_service as service
-from integrations.guanheng.daily_input_recovery import observe_input_reads
+from integrations.guanheng.daily_input_recovery import observe_input_reads, close_input_discovery
 from integrations.guanheng.market_generation import encode
 from guanheng_qmt_shm.read_retention_client import RetainedReadPending
 
@@ -136,6 +136,109 @@ class InputRecoveryTests(unittest.TestCase):
                 value = json.loads(target.read_bytes())
                 self.assertTrue(value['consumed'])
                 self.assertEqual(value['request'], request)
+
+    def test_same_owner_discovers_readback_created_after_request_commit_and_then_crosses_day(self):
+        with tempfile.TemporaryDirectory() as directory:
+            old, original, request, index = self.fixtures(Path(directory), published=True)
+            body = json.loads(original.read_bytes())
+            original.unlink()
+            state = memory()
+            p1, p2, p3 = self.patches()
+            with p1, p2, p3:
+                first = observe_input_reads(index, state, target_day='2026-11-03', deadline=time.monotonic()+5, cancelled=lambda: False)
+                self.assertEqual(first['observed'], 0)
+                target = old.parent/'work/readback/slots/0000-none.json'
+                write(target, body)
+                second = observe_input_reads(index, state, target_day='2026-11-04', deadline=time.monotonic()+5, cancelled=lambda: False)
+            self.assertEqual(second['observed'], 1)
+            value = json.loads(target.read_bytes())
+            self.assertTrue(value['consumed'])
+            self.assertEqual(value['request'], request)
+
+    def test_lost_committed_old_request_blocks_existing_new_request_before_any_source_or_update(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old, _, _, index = self.fixtures(root, published=True)
+            write(old.parent/'work/REQUEST.json', json.loads(old.read_bytes()))
+            write(old.parent/'work/STATE.json', dict(synthetic_fixture=True))
+            old.unlink()
+            current = root/'state/2026-11-04/REQUEST.json'
+            write(current, dict(synthetic_scheduler_fixture=True))
+            index['2026-11-04'] = dict(request=str(current), state='failed')
+            write(root/'state/INDEX.json', index)
+            calendar = write(root/'calendar.json', dict(coverage_start='2026-01-01', coverage_end='2026-12-31'))
+            config = dict(schema='guanheng.daily-data-service.v1', directory=str(root/'state'), raw_store=str(root/'raw'),
+                template=dict(schema='guanheng.daily-data-update.v1', publication_directory=str(root/'publication'), calendar=calendar),
+                inputs=dict(connections=dict(batch={}, hpr={}), cache_from='20260701', max_rows=100,
+                    source_kind='sdk-synthetic', public_facts=dict(source={}, allowed_hosts=[], seconds=30,
+                        max_requests=1, max_bytes=1, response_bytes=1, timeout_seconds=1)),
+                schedule=dict(timezone='Asia/Shanghai', at='09:00', poll_seconds=.1), cycle_seconds=60, retry_seconds=1)
+            descriptor = write(root/'config.json', config)
+            rows = [dict(date=day, is_open=1) for day in ('2026-11-03', '2026-11-04')]
+            with patch('guanheng_app.observation.calendars.official_calendar', return_value=(rows, None)), \
+                    patch.object(service, 'observe_input_reads', side_effect=AssertionError('no source recovery allowed')) as observe, \
+                    patch.object(service, 'run_update', side_effect=AssertionError('no publish allowed')) as update:
+                control = str(uuid.uuid4())
+                with self.assertRaises(RuntimeError):
+                    service.serve(descriptor, root/control, control, once=True,
+                                  clock=lambda: datetime.fromisoformat('2026-11-04T16:00:00+08:00'))
+                self.assertEqual(json.loads((root/control/'status.json').read_bytes())['input_recovery_error_type'], 'FileNotFoundError')
+                observe.assert_not_called()
+                update.assert_not_called()
+
+    def test_partial_directory_discovery_obeys_budget_and_closes_on_owner_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, original, _, index = self.fixtures(Path(directory))
+            original.unlink()
+            state = memory()
+            tick = [0.0]
+            yielded = []
+            closed = []
+            def candidates(*args):
+                try:
+                    for count in range(150000):
+                        tick[0] += .1
+                        yielded.append(count)
+                        yield Path('/virtual-slot-%06d.json' % count), {}
+                finally:
+                    closed.append(True)
+            from integrations.guanheng import daily_input_recovery as recovery
+            real_read = recovery.read_fixed
+            def read(path, **kwargs):
+                if 'virtual-slot-' in str(path):
+                    return encode(dict(request=dict(synthetic_legacy_fixture=True)))
+                return real_read(path, **kwargs)
+            with patch.object(recovery, '_slot_candidates', candidates), patch.object(recovery.time, 'monotonic', side_effect=lambda: tick[0]), \
+                    patch.object(recovery, 'read_fixed', read):
+                result = observe_input_reads(index, state, target_day='2026-11-04', deadline=1, cancelled=lambda: False)
+                self.assertLess(len(yielded), 15)
+                self.assertEqual(result['discovery_pending'], 1)
+                self.assertFalse(closed)
+                close_input_discovery(state)
+                self.assertEqual(closed, [True])
+
+    def test_directory_discovery_checks_cancellation_before_next_slot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, original, _, index = self.fixtures(Path(directory))
+            original.unlink()
+            state = memory()
+            yielded = []
+            closed = []
+            def candidates(*args):
+                try:
+                    for count in range(1000):
+                        yielded.append(count)
+                        yield Path('/virtual-slot-%06d.json' % count), {}
+                finally:
+                    closed.append(True)
+            from integrations.guanheng import daily_input_recovery as recovery
+            with patch.object(recovery, '_slot_candidates', candidates):
+                with self.assertRaises(InterruptedError):
+                    observe_input_reads(index, state, target_day='2026-11-04', deadline=time.monotonic()+5,
+                                        cancelled=lambda: len(yielded) >= 3)
+                close_input_discovery(state)
+            self.assertEqual(len(yielded), 3)
+            self.assertEqual(closed, [True])
 
 
 if __name__ == '__main__':
