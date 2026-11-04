@@ -564,9 +564,10 @@ void bootstrap_takeover(const rj::Value& input,const std::string& input_sha,cons
     // 接管只转换明确初值。原查询表核全部现存仓位，原WT继续拥有后续明细和绩效。
     keys(input,{"schema","strategy_id","strategy_version","source_sha256","captured_uptime_ms",
         "valid_until_uptime_ms","trading_date","performance_basis","positions","strategy_state"});
+    // 协议格式与策略版本分别核验；新运行采用真实1.2.1版本，原1.1.2归档仍可读取。
     const auto schema=text(input,"schema");const bool native_day=schema=="guanheng.cta-takeover.v2";
     need((native_day||schema=="guanheng.cta-takeover.v1")
-        &&text(input,"strategy_id")=="resonance-regime-v1"&&text(input,"strategy_version")=="1.1.2"
+        &&text(input,"strategy_id")=="resonance-regime-v1"&&(text(input,"strategy_version")=="1.1.2"||text(input,"strategy_version")=="1.2.1")
         &&text(input,"performance_basis")=="takeover-mark");
     need(strategies.IsArray()&&strategies.Size()==1&&text(strategies[0],"id")==text(input,"strategy_id"));
     auto digest=[&](const rj::Value& value,const char* key){
