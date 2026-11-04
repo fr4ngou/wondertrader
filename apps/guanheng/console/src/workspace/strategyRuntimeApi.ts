@@ -18,10 +18,10 @@ export type StrategyRuntime = { schema_version: 'guanheng.strategy-runtime.v1'; 
   runtime_state?: string;
   execution_state?: 'not_started';
   state: 'unconfigured' | 'waiting' | 'available'; strategy: null | (CapitalFields & {
-    display_name: string; strategy_version: '1.1.2'; status: keyof typeof runtimeLabels; status_label: string;
+    /** WT发布的策略身份；旧App回包可缺失。 */ strategy_id?: string;
+    display_name: string; /** WT原版本；null表示尚未发布。 */ strategy_version: string | null; status: keyof typeof runtimeLabels; status_label: string;
     decision_at: string | null; broker_observed_at: string | null; broker_position_qualified: false;
     execution_position_qualified?: boolean; positions: RuntimePosition[] }) }
-const symbols = ['159780.SZ', '510050.SH', '510300.SH', '510500.SH', '512100.SH', '515080.SH', '588000.SH', '589000.SH']
 const record = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v)
 const time = (v: unknown) => typeof v === 'string' && v.length <= 64 && /(Z|[+-]\d{2}:\d{2})$/.test(v) && Number.isFinite(Date.parse(v))
 const quantity = (v: unknown) => v === null || typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
@@ -41,15 +41,17 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
   if (data.execution_state !== undefined && data.execution_state !== 'not_started') return invalid()
   if (data.state !== 'available') { if (data.strategy !== null) return invalid(); return data as StrategyRuntime }
   const s = data.strategy
-  if (!record(s) || s.display_name !== '共振市场状态 ETF 策略' || s.strategy_version !== '1.1.2'
+  if (!record(s) || typeof s.display_name !== 'string' || !s.display_name || s.display_name.length > 256
+    || !(s.strategy_version === null || typeof s.strategy_version === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$/.test(s.strategy_version))
+    || s.strategy_id !== undefined && (typeof s.strategy_id !== 'string' || !s.strategy_id || s.strategy_id.length > 64)
     || typeof s.status !== 'string' || !Object.hasOwn(runtimeLabels, s.status)
     || s.status_label !== runtimeLabels[s.status as keyof typeof runtimeLabels] || s.broker_position_qualified !== false
     || Object.hasOwn(s, 'execution_position_qualified') && typeof s.execution_position_qualified !== 'boolean'
     || !(s.decision_at === null || time(s.decision_at)) || !(s.broker_observed_at === null || time(s.broker_observed_at))
-    || !Array.isArray(s.positions) || s.positions.length !== 8) return invalid()
+    || !Array.isArray(s.positions) || s.positions.length > 8) return invalid()
   const seen = new Set<string>()
   for (const row of s.positions) {
-    if (!record(row) || typeof row.symbol !== 'string' || !symbols.includes(row.symbol) || seen.has(row.symbol)
+    if (!record(row) || typeof row.symbol !== 'string' || !/^\d{6}\.(SH|SZ)$/.test(row.symbol) || seen.has(row.symbol)
       || !['theoretical_quantity', 'theoretical_sellable', 'pending_target', 'stage_target', 'broker_quantity', 'broker_sellable'].every(k => quantity(row[k]))
       || !(row.target_weight === null || typeof row.target_weight === 'number' && Number.isFinite(row.target_weight) && row.target_weight >= 0 && row.target_weight <= 1)
       || typeof row.theoretical_sellable === 'number' && (typeof row.theoretical_quantity !== 'number' || row.theoretical_sellable > row.theoretical_quantity)

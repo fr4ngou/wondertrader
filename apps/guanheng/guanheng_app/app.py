@@ -129,7 +129,21 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
     async def strategy_definitions(request: Request):
         if request.query_params or request.headers.get('content-length','0')!='0' or request.headers.get('transfer-encoding'):
             raise HTTPException(422,"策略目录不接受额外参数")
-        return JSONResponse(content=strategy_catalog(),headers={'Cache-Control':'no-store'})
+        from .wt_runtime_observation import RuntimeObservationConfig
+        from .wt_business_observation import observe_strategy
+        deadline=monotonic()+2
+        future=None
+        try:
+            configuration=RuntimeObservationConfig.from_settings(configured)
+            future=request.app.state.reader.submit(lambda _remaining:observe_strategy(configuration,deadline),deadline)
+            wrapped=asyncio.wrap_future(future)
+            wrapped.add_done_callback(lambda done:None if done.cancelled()else done.exception())
+            published=await asyncio.wait_for(asyncio.shield(wrapped),max(0,deadline-monotonic()))
+            return JSONResponse(content=strategy_catalog((published['strategy'],)),headers={'Cache-Control':'no-store'})
+        except Exception:
+            raise HTTPException(503,'策略目录本次读取失败，请重新读取')from None
+        finally:
+            if future is not None:future.cancel()
 
     @application.get("/v1/ui/capabilities")
     async def capabilities():

@@ -162,9 +162,11 @@ export async function fetchBacktestDay(ownerId: string, requestId: string, index
   if (value.report_schema === PER_DATE_REPORT_SCHEMA) validatePerDateWindow(record.market_window, record.trading_date, value.evaluation_summary)
   const v2 = value.report_schema === V2_REPORT_SCHEMA
   const retained = isRetainedReport(value.report_schema)
+  const symbols = retained && object(capture) && object(capture.observation) && Array.isArray(capture.observation.positions)
+    ? retainedSymbols(capture.observation.positions.map(p => object(p) ? p.symbol : null)) : []
   if (retained && (!object(capture) || !object(capture.observation) || capture.observation.verified !== true
     || !object(capture.basis) || capture.basis.native_nav_verified !== true || !Array.isArray(capture.observation.positions)
-    || capture.observation.positions.length !== 8 || capture.observation.positions.some((p, i) => !object(p) || p.symbol !== retainedSymbols[i]))) return invalid()
+    || capture.observation.positions.length !== 8 || capture.observation.positions.some((p, i) => !object(p) || p.symbol !== symbols[i]))) return invalid()
   if (v2 || retained) {
     if (!Array.isArray(record.submit_vector) || ![0, 8].includes(record.submit_vector.length) || !Array.isArray(record.readback) || record.readback.length > 8
       || record.previous_status !== null && typeof record.previous_status !== 'string') return invalid()
@@ -177,24 +179,32 @@ export async function fetchBacktestDay(ownerId: string, requestId: string, index
     if (value.evaluation_summary === null) {
       if (record.status !== 'warming_up' || (retained ? !object(capture) : capture !== null) || outcome !== null || record.submit_vector.length || record.readback.length) return invalid()
     } else {
-      const summary = retained ? validateRetainedSummary(value.evaluation_summary, record.trading_date as number) : validateV2Summary(value.evaluation_summary, record.trading_date as number)
+      const summary = retained ? validateRetainedSummary(value.evaluation_summary, record.trading_date as number, symbols) : validateV2Summary(value.evaluation_summary, record.trading_date as number)
       if (capture === null || !object(capture) || !object(capture.observation) || capture.observation.verified !== true
         || !object(capture.basis) || capture.basis.native_nav_verified !== true
         || !Array.isArray(capture.observation.positions) || capture.observation.positions.length !== 8
         || capture.observation.positions.some(p => !object(p) || typeof p.symbol !== 'string' || !/^[0-9]{6}\.(?:SH|SZ)$/.test(p.symbol))) return invalid()
       if (retained) {
-        if (capture.observation.positions.some((p, i) => !object(p) || p.symbol !== retainedSymbols[i])
+        if (object(outcome) && object(outcome.state) && object(outcome.state.target)) {
+          const target = outcome.state.target
+          const saved = summary as import('./backtestRetained').RetainedSummary
+          if (target.strategy_id !== saved.strategy_id || typeof target.algorithm_id !== 'string'
+            || !target.algorithm_id.startsWith(`${saved.strategy_id}@${saved.strategy_version}/`)
+            || !Array.isArray(target.universe) || target.universe.length !== symbols.length || target.universe.some((symbol, index) => symbol !== symbols[index])) return invalid()
+        }
+
+        if (capture.observation.positions.some((p, i) => !object(p) || p.symbol !== symbols[i])
           || !object(outcome) || record.status !== outcome.status || !Array.isArray(outcome.submit_targets)
           || outcome.submit_targets.length !== record.submit_vector.length || ![0, 8].includes(outcome.submit_targets.length)
           || record.submit_vector.length === 0 && record.readback.length !== 0) return invalid()
         for (let i = 0; i < outcome.submit_targets.length; i++) {
           const target = outcome.submit_targets[i] as Record<string, unknown>; const vector = record.submit_vector[i] as Record<string, unknown>
-          const symbol = retainedSymbols[i]; const native = `${symbol.endsWith('.SH') ? 'SSE' : 'SZSE'}.ETF.${symbol.slice(0, 6)}`
+          const symbol = symbols[i]; const native = `${symbol.endsWith('.SH') ? 'SSE' : 'SZSE'}.ETF.${symbol.slice(0, 6)}`
           if (target.symbol !== symbol || vector.symbol !== native || vector.quantity !== target.shares
             // WT目标枚举省略零目标；只在此原协议字段中按零核对，原读回列表保持原样。
             || ((record.readback.find(row => (row as unknown[])[0] === native) as unknown[] | undefined)?.[1] ?? 0) !== target.shares) return invalid()
         }
-        if (record.readback.some(row => !retainedSymbols.some(symbol =>
+        if (record.readback.some(row => !symbols.some(symbol =>
           (row as unknown[])[0] === `${symbol.endsWith('.SH') ? 'SSE' : 'SZSE'}.ETF.${symbol.slice(0, 6)}`))) return invalid()
       } else if (!(summary as V2Summary).target_admission.accepted) {
         if (record.status !== 'blocked_raw_total' || outcome !== null || record.submit_vector.length || record.readback.length) return invalid()

@@ -86,8 +86,9 @@ test('金额按中文单位显示且可查看精确值，持仓份额保持原�
  expect(within(table).getByText('2.5千万')).toHaveAttribute('title','25,000,000元')
  expect(within(table).getByText('-8.8512亿')).toHaveAttribute('title','-885,123,435.815元')
 })
-test('详情拒绝未知版本和伪造缺失值',()=>{
- expect(()=>validateStrategyDetails({...fixture(),strategy:{...fixture().strategy,strategy_version:'1.0.0'}})).toThrow()
+test('详情接受来源版本并拒绝格式错误和伪造缺失值',()=>{
+ expect(()=>validateStrategyDetails({...fixture(),strategy:{...fixture().strategy,strategy_version:'1.0.0'}})).not.toThrow()
+ expect(()=>validateStrategyDetails({...fixture(),strategy:{...fixture().strategy,strategy_version:'bad/version'}})).toThrow()
  expect(()=>validateStrategyDetails({...fixture(),budget_cny:{value:null,reason:null}})).toThrow()
 })
 test('新一轮局部资金持仓失败沿原账户投影保留成功批和原时间',async()=>{

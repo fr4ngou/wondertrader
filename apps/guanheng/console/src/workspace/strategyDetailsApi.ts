@@ -8,7 +8,11 @@ export type StrategyDetails = CapitalFields & {
   schema_version: 'guanheng.strategy-details.v1'; read_only: true; observed_at: string
   /** 本轮公开运行四身份的不可逆摘要；null为未配置，缺失兼容旧App。只约束缓存归属。 */
   runtime_scope_id?: string | null
-  strategy: { strategy_id: 'resonance-regime-v1'; strategy_version: '1.1.2'; display_name: string }
+  strategy: {
+    /** 本轮WT实际发布的策略身份。 */ strategy_id: string
+    /** 本轮WT实际版本；null保持未提供，不从App发行推断。 */ strategy_version: string | null
+    /** 原中文展示名称。 */ display_name: string
+  }
   assignment: { scope: 'current-account-inventory'; label: string; reason: string }
   execution: { state: string; label: string; reason: string; started_at: OptionalFact; duration_seconds: OptionalFact }
   account: AccountOverview | null; account_reason: string | null
@@ -37,7 +41,7 @@ export function validateStrategyDetails(v: unknown): StrategyDetails {
   const invalid = () => { throw new Error('策略详情格式无效，请重新读取') }
   if (!object(v) || v.schema_version !== 'guanheng.strategy-details.v1' || v.read_only !== true
     || !text(v.observed_at) || !Number.isFinite(Date.parse(v.observed_at)) || !object(v.strategy)
-    || v.strategy.strategy_id !== 'resonance-regime-v1' || v.strategy.strategy_version !== '1.1.2' || !text(v.strategy.display_name)
+    || !text(v.strategy.strategy_id) || !(v.strategy.strategy_version === null || text(v.strategy.strategy_version) && /^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$/.test(v.strategy.strategy_version)) || !text(v.strategy.display_name)
     || !object(v.assignment) || v.assignment.scope !== 'current-account-inventory' || !text(v.assignment.label) || !text(v.assignment.reason)
     || !object(v.execution) || !['unconfigured','not_started','disabled','new','starting','ready','stopping','closed','faulted','unavailable'].includes(String(v.execution.state))
     || !text(v.execution.label) || !text(v.execution.reason) || !timeFact(v.execution.started_at) || !numericFact(v.execution.duration_seconds, true)

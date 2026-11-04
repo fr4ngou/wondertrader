@@ -12,6 +12,20 @@ export type CapitalBaseline = {
   historical_initial_capital_cny: null
 }
 
+/** WT冻结的新运行现金原点；浏览器只核传输格式，不构造账户账本。 */
+export type CashAnchor = {
+  /** 券商现金原点协议版本。 */ schema: 'guanheng.broker-cash-anchor.v1'
+  /** 同一新资金基准规范正文的SHA256。 */ baseline_sha256: string
+  /** 本次分配的初始策略现金，人民币元十进制字符串；允许负余额。 */ allocated_cash_cny: string
+  /** 原点时按实际持仓和原价取得的市值，人民币元。 */ market_value_cny: string
+  /** 原点时全账户可用加冻结现金，人民币元。 */ account_cash_cny: string
+  /** 原点券商账户批次的原接收时间，含时区。 */ account_observed_at: string
+  /** 原账户帧的内容SHA256。 */ account_source_sha256: string
+  /** 账户绑定身份SHA256；字段不含账号。 */ account_binding_sha256: string
+  /** 初始实际持仓来源SHA256。 */ position_source_sha256: string
+  /** 初始原价来源SHA256。 */ price_source_sha256: string
+}
+
 /** 金额均为人民币元的精确十进制字符串；零为已知零，null为来源未提供或当前不可用。 */
 export type StrategyCapital = {
   /** WT资金观察协议版本。 */
@@ -28,8 +42,11 @@ export type StrategyCapital = {
   position_observed_at: string
   /** 市值使用券商持仓和原CTA价格，或首次初始化的真实QMT快照；两种来源均由WT声明。 */
   market_value_source: 'broker-position+raw-CTA-price' | 'broker-position+raw-QMT-snapshot'
-  /** WT原生发布的本次运行损益，包含其原费用口径；允许负值。 */
+  /** WT发布的本次运行盈亏，人民币元；现金原点模式使用实际NAV减新基准，允许负值。 */
   native_pnl_cny: string
+  /** 新运行使用的已冻结券商现金原点；旧发布可省略。 */ cash_anchor?: CashAnchor
+  /** 本次盈亏的来源声明；随cash_anchor一起出现，旧发布可省略。 */ pnl_source?: 'broker-cash-delta'
+  /** CTA原理论flag0，仅供审计，人民币元；不参与页面真实盈亏或可用现金授权。 */ native_theoretical_pnl_cny?: string
   /** WT发布的策略总资产，包含现金和库存市值。 */
   nav_cny: string
   /** WT按券商持仓与market_value_source声明的报价发布的库存市值，单位元。 */
@@ -94,5 +111,17 @@ export function validateCapitalFields(value: Record<string, unknown>): void {
     || !['broker-position+raw-CTA-price', 'broker-position+raw-QMT-snapshot'].includes(String(capital.market_value_source))
     || capital.historical_return_pct !== null) {
     throw new Error('策略资金格式无效，请重新读取')
+  }
+  if (capital.cash_anchor !== undefined) {
+    const anchor = capital.cash_anchor
+    const sha = (v: unknown) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v)
+    if (!record(anchor) || anchor.schema !== 'guanheng.broker-cash-anchor.v1'
+      || !['baseline_sha256','account_source_sha256','account_binding_sha256','position_source_sha256','price_source_sha256'].every(key => sha(anchor[key]))
+      || !['allocated_cash_cny','market_value_cny','account_cash_cny'].every(key => amount(anchor[key]))
+      || !time(anchor.account_observed_at) || capital.pnl_source !== 'broker-cash-delta' || !amount(capital.native_theoretical_pnl_cny)) {
+      throw new Error('策略现金原点格式无效，请重新读取')
+    }
+  } else if (capital.pnl_source !== undefined || capital.native_theoretical_pnl_cny !== undefined) {
+    throw new Error('策略现金原点格式无效，请重新读取')
   }
 }

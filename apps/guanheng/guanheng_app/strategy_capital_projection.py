@@ -1,6 +1,8 @@
 """策略资金的只读白名单；金额由WT运行侧发布，页面不推定账户分配。"""
 from datetime import datetime, timezone
 from fractions import Fraction
+from hashlib import sha256
+import json
 import re
 
 
@@ -34,7 +36,8 @@ def project_capital(value, origin, *, runtime_state='ready'):
         'cash_balance_cny', 'spendable_cash_cny', 'account_observation_qualified', 'account_observed_at', 'account_valid_until',
         'account_available_cny', 'account_frozen_cash_cny', 'account_source_sha256',
         'cash_constraint_scope', 'historical_return_pct'}
-    _need(type(value) is dict and fields <= set(value) <= fields | {'price_observed_at'}
+    _need(type(value) is dict and fields <= set(value) <= fields | {
+        'price_observed_at','cash_anchor','pnl_source','native_theoretical_pnl_cny'}
         and value['schema'] == 'guanheng.strategy-capital-observation.v1'
         and value['currency'] == 'CNY' and project_baseline(value['baseline']) == origin
         # 首次加载可由当前QMT快照估值；后续沿CTA原报价，两个来源都由WT明确声明。
@@ -45,6 +48,31 @@ def project_capital(value, origin, *, runtime_state='ready'):
     _need(amounts['nav_cny'] == _amount(origin['total_cny'])+amounts['native_pnl_cny']
         and abs(amounts['cash_balance_cny']-(amounts['nav_cny']-amounts['market_value_cny'])) <= Fraction(1,100000000)
         and amounts['market_value_cny'] >= 0)
+    if 'cash_anchor' in value:
+        # 券商现金差投影只读核验；保留原NSQ字段名，本次盈亏取实际NAV−新基准。
+        anchor=value['cash_anchor']
+        _need(value.get('pnl_source')=='broker-cash-delta'
+            and _amount(value['native_theoretical_pnl_cny']) is not None
+            and type(anchor) is dict and set(anchor)=={
+                'schema','baseline_sha256','allocated_cash_cny','market_value_cny',
+                'account_cash_cny','account_observed_at','account_source_sha256',
+                'account_binding_sha256','position_source_sha256','price_source_sha256'}
+            and anchor['schema']=='guanheng.broker-cash-anchor.v1'
+            and anchor['baseline_sha256']==sha256(json.dumps(origin,ensure_ascii=True,
+                sort_keys=True,separators=(',',':'),allow_nan=False).encode('ascii')).hexdigest()
+            and _amount(anchor['allocated_cash_cny'])+_amount(anchor['market_value_cny'])==_amount(origin['total_cny'])
+            and _amount(anchor['account_cash_cny'])>=0 and _amount(anchor['market_value_cny'])>=0)
+        for key in ('account_source_sha256','account_binding_sha256','position_source_sha256','price_source_sha256'):
+            _need(type(anchor[key]) is str and re.fullmatch('[a-f0-9]{64}',anchor[key]))
+        anchor_stamp=datetime.fromisoformat(anchor['account_observed_at'])
+        _need(anchor_stamp.utcoffset() is not None
+            and 0 <= (datetime.fromisoformat(origin['baseline_at'])-anchor_stamp).total_seconds() <= 3600)
+        _need(value['account_available_cny'] is not None and value['account_frozen_cash_cny'] is not None
+            and _amount(value['cash_balance_cny'])==_amount(anchor['allocated_cash_cny'])
+                +_amount(value['account_available_cny'])+_amount(value['account_frozen_cash_cny'])-_amount(anchor['account_cash_cny'])
+            and datetime.fromisoformat(value['account_observed_at'])>=anchor_stamp)
+    else:
+        _need('pnl_source' not in value and 'native_theoretical_pnl_cny' not in value)
     stamp = datetime.fromisoformat(value['observed_at'])
     _need(stamp.utcoffset() is not None and stamp <= datetime.now(timezone.utc))
     position_stamp = datetime.fromisoformat(value['position_observed_at'])

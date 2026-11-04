@@ -10,14 +10,17 @@ import './backtest-performance.css'
 
 /** 策略目录先确定身份，原绩效核验后生成该策略的报告列表与分析入口。 */
 export default function BacktestWorkspace() {
-  const selection = useStrategySelection()
-  const strategy = selection.selected
   const [params, setParams] = useSearchParams()
   const runId = params.get('run')
   const query = useQuery({ queryKey: ['native-backtest-archive'], queryFn: ({ signal }) => fetchBacktestArchive(signal), retry: false,
-    refetchOnWindowFocus: false, refetchOnReconnect: false, enabled: !!strategy })
+    refetchOnWindowFocus: false, refetchOnReconnect: false, enabled: true })
   const entries = [...(query.data?.runs ?? [])].sort((a, b) => b.configuration.end - a.configuration.end || a.run_id.localeCompare(b.run_id))
-  const metadata = useBacktestReports(entries, !!strategy)
+  const metadata = useBacktestReports(entries, true)
+  const saved = metadata.flatMap(item => item.data ? [{ strategy_id: item.data.strategy.id, strategy_version: item.data.strategy.version,
+    display_name: item.data.strategy.id === 'resonance-regime-v1' ? '共振市场状态 ETF 策略' : item.data.strategy.id,
+    description: '已保存的历史回测结果。', historical_versions: [] }] : [])
+  const selection = useStrategySelection(saved)
+  const strategy = selection.selected
   const reports: ReportItem[] = entries.flatMap((entry, i) => {
     const value = metadata[i].data
     return value && value.strategy.id === strategy?.strategy_id && value.strategy.version === strategy?.strategy_version ? [{ entry, value }] : []
@@ -41,12 +44,12 @@ export default function BacktestWorkspace() {
       {strategy ? <Link className="strategy-backtest-link" to={'/strategies?' + new URLSearchParams({ strategy: strategyKey(strategy) })}>查看策略 →</Link> : null}
       {!runId && strategy ? <button disabled={query.isFetching} onClick={() => void query.refetch()}>刷新列表</button> : null}
     </header>
-    {strategy ? <>
       {query.isPending ? <p role="status">正在读取回测记录…</p> : null}
       {query.isError ? <><p role="alert">报告目录读取失败。{query.data ? '保留上次目录及读取时间。' : ''}</p><BacktestSourceState /><button onClick={() => void query.refetch()}>刷新历史报告</button></> : null}
       {query.data?.invalid_receipts ? <p role="alert">{query.data.invalid_receipts} 份报告未通过校验，请核查原件。</p> : null}
       {query.data?.unarchived_runs ? <p role="status">{query.data.unarchived_runs} 项运行尚未保存完成证明。</p> : null}
       {failed.length ? <p role="alert">{failed.length} 份报告读取失败。<button disabled={metadata.some(item => item.isFetching)} onClick={() => void retryFailed()}>重读失败报告</button></p> : null}
+    {strategy ? <>
       {runId ? <>
         <button className="bt-back-list" onClick={back}>← 返回回测列表</button>
         {selected && compareId && !comparison ? <p role="status">{pending ? '正在读取对比报告…' : <>当前策略下未取得该对比报告，请重新选择。<button onClick={() => open(runId)}>重新选择对比报告</button></>}</p> : selected ? <BacktestPerformance key={strategyKey(strategy) + selected.entry.run_id + selected.entry.receipt_sha256 + (compareId ?? '')}

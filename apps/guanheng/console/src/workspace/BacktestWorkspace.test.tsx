@@ -86,10 +86,22 @@ test('多份元数据最多两份并行读取，完成后继续后续报告', as
   expect(await screen.findByText('当前策略的回测 · 3 份已完成报告')).toBeVisible()
 })
 
-test('未知策略深链接须重新选择，避免默认借用其他策略数据', async () => {
+test('未知深链接读取归档身份后仍须重新选择，不借用其他策略数据', async () => {
+  vi.mocked(api.fetchBacktestArchive).mockResolvedValue({schema:'nbw-archive-index-v1',runs:[],invalid_receipts:0,unarchived_runs:0,scope:'test'})
   mount('/backtests?strategy=missing@1&run='+fixture.left_entry.run_id)
   expect(await screen.findByText('该策略当前不在目录中，请重新选择。')).toBeVisible()
-  expect(api.fetchBacktestArchive).not.toHaveBeenCalled()
+  expect(api.fetchBacktestArchive).toHaveBeenCalledTimes(1)
+})
+
+test('没有活动身份时，首次目录和全部绩效失败仍可重读并恢复旧报告', async () => {
+  vi.mocked(catalog.fetchStrategyCatalog).mockResolvedValue([])
+  vi.mocked(api.fetchBacktestArchive).mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue(index([fixture.left_entry]))
+  vi.mocked(performance.fetchBacktestPerformance).mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue(fixture.left as performance.BacktestPerformance)
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: '刷新历史报告' }))
+  fireEvent.click(await screen.findByRole('button', { name: '重读失败报告' }))
+  expect(await screen.findByText('当前策略的回测 · 1 份已完成报告')).toBeVisible()
+  expect(screen.getByLabelText('选择策略')).toHaveValue(`${fixture.left.strategy.id}@${fixture.left.strategy.version}`)
 })
 
 // 缓存位于新报告之间时也共享实际在途两槽。

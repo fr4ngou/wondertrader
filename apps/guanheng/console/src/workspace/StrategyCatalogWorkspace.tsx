@@ -16,7 +16,7 @@ export default function StrategyCatalogWorkspace() {
       {selected ? <Link className="strategy-backtest-link" to={'/backtests?' + new URLSearchParams({ strategy: strategyKey(selected) })}>查看该策略回测 →</Link> : null}
     </header>
     {selected ? <>
-      <div className="strategy-selected"><h2>{selected.display_name}</h2><span>版本 {selected.strategy_version}</span></div>
+      <div className="strategy-selected"><h2>{selected.display_name}</h2><span>{selected.strategy_version === null ? '版本未提供' : `版本 ${selected.strategy_version}`} </span></div>
       <nav className="strategy-view-tabs" aria-label="策略详情视图">
         <button aria-pressed={!description} onClick={() => view('runtime')}>运行与持仓</button>
         <button aria-pressed={description} onClick={() => view('description')}>策略说明</button>

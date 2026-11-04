@@ -1,4 +1,4 @@
-"""唯一1.1.2报告准入和逐日投影；任务、归档、绩效复用此只读边界。"""
+"""逐份报告身份准入和逐日投影；任务、归档、绩效复用此只读边界。"""
 from dataclasses import dataclass, fields
 from datetime import date, datetime
 from fractions import Fraction
@@ -8,14 +8,29 @@ import re
 from guanheng_strategy_core.models import observation_close_at
 from guanheng_strategy_native import (Basis, EconomicTarget, NativePosition, Observation,
     Outcome, Price, Quantity, QuantityPolicy, StageState, Weight)
-from guanheng_strategy_v1 import RetainedHistoricalModel, SYMBOLS
+from guanheng_strategy_v1 import RetainedHistoricalModel
 from .retained_replay import REPORT_SCHEMA, REPORT_SCOPE
 from .retained_evaluation import target_for_result, advance_retained
 from .strategy_replay_facts import SessionError, _MODEL, _digest, _json, _quantity
 from .report_values import _snapshot_json, _freeze_json, _thaw_json, _run_report_checked
 
-ALGORITHM = 'resonance-regime-v1@1.1.2/ledger-front-ratio-v1'
-NATIVES = {s: ('SSE' if s.endswith('.SH') else 'SZSE')+'.ETF.'+s[:6] for s in SYMBOLS}
+def native_symbol(symbol):
+    """报告证券到原Native代码；仅转换明确SH/SZ身份，不更换证券。"""
+    need(type(symbol)is str and re.fullmatch(r'[0-9]{6}\.(SH|SZ)',symbol)is not None)
+    return ('SSE'if symbol.endswith('.SH')else'SZSE')+'.ETF.'+symbol[:6]
+
+
+def report_symbols(report):
+    """证券集合归该份已保存报告；并发读取不同版本互不修改全局集合。"""
+    records=report['records']
+    need(type(records)is list and len(records)<=4096)
+    if not records:return ()
+    positions=records[0]['capture']['observation']['positions']
+    need(type(positions)is list and len(positions)==8)
+    symbols=tuple(p['symbol']for p in positions)
+    need(len(set(symbols))==8 and symbols==tuple(sorted(symbols)))
+    for symbol in symbols:native_symbol(symbol)
+    return symbols
 
 
 def need(condition):
@@ -64,38 +79,38 @@ def timestamp(value):
     return result
 
 
-def basis(value):
+def basis(value, symbols):
     data = model_fields(Basis, value)
     need(type(data['prices']) is list and len(data['prices']) == 8)
     data['prices'] = tuple(Price(**model_fields(Price, p)) for p in data['prices'])
     result = Basis(**data)
-    need(tuple(p.symbol for p in result.prices) == SYMBOLS)
+    need(tuple(p.symbol for p in result.prices) == symbols)
     return result
 
 
-def state(value):
+def state(value, symbols):
     if value is None:
         return None
     data = model_fields(StageState, value)
     target = model_fields(EconomicTarget, data['target'])
-    need(target['universe'] == list(SYMBOLS) and type(target['weights']) is list and len(target['weights']) == 8)
+    need(target['universe'] == list(symbols) and type(target['weights']) is list and len(target['weights']) == 8)
     target['universe'] = tuple(target['universe'])
     target['weights'] = tuple(Weight(**model_fields(Weight, p)) for p in target['weights'])
     data['target'] = EconomicTarget(**target)
     data['policy'] = QuantityPolicy(**model_fields(QuantityPolicy, data['policy']))
-    data['basis'] = basis(data['basis'])
+    data['basis'] = basis(data['basis'],symbols)
     for name in ('starts', 'targets'):
         need(type(data[name]) is list and len(data[name]) == 8)
         data[name] = tuple(Quantity(**model_fields(Quantity, p)) for p in data[name])
     return StageState(**data)
 
 
-def summary(value, day, historical, configuration_sha):
+def summary(value, day, historical, configuration_sha, identity, symbols):
     keys(value, 'schema strategy_id strategy_version full_result_sha256 input_sha256 configuration_sha256 '
         'decision_cutoff current_view budget_fraction targets source_allocation_date exit_paths next_exits '
         'holding_days reference_prices model_states analysis_source_kind source_qualified execution_qualified historical_model')
     need((value['schema'], value['strategy_id'], value['strategy_version']) ==
-        ('guanheng.retained-replay-decision.v1', 'resonance-regime-v1', '1.1.2'))
+        ('guanheng.retained-replay-decision.v1', *identity))
     for key in ('full_result_sha256', 'input_sha256', 'configuration_sha256'):
         sha(value[key])
     need(value['configuration_sha256'] == configuration_sha)
@@ -109,7 +124,7 @@ def summary(value, day, historical, configuration_sha):
     need(type(value['budget_fraction']) in (int, float) and math.isfinite(value['budget_fraction'])
         and 0 < value['budget_fraction'] <= .95)
     targets = value['targets']
-    need(type(targets) is dict and set(targets) == set(SYMBOLS))
+    need(type(targets) is dict and set(targets) == set(symbols))
     need(all(type(w) in (int, float) and math.isfinite(w) and 0 <= w <= min(.25, value['budget_fraction']) for w in targets.values()))
     need(sum(Fraction(repr(float(w))) for w in targets.values()) <= 1)
     if value['source_allocation_date'] is not None:
@@ -117,9 +132,9 @@ def summary(value, day, historical, configuration_sha):
     else:
         need(not any(targets.values()))
     need(value['analysis_source_kind'] in ('synthetic-model', 'qmt-native-verified'))
-    need(type(value['model_states']) is dict and set(value['model_states']) == set(SYMBOLS))
+    need(type(value['model_states']) is dict and set(value['model_states']) == set(symbols))
     for key in ('holding_days', 'reference_prices', 'exit_paths'):
-        need(type(value[key]) is dict and set(value[key]) <= set(SYMBOLS)-{'510300.SH'})
+        need(type(value[key]) is dict and set(value[key]) <= set(symbols)-{'510300.SH'})
     need(all(type(n) is int and 0 <= n <= 4096 for n in value['holding_days'].values()))
     need(all(type(n) in (int, float) and math.isfinite(n) and n > 0 for n in value['reference_prices'].values()))
     for path in value['exit_paths'].values():
@@ -135,17 +150,18 @@ def summary(value, day, historical, configuration_sha):
     need(set(exits) == set(value['exit_paths']))
 
 
-def capture(value, report, record, policy):
+def capture(value, report, record, policy, symbols):
+    natives={s:native_symbol(s)for s in symbols}
     keys(value, 'session_id sequence trading_date minute projection positions prices funds observation basis')
     need(value['session_id'] == report['session_id'] and value['trading_date'] == record['trading_date'] and value['minute'] == 1500)
     need(type(value['sequence']) is int and 1 <= value['sequence'] <= 4096)
     projected = pairs(value['projection'], 8)
-    need(set(projected) <= set(NATIVES.values()))
+    need(set(projected) <= set(natives.values()))
     need(type(value['positions']) is list and len(value['positions']) == 8)
     actual = {}
-    for raw, symbol in zip(value['positions'], SYMBOLS, strict=True):
+    for raw, symbol in zip(value['positions'], symbols, strict=True):
         keys(raw, 'symbol total valid first_entry last_entry')
-        need(raw['symbol'] == NATIVES[symbol])
+        need(raw['symbol'] == natives[symbol])
         total, valid = _quantity(raw['total']), _quantity(raw['valid'])
         need(valid <= total)
         first, last = raw['first_entry'], raw['last_entry']
@@ -161,7 +177,7 @@ def capture(value, report, record, policy):
         quantity = total if first else 0
         target = projected.get(raw['symbol'], quantity)
         actual[symbol] = NativePosition(symbol, quantity, valid if quantity else 0, target if target != quantity else None)
-    b = basis(value['basis'])
+    b = basis(value['basis'],symbols)
     o = model_fields(Observation, value['observation'])
     need(type(o['positions']) is list and len(o['positions']) == 8)
     o['positions'] = tuple(NativePosition(**model_fields(NativePosition, p)) for p in o['positions'])
@@ -175,10 +191,10 @@ def capture(value, report, record, policy):
     need(identity == o.native_observation_id)
     raw_prices = pairs(value['prices'], 8, quantities=False)
     # 原始价格为double，不能用数量整数校验；逐一核对原值与同次价格basis。
-    need(set(raw_prices) == set(NATIVES.values()))
+    need(set(raw_prices) == set(natives.values()))
     need(all(type(v) in (int, float) and math.isfinite(v) and v > 0 for v in raw_prices.values()))
     for p in b.prices:
-        need(p.raw_cny_per_share is not None and Fraction(p.raw_cny_per_share) == Fraction(repr(float(raw_prices[NATIVES[p.symbol]]))))
+        need(p.raw_cny_per_share is not None and Fraction(p.raw_cny_per_share) == Fraction(repr(float(raw_prices[natives[p.symbol]]))))
     funds = keys(value['funds'], 'net realized dynamic fees')
     need(all(type(v) in (int, float) and math.isfinite(v) for v in funds.values()) and funds['fees'] >= 0)
     nav = Fraction(policy.initial_capital_cny)+Fraction(repr(float(funds['net'])))
@@ -251,8 +267,13 @@ def _admit(value, check, *, per_date=False):
         schema, scope = REPORT_SCHEMA, REPORT_SCOPE
         if per_date:
             from .retained_per_date_replay import REPORT_SCHEMA as schema, REPORT_SCOPE as scope
-        need((value['schema'], value['scope'], value['strategy_id'], value['strategy_version']) ==
-            (schema, scope, 'resonance-regime-v1', '1.1.2'))
+        need((value['schema'],value['scope'])==(schema,scope))
+        identity=(value['strategy_id'],value['strategy_version'])
+        for item in identity:
+            need(type(item)is str and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}',item)is not None)
+        symbols=report_symbols(value)
+        natives={s:native_symbol(s)for s in symbols}
+        algorithm=identity[0]+'@'+identity[1]+'/ledger-front-ratio-v1' 
         for name in ('session_id', 'input_sha256', 'configuration_sha256'):
             sha(value[name])
         need(value['source_qualified'] is False and value['execution_qualified'] is False)
@@ -291,16 +312,16 @@ def _admit(value, check, *, per_date=False):
                 'initializing', 'selling', 'buying', 'converged', 'waiting_fee', 'waiting_cash',
                 'waiting_basis', 'waiting_pending', 'waiting_sellable', 'awaiting_buy',
                 'supersession_required', 'blocked'))
-            b, observation = capture(record['capture'], value, record, policy)
+            b, observation = capture(record['capture'], value, record, policy,symbols)
             need(record['capture']['sequence'] == index+1)
             if record['result'] is None:
                 need(record['status'] == 'warming_up' and record['outcome'] is None and record['readback'] == [])
                 need(b.input_sha256 == _digest((value['input_sha256'], day)))
                 continue
-            summary(record['result'], actual_day, historical, value['configuration_sha256'])
+            summary(record['result'], actual_day, historical, value['configuration_sha256'],identity,symbols)
             need(b.input_sha256 == record['result']['input_sha256'])
             out = model_fields(Outcome, record['outcome'])
-            out['state'] = state(out['state'])
+            out['state'] = state(out['state'],symbols)
             need(type(out['submit_targets']) is list and len(out['submit_targets']) <= 8)
             out['submit_targets'] = tuple(Quantity(**model_fields(Quantity, q)) for q in out['submit_targets'])
             out = Outcome(**out)
@@ -312,13 +333,13 @@ def _admit(value, check, *, per_date=False):
             prior_state = out.state
             if out.state is not None:
                 t = out.state.target
-                need(out.state.policy == policy and t.universe == SYMBOLS
-                    and (t.strategy_id, t.algorithm_id, t.config_id) == ('resonance-regime-v1', ALGORITHM, value['configuration_sha256']))
+                need(out.state.policy == policy and t.universe == symbols
+                    and (t.strategy_id, t.algorithm_id, t.config_id) == (identity[0], algorithm, value['configuration_sha256']))
             back = pairs(record['readback'], 8)
-            need(set(back) <= set(NATIVES.values()))
+            need(set(back) <= set(natives.values()))
             if out.submit_targets:
                 need(len(out.submit_targets) == 8)
-                need(all(back.get(NATIVES[t.symbol], 0) == t.shares for t in out.submit_targets))
+                need(all(back.get(natives[t.symbol], 0) == t.shares for t in out.submit_targets))
             else:
                 need(not back)
         need(value['status'] == (records[-1]['status'] if records else 'blocked_no_calculation'))
@@ -336,7 +357,7 @@ def project_record(report, index, *, check=None):
         need(type(report) is ValidatedRetainedReport and type(index) is int and 0 <= index < report.record_count)
         row = _thaw_json(report._wire['records'][index], check=guarded)
         evaluation = row.pop('result')
-        row['submit_vector'] = [] if row['outcome'] is None else [dict(symbol=NATIVES[q['symbol']], quantity=q['shares'])
+        row['submit_vector'] = [] if row['outcome'] is None else [dict(symbol=native_symbol(q['symbol']), quantity=q['shares'])
             for q in row['outcome']['submit_targets']]
         return dict(record=row, evaluation_summary=evaluation, report_schema=report._wire['schema'])
     return _run_report_checked(project, check)

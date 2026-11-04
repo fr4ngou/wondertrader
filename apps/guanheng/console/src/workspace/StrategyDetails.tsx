@@ -12,7 +12,6 @@ import { strategyKey } from './StrategyPicker'
 import type { StrategyDefinition } from './strategyCatalogApi'
 
 type DetailsReadView = { current: Details; account: AccountReadView | undefined }
-const defaultStrategy = { strategy_id: 'resonance-regime-v1', strategy_version: '1.1.2' }
 
 const amount = (v: unknown) => typeof v === 'number' || typeof v === 'string' && v.trim() && Number.isFinite(Number(v))
   ? Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '尚未取得'
@@ -36,14 +35,14 @@ function Fact({ name, fact, unit = '' }: { name: string; fact: OptionalFact; uni
 }
 
 /** 当前持仓直接消费券商原发布；归属沿用户确认，策略运行由独立execution事实说明。 */
-export default function StrategyDetails({ strategy = defaultStrategy }: {
+export default function StrategyDetails({ strategy }: {
   /** 目录选择的策略身份；运行接口返回的身份须与之相符。 */ strategy?: Pick<StrategyDefinition, 'strategy_id' | 'strategy_version'>
 }) {
   const client = useQueryClient()
-  const queryKey = ['independent-strategy-details', strategyKey(strategy)]
+  const queryKey = ['independent-strategy-details', strategy ? strategyKey(strategy) : 'current']
   const query = useQuery({queryKey,queryFn:async({signal}):Promise<DetailsReadView>=>{
     const current = await fetchStrategyDetails(signal)
-    if (strategyKey(current.strategy) !== strategyKey(strategy)) throw new Error('尚未取得该策略的运行与持仓数据。')
+    if (strategy && strategyKey(current.strategy) !== strategyKey(strategy)) throw new Error('尚未取得该策略的运行与持仓数据。')
     const cached = client.getQueryData<DetailsReadView>(queryKey)
     // 本代已知时清除上一代持仓；整轮503仍由query保留原视图及错误提示。
     const previous = cached?.current.runtime_scope_id === current.runtime_scope_id ? cached?.account : undefined

@@ -7,7 +7,7 @@ from pathlib import Path
 from time import monotonic
 from types import SimpleNamespace
 
-from .strategy_catalog import strategy_catalog
+from .strategy_catalog import strategy_definition
 from .wt_runtime_observation import (RuntimeObservationConfig, RuntimeCurrentFile, read_runtime_snapshot,
     observe_runtime, resolve_runtime_configuration)
 from .reading import ReadCapacityError
@@ -141,7 +141,7 @@ def observe_details(settings, configuration, deadline):
         except (InvalidOperation, TypeError, KeyError):
             pass
     return dict(schema_version='guanheng.strategy-details.v1', read_only=True,
-        observed_at=datetime.now(timezone.utc).isoformat(), strategy=strategy_catalog()['strategies'][0],
+        observed_at=datetime.now(timezone.utc).isoformat(), strategy=strategy_definition(strategy['strategy_id'],strategy['strategy_version'])if strategy else strategy_definition('resonance-regime-v1',None),
         # 本轮已解析的公开运行身份摘要；未配置为null，只用于隔离跨代展示缓存。
         runtime_scope_id=hashlib.sha256(repr((str(configuration.path), configuration.control_id,
             configuration.instance_id, configuration.configuration_sha256)).encode('utf8')).hexdigest()

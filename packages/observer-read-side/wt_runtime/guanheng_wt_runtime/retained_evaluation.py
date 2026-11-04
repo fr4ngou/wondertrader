@@ -35,7 +35,7 @@ def target_for_result(value, policy, *, previous_target=None):
     """纯核结果的唯一经济目标投影；报告摘要复用同一投影核对状态。"""
     if type(policy) is not QuantityPolicy:
         raise ValueError('需要原NSQ明确的策略理论资本policy')
-    target = EconomicTarget(value['strategy_id'], 'resonance-regime-v1@1.1.2/ledger-front-ratio-v1',
+    target = EconomicTarget(value['strategy_id'], value['strategy_id']+'@'+value['strategy_version']+'/ledger-front-ratio-v1',
         value['configuration_sha256'], policy.policy_id, value['source_allocation_date'],
         tuple(sorted(value['targets'])),
         tuple(Weight(symbol, repr(float(weight))) for symbol, weight in sorted(value['targets'].items())))

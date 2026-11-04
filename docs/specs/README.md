@@ -222,3 +222,5 @@
 - [WT日常启停与当前实例发现](wt-service-control.md)：正常启停、同账接续、显式持续运行及独立观衡跟随当前代。
 
 - [Source证券名册与资料](qmt-security-reference-source.md)：全类别只读分页、逐组未知、详情原值及原请求恢复；Root维护来源实现，统一数据owner消费。
+
+- [观衡活动策略与归档身份读取](observer-strategy-facts.md)：WT实际定义、逐份历史报告、独立只读发行。

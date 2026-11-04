@@ -85,9 +85,13 @@ def build_performance(*, receipt, receipt_sha256, request, session, report, admi
         drawdown = max(drawdown, (peak - nav) / peak * 100)
         last, fees, last_date, available = nav, fee, record["trading_date"], available + 1
     retained = report['schema'] in RETAINED_REPORT_SCHEMAS
-    strategy = ({'strategy_id': 'resonance-regime-v1', 'strategy_version': '1.1.2',
-        'algorithm_id': 'resonance-regime-v1@1.1.2/ledger-front-ratio-v1',
-        **session['request']['configuration']} if retained else session.get("strategy", session.get("config")))
+    algorithm=None
+    if retained:
+        # 算法身份优先复制该归档实际NSQ目标；全程预热尚无目标时保持未知。
+        algorithm=next(((row.get('outcome')or{}).get('state',{}).get('target',{}).get('algorithm_id')
+            for row in report['records']if (row.get('outcome')or{}).get('state')),None)
+    strategy = ({'strategy_id':report['strategy_id'],'strategy_version':report['strategy_version'],
+        'algorithm_id':algorithm,**session['request']['configuration']}if retained else session.get('strategy',session.get('config')))
     _require(type(strategy) is dict)
     response = {"schema": SCHEMA, "run_id": receipt["run_id"], "request_id": receipt["request_id"],
         "receipt_sha256": receipt_sha256, "request_sha256": receipt["request_sha256"],
