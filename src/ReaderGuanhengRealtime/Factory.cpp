@@ -5,6 +5,7 @@
 #include "../Includes/IBaseDataMgr.h"
 #include "../Includes/WTSDataDef.hpp"
 #include "../Includes/WTSContractInfo.hpp"
+#include "../Includes/WTSSessionInfo.hpp"
 #include "../Includes/WTSVariant.hpp"
 #include "../Share/CodeHelper.hpp"
 #include "../Share/StrUtil.hpp"
@@ -177,6 +178,8 @@ class RealtimeReader final : public IDataReader
     std::unique_ptr<WtDataReader> daily_;
     std::unique_ptr<guanheng::PublishedDaily> publication_;
     std::vector<std::pair<std::string, std::string>> daily_instruments_;
+    std::uint32_t daily_close_time_ = 0; // 全部已准入映射会话的最晚收盘HHMM；原基础资料拥有，初始化后只读。
+    bool daily_day_session_ = true; // 全部会话均为无跨日日盘时才可核当日闭合；其余会话沿原日期之前规则。
     std::unique_ptr<WtDataReader> native_minute_;
 
     bool admit(bool event = false)
@@ -220,12 +223,26 @@ class RealtimeReader final : public IDataReader
         try { if (_sink) _sink->reader_log(LL_ERROR, reason); } catch (...) {}
         logging = false;
     }
-    WtDataReader& daily_reader(Clock::time_point deadline, std::uint32_t cutoff_date)
+    std::pair<std::uint64_t,std::uint64_t> closed_day_evidence(std::uint32_t date, std::uint64_t cutoff) const
+    {
+        // 返回本地YYYYMMDDHHMMSSmmm标签：共同session收盘、原请求可知截止；空值表示仅准入过去日。
+        // 当前日只在共同session收盘后准入，原出版物known_at另在PublishedDaily核对。
+        if(!publication_ || !daily_day_session_ || !daily_close_time_ || date!=_sink->get_date() ||
+            cutoff%10000<daily_close_time_)return {};
+        const auto now=static_cast<std::uint64_t>(_sink->get_date())*10000+_sink->get_min_time();
+        const auto seconds=cutoff<now?0:_sink->get_secs();
+        if(seconds>=60000)return {};
+        return {(static_cast<std::uint64_t>(date)*10000+daily_close_time_)*100000,
+                cutoff*100000+seconds};
+    }
+    WtDataReader& daily_reader(Clock::time_point deadline, std::uint32_t cutoff_date,
+        std::uint64_t cutoff=0)
     {
         if (!publication_) return *daily_;
+        const auto closed=closed_day_evidence(cutoff_date,cutoff);
         return publication_->select(deadline, cutoff_date, [this](WTSVariant* cfg) {
             native_path_limits(cfg, daily_instruments_, false);
-        });
+        },closed.first,closed.second);
     }
 public:
     ~RealtimeReader() override
@@ -330,8 +347,14 @@ public:
                         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_';
                     })) throw std::invalid_argument("daily standard code shape");
                 auto info = CodeHelper::extractStdCode(code.c_str(), sink->get_hot_mgr());
-                if (!sink->get_basedata_mgr()->getCommodity(info._exchg, info._product))
+                const auto commodity=sink->get_basedata_mgr()->getCommodity(info._exchg, info._product);
+                if (!commodity)
                     throw std::invalid_argument("daily commodity missing");
+                const auto session=commodity->getSessionInfo();
+                if(!session || session->getOffsetMins()!=0 || !session->getOpenTime() ||
+                    session->getOpenTime()>=session->getCloseTime() || session->getCloseTime()>=2400)
+                    daily_day_session_=false;
+                else daily_close_time_=std::max(daily_close_time_,session->getCloseTime());
                 daily_symbols.emplace(symbol, code);
                 daily_instruments_.emplace_back(info._exchg, info._code);
                 if (native)
@@ -431,13 +454,13 @@ public:
             const auto now = static_cast<std::uint64_t>(current_date) * 10000 + current_minute;
             if (!guanheng::reader_minute_valid(now) || (end && (!guanheng::reader_minute_valid(end) || end > now)))
                 throw std::invalid_argument("daily cutoff invalid or ahead of context");
-            // 历史 etime 也只承认其日期之前已经闭合的日线，不推断当天收盘时间。
+            // 已发布当日以原session与known_at共同核闭合；普通冻结目录沿日期之前规则。
             const auto cutoff_date = end ? static_cast<std::uint32_t>(end / 10000) : current_date;
             if (!budget_->take(count)) throw std::runtime_error("daily live slice budget exhausted");
             std::shared_ptr<Reservation> reservation;
             try { reservation = std::make_shared<Reservation>(budget_, count); }
             catch (...) { budget_->give(count); throw; }
-            Slice source(daily_reader(deadline, cutoff_date).readKlineSlice(code, KP_DAY, count, end ? end : now));
+            Slice source(daily_reader(deadline, cutoff_date, end ? end : now).readKlineSlice(code, KP_DAY, count, end ? end : now));
             if (!source || source->empty()) return nullptr;
             if (source->size() < 0 || static_cast<std::uint32_t>(source->size()) > count)
                 throw std::runtime_error("upstream daily count exceeds request");
@@ -447,7 +470,10 @@ public:
             for (std::int32_t i = 0; i < source->size(); ++i)
             {
                 const auto bar = source->at(i);
-                if (!bar || !date_valid(bar->date) || bar->date <= previous || bar->date >= cutoff_date ||
+                const auto date_allowed=bar && (bar->date<cutoff_date ||
+                    (publication_ && bar->date==cutoff_date && publication_->basis_date()==cutoff_date));
+                if (!bar || !date_valid(bar->date) || bar->date <= previous || !date_allowed ||
+                    (publication_ && bar->date>publication_->basis_date()) ||
                     !std::isfinite(bar->open) || !std::isfinite(bar->high) || !std::isfinite(bar->low) ||
                     !std::isfinite(bar->close) || !std::isfinite(bar->vol) || !std::isfinite(bar->money) ||
                     !std::isfinite(bar->settle) || !std::isfinite(bar->hold) || !std::isfinite(bar->add) ||
@@ -500,7 +526,8 @@ public:
             const auto today = _sink->get_date();
             if (!date) date = today; // IDataReader 的 date=0 契约为当前日期。
             if (!date_valid(today) || !date_valid(date) || date > today) throw std::invalid_argument("factor cutoff invalid");
-            const double factor = daily_reader(deadline, today).getAdjFactorByDate(code, date);
+            const auto cutoff=static_cast<std::uint64_t>(today)*10000+_sink->get_min_time();
+            const double factor = daily_reader(deadline, today, cutoff).getAdjFactorByDate(code, date);
             if (!std::isfinite(factor) || factor <= 0 || !live() || Clock::now() >= deadline)
                 throw std::runtime_error("factor unavailable");
             return factor;

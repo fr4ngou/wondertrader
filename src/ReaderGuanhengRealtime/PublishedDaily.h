@@ -30,6 +30,7 @@ class PublishedDaily final {
         std::set<std::wstring> directories;
         std::size_t bytes = 0;
         std::string identity;
+        std::uint32_t basis_date = 0; // 已核原出版物基准日YYYYMMDD；日线输出上界，不重写原日期。
         Path directory;
         std::vector<Path> files, created_directories;
         std::unique_ptr<wtp::WtDataReader> reader;
@@ -134,6 +135,53 @@ class PublishedDaily final {
         std::string result;
         for (auto byte : bytes) { result += digits[byte >> 4]; result += digits[byte & 15]; }
         return result;
+    }
+    static std::uint64_t known_millisecond(const Json& value) {
+        // QNA原ISO8601时点转沪深会话本地毫秒标签；来源精度超过毫秒时保留已知完整毫秒。
+        const auto stamp = text(value);
+        need(stamp.size() >= 20 && stamp.size() <= 64 && stamp[4]=='-' && stamp[7]=='-' &&
+            stamp[10]=='T' && stamp[13]==':' && stamp[16]==':', "daily publication known_at format");
+        auto digits = [&](std::size_t at, std::size_t count) {
+            need(at+count<=stamp.size(), "daily publication known_at length");
+            unsigned result=0;
+            for(std::size_t i=at;i<at+count;++i) {
+                need(stamp[i]>='0' && stamp[i]<='9', "daily publication known_at digits");
+                result=result*10+static_cast<unsigned>(stamp[i]-'0');
+            }
+            return result;
+        };
+        SYSTEMTIME source{};
+        source.wYear=digits(0,4);source.wMonth=digits(5,2);source.wDay=digits(8,2);
+        source.wHour=digits(11,2);source.wMinute=digits(14,2);source.wSecond=digits(17,2);
+        need(source.wYear>=2000 && source.wYear<=2099, "daily publication known_at year");
+        std::size_t cursor=19;
+        if(stamp[cursor]=='.') {
+            const auto begin=++cursor;
+            while(cursor<stamp.size() && stamp[cursor]>='0' && stamp[cursor]<='9')++cursor;
+            need(cursor>begin && cursor-begin<=9, "daily publication known_at fraction");
+            source.wMilliseconds=digits(begin,std::min<std::size_t>(3,cursor-begin));
+            for(auto n=cursor-begin;n<3;++n)source.wMilliseconds*=10;
+        }
+        int offset=0;
+        if(cursor+1==stamp.size() && stamp[cursor]=='Z') {}
+        else {
+            need(cursor+6==stamp.size() && (stamp[cursor]=='+' || stamp[cursor]=='-') &&
+                stamp[cursor+3]==':', "daily publication known_at timezone");
+            const auto hour=digits(cursor+1,2), minute=digits(cursor+4,2);
+            need(hour<=23 && minute<60, "daily publication known_at timezone range");
+            offset=static_cast<int>(hour*60+minute)*(stamp[cursor]=='+'?1:-1);
+        }
+        FILETIME encoded{};
+        need(SystemTimeToFileTime(&source,&encoded)!=0, "daily publication known_at invalid");
+        ULARGE_INTEGER ticks{};ticks.LowPart=encoded.dwLowDateTime;ticks.HighPart=encoded.dwHighDateTime;
+        // 已准入市场仅SH/SZ，交易session使用UTC+08:00；先消除原偏移，再转换会话时区。
+        ticks.QuadPart=static_cast<std::uint64_t>(static_cast<std::int64_t>(ticks.QuadPart)+
+            static_cast<std::int64_t>(480-offset)*60*10000000);
+        encoded.dwLowDateTime=ticks.LowPart;encoded.dwHighDateTime=ticks.HighPart;
+        SYSTEMTIME local{};
+        need(FileTimeToSystemTime(&encoded,&local)!=0, "daily publication known_at conversion");
+        const auto date=static_cast<std::uint64_t>(local.wYear)*10000+local.wMonth*100+local.wDay;
+        return (date*10000+local.wHour*100+local.wMinute)*100000+local.wSecond*1000+local.wMilliseconds;
     }
     static std::vector<std::unique_ptr<Handle>> parents(const Path& path, Generation* generation) {
         // 固定父目录防止读入原文件后路径被整体移动，原 Reader 随后仍按同一路径打开。
@@ -250,7 +298,9 @@ public:
         return !cache_directory_ || cache_directory_->close();
     }
     wtp::WtDataReader& select(Clock::time_point deadline, std::uint32_t cutoff_date,
-        const std::function<void(wtp::WTSVariant*)>& validate_paths) {
+        const std::function<void(wtp::WTSVariant*)>& validate_paths,
+        std::uint64_t session_close_ms=0, std::uint64_t known_cutoff_ms=0) {
+        // 两个可选参数为沪深本地YYYYMMDDHHMMSSmmm标签；0保留只读取日期之前日线的合同。
         // 切换或失败新代的删除责任保持在 owner，短时文件占用释放后可继续同次清理。
         if (pending_) {
             need(pending_->close(), "daily publication retirement pending");
@@ -279,11 +329,17 @@ public:
         const auto basis = text(field(success, "basis_date"));
         need(basis.size() == 10 && basis[4] == '-' && basis[7] == '-', "daily publication basis");
         auto digits = basis; digits.erase(7, 1); digits.erase(4, 1);
-        need(std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; }) &&
-            std::stoul(digits) < cutoff_date, "daily publication day not closed");
+        need(std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; }),
+            "daily publication basis digits");
+        const auto basis_date=static_cast<std::uint32_t>(std::stoul(digits));
+        const auto known=(basis_date==cutoff_date && session_close_ms)
+            ? known_millisecond(field(analysis,"known_at")) : 0;
+        need(basis_date < cutoff_date || (basis_date == cutoff_date && session_close_ms &&
+            session_close_ms<=known && known<=known_cutoff_ms), "daily publication day not closed");
         if (current_ && current_->identity == signature) { check(deadline); return *current_->reader; }
         pending_ = std::make_unique<Generation>();
         auto* next = pending_.get();
+        next->basis_date=basis_date;
         unsigned char random[12]{};
         need(BCryptGenRandom(nullptr, random, sizeof(random), BCRYPT_USE_SYSTEM_PREFERRED_RNG) >= 0,
             "daily publication generation identity");
@@ -303,8 +359,7 @@ public:
         need(field(request, "basis_date").IsUint(),
             "daily publication basis");
         need(std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; }) &&
-            std::stoul(digits) == field(request, "basis_date").GetUint() && std::stoul(digits) < cutoff_date,
-            "daily publication day not closed");
+            basis_date == field(request, "basis_date").GetUint(), "daily publication request basis mismatch");
         need(field(request, "adjust_flag").IsUint() && field(request, "adjust_flag").GetUint() == adjust_flag_,
             "daily publication adjusting flag mismatch");
         const auto store = absolute(text(field(request, "path")));
@@ -350,6 +405,11 @@ public:
         }
         check(deadline);
         return *current_->reader;
+    }
+    std::uint32_t basis_date() const {
+        // 调用者沿daily_mutex读取已准入代际；用于核原DSB日期不越过其声明基准。
+        need(current_!=nullptr, "daily publication selection missing");
+        return current_->basis_date;
     }
 };
 
