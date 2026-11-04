@@ -24,7 +24,7 @@
 | 原WRI独立角色 | `role-smoke002/RESULT.json`实际启动、HTTP分钟、正常角色/管道/进程树关闭；停止原子发布修正后的003另行复验 | 自有薄启动适配；原WRI/ManagedLocalProcess继续负责监督 |
 | Source采用与回退 | `source-adoption-regression001/RESULT.json`，一次采用、幂等、回退及冲突保原件 | 隔离文件测试，实际GH正文未改变 |
 | 根因回归 | `tests/integration/minute_collection`九项通过，原生fixture为`mcc-final-001/producer.json` | 完整日排除累计量重复、逐段metadata、日历摘要、合法float毫秒/坏批次不部分更新、停止文件关闭后发布 |
-| 部分/空→完整、未知读取重启 | `test_partial_recovery.py`首轮200/240和0/240两场景，真实Importer及Reader最终均240条；原准备UUID不变、实际准备一次，未知读取重建后同UUID续核 | Source传输为可控替身；持久收据/Importer/Reader/最终选择为正式实现；不授真实断线现场资格 |
+| 部分/空/同数错标签→完整、未知读取重启 | `test_partial_recovery.py`首轮200/240、0/240及240条中11:31替代09:32三场景，真实Importer及Reader最终均240标签；原准备UUID不变、实际准备一次，未知读取重建后同UUID续核 | Source传输为可控替身；持久收据/Importer/Reader/最终选择为正式实现；错标签场景首轮base返回亦受控；不授真实断线现场资格 |
 
 ## 边界与后继
 

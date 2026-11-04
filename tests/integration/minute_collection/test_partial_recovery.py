@@ -5,6 +5,7 @@ MCC_NATIVE_FIXTURE显式指向已验证producer.json；测试只读该配置，�
 """
 from contextlib import nullcontext
 from copy import deepcopy
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -92,7 +93,7 @@ class NativePartialRecoveryTests(unittest.TestCase):
         parent = Path('E:/workspace/wondertrader-qa/minute-collection-regressions')
         parent.mkdir(parents=True, exist_ok=True)
         original = json.loads(Path(os.environ['MCC_NATIVE_FIXTURE']).read_bytes())
-        for initial_count in (200, 0):
+        for initial_count in (200, 0, 'wrong-labels'):
             with self.subTest(initial_count=initial_count), tempfile.TemporaryDirectory(dir=parent) as root:
                 source = SourceFixture(); configuration = deepcopy(original)
                 c = configuration['preparation']; c['workspace'] = str(Path(root) / 'recovery')
@@ -112,14 +113,28 @@ class NativePartialRecoveryTests(unittest.TestCase):
                         complete = [dict(time=int(preparation.stamp(m).timestamp()*1000),
                             open=4.01, high=4.05, low=4., close=4.03, volume=100.+i, amount=403.+i)
                             for i, m in enumerate(grid)]
-                        source.rows = complete[:initial_count]
-                        query = dict(exchange='SSE', code='510300', **{'from':grid[0], 'to':grid[-1]}, limit=2000)
+                        source.rows = complete[:initial_count] if isinstance(initial_count, int) else deepcopy(complete)
+                        if initial_count == 'wrong-labels':
+                            source.rows[1]['time'] = int(preparation.stamp(202611031131).timestamp()*1000)
+                            source.rows.sort(key=lambda r:r['time'])
+                        query = dict(exchange='SSE', code='510300', **{'from':grid[0], 'to':grid[-1]}, limit=len(grid))
                         request = dict(api_version=API_VERSION, action='history.source-query', request=query)
                         # 首次部分值可能与真实Writer边界冲突；后续仍须推进恢复。
-                        market.call(request)
+                        if initial_count == 'wrong-labels':
+                            # 240条且尾为15:00，但用11:31替代09:32，不能据条数认定该日完整。
+                            original = market.base.call(request)
+                            native = deepcopy(original)
+                            native['data']['bars'] = [dict(symbol='SSE.510300',
+                                minute=preparation.label(datetime.fromtimestamp(r['time']/1000, preparation.SHANGHAI)),
+                                **{k:r[k] for k in ('open','high','low','close','volume','amount')}) for r in source.rows]
+                            with patch.object(market.base, 'call', return_value=native):
+                                market.call(request)
+                        else:
+                            market.call(request)
                         _, _, state = market._state(query)
                         self.assertEqual(source.prepares, 1)
-                        self.assertEqual(state['published']['count'] if state['published'] else 0, initial_count)
+                        self.assertEqual(state['published']['count'] if state['published'] else 0,
+                            initial_count if isinstance(initial_count, int) else 240)
                         self.assertIsNone((state['published'] or {}).get('reconciled_day'))
                         original_prepare = state['prepare']['request']['request_id']
                         source.now += 61; source.rows = complete; source.pending_once = True

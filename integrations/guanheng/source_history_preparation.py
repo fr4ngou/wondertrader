@@ -331,7 +331,9 @@ class SourcePreparingMarket:
                     raise SourcePreparationBudget(str(error))from None
             return state
         before,binding=self._reads(state,'before',directory,symbol,start,end,deadline)
-        if len(before)>=target or self._complete_rows(state,before):rows=before
+        # 整日恢复以session标签为准；同条数且尾标签相同仍可能用时段外标签替代缺失分钟。
+        sufficient=self._complete_rows(state,before)if self._closed_grid(state['query'])else len(before)>=target
+        if sufficient:rows=before
         else:
             if state['prepare']is None:
                 metadata=self.source.binding(deadline)
@@ -428,6 +430,8 @@ class SourcePreparingMarket:
             data=select_sources(batches,query,preferred_ranges=preferences)
             state=states.get(preferred)
             ready=data is not None and len(data['bars'])>=min(query['limit'],int((end-start).total_seconds()/60)+1)and data['bars'][-1]['minute']==query['to']
+            expected=self._closed_grid(window)
+            if expected:ready=data is not None and[bar['minute']for bar in data['bars']]==expected
             if state is not None and state['published']is not None:
                 phase='Observed'if state['published']['count']>=min(query['limit'],int((end-start).total_seconds()/60)+1)else'Partial'
                 reason='有限尾窗已实际回读；返回最近可读原值，未授市场完整覆盖'
