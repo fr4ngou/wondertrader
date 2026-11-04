@@ -6,6 +6,8 @@
 
 WT受管只读Host通过原共享内存连接，由QMT策略原线程调用公开SDK。Source负责冻结证券名册与分页、取得逐只资料；统一日线owner负责保存原结果、建立价格池及更新WT原生数据。观衡只读取结果。该模块不下载行情、不订阅证券、不查询账户、不下单。
 
+资料Host由数据侧WT只读运行实例独立托管，生命周期与金融执行实例分开，交易关闭不传播为资料服务停止。沿既有Runtime只读组件及ServiceController管理；QMT正文可以组合多条共享内存通道，终端外各通道仍分别持有owner、Journal和关闭收据。
+
 完整链为：统一数据owner → `SecurityReferenceSource` → 原`RetainedReadClient` → 签名HTTP → Host原Journal → Windows命名共享内存 → 原策略唯一timer → SDK → 原结果保存和消费。QMT内部新代码仅使用Python3.6.8标准库及内置SDK，文件和网络读取保持禁止。
 
 ## 接口与字段
