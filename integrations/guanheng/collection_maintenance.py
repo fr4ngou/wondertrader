@@ -51,7 +51,7 @@ class MinuteCollectionMaintenance:
         self.rows = {}  # 每证券/日期的可重建覆盖投影，价格留在原Reader/Importer。
         self.jobs = deque()  # 缺口选择，仅含证券/日期，不制造来源命令或请求ID。
         self.queued = set()  # 同轮去重，最大为当前证券数乘日期数。
-        self.retry_at = {}  # 暂不可用范围的下次观察时点；原请求收据保持不变。
+        self.retry_at = {}  # 未完窗口的下次观察时点；到期优先续接原请求，避免排到全市场新窗口之后。
         self.symbols = []  # 本次原生产base支持的标准代码；资料新增只产生订阅差异。
         self.cursor = 0  # 可重建扫描游标；不属于来源完成事实。
         self.dates = ()  # 原官方日历确认的闭合日及当天。
@@ -173,8 +173,7 @@ class MinuteCollectionMaintenance:
                             unexpected_count=len(result['unexpected_minutes']),
                             observed_at=self.wall_clock(),  # 原Reader查询完成的本机epoch秒。
                             recovered_count=old.get('recovered_count') if restored else None)
-                        if (state == 'missing' and key not in self.queued
-                                and self.clock() >= self.retry_at.get(key, 0)):
+                        if state == 'missing' and key not in self.queued and key not in self.retry_at:
                             self.jobs.append(key); self.queued.add(key)
             finally:
                 reader.close()
@@ -183,8 +182,14 @@ class MinuteCollectionMaintenance:
             if self.cursor >= len(self.symbols):
                 self.cursor = 0; self.cycle += 1
         # 本地覆盖扫描照常进行；Source尚未连接时保留队首，避免启动失败项排到全市场队尾。
-        if self.jobs and source_ready:
-            symbol, day = key = self.jobs.popleft(); self.queued.remove(key)
+        ready_retries = [(due, key) for key, due in self.retry_at.items() if due <= self.clock()]
+        if source_ready and (self.jobs or ready_retries):
+            if ready_retries:
+                unused, key = min(ready_retries)
+                del self.retry_at[key]
+                symbol, day = key
+            else:
+                symbol, day = key = self.jobs.popleft(); self.queued.remove(key)
             row = self.rows[key]
             grid = self.producer.base.expected_minutes(symbol, day)
             if grid:

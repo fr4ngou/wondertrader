@@ -647,7 +647,7 @@
     },
     "integrations/guanheng/collection_maintenance.py": {
       "source": "integrations/guanheng/collection_maintenance.py",
-      "sha256": "4ce387bf4c63415f827be60a54312bc0efb1753749d5f48b594d72a4aeba3602"
+      "sha256": "a7ed29e711aae6e6befb1c4a517f01a3e16f95c4813e72d60486ece8721d3e32"
     },
     "integrations/guanheng/collection_minute_reader.py": {
       "source": "integrations/guanheng/collection_minute_reader.py",
