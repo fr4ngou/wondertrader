@@ -106,7 +106,13 @@ class DataOwnerRegressionTests(unittest.TestCase):
     def test_unadvanced_stock_is_frozen_before_late_return_and_old_readback_resume(self):
         self._assert_stock_readback_recovery(unadvanced=True)
 
-    def _assert_stock_readback_recovery(self,unadvanced=False):
+    def test_legacy_manifest_without_stage_receipt_keeps_unknown_responsibility(self):
+        self._assert_stock_readback_recovery(legacy_manifest='uncommitted')
+
+    def test_legacy_sparse_readback_progress_cannot_grant_completed_time_identity(self):
+        self._assert_stock_readback_recovery(legacy_manifest='legacy_progress')
+
+    def _assert_stock_readback_recovery(self,unadvanced=False,legacy_manifest=None):
         root=self.root()
         pool=write(root/'pool.json',dict(date='2026-11-03',members=['sh.600000']))
         cache=root/'cache';manifest=dict(request=dict(universe=pool))
@@ -170,15 +176,30 @@ class DataOwnerRegressionTests(unittest.TestCase):
             'integrations.guanheng.market_generation.GenerationPublisher.publish':lambda *a,**kw:({'configuration':a[1]},'b'*64),
         }
         work=root/'work';readbacks=[]
-        replacements['integrations.guanheng.daily_data_update._capture']=lambda *a:(readbacks.append(True)or cache_descriptor)
+        def readback(*args):
+            marker=Path(args[2])/'manifest.json'
+            if not marker.exists():
+                readbacks.append(True);write(marker,manifest)
+            return cache_descriptor
+        replacements['integrations.guanheng.daily_data_update._capture']=readback
         with ExitStack()as stack:
             for name,value in replacements.items():stack.enter_context(patch(name,value))
             first=update.run_update(request,work,deadline=time.monotonic()+60)
             observation=work/'gap-work'/'observations'/'000000.json'
             prior=json.loads(observation.read_bytes());prior['row']['state']='call_returned';write(observation,prior)
+            if legacy_manifest:
+                # 旧版已完成原件；阶段收据尚未提交，或旧稀疏状态已被较晚观察覆盖。
+                old=json.loads((work/'STATE.json').read_bytes())
+                if legacy_manifest=='uncommitted':
+                    old.pop('gap_readback_progress');old['stages'].pop('readback')
+                else:
+                    old['gap_readback_progress']=dict(plan_sha256=old['stages']['gap_plan']['sha256'],
+                        rows=[dict(index=0,state='call_returned')])
+                write(work/'STATE.json',old)
             resumed=update.run_update(request,work,deadline=time.monotonic()+60)
         self.assertTrue(first['continuation_required']);self.assertTrue(resumed['continuation_required'])
-        self.assertEqual(resumed['gap_readback_progress']['rows'][0]['request_id'],'original-synthetic-uuid')
+        if legacy_manifest:self.assertEqual(resumed['gap_readback_progress']['rows'][0]['state'],'unattempted')
+        else:self.assertEqual(resumed['gap_readback_progress']['rows'][0]['request_id'],'original-synthetic-uuid')
         self.assertEqual(first['gap_progress']['rows'][0]['state'],'call_returned'if unadvanced else'pending')
         self.assertEqual(resumed['gap_progress']['rows'],[dict(index=1,state='call_returned')]if unadvanced else[])
         self.assertEqual(len(readbacks),1)

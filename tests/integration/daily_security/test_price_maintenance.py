@@ -11,7 +11,7 @@ import uuid
 from unittest.mock import patch
 
 from integrations.guanheng.daily_data_update import _descriptor
-from integrations.guanheng.daily_gap_update import prepare_gap_plan
+from integrations.guanheng.daily_gap_update import prepare_gap_plan,freeze_gap_progress
 from integrations.guanheng.daily_price_continuation import requires_price_continuation
 from integrations.guanheng.daily_price_scope import prepare_price_scope
 from integrations.guanheng.security_reference import SecurityReference,trade_day_state,prepare_retained_reference
@@ -101,12 +101,21 @@ class PriceMaintenanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory()as directory:
             root=Path(directory);work=root/'gap-work/observations';work.mkdir(parents=True)
             plan=write(root/'plan.json',dict(tasks=[dict(index=0,symbol='510300.SH')]))
-            # 恢复时advance会跳过已返回项，最新progress.rows为空；原单项凭据仍有效。
+            # 旧已提交INPUTS的稀疏/晚到观察无法证明回读时点，目标缺价保持接续。
             write(work/'000000.json',dict(plan_sha256=plan['sha256'],row=dict(index=0,state='call_returned')))
             inputs=write(root/'INPUTS.json',dict(plan=plan,preparation=dict(rows=[])))
             result=dict(inputs=inputs,securities={'SSE.510300':dict(target_readable=False)})
+            self.assertTrue(requires_price_continuation(result))
+            for legacy in (dict(rows=[dict(index=0,state='call_returned')]),None):
+                write(root/'INPUTS.json',dict(plan=plan,preparation=legacy))
+                result['inputs']=_descriptor(root/'INPUTS.json')
+                self.assertTrue(requires_price_continuation(result))
+            progress=freeze_gap_progress(plan,dict(plan_sha256=plan['sha256'],rows=[]),work,deadline=time.monotonic()+10)
+            result['inputs']=write(root/'INPUTS.json',dict(plan=plan,preparation=progress))
             self.assertFalse(requires_price_continuation(result))
             write(work/'000000.json',dict(plan_sha256=plan['sha256'],row=dict(index=0,state='pending')))
+            progress=freeze_gap_progress(plan,None,work,deadline=time.monotonic()+10)
+            result['inputs']=write(root/'INPUTS.json',dict(plan=plan,preparation=progress))
             self.assertTrue(requires_price_continuation(result))
             result['securities']['SSE.510300']['target_readable']=True
             self.assertFalse(requires_price_continuation(result,['SSE.510300']))

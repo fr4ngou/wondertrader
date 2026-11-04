@@ -398,7 +398,7 @@
       "source": "integrations/guanheng/daily_data_stages.py"
     },
     "integrations/guanheng/daily_data_update.py": {
-      "sha256": "d3a4d0d94b1e26625b3a714509de3308353947791ba799f24519e24325c60fc4",
+      "sha256": "136bc32d0f0c0a64c11da7a7c7758763a7d267fcfebd13d29c0d85c5e4dbc92f",
       "source": "integrations/guanheng/daily_data_update.py"
     },
     "integrations/guanheng/daily_front_archive.py": {
@@ -422,7 +422,7 @@
       "source": "integrations/guanheng/daily_price_archive.py"
     },
     "integrations/guanheng/daily_price_continuation.py": {
-      "sha256": "2207e61471e1e2ada85b337bcdca7fa5c6ffbfe0cc6783706bcf9e52a826b169",
+      "sha256": "473fdbbd257d7dec94d5fa688d994d43974a759335981132287f29ef018bc0ff",
       "source": "integrations/guanheng/daily_price_continuation.py"
     },
     "integrations/guanheng/daily_price_inputs.py": {

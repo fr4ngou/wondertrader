@@ -142,11 +142,12 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 restore_plan))
             plan_value = _load(plan)
             if plan_value['tasks']:
-                prior_progress=state.get('gap_readback_progress',state.get('gap_progress'))
-                if ('gap_readback_progress'in state or 'readback'in state['stages'])and (
+                prior_progress=state.get('gap_readback_progress')
+                has_readback='readback'in state['stages']or(root/'readback'/'manifest.json').exists()
+                if ('gap_readback_progress'in state or has_readback)and (
                         prior_progress is None or prior_progress.get('schema')!='guanheng.daily-gap-readback-progress.v1'):
                     # 已存在回读的旧时点缺项保持未推进；较晚磁盘观察只归后继修订。
-                    state['gap_readback_progress']=freeze_gap_progress(plan,prior_progress,
+                    state['gap_readback_progress']=freeze_gap_progress(plan,None,
                         deadline=deadline,cancelled=cancelled)
                     _save(journal,state)
                 if 'connections' not in request:
@@ -241,8 +242,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
             if price_result is not None:
                 from .daily_price_continuation import requires_price_continuation
                 state['continuation_required']=requires_price_continuation(price_result,request.get('prior_pending_symbols',()),
-                    stock_plan=plan,stock_progress=state.get('gap_readback_progress'),
-                    stock_observations=root/'gap-work'/'observations')
+                    stock_plan=plan,stock_progress=state.get('gap_readback_progress'))
                 # 原HPR未闭合且相关目标Native仍缺，后继同日修订沿原槽接续；发布成功独立保存。
             _save(journal, state)
             return state
