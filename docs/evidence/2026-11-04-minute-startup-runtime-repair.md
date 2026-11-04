@@ -16,6 +16,8 @@ Root正常停止原日线、GH行及旧data/quotes（exit0/all_trees_zero），�
 
 collector直接入口加入自身release根，保留`.9`的`if not __package__`条件；按包导入helper保持宿主sys.path及完整SDK身份。修改位于自有入口和配置生成器，WT框架及Runtime监督实现保持。
 
+共享helper的后继SHA同步到统一日线源码成员清单，后继构建声明及包元数据为`.10`。原`.9`标签、安装015及其实际解释器保留，本轮未构建、安装或部署`.10`；源码成员核验通过，避免修正共享入口后主干仍锁旧文件而失去可重建性。
+
 ## 证据与固定材料
 
 QA根：`E:/workspace/wondertrader-qa/minute-adoption-20261104-001`；数据根：`E:/workspace/wondertrader-data/minute-adoption-20261104-001`。
