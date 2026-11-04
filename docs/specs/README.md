@@ -225,4 +225,4 @@
 
 - [观衡活动策略与归档身份读取](observer-strategy-facts.md)：WT实际定义、逐份历史报告、独立只读发行。
 
-- [Fresh共振1.2.1与固定源码闭包](etf-role-replacement.md)：当前真实持仓新100万元基准、V1/QNA/cash.2三包重建及旧档保留。
+- [Fresh共振1.2.1与固定源码闭包](etf-role-replacement.md)：当前真实持仓新100万元基准、V1/QNA/cash.3三包重建及旧档保留。

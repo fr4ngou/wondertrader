@@ -192,6 +192,7 @@ class RetainedStrategy:
         _need(self.input_sha == parameters['input_sha256'], 'strategy_input_identity')
         self.inputs = RetainedRuntimeInput.from_dict(_json(raw))
         self.capital_reader, self.capital_observation = None, None
+        self._initial_capital_basis = None  # 原初始化估值的不可变私有值；首帧NAP晚到时只由账户线程读取。
         self.capital_market = parameters.get('capital_market')
         if self.inputs.capital_baseline is not None:
             from .strategy_capital import AccountCashReader
@@ -530,7 +531,7 @@ class RetainedStrategy:
         后续原K线回调继续以原CTA价格和同一资本基准更新。
         """
         from guanheng_market_client import MarketClient
-        from .strategy_capital import observe_broker_capital
+        from .strategy_capital import InitialCapitalValuation
         market = self.capital_market
         _need(type(market) is dict and set(market) == {
             'base_url','token_env','timeout_seconds','max_response_bytes','max_age_seconds'}, 'capital_market')
@@ -555,15 +556,15 @@ class RetainedStrategy:
                 value,stamp = self._snapshot_valuation(response,held)
             valuation_stamps.append(stamp)
         cutoff = datetime.now(timezone.utc)
+        if self._initial_capital_basis is None:
+            self._initial_capital_basis = InitialCapitalValuation(
+                self.sequence+1,value,Fraction(repr(funds.fund_pnl)),cutoff.isoformat(),
+                datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat(),
+                market_value_source,min(valuation_stamps).isoformat() if valuation_stamps else None)
         account,qualified = self.capital_reader.read(cutoff,deadline)
         cash=self._native_cash(funds,value,account)
-        completed_at = datetime.now(timezone.utc)
-        self.capital_observation = observe_broker_capital(self.inputs.capital_baseline,self.inputs.cash_anchor,Fraction(repr(funds.fund_pnl)),
-            value,completed_at.isoformat(),
-            account,qualified,max_age_seconds=self.max_age,
-            position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat(),
-            market_value_source=market_value_source,
-            price_observed_at=min(valuation_stamps).isoformat() if valuation_stamps else None)
+        self.capital_observation = self._initial_capital_basis.observe(
+            self.inputs.capital_baseline,self.inputs.cash_anchor,account,qualified,max_age_seconds=self.max_age)
         return response
 
     def _flat_source(self,symbol,broker,trades):
@@ -923,9 +924,10 @@ def main():
     # 同一原执行进程持有账户约束线程；线程只读NAP及发布值，从不借用Native上下文。
     # K线回调和账户更新共享唯一原子发布者，估值时间与策略sequence保持原值。
     refresh_stop = Event()
-    from .strategy_capital import AccountCashReader, refresh_account_constraint
+    from .strategy_capital import AccountCashReader, refresh_capital_report
     readers = {s.id:AccountCashReader(s.capital_reader.binding,s.max_age)
                for s in strategies if s.capital_reader is not None}
+    capital_strategies = {s.id:s for s in strategies if s.capital_reader is not None}
     def refresh_accounts():
         try:
             while not refresh_stop.wait(10):
@@ -935,12 +937,14 @@ def main():
                 try:
                     for strategy_id,reader in readers.items():
                         report = reports.get(strategy_id)
-                        capital = None if report is None else report.get('capital')
-                        if capital is None:
+                        if report is None:
                             continue
-                        updated = refresh_account_constraint(capital,reader,deadline)
-                        if updated != capital:
-                            publish_locked(strategy_id,dict(report,capital=updated),deadline=deadline)
+                        strategy = capital_strategies[strategy_id]
+                        updated = refresh_capital_report(report,reader,deadline,
+                            initial_basis=strategy._initial_capital_basis,
+                            origin=strategy.inputs.capital_baseline,anchor=strategy.inputs.cash_anchor)
+                        if updated != report:
+                            publish_locked(strategy_id,updated,deadline=deadline)
                 except ProjectionPublicationTimeout:
                     # 本轮观察尚未提交时保留最后成功值；下一轮重新读取权威NAP批次。
                     # 原K线回调仍传播该异常，保持原策略/金融写入失败语义。

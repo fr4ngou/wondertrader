@@ -278,6 +278,56 @@ def observe_broker_capital(origin, anchor, native_theoretical_pnl, market_value,
     return value
 
 
+@dataclass(frozen=True)
+class InitialCapitalValuation:
+    """初始化回调独占冻结的估值值对象；账户线程只读，不持有Native资源。"""
+    sequence: int  # 对应初始观察的发布sequence；仅该报告可使用本值恢复初次capital。
+    market_value: Fraction  # 原实际持仓乘原价市值，CNY精确分式；账户晚到时保持。
+    native_theoretical_pnl: Fraction  # 原CTA flag0审计统计，CNY精确分式；保持原观察，不授现金。
+    observed_at: str  # 原估值完成时点，带时区ISO8601；账户到达不得刷新此时点。
+    position_observed_at: str  # 原券商P接收时点，带时区ISO8601；保持来源时间。
+    market_value_source: str  # 原估值来源；沿原CTA报价或原QMT快照枚举。
+    price_observed_at: str | None  # 最旧原价格事件时点，带时区ISO8601；无持仓或原价时间未知为None。
+
+    def __post_init__(self):
+        _require(type(self.sequence) is int and self.sequence > 0
+                 and type(self.market_value) is Fraction and self.market_value >= 0
+                 and type(self.native_theoretical_pnl) is Fraction
+                 and self.market_value_source in ('broker-position+raw-CTA-price','broker-position+raw-QMT-snapshot'))
+        stamp=datetime.fromisoformat(self.observed_at)
+        _require(stamp.utcoffset() is not None and stamp <= datetime.now(timezone.utc))
+        for value in (self.position_observed_at,self.price_observed_at):
+            if value is not None:
+                source=datetime.fromisoformat(value)
+                _require(source.utcoffset() is not None and source <= stamp)
+
+    def observe(self, origin, anchor, account, qualified, *, max_age_seconds):
+        """同一冻结估值接最新账户；复用原现金算法，保留全部原估值时点。"""
+        return observe_broker_capital(origin,anchor,self.native_theoretical_pnl,self.market_value,
+            self.observed_at,account,qualified,max_age_seconds=max_age_seconds,
+            position_observed_at=self.position_observed_at,market_value_source=self.market_value_source,
+            price_observed_at=self.price_observed_at)
+
+
+def refresh_capital_report(report, reader, deadline, *, initial_basis, origin, anchor):
+    """原账户线程的报告接缝；初始capital暂缺可恢复，其余字段保持原对象内容。"""
+    capital=report.get('capital')
+    if capital is not None:
+        updated=refresh_account_constraint(capital,reader,deadline)
+    else:
+        if (initial_basis is None or report.get('sequence') != initial_basis.sequence
+                or report.get('capital_baseline') != origin):
+            return report
+        account,qualified=reader.read(datetime.now(timezone.utc),deadline)
+        if account is None or not qualified:
+            return report
+        try:
+            updated=initial_basis.observe(origin,anchor,account,qualified,max_age_seconds=reader.max_age)
+        except ValueError:
+            return report
+    return report if updated == capital else dict(report,capital=updated)
+
+
 def refresh_account_constraint(value, reader, deadline):
     """续核账户现金并更新差额投影；保留持仓/价格估值及全部原时点。
 
