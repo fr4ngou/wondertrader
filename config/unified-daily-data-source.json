@@ -522,7 +522,7 @@
       "source": "integrations/guanheng/quote_collection.py"
     },
     "integrations/guanheng/quote_collection_service.py": {
-      "sha256": "e458765f85774b833dec37ae65dae73ee6c430f6c101bfda28296e4ea29756c1",
+      "sha256": "78c56c11965b2df85bdf2a4fba7f7e3adbe81aae3328495b9b2e70ece320cf48",
       "source": "integrations/guanheng/quote_collection_service.py"
     },
     "integrations/guanheng/security_reference.py": {
@@ -647,7 +647,7 @@
     },
     "integrations/guanheng/collection_maintenance.py": {
       "source": "integrations/guanheng/collection_maintenance.py",
-      "sha256": "ce618d36796bb72c220191285101c9d674730eb812fff1c6586ff816838eacca"
+      "sha256": "4ce387bf4c63415f827be60a54312bc0efb1753749d5f48b594d72a4aeba3602"
     },
     "integrations/guanheng/collection_minute_reader.py": {
       "source": "integrations/guanheng/collection_minute_reader.py",
@@ -702,5 +702,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.11"
+  "version": "0.2.0a1+unified.12"
 }

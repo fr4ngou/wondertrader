@@ -272,7 +272,7 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
             if maintenance is not None:
                 stage = 'minute_maintenance'
                 try:
-                    maintenance.step()
+                    maintenance.step(source_ready=snapshot['connected'])
                     maintenance.last_error_type = None
                 except (OSError, ValueError, KeyError, TypeError) as exception:
                     # 来源/资料可用性只影响本轮维护；原Writer继续接收并发布实际状态。

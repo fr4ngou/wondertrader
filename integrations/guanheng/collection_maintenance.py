@@ -126,7 +126,7 @@ class MinuteCollectionMaintenance:
             dates.append(today)
         return tuple(dates)
 
-    def step(self):
+    def step(self, *, source_ready=True):
         """每步至多一批原生扫描与一个原窗口推进；原来源调用受其30秒总预算约束。"""
         require(threading.get_ident() == self.owner and not self.closed)
         if self.clock() < self.next_step:
@@ -182,7 +182,8 @@ class MinuteCollectionMaintenance:
             self.cursor += len(symbols)
             if self.cursor >= len(self.symbols):
                 self.cursor = 0; self.cycle += 1
-        if self.jobs:
+        # 本地覆盖扫描照常进行；Source尚未连接时保留队首，避免启动失败项排到全市场队尾。
+        if self.jobs and source_ready:
             symbol, day = key = self.jobs.popleft(); self.queued.remove(key)
             row = self.rows[key]
             grid = self.producer.base.expected_minutes(symbol, day)
