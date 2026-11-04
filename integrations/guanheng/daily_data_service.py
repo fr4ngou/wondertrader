@@ -175,8 +175,9 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                     observed_inputs = True
                 if observed_inputs:
                     _save(directory/'status.json', status)
-                scheduled = once or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
                 entry = index.get(day, {})
+                # 09:00约束新日期首次建任务；已登记任务跨零点或重启后沿原身份立即续接。
+                scheduled = once or bool(entry) or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
                 continuation=entry.get('continuation_required',False)
                 if type(continuation)is not bool:raise ValueError('daily service continuation flag invalid')
                 if scheduled and not input_recovery_failed and (entry.get('state') != 'published'or continuation) and time.monotonic() >= retry_at:
