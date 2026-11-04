@@ -101,7 +101,8 @@ AccountRowInspection decode_trade_row(unsigned stage,const V& row,const AccountB
  if(stage==1){
   admit(F::Filled,filled,[&]{f.filled=num(row,filled,true,true);return true;});
   admit(F::Remaining,remaining,[&]{f.remaining=num(row,remaining,true,true);return true;});
-  admit(F::State,state,[&]{auto value=num(row,state,true,true);check(value>=49&&value<=57,"HTTP委托状态错误");f.state=static_cast<unsigned>(value);return true;});
+  // QMT 48为已创建但尚未报出的正常委托；原字段完整保留，不能按非法值或终态丢弃。
+  admit(F::State,state,[&]{auto value=num(row,state,true,true);check(value>=48&&value<=57,"HTTP委托状态错误");f.state=static_cast<unsigned>(value);return true;});
   admit(F::Cancel,cancel,[&]{if(row[cancel].IsNull())return false;f.cancel=num(row,cancel,true,true);return true;});
  }else admit(F::Amount,amount,[&]{f.amount=num(row,amount,false,true);return true;});
  auto has=[&](std::initializer_list<F> fields){for(auto field:fields)if(!(out.valid&bit(field)))return false;return true;};
@@ -261,7 +262,7 @@ static AccountBatch map_account_rows_impl(unsigned stage,const rapidjson::Value&
     comparable[stage==1?insert_date:trade_date]["value"].SetDouble(day);comparable[stage==1?insert_time:trade_time]["value"].SetDouble(time);comparable[exchange]["value"].SetString(exch.c_str(),a);
     canonical.AddMember("facts",comparable,a);
     if(stage==1){
-     double qty=*decoded_facts.quantity,filled_value=*decoded_facts.filled,left=*decoded_facts.remaining,state_value=*decoded_facts.state,quote=*decoded_facts.price;unsigned state_num=*decoded_facts.state;bool active=state_num==49||state_num==50||state_num==51||state_num==52||state_num==55;bool canceled=state_num==53||state_num==54||state_num==57;
+     double qty=*decoded_facts.quantity,filled_value=*decoded_facts.filled,left=*decoded_facts.remaining,state_value=*decoded_facts.state,quote=*decoded_facts.price;unsigned state_num=*decoded_facts.state;bool active=(state_num>=48&&state_num<=52)||state_num==55;bool canceled=state_num==53||state_num==54||state_num==57;
      if(decoded_facts.cancel)add(canonical,"cancel",*decoded_facts.cancel,a);else canonical.AddMember("cancel",V(),a);
      for(auto pair:{std::make_pair("quantity",qty),{"filled",filled_value},{"remaining",left},{"state",state_value},{"price",quote}})add(canonical,pair.first,pair.second,a);std::string normalized=json_text(canonical);auto inserted=seen.emplace(oid,std::make_pair(normalized,index));if(!inserted.second){check(inserted.first->second.first==normalized,"HTTP委托同ID事实冲突");batch.source_to_output.push_back(inserted.first->second.second);continue;}
      canonical_record(batch,canonical_limits,stage,binding,exch,code_value,day,oid,std::string(),normalized);
