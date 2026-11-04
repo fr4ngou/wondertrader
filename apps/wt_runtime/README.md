@@ -72,6 +72,6 @@ QMT终端内的策略正文和内存共享协议保持其原无文件/网络访�
 
 发行安装器负责从已固定wheel及其摘要离线安装。基础运行依赖只有独立`guanheng-market-client==0.15.0`。显式安装`guanheng-wt-runtime[execution]`时，由本包元数据声明唯一策略v1及原生数量模型依赖，并传递选择原core和tzdata；普通角色安装器按该声明组成六发行闭包，不向WT安装观衡App/Web。该安装选项只提供代码依赖，策略与执行开关仍由原运行配置决定。源码工作目录和`sys.path`注入不属于产品运行方式。
 
-已部署的`0.1.0a12+integrated.2.market.35.3.service.5`使用[固定源码闭包](source_closures/0.1.0a12+integrated.2.market.35.3.service.5/README.md)重建。闭包按正式安装的43个Python模块摘要验收；后继主干修复继续由当前源码维护。
+当前Root接收角色`0.1.0a12+integrated.2.market.35.3.service.7`使用[最终固定源码闭包](source_closures/0.1.0a12+integrated.2.market.35.3.service.7/README.md)重建；[service.5闭包](source_closures/0.1.0a12+integrated.2.market.35.3.service.5/README.md)保留为谱系前代。两个闭包均按对应角色的43个Python模块摘要验收；后继主干修复继续由当前源码维护。
 
 验收入口为`tests/integration/wt_runtime/main_installed.py`，从普通无Web安装环境调用真实CLI，以原Host两代SDK替身、原Reader真实历史和采集协议替身验证运行装配。该范围不授真实券商交易、原Writer本轮运行或完整策略执行资格。最终组合验收需包含唯一1.1.2策略及原执行器。操作见[独立WT运行手册](../../docs/runbooks/wt-independent-runtime.md)。

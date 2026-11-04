@@ -2,6 +2,8 @@
 
 本目录只重建已经部署的`guanheng-wt-runtime==0.1.0a12+integrated.2.market.35.3.service.5`，不改变运行、账户、交易或恢复行为。
 
+该角色是[service.7最终闭包](../0.1.0a12+integrated.2.market.35.3.service.7/README.md)的谱系前代；当前产品闭包以service.7为准。
+
 基线为提交`c0f75a34eda046b7a4fb3b38147005b5d30f6a49`中的`apps/wt_runtime/guanheng_wt_runtime`。其中38个Python模块与正式安装逐字节相同。`overlays/guanheng_wt_runtime`保存另外5个正式安装原件，构建器按`SOURCE-MANIFEST.json`组合并逐文件核SHA256。
 
 ## 五文件来源与主干影响

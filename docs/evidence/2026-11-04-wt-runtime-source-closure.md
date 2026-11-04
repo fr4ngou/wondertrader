@@ -2,6 +2,8 @@
 
 日期：2026-11-04。范围：`guanheng-wt-runtime==0.1.0a12+integrated.2.market.35.3.service.5`的可重建源码、固定构建元数据和普通安装验证。运行中的WT、`CURRENT`控制、统一日线、observer候选、QMT及交易链路均保持原状。
 
+后继`service.6`和`service.7`已由[service.7最终源码闭包](2026-11-04-wt-runtime-service7-source-closure.md)接收；本记录继续作为service.5谱系前代证据。
+
 ## 输入身份与根因
 
 正式安装位于`E:/workspace/wondertrader-data/runtime-service-20261104-004/venv/Lib/site-packages/guanheng_wt_runtime`。原正式wheel为`continuous-runtime/snapshot-wheels001/guanheng_wt_runtime-0.1.0a12+integrated.2.market.35.3.service.5-py3-none-any.whl`，SHA256为`ca8d97f5eadf4f2058d93deb86e1508b5e52e1c8ba95ee52a08462f3a42cc548`。固定主干提交为`c0f75a34eda046b7a4fb3b38147005b5d30f6a49`。
