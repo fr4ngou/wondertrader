@@ -36,6 +36,8 @@
 
 最终程序program006的INSTALLATION SHA为`dbbf5b3596a053918b75be33e27d802180c2787651a886212fddec200e721610`，309文件与8db468b自有源码匹配。完整configuration003部署SHA为`aac090356e092128f9d33818c2cd7d44832beb148b82e2d071bc23f8c28e002a`，全部角色配置准入和原日线base响应保留通过。实际策略优先八ETF已跟随Root改用589680；589000仍保留于全市场订阅。原quotes运行配置与原data/quotes回退分别用role-bindings003固定，复用同一已审DataRoleProcess，纯准入通过。具体操作在QA根HANDOFF-001.md，Root统一执行，当前未切换。
 
+最终包的切换前公开读取补充为`final-public-001/RESULT.json`：同一program006/configuration003在隔离随机端口运行原serve，HPR密钥从环境移除，新八ETF和两股票共10样本均读出今日原值，服务及Reader正常关闭。两指数返回Unavailable，12样本整组验收明确失败，原件保留。静态`INDEX-READ-BOUNDARY001.json`核实真实GH仍为before SHA、仅6982订阅；000001.SH及399001.SZ都未在原QST/原contracts，原目录也无对应DSB。候选才加入IDX声明，真实指数资格仍需Root采用新Source与同批基础资料后核验。SDK替身指数通过保持原范围；不把10/12或缺档当成全链已通过。逐条完成审计见QA根`COMPLETION-AUDIT001.json`，MCC正式运行项仍待验。
+
 本工作树`project.py check`报七个基线缺失链接：股票资料覆盖材料及security-search六个UI文件。它们未由本模块改变，最终主线合入后需再核完整正文。最终源码提交、固定最终包及Root正式切换/公开18136与页面验真继续，整体目标active。
 
 诊断输出事件及整改保存在QA根`DIAGNOSTIC-OUTPUT-INCIDENT.md`，Root已接收无值说明；凭据和运行处置由原维护者统筹，工具记录与本地文件管理分别核定。
