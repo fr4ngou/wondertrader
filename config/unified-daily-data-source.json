@@ -522,7 +522,7 @@
       "source": "integrations/guanheng/quote_collection.py"
     },
     "integrations/guanheng/quote_collection_service.py": {
-      "sha256": "91f20d658c0799563d8e345696b3de726d83cdc55a8aaee527c9149b2dbf85ba",
+      "sha256": "9dbbffe14097dec13aabd9bccfe87ba2b079052a9eadc62e879e4f26dc3af3fe",
       "source": "integrations/guanheng/quote_collection_service.py"
     },
     "integrations/guanheng/security_reference.py": {
@@ -698,5 +698,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.8"
+  "version": "0.2.0a1+unified.9"
 }
