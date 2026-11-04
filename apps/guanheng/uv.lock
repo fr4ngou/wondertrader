@@ -98,7 +98,7 @@ wheels = [
 
 [[package]]
 name = "guanheng-app"
-version = "0.1.0a110+sdk017.1"
+version = "0.1.0a111+wtgroup.2"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

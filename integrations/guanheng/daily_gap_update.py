@@ -267,9 +267,30 @@ def _gap_slot_metadata(slot, current, anchor, generations):
         path = generations / (hashlib.sha256(encode(binding)).hexdigest() + '.json')
         selected = strict_json(read_fixed(path, maximum=1048576))
     if (selected['binding'] != binding or selected['profile'] != original['profile']
+            or selected['limits'] != original['limits']
             or _hpr_business_identity(selected) != _hpr_business_identity(anchor)):
         raise ValueError('daily gap original slot generation differs')
     return selected
+
+
+class _GapTransport:
+    """在原SDK实际构造新请求处核业务metadata；其余运输和关闭沿原owner。"""
+    def __init__(self, transport, anchor, generations):
+        self.transport = transport  # 原factory创建的单worker运输；SDK继续拥有I/O与关闭。
+        self.anchor = anchor  # 原计划完整认证metadata；仅通信代字段允许变化。
+        self.generations = generations  # 本任务不可变metadata目录，不存储新的业务请求。
+
+    def __getattr__(self, name):
+        return getattr(self.transport, name)
+
+    def plan(self, operation, arguments, metadata, deadline):
+        from guanheng_qmt_shm.market_daily_preparation import _original
+        from guanheng_qmt_shm.read_retention_client import RetainedReadBindingChanged
+        if _hpr_business_identity(metadata) != _hpr_business_identity(self.anchor):
+            raise RetainedReadBindingChanged('daily_gap_hpr_business_identity_changed')
+        path = self.generations / (hashlib.sha256(encode(metadata['binding'])).hexdigest() + '.json')
+        _original(path, metadata)  # 实际plan的完整metadata先保存，关闭预检与新槽准入间的限额变化窗口。
+        return self.transport.plan(operation, arguments, metadata, deadline)
 
 
 def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
@@ -279,9 +300,9 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
     max_tasks为本轮观察条数，不改变原任务截止/UUID；取消在项间生效。
     原执行器关闭其有限客户端线程后才返回；Source SDK硬截止由外层Job拥有。
     """
-    from guanheng_qmt_shm.market_daily_preparation import _original
+    from guanheng_qmt_shm.market_daily_preparation import _original, MarketDailyPreparation
     from guanheng_qmt_shm.market_daily_preparation_cli import _reason_code
-    from guanheng_qmt_shm.read_retention_client import RetainedReadPending, RetainedReadFailure
+    from guanheng_qmt_shm.read_retention_client import RetainedReadPending, RetainedReadFailure, RetainedReadBindingChanged
     from guanheng_qmt_shm_agent.history_preparation import OPERATION
     if (type(max_tasks) is not int or not 1 <= max_tasks <= 10000 or not callable(cancelled)
             or type(deadline) not in (int, float) or not math.isfinite(deadline)):
@@ -307,6 +328,9 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
         if type(cursor) is not int or not 0 <= cursor < max(1, len(tasks)):
             raise ValueError('daily gap progress cursor invalid')
     metadata, anchor, generations = _gap_hpr_metadata(preparation_owner, directory, deadline)
+    guarded_owner = MarketDailyPreparation(
+        lambda: _GapTransport(preparation_owner.factory(), anchor, generations),
+        preparation_owner.batch.client.transport, concurrency=preparation_owner.concurrency)
     scope = metadata['profile']['operation_profiles'][OPERATION]['limits']
     observations = directory / 'observations'
     observations.mkdir(exist_ok=True)
@@ -324,9 +348,23 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
                 continue  # 已返回原任务保留单项凭据，后续只实读缓存，不再执行SDK准备。
         slot = directory / 'preparation' / ('%06d.json' % task['index'])
         try:
-            selected_metadata = _gap_slot_metadata(slot, metadata, anchor, generations)
-            records = preparation_owner._prepare_items([(task['index'], task['symbol'], task['start_date'], task['end_date'], slot)],
-                directory, selected_metadata, scope, deadline, None, len(value['tasks']), minimum_new_request_seconds=30)
+            while True:
+                if cancelled():
+                    raise InterruptedError('daily gap advancement stopped')
+                selected_metadata = _gap_slot_metadata(slot, metadata, anchor, generations)
+                try:
+                    records = guarded_owner._prepare_items([(task['index'], task['symbol'], task['start_date'], task['end_date'], slot)],
+                        directory, selected_metadata, scope, deadline, None, len(value['tasks']), minimum_new_request_seconds=30)
+                    break
+                except RetainedReadBindingChanged:
+                    # SDK在创建槽之前拒绝旧通信身份：尚无请求责任，可在原D内重新认证。
+                    # 已有槽保持原ID；来源权限变化仍由原anchor比较拒绝。
+                    if slot.exists() or time.monotonic() + 30 >= deadline:
+                        raise
+                    if cancelled():
+                        raise InterruptedError('daily gap advancement stopped')
+                    metadata, anchor, generations = _gap_hpr_metadata(preparation_owner, directory, deadline)
+                    scope = metadata['profile']['operation_profiles'][OPERATION]['limits']
             row = dict(index=task['index'], state='call_returned', record=records[0], coverage='unknown')
         except (RetainedReadPending, RetainedReadFailure) as error:
             original = strict_json(read_fixed(slot, maximum=1048576)) if slot.exists() else None

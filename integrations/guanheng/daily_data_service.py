@@ -188,7 +188,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         if revision>366:raise ValueError('daily service continuation capacity')
                         history=[*entry.get('history_requests',[]),entry['request']]
                         entry=dict(
-                            request=str(root/day/'continuations'/str(uuid4())/'REQUEST.json'),  # 新修订写独立根，旧成功任务保持。
+                            request=str(root/day/('r%03d' % revision)/'REQUEST.json'),  # 单owner按日递增修订根；缩短Windows路径，原槽/内容摘要保持。
                             state='preparing',  # 先登记路径；崩溃后沿同路径和原输入槽恢复。
                             history_requests=history,  # 原同日修订引用，未丢弃旧请求或原HPR责任。
                             revision=revision)  # 本市场日零基后继修订号，上限366。

@@ -10,6 +10,62 @@ from .daily_gap_update import _hpr_business_identity
 from .market_generation import encode, read_fixed
 
 
+def _validate_capture_metadata(metadata):
+    """离线复用原SDK能力校验函数，核落盘metadata完整性，不访问来源或创建请求。"""
+    from guanheng_qmt_shm import bound
+    from guanheng_qmt_shm_agent.protocol import canonical, decode
+    from guanheng_qmt_shm_agent.read_capabilities import validate_read_profile
+    from guanheng_qmt_shm_agent.read_retention import retention
+    limits = metadata['limits']
+    if (type(limits) is not dict or set(limits) != {'max_request_bytes', 'max_result_bytes',
+            'max_http_request_bytes', 'max_http_response_bytes'}
+            or any(type(value) is not int for value in limits.values())
+            or not 1 <= limits['max_request_bytes'] <= bound.MAX_REQUEST_BYTES
+            or not 1024 <= limits['max_result_bytes'] <= 2097152
+            or not 8192 <= limits['max_http_request_bytes'] <= 4194304
+            or limits != bound.limits(max_frame=limits['max_http_request_bytes'],
+                max_result_bytes=limits['max_result_bytes'], native_body_limit=limits['max_request_bytes'])):
+        # 范围沿原Runtime/BoundJournal，字段关系沿原bound.limits，不引入新的来源额度。
+        raise ValueError('daily capture source limits invalid')
+    checked = bound.binding(metadata['binding'])
+    raw = bound.unb64(metadata['read_profile_body_b64'], 4096)
+    if (metadata['schema_version'] != bound.SCHEMA or metadata['order_ready'] is not False
+            or bound.digest(canonical(checked)) != metadata['binding_sha256']
+            or bound.digest(raw) != metadata['read_profile_body_sha256']
+            or bound.digest(raw) != checked['capability_sha256']):
+        raise ValueError('daily capture source metadata invalid')
+    profile = validate_read_profile(decode(raw), max_result_bytes=metadata['limits']['max_result_bytes'])
+    retention(profile.get('read_retention'))
+    if metadata['profile'] != profile:
+        raise ValueError('daily capture source profile differs')
+
+
+def capture_source_binding(capture, batches):
+    """验证已落盘批次的同一业务来源，返回原capture的anchor摘要。
+
+    Host会话可跨代；每个批次仍由Native谱系保留实际binding和原slot摘要。
+    快照中的单一摘要表示原capture anchor，不替代逐批来源记录。
+    """
+    capture = Path(capture)
+    anchor = strict_json(read_fixed(capture / 'BINDING.json', maximum=1048576))
+    _validate_capture_metadata(anchor)
+    bindings = {hashlib.sha256(encode(batch['binding'])).hexdigest(): batch['binding'] for batch in batches}
+    if not bindings:
+        raise ValueError('daily capture source bindings missing')
+    anchor_digest = hashlib.sha256(encode(anchor['binding'])).hexdigest()
+    if anchor['binding_sha256'] != anchor_digest:
+        raise ValueError('daily capture anchor digest differs')
+    for digest, binding in bindings.items():
+        metadata = anchor if digest == anchor_digest else strict_json(
+            read_fixed(capture / 'read-generations' / (digest + '.json'), maximum=1048576))
+        if metadata is not anchor:
+            _validate_capture_metadata(metadata)
+        if (metadata['binding'] != binding or metadata['binding_sha256'] != digest
+                or _hpr_business_identity(metadata) != _hpr_business_identity(anchor)):
+            raise ValueError('daily capture business source differs')
+    return anchor_digest
+
+
 class _DailyBatchClient(RetainedReadClient):
     """只为同一业务来源选择通信代；原槽的UUID、票据和截止始终保持。"""
 

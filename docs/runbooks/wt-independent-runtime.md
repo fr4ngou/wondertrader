@@ -4,6 +4,8 @@
 
 ## 日常启动、停止和状态查看
 
+安装多个独立WT角色时，可使用[服务组入口](../specs/wt-service-control.md#多角色同一操作入口)按原服务控制器统一操作，观衡继续独立运行。当前实际安装位置与已验行为见[统一WT入口](../releases/2026-11-05-independent-wt-control-and-observer111.md)；日常无需手改每代控制身份。
+
 安装角色固定`service.json`后，操作员只执行以下三个命令，不编辑控制UUID或配置摘要：
 
 ```powershell

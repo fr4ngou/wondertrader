@@ -1,5 +1,7 @@
 # 验证证据
 
+- [五服务启停、观衡111和当日日线](../releases/2026-11-05-independent-wt-control-and-observer111.md)：真实整组恢复、跨代快照和Windows修订路径根因、页面日期及未完成范围。
+
 - [日线发布滞后与行情恢复](2026-11-05-daily-and-collection-recovery.md)：原采集连接恢复、HPR5612项返回、批读通信代根因及508批完成；正式当日发布与主线余项分别记录。
 
 - [全证券分钟投影容量修正](2026-11-04-minute-projection-capacity.md)：实际2MiB冲突、22947行及最大字段宽度原写入/消费红绿、ACL/原子替换、保留原producer的完整升级及实际回退现场接续。

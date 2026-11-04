@@ -111,10 +111,8 @@ def prepare_market_snapshot(base_config,native_import,universe,basic_capture,out
             or imported['observation_date']!=pool['date'].replace('-','')):
         raise ValueError('market snapshot original universe differs')
     base=compose_native_import(base_config,imported);catalog=_catalog(base)
-    bindings={hashlib.sha256(canonical(b['binding'])).hexdigest()for b in lineage['batches']}
-    if len(bindings)!=1:raise ValueError('market snapshot source bindings differ')
-    original_binding=read(Path(lineage['capture'])/'BINDING.json')
-    if original_binding['binding_sha256']not in bindings:raise ValueError('market snapshot original binding differs')
+    from .daily_batch_source import capture_source_binding
+    source_binding = capture_source_binding(lineage['capture'], lineage['batches'])
     if type(additional_archives)not in(tuple,list)or len(additional_archives)>32:
         raise ValueError('market snapshot additional archives invalid')
     for archive in additional_archives:
@@ -140,7 +138,7 @@ def prepare_market_snapshot(base_config,native_import,universe,basic_capture,out
         basics=basics,  # 当前证券资料及其自身可见时刻，缺失保持None。
         provenance=dict(
             capture_sha256=imported['capture_sha256'],  # 原QAB完整捕获身份。
-            source_binding_sha256=next(iter(bindings)),  # 原QMT批次来源绑定；不以WT快照身份冒充来源会话。
+            source_binding_sha256=source_binding,  # 原capture anchor；逐批实际会话归Native谱系保留，同业务跨代不丢原件。
             universe_sha256=sha(universe),  # 请求绑定的原定日股票池。
             basics_sha256=basics_sha256,  # 同一已校验资料字节的原件身份。
             base_configuration_sha256=hashlib.sha256(canonical(base)).hexdigest()))  # 原Reader完整配置身份。

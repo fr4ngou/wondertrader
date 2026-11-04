@@ -171,18 +171,22 @@ def load_instances(settings):
     items = value['instances']
     if type(items) is not list or len(items) > 7:
         raise ValueError('invalid WT instance count')
-    seen = {primary.instance_id} if isinstance(primary, RuntimeObservationConfig) else set()
+    seen = {primary.instance_id} if isinstance(primary, RuntimeObservationConfig) else {str(primary.path)} if isinstance(primary, RuntimeCurrentFile) else set()
     fields = {'wt_status_file', 'wt_control_id', 'wt_instance_id', 'wt_configuration_sha256'}
     for item in items:
-        if type(item) is not dict or set(item) != fields | {'label'}:
+        if type(item) is not dict or set(item) not in (fields | {'label'}, {'label', 'wt_current_file'}):
             raise ValueError('invalid WT instance item')
         label = item['label']
         if type(label) is not str or not 1 <= len(label) <= 64 or any(ord(c) < 32 for c in label):
             raise ValueError('invalid WT instance label')
-        config = RuntimeObservationConfig.from_settings(SimpleNamespace(**{key: item[key] for key in fields}))
-        if config is None or config.instance_id in seen:
+        if 'wt_current_file' in item and (type(item['wt_current_file']) is not str
+                or not item['wt_current_file'] or not Path(item['wt_current_file']).is_absolute()):
+            raise ValueError('invalid WT instance current file')
+        config = RuntimeObservationConfig.from_settings(SimpleNamespace(**{key: value for key, value in item.items() if key != 'label'}))
+        identity = str(config.path) if isinstance(config, RuntimeCurrentFile) else config.instance_id if config else None
+        if identity is None or identity in seen:
             raise ValueError('duplicate WT instance')
-        seen.add(config.instance_id)
+        seen.add(identity)
         rows.append((label, config))
     return rows
 
