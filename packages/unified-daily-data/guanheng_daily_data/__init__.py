@@ -1,2 +1,2 @@
 """WT统一日线数据角色；共享输入、原生Reader和原通信协议沿永久原源码组合。"""
-__version__ = '0.2.0a1+unified.3'
+__version__ = '0.2.0a1+unified.4'

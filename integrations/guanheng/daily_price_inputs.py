@@ -12,7 +12,7 @@ from .market_generation import encode,read_fixed
 from .daily_data_update import _save,_load,_descriptor
 from .daily_data_stages import prepare_directory
 from .analysis_price_capture import load_price_capture,price_batches,original_price_quality
-from .daily_gap_update import prepare_gap_plan,advance_gap_plan
+from .daily_gap_update import prepare_gap_plan,advance_gap_plan,freeze_gap_progress
 from .security_reference import SecurityReference
 from .source_market import create_native_source_market
 
@@ -124,12 +124,20 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
             required_adjustments=('none',),required_from=bounds,cancelled=cancelled),restore)
         plan_value=_load(plan);progress=None;selected=initial
         if plan_value['tasks']:
+            readback_progress=root/'READBACK-PROGRESS.json'
+            if (root/'readback'/'manifest.json').exists()and not readback_progress.exists():
+                # 已完成旧回读缺时点凭据时保守保留责任，不把恢复后的返回配给旧缓存。
+                _save(readback_progress,freeze_gap_progress(plan,None,deadline=deadline,cancelled=cancelled))
             batch=BoundHistorySource(request['connections']['batch'],environ=environ,reuse_connections=True)
             try:
                 owner=MarketDailyPreparation(lambda:BoundHistorySource(request['connections']['hpr'],environ=environ,
                     reuse_connections=True),batch,concurrency=1)
                 progress=advance_gap_plan(plan,root/'gap-work',owner,deadline=deadline,max_tasks=10000,cancelled=cancelled)
             finally:batch.close()
+            if not readback_progress.exists():
+                _save(readback_progress,freeze_gap_progress(plan,progress,root/'gap-work'/'observations',
+                    deadline=deadline,cancelled=cancelled))
+            progress=_load(_descriptor(readback_progress))  # 与原readback共同恢复，完整SDK记录仍在原gap-work。
             selected=capture('readback')
         manifest=load_price_capture(selected);data={}
         for _,items in price_batches(selected,manifest,deadline=deadline,cancelled=cancelled):

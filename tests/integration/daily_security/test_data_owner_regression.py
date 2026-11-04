@@ -101,6 +101,12 @@ class DataOwnerRegressionTests(unittest.TestCase):
         self.assertEqual(calls[0]['binding'],dict(synthetic_epoch='A'))
 
     def test_stock_pending_and_late_result_request_new_revision_without_mutating_readback(self):
+        self._assert_stock_readback_recovery()
+
+    def test_unadvanced_stock_is_frozen_before_late_return_and_old_readback_resume(self):
+        self._assert_stock_readback_recovery(unadvanced=True)
+
+    def _assert_stock_readback_recovery(self,unadvanced=False):
         root=self.root()
         pool=write(root/'pool.json',dict(date='2026-11-03',members=['sh.600000']))
         cache=root/'cache';manifest=dict(request=dict(universe=pool))
@@ -111,7 +117,8 @@ class DataOwnerRegressionTests(unittest.TestCase):
             helper_sha256='a'*64,archive=archive))
         base=write(root/'base.json',{})
         price=write(root/'price.json',dict(inputs=None,reference={},additional_archives=[],maximum_history_rows=2000,securities={
-            'SSE.600000':dict(target_readable=False,reason='confirmed_missing_native')}))
+            'SSE.600000':dict(target_readable=unadvanced,reason='confirmed_missing_native'),
+            **({'SSE.600001':dict(target_readable=False,reason='confirmed_missing_native')}if unadvanced else{})}))
         request=dict(schema='guanheng.daily-data-update.v1',publication_directory=str(root/'publication'),
             cache=cache_descriptor,universe=pool,daily_facts={},security_reference={},calendar={},
             base_configuration=base,basic_capture={},helper=dict(sha256='a'*64),previous_stores=[],
@@ -120,15 +127,18 @@ class DataOwnerRegressionTests(unittest.TestCase):
         def plan(capture,reference,snapshot,output,**kwargs):
             return write(output/'PLAN.json',dict(schema='guanheng.daily-gap-plan.v1',
                 snapshot_id=snapshot['snapshot_id'],capture=capture,authorized_from='20261103',
-                authorized_to='20261103',tasks=[dict(index=0,symbol='600000.SH')]))
+                authorized_to='20261103',tasks=[dict(index=0,symbol='600000.SH')]+([dict(index=1,symbol='600001.SH')]if unadvanced else[])))
         advances=[]
         def advance(descriptor,output,owner,**kwargs):
             output=Path(output);observations=output/'observations'
             if advances:
                 self.assertEqual(json.loads((observations/'000000.json').read_bytes())['row']['state'],'call_returned')
-                rows=[] # The real executor skips a persisted call_returned observation.
+                rows=[] # 原已返回任务跳过；原未推进项本次晚到返回。
+                if unadvanced:
+                    rows=[dict(index=1,state='call_returned')]
+                    write(observations/'000001.json',dict(plan_sha256=descriptor['sha256'],row=rows[0]))
             else:
-                rows=[dict(index=0,state='pending',request_id='original-synthetic-uuid',coverage='unknown')]
+                rows=[dict(index=0,state='call_returned'if unadvanced else'pending',request_id='original-synthetic-uuid',coverage='unknown')]
                 write(observations/'000000.json',dict(plan_sha256=descriptor['sha256'],row=rows[0]))
             advances.append(rows)
             return dict(rows=rows,plan_sha256=descriptor['sha256'])
@@ -169,8 +179,10 @@ class DataOwnerRegressionTests(unittest.TestCase):
             resumed=update.run_update(request,work,deadline=time.monotonic()+60)
         self.assertTrue(first['continuation_required']);self.assertTrue(resumed['continuation_required'])
         self.assertEqual(resumed['gap_readback_progress']['rows'][0]['request_id'],'original-synthetic-uuid')
-        self.assertEqual(first['gap_progress']['rows'][0]['state'],'pending')
-        self.assertEqual(resumed['gap_progress']['rows'],[]);self.assertEqual(len(readbacks),1)
+        self.assertEqual(first['gap_progress']['rows'][0]['state'],'call_returned'if unadvanced else'pending')
+        self.assertEqual(resumed['gap_progress']['rows'],[dict(index=1,state='call_returned')]if unadvanced else[])
+        self.assertEqual(len(readbacks),1)
+        if unadvanced:self.assertEqual(resumed['gap_readback_progress']['rows'][1]['state'],'unattempted')
 
     def test_published_reference_preserves_old_etf_identity_and_current_group_count(self):
         root=self.root()

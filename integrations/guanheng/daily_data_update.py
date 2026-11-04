@@ -39,7 +39,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
     失败保留阶段、原slot及当前版本；同任务恢复沿原slot，首次成功阶段保持只读。
     原SDK及DLL的物理硬截止由外层WT进程Job负责，返回前关闭本轮全部Reader/连接。
     """
-    from .daily_gap_update import prepare_gap_plan, advance_gap_plan
+    from .daily_gap_update import prepare_gap_plan, advance_gap_plan,freeze_gap_progress
     from .day_facts import DayFactsStore
     from .security_reference import SecurityReference
     from .source_history_transport import BoundHistorySource
@@ -142,9 +142,12 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 restore_plan))
             plan_value = _load(plan)
             if plan_value['tasks']:
-                if 'readback'in state['stages']and 'gap_readback_progress'not in state:
-                    # 既有回读先固定当时已保存的责任；后续advance的新观察不能改变旧价格来源时点。
-                    state['gap_readback_progress']=state.get('gap_progress')
+                prior_progress=state.get('gap_readback_progress',state.get('gap_progress'))
+                if ('gap_readback_progress'in state or 'readback'in state['stages'])and (
+                        prior_progress is None or prior_progress.get('schema')!='guanheng.daily-gap-readback-progress.v1'):
+                    # 已存在回读的旧时点缺项保持未推进；较晚磁盘观察只归后继修订。
+                    state['gap_readback_progress']=freeze_gap_progress(plan,prior_progress,
+                        deadline=deadline,cancelled=cancelled)
                     _save(journal,state)
                 if 'connections' not in request:
                     raise ValueError('daily update gaps require original connections')
@@ -159,8 +162,9 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 _save(journal, state)
                 check()
                 source = BatchAnalysisSource(transport, lifetime_ms=30000)
-                if 'readback'not in state['stages']:
-                    state['gap_readback_progress']=progress  # 此次价格回读开始前的原任务状态，随阶段恢复保持。
+                if 'gap_readback_progress'not in state:
+                    state['gap_readback_progress']=freeze_gap_progress(plan,progress,root/'gap-work'/'observations',
+                        deadline=deadline,cancelled=cancelled)  # 此次回读前完整责任，随阶段恢复保持。
                     _save(journal,state)
                 reread = stage('readback', lambda: _capture(source, manifest['request'], root / 'readback', deadline,check))
                 capture = Path(reread['directory'])

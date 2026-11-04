@@ -8,10 +8,14 @@ from ..guanheng_market_client import strict_json
 def _pending_symbols(descriptor,progress,observations):
     """按实际回读时固定的进度判定责任；缺省项续核原单项观察，不依赖本次rows长度。"""
     plan=_load(descriptor);observed={row['index']:row['state']for row in progress['rows']}if progress is not None else{}
+    frozen=progress is not None and progress.get('schema')=='guanheng.daily-gap-readback-progress.v1'
+    if frozen and (progress.get('plan_sha256')!=descriptor['sha256']
+            or len(observed)!=len(progress['rows'])or set(observed)!={task['index']for task in plan['tasks']}):
+        raise ValueError('price continuation complete readback progress differs')
     pending=set()
     for task in plan['tasks']:
         state=observed.get(task['index'])
-        if state is None:
+        if state is None and not frozen:
             path=Path(observations)/('%06d.json'%task['index'])
             if path.exists():
                 original=strict_json(read_fixed(path,maximum=1048576))

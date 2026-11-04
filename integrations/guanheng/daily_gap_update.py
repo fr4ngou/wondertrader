@@ -168,6 +168,48 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
     return dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 
 
+def freeze_gap_progress(plan,progress,observations=None,*,deadline,cancelled=lambda:False):
+    """固定本次回读前的全部计划状态；未推进项显式保存，恢复不会借较晚观察改写时点。
+
+    observations为回读开始前仍由同一owner持有的原单项观察目录。恢复已有回读但
+    缺完整状态时只采用已存进度，缺项保守标记unattempted，交后继修订重新实读。
+    快照只保留状态及原请求ID；完整SDK记录继续由原slot/observations拥有。
+    """
+    from .daily_data_update import _load
+    value=_load(plan);observed={}
+    if progress is not None:
+        if progress.get('plan_sha256')!=plan['sha256']:
+            raise ValueError('daily readback progress plan differs')
+        for row in progress['rows']:
+            if row['index']in observed:raise ValueError('daily readback progress index repeated')
+            observed[row['index']]=row
+    tasks=value['tasks'];indices={task['index']for task in tasks}
+    if len(indices)!=len(tasks)or not set(observed)<=indices:
+        raise ValueError('daily readback progress indices differ')
+    rows=[]
+    for task in tasks:
+        if cancelled():raise InterruptedError('daily readback progress stopped')
+        if time.monotonic()>=deadline:raise TimeoutError('daily readback progress deadline')
+        row=observed.get(task['index'])
+        if row is None and observations is not None:
+            path=Path(observations)/('%06d.json'%task['index'])
+            if path.exists():
+                original=strict_json(read_fixed(path,maximum=1048576))
+                if original['plan_sha256']!=plan['sha256']or original['row']['index']!=task['index']:
+                    raise ValueError('daily readback observation identity differs')
+                row=original['row']
+        state=row['state']if row is not None else'unattempted'
+        if state not in('call_returned','pending','source_unavailable','unattempted'):
+            raise ValueError('daily readback progress state invalid')
+        item=dict(index=task['index'],state=state)  # 原计划索引与回读前状态，缺观察明确未推进。
+        if row is not None and row.get('request_id')is not None:item['request_id']=row['request_id']  # 原未知请求UUID，不产生新身份。
+        rows.append(item)
+    return dict(
+        schema='guanheng.daily-gap-readback-progress.v1',  # 完整时点快照，区别每次advance的稀疏增量。
+        plan_sha256=plan['sha256'],  # 原不可变计划身份，防止配错回读责任。
+        rows=rows)  # 每个计划索引恰好一项，包括未推进项；完整回读恢复时保持。
+
+
 def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
                      cancelled=lambda: False, on_progress=None, task_indices=None):
     """调用方持排他写锁；每项复用原执行器，Pending保留slot并让其他项推进。
