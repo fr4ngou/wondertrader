@@ -30,13 +30,15 @@ print('fresh SMP import and shared calendar available')
 '''
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run([sys.executable, '-I', '-B', '-c', script, str(ROOT)],
-                cwd=directory, capture_output=True, text=True, timeout=30)
+                cwd=directory, capture_output=True, text=True, timeout=30,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_direct_script_help_keeps_isolated_entry_support(self):
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run([sys.executable, '-I', '-B', str(ROOT/'integrations/guanheng/quote_collection_service.py'), '--help'],
-                cwd=directory, capture_output=True, text=True, timeout=30)
+                cwd=directory, capture_output=True, text=True, timeout=30,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('usage:', result.stdout)
 
