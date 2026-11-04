@@ -19,6 +19,29 @@ _FIELDS = {'schema', 'analysis_ready', 'analysis', 'history', 'current_view', 'u
            'factor_events', 'native_securities', 'selection', 'qualification'}
 
 
+def bind_market_window(wire, publication):
+    """沿现有行情边界绑定三项市场事实；周期、配置和资本继续归调用者。"""
+    from guanheng_strategy_v1 import RetainedInput, SYMBOLS
+    _need(type(publication) is dict and set(publication) == _FIELDS
+          and publication['schema'] == 'guanheng.qmt-native-analysis-window.v1'
+          and publication['analysis_ready'] is True
+          and publication['units'] == {'price': 'CNY', 'volume': 'lot', 'amount': 'unknown'},
+          'market_window_protocol')
+    # 证券角色换代后，原价、因子、分析价须来自同一组实际基金；拒绝旧ETF改名复用。
+    expected = set(SYMBOLS)
+    _need(type(publication['native_securities']) is dict
+          and type(publication['factor_events']) is dict
+          and set(publication['native_securities']) == set(publication['factor_events']) == expected,
+          'market_window_roles')
+    updated = dict(wire)
+    updated.update({key: publication[key] for key in ('history', 'analysis', 'current_view')})
+    request = RetainedInput.from_dict(updated)
+    _need({row.symbol for row in request.history.observations} == expected
+          and {row.observation.symbol for row in request.analysis.bars} == expected,
+          'market_window_roles')
+    return request
+
+
 def _snapshot(path, deadline):
     """发布者原子换名时读取已打开的一代；同一文件原地写入属于协议错误。"""
     maximum = 32*1024*1024
@@ -76,16 +99,11 @@ class MarketWindowFile:
         if raw is None:
             return MarketWindowRead(None, None, 'market_window_unavailable')
         value = _json(raw)
-        _need(type(value) is dict and set(value) == _FIELDS
-              and value['schema'] == 'guanheng.qmt-native-analysis-window.v1'
-              and value['analysis_ready'] is True
-              and value['units'] == {'price': 'CNY', 'volume': 'lot', 'amount': 'unknown'}, 'market_window_protocol')
         # 只编码少量非行情字段；完整市场数组已经来自本次原JSON，不另复制旧窗口。
         small = {field.name: getattr(request, field.name) for field in fields(RetainedInput)
                  if field.name not in ('history', 'analysis', 'current_view')}
         wire = json.loads(canonical_bytes(small, max_bytes=65536))
-        wire.update({key: value[key] for key in ('history', 'analysis', 'current_view')})
-        updated = RetainedInput.from_dict(wire)
+        updated = bind_market_window(wire, value)
         publication = dict(schema='guanheng.retained-market-window-observation.v1',
             publication_sha256=hashlib.sha256(raw).hexdigest(),
             source_revision=updated.history.source_revision, factor_revision=updated.history.factor_revision,

@@ -1,4 +1,4 @@
-"""唯一1.1.2报告准入和逐日投影；任务、归档、绩效复用此只读边界。"""
+"""唯一1.2.1报告准入和逐日投影；任务、归档、绩效复用此只读边界。"""
 from dataclasses import dataclass, fields
 from datetime import date, datetime
 from fractions import Fraction
@@ -8,13 +8,13 @@ import re
 from guanheng_strategy_core.models import observation_close_at
 from guanheng_strategy_native import (Basis, EconomicTarget, NativePosition, Observation,
     Outcome, Price, Quantity, QuantityPolicy, StageState, Weight)
-from guanheng_strategy_v1 import RetainedHistoricalModel, SYMBOLS
+from guanheng_strategy_v1 import RetainedHistoricalModel, SYMBOLS, STRATEGY_ID, STRATEGY_VERSION, ALGORITHM_ID
 from .retained_replay import REPORT_SCHEMA, REPORT_SCOPE
 from .retained_evaluation import target_for_result, advance_retained
 from .strategy_replay_facts import SessionError, _MODEL, _digest, _json, _quantity
 from .report_values import _snapshot_json, _freeze_json, _thaw_json, _run_report_checked
 
-ALGORITHM = 'resonance-regime-v1@1.1.2/ledger-front-ratio-v1'
+ALGORITHM = ALGORITHM_ID
 NATIVES = {s: ('SSE' if s.endswith('.SH') else 'SZSE')+'.ETF.'+s[:6] for s in SYMBOLS}
 
 
@@ -95,7 +95,7 @@ def summary(value, day, historical, configuration_sha):
         'decision_cutoff current_view budget_fraction targets source_allocation_date exit_paths next_exits '
         'holding_days reference_prices model_states analysis_source_kind source_qualified execution_qualified historical_model')
     need((value['schema'], value['strategy_id'], value['strategy_version']) ==
-        ('guanheng.retained-replay-decision.v1', 'resonance-regime-v1', '1.1.2'))
+        ('guanheng.retained-replay-decision.v1', STRATEGY_ID, STRATEGY_VERSION))
     for key in ('full_result_sha256', 'input_sha256', 'configuration_sha256'):
         sha(value[key])
     need(value['configuration_sha256'] == configuration_sha)
@@ -252,7 +252,7 @@ def _admit(value, check, *, per_date=False):
         if per_date:
             from .retained_per_date_replay import REPORT_SCHEMA as schema, REPORT_SCOPE as scope
         need((value['schema'], value['scope'], value['strategy_id'], value['strategy_version']) ==
-            (schema, scope, 'resonance-regime-v1', '1.1.2'))
+            (schema, scope, STRATEGY_ID, STRATEGY_VERSION))
         for name in ('session_id', 'input_sha256', 'configuration_sha256'):
             sha(value[name])
         need(value['source_qualified'] is False and value['execution_qualified'] is False)
@@ -313,7 +313,7 @@ def _admit(value, check, *, per_date=False):
             if out.state is not None:
                 t = out.state.target
                 need(out.state.policy == policy and t.universe == SYMBOLS
-                    and (t.strategy_id, t.algorithm_id, t.config_id) == ('resonance-regime-v1', ALGORITHM, value['configuration_sha256']))
+                    and (t.strategy_id, t.algorithm_id, t.config_id) == (STRATEGY_ID, ALGORITHM, value['configuration_sha256']))
             back = pairs(record['readback'], 8)
             need(set(back) <= set(NATIVES.values()))
             if out.submit_targets:

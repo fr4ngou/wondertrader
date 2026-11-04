@@ -16,6 +16,7 @@ from .execution_strategy import _need
 from .managed_local_process import _inspect, _json, _path, _read, _sha
 
 
+
 def _encode(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('ascii')
 
@@ -44,7 +45,7 @@ class InitialInventoryPreparation:
     position_count: int  # 非空库存证券条目数，单位项，范围0..8；0表示已知空仓，不是来源未知。
 
 
-def prepare_initial_inventory(template, facts, *, now, uptime_ms, capital=None):
+def prepare_initial_inventory(template, facts, *, now, uptime_ms, capital=None, cash_account=None):
     """纯值装配，保留原价/分析/参数/数量policy；所有旧周期与退出初值归零。
 
     facts由当前券商/标价owner冻结并绑定来源摘要；捕获/有效期不宣称四查询
@@ -52,7 +53,7 @@ def prepare_initial_inventory(template, facts, *, now, uptime_ms, capital=None):
     实际时钟；明确隔离模型可注入时钟。函数不写文件、不调用SDK、不发委托。
     """
     from guanheng_strategy_core.contracts import canonical_bytes, utc_timestamp
-    from guanheng_strategy_v1 import PositionCycle, SYMBOLS
+    from guanheng_strategy_v1 import STRATEGY_VERSION, PositionCycle, SYMBOLS
     from .execution_configured import RetainedRuntimeInput
 
     _need(type(template) is RetainedRuntimeInput and type(facts) is dict, 'initial_inventory_input')
@@ -115,19 +116,28 @@ def prepare_initial_inventory(template, facts, *, now, uptime_ms, capital=None):
         from .strategy_capital import current_capital
         declared = current_capital(capital)
         policy = replace(policy, initial_capital_cny=declared['total_cny'], capital_source=declared['source'])
-        origin = dict(
-            schema='guanheng.current-capital-baseline.v1',  # 固定当前资本基准协议版本。
-            **declared,  # total_cny为含库存的CNY十进制资本，source为声明来源；二者均经current_capital核准。
-            baseline_at=now.isoformat(),  # 首次启用的UTC ISO8601时点；由本次准备调用提供，后续恢复保留。
-            historical_initial_capital_cny=None)  # 旧历史本金，单位CNY；固定未知，不把当前资本或0当历史事实。
-    runtime = replace(template, request=request, policy=policy, capital_baseline=origin)
+        origin = dict(schema='guanheng.current-capital-baseline.v1', **declared,
+                      baseline_at=now.isoformat(), historical_initial_capital_cny=None)
+    # cash_account为本次已核券商账户现金；仅同次新基准创建原点，缺失保持未知。
+    anchor = template.cash_anchor
+    if cash_account is not None:
+        from fractions import Fraction
+        from .strategy_capital import create_cash_anchor
+        _need(capital is not None, 'cash_anchor_new_baseline')
+        market_value = sum((item['quantity']*Fraction(repr(item['mark_price']))
+                            for item in positions.values()), Fraction(0))
+        anchor = create_cash_anchor(origin, market_value, cash_account,
+            position_source_sha256=source, price_source_sha256=sha256(_encode(rows)).hexdigest())
+    elif capital is not None:
+        anchor = None  # 新基准的现金原点必须同次冻结；旧原点保持在原输入归档。
+    runtime = replace(template, request=request, policy=policy, capital_baseline=origin, cash_anchor=anchor)
     raw = canonical_bytes(runtime, max_bytes=16*1024*1024)
     native = None
     if rows:
         # 原P23明细时间承载新账本载入基准；唯一核另以明确baseline_at识别
         # 初始库存。原生重新核当前数量/可卖和未决责任，不生成旧真实成交。
         payload = dict(schema='guanheng.cta-takeover.v1' if explicit_day else 'guanheng.cta-takeover.v2', strategy_id='resonance-regime-v1',
-            strategy_version='1.1.2', source_sha256=source,
+            strategy_version=STRATEGY_VERSION, source_sha256=source,  # 真实策略版本；Root的自有CtaProcess解析器同步接受1.2.1。
             captured_uptime_ms=facts['captured_uptime_ms'], valid_until_uptime_ms=facts['valid_until_uptime_ms'],
             performance_basis='takeover-mark', positions=rows,
             strategy_state=_encode(dict(schema='guanheng.retained-init.v1', input_sha256=sha256(raw).hexdigest())).decode('ascii'))

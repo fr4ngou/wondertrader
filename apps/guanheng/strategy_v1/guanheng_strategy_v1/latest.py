@@ -1,4 +1,4 @@
-"""正式1.1.2的完整纯决策；实际周期和复权事实由外部owner冻结提供。"""
+"""正式1.2.1的完整纯决策；实际周期和复权事实由外部owner冻结提供。"""
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass, replace
 from datetime import date, datetime
 from decimal import Context, Decimal, ROUND_HALF_UP
@@ -16,11 +16,7 @@ from guanheng_strategy_core.models import DailyObservation, observation_close_at
 from guanheng_strategy_core.signals import ROLE_SIGNAL_MACHINES
 from .historical import RetainedHistoricalModel
 
-STRATEGY_ID, STRATEGY_VERSION = 'resonance-regime-v1', '1.1.2'
-ROLE_SYMBOLS = {'csi300': '510300.SH', 'sh50': '510050.SH', 'zz500': '510500.SH',
-    'zz1000': '512100.SH', 'kc50': '588000.SH', 'kc_composite': '589000.SH',
-    'sc50': '159780.SZ', 'dividend': '515080.SH'}
-SYMBOLS = tuple(sorted(ROLE_SYMBOLS.values()))
+from .role_profile import KC_SYMBOL, ROLE_SYMBOLS, STRATEGY_ID, STRATEGY_VERSION, SYMBOLS
 ZONE = ZoneInfo('Asia/Shanghai')
 
 
@@ -67,14 +63,14 @@ def _copy(value, kind):
 @dataclass(frozen=True, slots=True)
 class RetainedConfig:
     """六参数沿已核正式配置；预算为账户比例，算法不把它改成全部现金。"""
-    config_revision: str
-    budget_fraction: float
-    symbol_cap_weight: float = .25
-    max_weight_change: float = .25
-    kc_composite_signal_symbol: str = '589000.SH'
-    kc_composite_execution_symbol: str = '589000.SH'
-    signal_warmup_policy_version: str = 'regime-available-v1'
-    state_input_policy_version: str = 'ledger-front-ratio-v1'
+    config_revision: str  # 配置所有者提供的版本身份；变更角色后必须生成新的非空ASCII身份。
+    budget_fraction: float  # 策略预算占账户比例；沿原配置，范围(0, 0.95]，无单位。
+    symbol_cap_weight: float = .25  # 单证券目标权重上限；沿原规则固定0.25。
+    max_weight_change: float = .25  # 单次权重变化上限；沿原规则固定0.25。
+    kc_composite_signal_symbol: str = KC_SYMBOL  # 本版科创综指信号证券；使用鹏华自身原价与前复权历史。
+    kc_composite_execution_symbol: str = KC_SYMBOL  # 本版科创综指执行证券；须与信号、周期和成本证券一致。
+    signal_warmup_policy_version: str = 'regime-available-v1'  # 现有信号预热规则版本；沿原可用历史语义。
+    state_input_policy_version: str = 'ledger-front-ratio-v1'  # 实际周期及同基准前复权输入规则；沿1.1.2分支。
 
 
 def validate_retained_configuration(config: RetainedConfig) -> None:
@@ -87,8 +83,8 @@ def validate_retained_configuration(config: RetainedConfig) -> None:
              config.signal_warmup_policy_version, config.state_input_policy_version))
         and (config.kc_composite_signal_symbol, config.kc_composite_execution_symbol,
              config.signal_warmup_policy_version, config.state_input_policy_version)
-        == ('589000.SH', '589000.SH', 'regime-available-v1', 'ledger-front-ratio-v1'),
-        'invalid_configuration', '配置须符合正式1.1.2六参数和策略预算')
+        == (KC_SYMBOL, KC_SYMBOL, 'regime-available-v1', 'ledger-front-ratio-v1'),
+        'invalid_configuration', '配置须符合正式1.2.1六参数和策略预算')
 
 
 @dataclass(frozen=True, slots=True)

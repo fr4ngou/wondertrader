@@ -14,7 +14,7 @@ from .strategy_host import (SCHEMA, HostError, _BASES, _bytes, _check, _digest, 
 
 
 def decode_session(value):
-    """只解析现有唯一1.1.2值合同，不接受模块或策略族选择。"""
+    """只解析现有唯一1.2.1值合同，不接受模块或策略族选择。"""
     from .retained_replay import RetainedReplayInput
     return RetainedReplayInput.from_dict(value)
 

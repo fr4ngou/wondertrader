@@ -67,19 +67,21 @@
   "source_use": "static only; never import old QMT",
   "core": "guanheng-strategy-core==0.1.0a8",
   "adaptations": [
-    "Single retained 1.1.2 entry; legacy pipeline archived outside runtime",
+    "1.2.1 uses the complete retained actual-cycle engine from 1.1.2 and an explicitly bound KC ETF role",
     "Shared feature/signal/allocation mathematics; externally supplied native cycles and exit state",
     "Pure current-visible reconstruction; no old ledger, worker, scheduler or broker dependency",
     "Explicit historical final-basis model shares the strict current-view rule engine; actual receipt retained",
     "Continued actual exits keep original economic event date; resolution creates current decision event",
-    "Explicit initial inventory inception; no imported old opening, trades or cycle state; restart retains inception"
+    "Explicit initial inventory inception; no imported old opening, trades or cycle state; restart retains inception",
+    "1.2.1 binds signal/execution to the same role ETF and preserves 1.1.2 actual-cycle, initial inventory and front-ratio mathematics."
   ],
   "owned_sources": {
+    "__init__.py": "5c184bd09355ccde530523af86dd5cc75945a08f72020f6490f7999f16ff6b6e",
     "historical.py": "7ada722a06b0a8eaa3ae5a9281e5c92b6c7d1fc5668a535d1dc8b6dfe8368cad",
-    "latest.py": "6bfb1579bb3de29749ab38a60f8c8ad7405e70412e69761fbc29fcafa230239b",
-    "__init__.py": "c32bc60fbd9213a925862b62bad1f4cbf6ec9e8faccc5bb886cc596e1dd152d8"
+    "latest.py": "c195165c63c0714635df578eebef8565875f69d0ba9f691a3a9e4b4a20457bfd",
+    "role_profile.py": "f8464b581c9b5af648651cd559e2fadd2462abaf0d315e2228955041431f0c6e"
   },
-  "package_version": "0.1.0a8",
+  "package_version": "0.1.0a9",
   "dependencies": {
     "guanheng-strategy-core": "0.1.0a8",
     "tzdata": "2026.3"
@@ -88,7 +90,7 @@
     "guanheng-strategy-core==0.1.0a8",
     "tzdata==2026.3"
   ],
-  "algorithm_identity": "resonance-regime-v1@1.1.2/ledger-front-ratio-v1",
+  "algorithm_identity": "resonance-regime-v1@1.2.1/ledger-front-ratio-v1",
   "actual_cycle_rule_sources": {
     "ledger_engine.py": "f7dcbc5c8faeb36aaef2adaf3f774f1765128445dcb17924a81e2359ff8477d8",
     "signals.py": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238"

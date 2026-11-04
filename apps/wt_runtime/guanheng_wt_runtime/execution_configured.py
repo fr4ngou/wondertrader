@@ -120,12 +120,13 @@ class RetainedRuntimeInput:
     market_manifest_source: str  # 冻结行情清单的非空来源标识；不代替各批行情的实际来源时间或摘要。
     schema: str = 'guanheng.retained-cta-input.v1'  # 固定输入协议版本；默认沿原格式，缺失时仍由解析器拒绝。
     capital_baseline: dict | None = None  # 首次启用的当前总资本基准，含库存；None沿旧资本配置，存在时正常恢复复用原值。
+    cash_anchor: dict | None = None  # 本次预算的券商现金原点；包含初始分配现金/账户现金及来源SHA，实际资本模式必填，旧解析可缺省。
 
     @classmethod
     def from_dict(cls, value):
         from guanheng_strategy_v1 import RetainedInput
         from guanheng_strategy_native import Basis, Price, QuantityPolicy
-        _need(type(value) is dict and set(cls.__dataclass_fields__)-{'capital_baseline'} <= set(value)
+        _need(type(value) is dict and set(cls.__dataclass_fields__)-{'capital_baseline','cash_anchor'} <= set(value)
               <= set(cls.__dataclass_fields__)
               and value['schema'] == 'guanheng.retained-cta-input.v1', 'retained_input')
         data = dict(value)
@@ -135,6 +136,9 @@ class RetainedRuntimeInput:
         if data.get('capital_baseline') is not None:
             from .strategy_capital import baseline
             data['capital_baseline'] = baseline(data['capital_baseline'], data['policy'])
+        if data.get('cash_anchor') is not None:
+            from .strategy_capital import cash_anchor
+            data['cash_anchor'] = cash_anchor(data['cash_anchor'], data['capital_baseline'])
         source = data['market_manifest_source']
         _need(type(source) is str and 1 <= len(source) <= 256
               and all(32 <= ord(c) <= 126 for c in source), 'market_source')
@@ -146,7 +150,7 @@ class RetainedRuntimeInput:
 
 
 class RetainedStrategy:
-    """唯一1.1.2实时薄桥。周期元数据存原KV，数量只读取原owner。
+    """唯一1.2.1实时薄桥。周期元数据存原KV，数量只读取原owner。
 
     首次已核周期可连续部分增减/清仓；新开仓起点缺少实际来源时等待。
     新周期仅消费原管理成交的源时间；缺少完整事实时保持等待。
@@ -191,6 +195,7 @@ class RetainedStrategy:
         self.capital_market = parameters.get('capital_market')
         if self.inputs.capital_baseline is not None:
             from .strategy_capital import AccountCashReader
+            _need(self.inputs.cash_anchor is not None, 'capital_cash_anchor')
             self.capital_reader = AccountCashReader(parameters['capital_account'], self.max_age)
         from .execution_market_window import MarketWindowFile
         self.market_window = MarketWindowFile.from_dict(parameters['market_window']) if 'market_window' in parameters else None
@@ -249,6 +254,15 @@ class RetainedStrategy:
         self.cycles, self.exits = {}, ()
         self.flat_sources = {}
         self.restored_state_id, self.restored_sequence = None, None
+
+    def _publish(self,value,*,preview=False,deadline):
+        """每份初始/状态观察携带当前kernel与执行集合；不推定尚未产生的目标或收益。"""
+        from guanheng_strategy_v1 import STRATEGY_VERSION
+        definition=dict(
+            strategy_id=self.id,  # 本次WT绑定的策略身份，来自已准入运行配置。
+            strategy_version=STRATEGY_VERSION,  # 本次实际安装并调用的kernel版本，非App依赖版本。
+            symbols=list(self.execution))  # 本次已准入执行证券，业务SH/SZ代码；不含猜测持仓或目标权重。
+        return self.publish(self.id,dict(value,definition=definition),preview=preview,deadline=deadline)
 
     def binding(self):
         return StrategyBinding(self.id, self.main, self.reads, self.targets if self.execution_enabled else (), self.callback)
@@ -378,20 +392,23 @@ class RetainedStrategy:
         print('CTA retained strategy initialized',flush=True)
         print('CTA retained strategy initialized',file=sys.stderr,flush=True)
 
-    def _native_cash(self, funds, market_value):
-        """按R34计算策略剩余预算；理论目标和实际持仓在执行中可以不同。
-
-        WT flag0提供策略损益，完整券商数量和原价提供实际占用市值。
-        两者的差额属于策略预算，券商可用/冻结约束由observe_capital继续核验。
-        此处不据理论目标证明成交，也不要求成交先完成才能规划后续目标。
-        """
+    def _native_cash(self, funds, market_value, account=None):
+        """由固定原点和券商现金差得到实际策略余额；CTA统计只保留审计。"""
         from .execution_facts import _decimal
+        from .strategy_capital import broker_cash_balance
         _need(math.isfinite(funds.fund_pnl) and market_value>=0,'native_funds')
-        pnl=Fraction(repr(funds.fund_pnl))
-        cash=Fraction(self.inputs.capital_baseline['total_cny'])+pnl-market_value
-        self.native_cash_basis=dict(source='original-WT:flag0-minus-broker-position-market-value',
-            native_pnl_cny=_decimal(pnl),market_value_cny=_decimal(market_value),
-            cash_balance_cny=_decimal(cash))
+        self.native_cash_basis=None
+        if account is None:
+            return None
+        try:
+            cash=broker_cash_balance(self.inputs.cash_anchor,account)
+        except ValueError:
+            return None
+        self.native_cash_basis=dict(source='broker-cash-delta',
+            cash_anchor_sha256=_digest(self.inputs.cash_anchor),
+            account_source_sha256=account.source_sha256,
+            native_theoretical_pnl_cny=repr(funds.fund_pnl),
+            market_value_cny=_decimal(market_value),cash_balance_cny=_decimal(cash))
         return cash
 
     def _publish_initial_observation(self, context, broker, response, reason, *, deadline):
@@ -404,9 +421,9 @@ class RetainedStrategy:
             native_cash_basis=getattr(self,'native_cash_basis',None),
             retained_market_source=self.retained_market_source)
         if self.market_window is not None:candidate['market_window']=self.initial_market_window
-        self.publish(self.id,candidate,preview=True,deadline=deadline)
+        self._publish(candidate,preview=True,deadline=deadline)
         context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
-        self.publish(self.id,candidate,deadline=deadline)
+        self._publish(candidate,deadline=deadline)
 
     def _publish_initial_capital(self, context, broker):
         try:
@@ -455,16 +472,15 @@ class RetainedStrategy:
         for previous, source in prior_strategy_observations(self.recovery_native,self.id,deadline=deadline):
             capital = previous.get('capital')
             if type(capital) is not dict:continue
-            cash=self._native_cash(funds,Fraction(capital['market_value_cny']))
             prior_basis = previous.get('native_cash_basis')
             positions = previous.get('broker_observation',{}).get('positions',[])
             old = {row['symbol']:row['quantity'] for row in positions if row['quantity']}
             _need(old == expected and previous.get('cycle_metadata') == self.cycles
                 and previous.get('capital_baseline') == self.inputs.capital_baseline
-                and prior_basis == self.native_cash_basis
+                and type(prior_basis) is dict
+                and prior_basis.get('cash_anchor_sha256') == _digest(self.inputs.cash_anchor)
                 and capital['baseline'] == self.inputs.capital_baseline
-                and Fraction(capital['cash_balance_cny']) == cash
-                and Fraction(capital['native_pnl_cny']) == Fraction(repr(funds.fund_pnl)),
+                and capital.get('cash_anchor') == self.inputs.cash_anchor,
                 'retained_capital_basis_changed')
             kind = capital['market_value_source'];response = None
             if kind == 'broker-position+raw-QMT-snapshot':
@@ -480,10 +496,7 @@ class RetainedStrategy:
                 if not (type(basis) is dict and type(basis.get('prices')) is list
                         and type(window) is dict and type(window.get('publication_sha256')) is str
                         and type(price_time) is str):continue
-                # NSQ basis.cash是NAP约束后的可用金额；旧账户有效性与原价复用各自核验。
-                # 现金账已由capital和native_cash_basis核对，本代账户约束在读取后重新计算。
-                _need(Fraction(basis['native_pnl_cny']) == Fraction(capital['native_pnl_cny']),
-                    'retained_capital_basis_changed')
+                # 原报价只核价格来源；NAP刷新可独立更新现金，恢复沿同一原点重读当前账户。
                 prices = {}
                 expected_source = 'original-CTA:applied-tick;window:'+window['publication_sha256']
                 for row in basis['prices']:
@@ -509,7 +522,7 @@ class RetainedStrategy:
         raise ValueError('retained_capital_market_unavailable')
 
     def _read_initial_capital(self, context, broker):
-        """初始化后发布只读资金；原WT损益、券商P和明确当前快照各保留原来源。
+        """初始化后发布只读资金；券商现金、实际P和明确原价分别保留来源。
 
         原CTA初始化早于行情Parser启动，当前价格尚未进入CTA缓存。恢复优先读取
         同账、同数量和周期的原估值；首次估值使用已声明的原MarketClient快照。
@@ -517,7 +530,7 @@ class RetainedStrategy:
         后续原K线回调继续以原CTA价格和同一资本基准更新。
         """
         from guanheng_market_client import MarketClient
-        from .strategy_capital import observe_capital
+        from .strategy_capital import observe_broker_capital
         market = self.capital_market
         _need(type(market) is dict and set(market) == {
             'base_url','token_env','timeout_seconds','max_response_bytes','max_age_seconds'}, 'capital_market')
@@ -542,15 +555,15 @@ class RetainedStrategy:
                 value,stamp = self._snapshot_valuation(response,held)
             valuation_stamps.append(stamp)
         cutoff = datetime.now(timezone.utc)
-        cash=self._native_cash(funds,value)
         account,qualified = self.capital_reader.read(cutoff,deadline)
+        cash=self._native_cash(funds,value,account)
         completed_at = datetime.now(timezone.utc)
-        self.capital_observation = observe_capital(self.inputs.capital_baseline,Fraction(repr(funds.fund_pnl)),
+        self.capital_observation = observe_broker_capital(self.inputs.capital_baseline,self.inputs.cash_anchor,Fraction(repr(funds.fund_pnl)),
             value,completed_at.isoformat(),
             account,qualified,max_age_seconds=self.max_age,
             position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat(),
             market_value_source=market_value_source,
-            cash_balance=cash,price_observed_at=min(valuation_stamps).isoformat() if valuation_stamps else None)
+            price_observed_at=min(valuation_stamps).isoformat() if valuation_stamps else None)
         return response
 
     def _flat_source(self,symbol,broker,trades):
@@ -606,26 +619,31 @@ class RetainedStrategy:
         nav = Fraction(self.inputs.policy.initial_capital_cny)+Fraction(repr(facts.fund_pnl))
         cash = nav-sum((p.actual*Fraction(repr(prices[p.symbol])) for p in positions),Fraction(0))
         verified = True
+        basis_pnl = Fraction(repr(facts.fund_pnl))
         nav_source, cash_source = 'original-CTA:explicit-genesis+flag0', 'original-CTA:NAV-minus-complete-theoretical-holdings'
         if self.inputs.capital_baseline is not None:
-            from .strategy_capital import observe_capital, cash_reconciles
+            from .strategy_capital import observe_broker_capital
             _need(broker is not None and broker.positions_known and broker.position_received_ms is not None, 'capital_positions')
             quantities = self._broker_rows(broker)
             actual_value = sum((Fraction(repr(prices[s]))*quantities.get(self.mapping[s],(0,0))[0]
                                 for s in self.execution), Fraction(0))
             account, qualified = self.capital_reader.read(datetime.now(timezone.utc), deadline)
-            ledger_cash=self._native_cash(facts,actual_value)
+            ledger_cash=self._native_cash(facts,actual_value,account)
             self.capital_observation = None
-            if ledger_cash is not None and cash_reconciles(nav,actual_value,ledger_cash):
-                self.capital_observation = observe_capital(self.inputs.capital_baseline, Fraction(repr(facts.fund_pnl)),
-                    actual_value, cutoff.isoformat(), account, qualified, max_age_seconds=self.max_age,
+            if ledger_cash is not None:
+                self.capital_observation = observe_broker_capital(self.inputs.capital_baseline,self.inputs.cash_anchor,
+                    Fraction(repr(facts.fund_pnl)),actual_value,cutoff.isoformat(),account,qualified,
+                    max_age_seconds=self.max_age,
                     position_observed_at=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc).isoformat(),
-                    cash_balance=ledger_cash,price_observed_at=price_observed_at)
+                    price_observed_at=price_observed_at)
+            # 原NSQ字段承载本次实际盈亏；缺账户时仅构造未核准basis，保持资金等待。
+            nav=Fraction(self.inputs.capital_baseline['total_cny']) if self.capital_observation is None else Fraction(self.capital_observation['nav_cny'])
+            basis_pnl=nav-Fraction(self.inputs.capital_baseline['total_cny'])
             spendable = None if self.capital_observation is None else self.capital_observation['spendable_cash_cny']
             cash, verified = Fraction(spendable or '0'), spendable is not None
-            nav_source, cash_source = 'current-capital:explicit-baseline+WT-flag0', 'original-WT:NAV-minus-broker-holdings+NAP-cash-constraint'
+            nav_source, cash_source = 'broker-cash-delta+actual-position-raw-price', 'broker-cash-delta+account-frozen-available'
             identity = _digest((identity,self.capital_observation,asdict(broker)))
-        basis = Basis(cutoff.isoformat(),result_sha,_decimal(nav),repr(facts.fund_pnl),_decimal(cash),
+        basis = Basis(cutoff.isoformat(),result_sha,_decimal(nav),_decimal(basis_pnl),_decimal(cash),
                       self.inputs.fee_reserve_cny,nav_source,cash_source,self.inputs.fee_source,
                       tuple(Price(s,repr(prices[s]),price_source or self.inputs.market_manifest_source) for s in self.execution),verified,identity)
         observed = Observation(cutoff.isoformat(),'original-CTA:cash-long-theoretical',tuple(positions),True,identity)
@@ -814,12 +832,12 @@ class RetainedStrategy:
             if vector:candidate['target_readback'] = dict(vector)
         # 编码和投影预检共用本轮D，随后才进入原setter/KV副作用。
         text = self._state_payload(state,self.sequence,metadata,exits)
-        self.publish(self.id,candidate,preview=True,deadline=deadline);check()
+        self._publish(candidate,preview=True,deadline=deadline);check()
         if vector:
             _need(dict(context.set_targets(vector)) == dict(vector), 'target_readback');check()
         context.store_quantity_state(text);check()
         self.state,self.cycles,self.exits = state,metadata,exits
-        self.publish(self.id,candidate,deadline=deadline);check()
+        self._publish(candidate,deadline=deadline);check()
 
 
 def _verify_python(args):

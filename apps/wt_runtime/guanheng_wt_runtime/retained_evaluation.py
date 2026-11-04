@@ -1,4 +1,4 @@
-"""唯一1.1.2与NSQ之间的业务接缝；原生owner提供周期、价格和策略资本。"""
+"""唯一1.2.1与NSQ之间的业务接缝；原生owner提供周期、价格和策略资本。"""
 from dataclasses import dataclass, fields, replace
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from guanheng_strategy_core.contracts import EvaluationBudget
 from guanheng_strategy_native import EconomicTarget, QuantityPolicy, Weight, Limits, advance, generation_id
 from guanheng_strategy_v1 import (
+    STRATEGY_ID, STRATEGY_VERSION, ALGORITHM_ID,
     RetainedHistoricalModel, RetainedInput, RetainedResult, evaluate_current_view,
     evaluate_historical_model,
 )
@@ -35,7 +36,9 @@ def target_for_result(value, policy, *, previous_target=None):
     """纯核结果的唯一经济目标投影；报告摘要复用同一投影核对状态。"""
     if type(policy) is not QuantityPolicy:
         raise ValueError('需要原NSQ明确的策略理论资本policy')
-    target = EconomicTarget(value['strategy_id'], 'resonance-regime-v1@1.1.2/ledger-front-ratio-v1',
+    if (value['strategy_id'], value['strategy_version']) != (STRATEGY_ID, STRATEGY_VERSION):
+        raise ValueError('策略目标与本次角色版本不匹配')
+    target = EconomicTarget(value['strategy_id'], ALGORITHM_ID,
         value['configuration_sha256'], policy.policy_id, value['source_allocation_date'],
         tuple(sorted(value['targets'])),
         tuple(Weight(symbol, repr(float(weight))) for symbol, weight in sorted(value['targets'].items())))

@@ -1,4 +1,4 @@
-"""独立WT唯一1.1.2回放报告边界，复用已有业务validator。"""
+"""独立WT唯一1.2.1回放报告边界，复用已有业务validator。"""
 import json
 
 from guanheng_strategy_core.contracts import canonical_bytes
@@ -9,12 +9,12 @@ from .strategy_replay_facts import SessionError
 def report_schema_for_input(value):
     from .retained_per_date_replay import INPUT_SCHEMA, REPORT_SCHEMA as per_date_schema
     if type(value) is not dict:
-        raise SessionError('独立WT回测只接受唯一正式1.1.2回放输入')
+        raise SessionError('独立WT回测只接受唯一正式1.2.1回放输入')
     if value.get('schema') == 'guanheng.retained-replay-input.v1':
         return REPORT_SCHEMA
     if value.get('schema') == INPUT_SCHEMA and set(value) == {'schema', 'session', 'source'}:
         return per_date_schema
-    raise SessionError('独立WT回测只接受唯一正式1.1.2回放输入')
+    raise SessionError('独立WT回测只接受唯一正式1.2.1回放输入')
 
 
 def normalize_session(value):

@@ -11,8 +11,8 @@ import os
 from pathlib import Path
 import subprocess
 
-SYMBOLS = tuple(sorted(('510300.SH', '510050.SH', '510500.SH', '512100.SH',
-                        '588000.SH', '589000.SH', '159780.SZ', '515080.SH')))
+# 采集、原价、复权和QMT参考回包统一沿本版八角色，禁止使用旧ETF的因子。
+from guanheng_strategy_v1.role_profile import SYMBOLS
 FIELDS = ('open', 'high', 'low', 'close', 'volume', 'amount')
 ZONE = timezone(timedelta(hours=8))
 

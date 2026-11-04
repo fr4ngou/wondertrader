@@ -5,6 +5,7 @@ from fractions import Fraction
 from hashlib import sha256
 from pathlib import Path
 import math
+import json
 import os
 import time
 from uuid import UUID
@@ -45,12 +46,83 @@ def baseline(value, policy=None):
 
 @dataclass(frozen=True)
 class AccountCash:
-    """原账户现金约束，绝不作为策略资本来源；冻结现金不与保证金/冻结佣金相加。"""
+    """券商原现金事实；available+frozen为现金差口径，不合并保证金/冻结佣金。"""
     # 四个字段均必填；没有成功来源时由整个AccountCash对象的None表达未知。
     available_cny: str  # 券商账户可用资金；CNY十进制字符串，来自原account批m_dAvailable，0为已知零。
     frozen_cash_cny: str  # 券商账户冻结现金；CNY十进制字符串，来自同批m_dFrozenCash，0为已知零。
     observed_at: str  # 原account批execution_finished_at；带时区ISO8601字符串，沿来源时点保留，不取读取时间。
     source_sha256: str  # 完整NAP观察帧原字节的SHA256；必填，用于绑定来源，不能代替资金新鲜度。
+    binding_sha256: str | None = None  # 账户/环境/CNY绑定的规范SHA；原读取器生成，新现金原点必填，旧调用可省略。
+
+    def __post_init__(self):
+        for key in ('available_cny','frozen_cash_cny'):
+            value=getattr(self,key)
+            _require(type(value) is str and rational(number(value,key)) >= 0)
+        stamp=datetime.fromisoformat(self.observed_at)
+        _require(stamp.utcoffset() is not None)
+        for value in (self.source_sha256,self.binding_sha256):
+            _require(value is None or type(value) is str and len(value)==64
+                and all(c in '0123456789abcdef'for c in value))
+        _require(self.source_sha256 is not None)
+
+
+def _digest(value):
+    return sha256(json.dumps(value, ensure_ascii=True, sort_keys=True,
+                             separators=(',', ':'), allow_nan=False).encode('ascii')).hexdigest()
+
+
+def cash_anchor(value, origin):
+    """核固定券商现金原点；只读配置，不滚动记账或调用交易接口。"""
+    origin = baseline(origin)
+    _require(type(value) is dict and set(value) == {
+        'schema', 'baseline_sha256', 'allocated_cash_cny', 'market_value_cny',
+        'account_cash_cny', 'account_observed_at', 'account_source_sha256',
+        'account_binding_sha256', 'position_source_sha256', 'price_source_sha256'}
+        and value['schema'] == 'guanheng.broker-cash-anchor.v1'
+        and value['baseline_sha256'] == _digest(origin))
+    for key in ('baseline_sha256', 'account_source_sha256', 'account_binding_sha256',
+                'position_source_sha256', 'price_source_sha256'):
+        _require(type(value[key]) is str and len(value[key]) == 64
+                 and all(c in '0123456789abcdef' for c in value[key]))
+    for key in ('allocated_cash_cny', 'market_value_cny', 'account_cash_cny'):
+        _require(type(value[key]) is str)
+        number(value[key], key, signed=key == 'allocated_cash_cny')
+    _require(rational(value['market_value_cny']) >= 0 and rational(value['account_cash_cny']) >= 0
+             and rational(value['allocated_cash_cny'])+rational(value['market_value_cny'])
+             == rational(origin['total_cny']))
+    stamp = datetime.fromisoformat(value['account_observed_at'])
+    at = datetime.fromisoformat(origin['baseline_at'])
+    _require(stamp.utcoffset() is not None and 0 <= (at-stamp).total_seconds() <= 3600)
+    return dict(value)
+
+
+def create_cash_anchor(origin, market_value, account, *, position_source_sha256, price_source_sha256):
+    """新启用入口：总预算包含实际库存，账户当前现金作为固定差额原点。
+
+    调用者冻结同次已合格券商P、原价和AccountCash；只有一个策略，当前账户
+    全部持仓与冻结归它。原点仅新建一次，重启沿原输入复用；金额不舍入。
+    """
+    origin = baseline(origin)
+    _require(type(account) is AccountCash and account.binding_sha256 is not None and market_value >= 0)
+    return cash_anchor(dict(
+        schema='guanheng.broker-cash-anchor.v1',  # 固定只读现金原点协议。
+        baseline_sha256=_digest(origin),  # 本次含库存预算基准规范SHA；与新基准绑定。
+        allocated_cash_cny=_decimal(rational(origin['total_cny'])-market_value),  # 新分配现金，CNY；总预算减实际初始市值，可为负。
+        market_value_cny=_decimal(market_value),  # 初始实际数量乘原价的市值，CNY；沿原输入精度。
+        account_cash_cny=_decimal(rational(account.available_cny)+rational(account.frozen_cash_cny)),  # 原账户available+frozen，CNY；后续仅使用净变化。
+        account_observed_at=account.observed_at,  # 原账户批完成时点；带时区ISO8601。
+        account_source_sha256=account.source_sha256,  # 冻结原NAP帧SHA；新原点的现金依据。
+        account_binding_sha256=account.binding_sha256,  # 原账户/环境/CNY身份摘要；不传播账号。
+        position_source_sha256=position_source_sha256,  # 冻结初始持仓输入SHA；实际数量owner引用。
+        price_source_sha256=price_source_sha256), origin)  # 冻结初始原价输入SHA；与原持仓估值共同绑定。
+
+
+def broker_cash_balance(anchor, account):
+    """当前策略现金由券商净变化投影；理论目标、PnL和模型费用不参与。"""
+    _require(type(account) is AccountCash and account.binding_sha256 == anchor['account_binding_sha256']
+             and datetime.fromisoformat(account.observed_at) >= datetime.fromisoformat(anchor['account_observed_at']))
+    return (rational(anchor['allocated_cash_cny'])+rational(account.available_cny)
+            +rational(account.frozen_cash_cny)-rational(anchor['account_cash_cny']))
 
 
 class AccountCashReader:
@@ -127,7 +199,8 @@ class AccountCashReader:
             _require(type(batches[0]['execution_finished_at']) is str)
             stamp = datetime.fromisoformat(batches[0]['execution_finished_at'].replace('Z', '+00:00'))
             _require(stamp.utcoffset() is not None and stamp <= now)
-            current = AccountCash(*amounts, stamp.isoformat(), sha256(raw).hexdigest())
+            binding = _digest(dict(account=self.binding['account'], environment=self.binding['environment'], currency='CNY'))
+            current = AccountCash(*amounts, stamp.isoformat(), sha256(raw).hexdigest(), binding)
             qualified = value['state'] in ('ready', 'refreshing') and now < stamp+timedelta(seconds=self.max_age)
             if time.monotonic() >= deadline:
                 raise TimeoutError('account_cash_deadline')
@@ -166,10 +239,10 @@ def observe_capital(origin, pnl, market_value, observed_at, account, qualified, 
         baseline=origin,  # 首次准备owner拥有的当前资本基准；必填，恢复沿原对象内容复用。
         observed_at=observed_at,  # 本次CTA回调估值截止；带时区ISO8601，不冒充账户批次的原时点。
         price_observed_at=price_observed_at,  # 所用报价最旧原事件时间；CTA无法提供时为None，不以读取时间替代。
-        native_pnl_cny=_decimal(pnl),  # 新运行以来原WT flag0损益；含原WT费用，未迁入旧历史盈亏。
+        native_pnl_cny=_decimal(pnl),  # 本次运行盈亏，CNY；新现金模式由券商现金+实际市值−预算取得，原NSQ字段名保持。
         position_observed_at=position_observed_at,  # 券商P原接收时点；带时区ISO8601，None表示调用方未提供。
         market_value_source=market_value_source,  # 市值来源；实际券商数量乘原CTA未复权报价，或首次原QMT快照，禁止历史收盘代替。
-        nav_cny=_decimal(nav),  # 当前净值；原资本基准加原WT新运行损益，含当前库存价值。
+        nav_cny=_decimal(nav),  # 当前净值；预算基准加本次运行盈亏，含当前库存价值。
         market_value_cny=_decimal(market_value),  # 当前实际库存市值；数量为股/份，报价为CNY/股或份。
         cash_balance_cny=_decimal(cash),  # 策略现金余额；净值减实际库存市值，允许负值，不取账户总现金。
         spendable_cash_cny=None if spendable is None else _decimal(spendable),  # 保守可用现金；受账户冻结/可用限制，失效为None。
@@ -184,8 +257,29 @@ def observe_capital(origin, pnl, market_value, observed_at, account, qualified, 
         historical_return_pct=None)  # 迁入前历史收益率，单位%；固定None表示未知，不由新运行净值倒算。
 
 
+def observe_broker_capital(origin, anchor, native_theoretical_pnl, market_value, observed_at,
+                           account, qualified, **options):
+    """唯一策略的实际资金投影；原CTA理论统计仅原样保留供审计。
+
+    native_pnl_cny沿原NSQ字段名承载NAV−本次预算基准；其来源由pnl_source明确。
+    账户未知时返回None；旧原帧可展示余额，qualified=False时可用现金保持未知。
+    """
+    anchor = cash_anchor(anchor, origin)
+    if account is None:
+        return None
+    cash = broker_cash_balance(anchor, account)
+    pnl = cash+market_value-rational(origin['total_cny'])
+    value = observe_capital(origin, pnl, market_value, observed_at, account, qualified,
+                            cash_balance=cash, **options)
+    value.update(
+        cash_anchor=anchor,  # 固定新现金原点；金额CNY，来源时点与身份沿原输入。
+        pnl_source='broker-cash-delta',  # 本次真实策略盈亏来源；与CTA理论flag0分离。
+        native_theoretical_pnl_cny=_decimal(native_theoretical_pnl))  # 原CTAflag0原精度统计，CNY；仅审计，不授资金。
+    return value
+
+
 def refresh_account_constraint(value, reader, deadline):
-    """只续核账户现金约束；保留原WT损益、持仓/价格估值和全部原时点。
+    """续核账户现金并更新差额投影；保留持仓/价格估值及全部原时点。
 
     reader由同一执行发布owner的账户读取线程独占，沿原NAP身份/有效窗读取。
     读取失败保留上次来源及时间、撤销可用资格；不刷新估值或将未知资金按0处理。
@@ -193,10 +287,20 @@ def refresh_account_constraint(value, reader, deadline):
     account,qualified = reader.read(datetime.now(timezone.utc),deadline)
     if account is None and value['account_observed_at'] is not None:
         account = AccountCash(value['account_available_cny'],value['account_frozen_cash_cny'],
-            value['account_observed_at'],value['account_source_sha256'])
+            value['account_observed_at'],value['account_source_sha256'],
+            value.get('cash_anchor',{}).get('account_binding_sha256'))
     if account is not None and value['account_observed_at'] is not None:
         if datetime.fromisoformat(account.observed_at) < datetime.fromisoformat(value['account_observed_at']):
             return value
+    if value.get('cash_anchor') is not None:
+        try:
+            return observe_broker_capital(value['baseline'],value['cash_anchor'],
+                rational(value['native_theoretical_pnl_cny']),rational(value['market_value_cny']),
+                value['observed_at'],account,qualified,max_age_seconds=reader.max_age,
+                position_observed_at=value['position_observed_at'],market_value_source=value['market_value_source'],
+                price_observed_at=value.get('price_observed_at'))
+        except ValueError:
+            return dict(value,account_observation_qualified=False,spendable_cash_cny=None)
     return observe_capital(value['baseline'],rational(value['native_pnl_cny']),rational(value['market_value_cny']),
         value['observed_at'],account,qualified,max_age_seconds=reader.max_age,
         position_observed_at=value['position_observed_at'],market_value_source=value['market_value_source'],

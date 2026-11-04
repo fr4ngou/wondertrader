@@ -1,4 +1,4 @@
-"""唯一1.1.2日线回放，使用原持仓/资金、NSQ、撮合和userdata。
+"""唯一1.2.1日线回放，使用原持仓/资金、NSQ、撮合和userdata。
 
 同步run由外层预绑定Job和总截止约束。首模型从原生flat开始，独占所有setter；
 不用于实时接管。完整报告的HTTP/归档消费者沿各自公开schema接入。
@@ -16,7 +16,7 @@ from guanheng_strategy_core.models import observation_close_at
 from guanheng_strategy_native import Basis, Limits, Price, QuantityPolicy
 from guanheng_strategy_v1 import (
     CycleExit, PositionCycle, RetainedHistoricalModel, RetainedInput,
-    RetainedValidationError, SYMBOLS,
+    RetainedValidationError, SYMBOLS, STRATEGY_ID, STRATEGY_VERSION,
 )
 from .retained_evaluation import evaluate_retained, advance_retained
 from .strategy_porter import BacktestConfig, BacktestPorter, Callbacks, Target
@@ -302,7 +302,7 @@ class RetainedBacktestSession:
         report = dict(schema=REPORT_SCHEMA, session_id=self._session_id, input_sha256=self._input_id,
             scope=REPORT_SCOPE, policy=self._inputs.policy,
             configuration_sha256=sha256(canonical_bytes(self._inputs.request.configuration)).hexdigest(),
-            strategy_id='resonance-regime-v1', strategy_version='1.1.2', historical_model=self._inputs.model,
+            strategy_id=STRATEGY_ID, strategy_version=STRATEGY_VERSION, historical_model=self._inputs.model,
             status=self._records[-1]['status'] if self._records else 'blocked_no_calculation',
             native_files=identities, native_outputs=tuple(native_outputs), callback_counts=counts, records=tuple(self._records),
             source_qualified=False, execution_qualified=False)
