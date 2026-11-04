@@ -14,7 +14,7 @@ def accept_coverage(selected, directory):
     """核实际采集代及全集合计数；无网络/SDK/写入，不触发订阅、导入或服务启停。
 
     directory必须是本候选collection_process.control_root下的真实控制UUID。
-    passed表示当前进程、配置和投影身份可核且来源已连接；行情缺失及扫描进度另列，
+    passed表示当前进程、配置和投影身份可核、来源已连接且无明确当日Reader失败；行情缺失及扫描进度另列，
     不以少量样本、注册数或最近一次报价推断全市场/全日完整。
     """
     from guanheng_wt_runtime.service_control import _process_identity
