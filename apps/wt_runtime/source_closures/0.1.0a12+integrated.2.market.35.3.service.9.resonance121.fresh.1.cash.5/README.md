@@ -1,12 +1,12 @@
-# Fresh cash.4固定源码闭包
+# Fresh cash.5固定源码闭包
 
-类型：固定源码与重建手册。适用范围：本目录cash.4、原V1 a9及QNA resonance121.1。组合要求见[Fresh规格](../../../../docs/specs/etf-role-replacement.md)，报价金额契约见[原价输入边界](../../../../docs/specs/native-quote-money-boundary.md)，缓存生命周期见[服务控制规格](../../../../docs/specs/wt-service-control.md)。
+类型：固定源码与重建手册。适用范围：本目录cash.5、原V1 a9及QNA resonance121.1。组合要求见[Fresh规格](../../../../docs/specs/etf-role-replacement.md)，报价金额契约见[原价输入边界](../../../../docs/specs/native-quote-money-boundary.md)，缓存生命周期见[服务控制规格](../../../../docs/specs/wt-service-control.md)。
 
 ## 唯一产品来源
 
-cash.4包含43个Python模块。仅execution_configured.py、execution_facts.py、execution_recovery.py、service_control.py取自已独审并合入的5e60c96852d82ab3f59990d57ea04f7c4704db1d当前源码；其余39模块逐字沿cash.3角色。
+cash.5包含44个Python模块。沿cash.4仅更新execution_configured.py并新增execution_cycle_source.py，通过原库存、完整券商成交和当前查询持仓核实开仓周期；其余模块保持cash.4原字节。永久源码、固定闭包、验证与线上范围见[跨日成交及开仓周期记录](../../../../docs/releases/2026-11-05-cross-date-trade-candidate.md)。
 
-固定Git基线继续为9a0b3f9a36a991a1bfc74af8d1fa315dbf4798b3，27个base模块从该提交读取，16份差异快照位于overlays/guanheng_wt_runtime。canonical另有account_observation_process、backtest_cli、backtest_completion、initial_inventory、runtime五个历史/说明差异；本角色保持cash.3原件，构建不直接Flit canonical整树。
+固定Git基线继续为9a0b3f9a36a991a1bfc74af8d1fa315dbf4798b3，27个base模块从该提交读取，17份差异快照位于overlays/guanheng_wt_runtime。最终产品成员与摘要以SOURCE-MANIFEST.json为准，构建不直接Flit canonical整树。
 
 V1 a9的5份产品文件、QNA的12份产品文件及完整元数据保持。QNA四份历史源文件继续在overlays/qna；canonical CNI/SDK17和App110继续由其原项目维护。现金来源、预算、NSQ、策略版本1.2.1、品种与依赖保持。cash.2/cash.3目录均保留历史原件。
 
@@ -23,9 +23,9 @@ canonical pyproject保留原四项uv本地项目映射，仅更新Runtime版本�
 使用Python 3.12和显式Flit 3.12后端（SHA e7a0304069ea895172e3c7bb703292e992c5d1555dd1233ab7b5621b5b69e62c）。示例中的work/output须全新且互不嵌套：
 
 ```powershell
-python -B apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance121.fresh.1.cash.4/build.py `
-  --work E:/build/fresh-cash4-work001 `
-  --output E:/build/fresh-cash4-wheels001 `
+python -B apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance121.fresh.1.cash.5/build.py `
+  --work E:/build/fresh-cash5-work001 `
+  --output E:/build/fresh-cash5-wheels001 `
   --backend E:/build/dependencies/flit_core-3.12.0-py3-none-any.whl
 ```
 

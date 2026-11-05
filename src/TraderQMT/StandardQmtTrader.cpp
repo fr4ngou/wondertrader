@@ -230,6 +230,9 @@ struct StandardQmtTrader::Impl {
   QmtTradeEventReadFailure event_failure;
   bool event_drain_pending=false,event_drain_checked=false,event_drain_failed=false,event_read_attempted=false;
   unsigned event_drain_checks=0;
+  std::uint64_t event_bootstrap_cursor=0; // 首次Prepare在四查询前取得的Host已持久前沿；不是该小页末序号。
+  std::size_t event_bootstrap_reserve=0; // 本次小页沿原ContextBanks.chain预留；保留到原完成值退役。
+  bool event_bootstrap_ready=false; // 前沿0也是已核证据，与尚未取得前沿明确区分。
   std::size_t charge=0;bool insert_failure_confirmed=false,business_rejected=false,delivery_fault=false;std::string command_id,capacity_reason;AuditSummary audit;
  };
  // worker在任何业务I/O前取得槽；槽内纯值即使后续抛异常也归实例所有。
@@ -1239,6 +1242,36 @@ struct StandardQmtTrader::Impl {
   value.event_failure={};value.event_failure.outcome=QmtTradeEventReadOutcome::ControlStoppedBeforeStage;
   value.event_drain_pending=value.event_drain_checked=false;
  }
+ void prepare_event_bootstrap(Completion& result,QmtHostTradeClient& client,SignedHttpDeadline& end)
+ {
+  // 只为显式查询优先入口建立快照/增量分界；默认事件消费仍从原0游标开始。
+  if(!events_enabled||!query_first)return;
+  const auto& context=result.event_context;const auto& limits=context.admitted_limits;
+  standard_event_budget::ContextBanks banks;
+  const standard_event_budget::ContextInputs inputs{context.read_result_capacity,context.admitted_event_page_capacity,
+   static_cast<std::size_t>(limits.max_event_bytes),static_cast<std::size_t>(limits.max_command_bytes),
+   static_cast<std::size_t>(limits.max_call_result_bytes)};
+  if(!standard_event_budget::context(event_budget_input,event_layout,inputs,banks).ok())throw EventCapacity{};
+  const auto total=add_size(result.charge,banks.chain);
+  {std::lock_guard<std::mutex> lock(mutex);if(!charge(banks.chain))throw EventCapacity{};
+   result.charge=total;result.event_bootstrap_reserve=banks.chain;}
+  for(;;){
+   if(worker_stop||stop_requested){result.status=fixed_failure(ErrorCode::Pending);return;}
+   if(!end.remaining()){result.status=fixed_failure(ErrorCode::Timeout);return;}
+   auto page=client.events(context.source,0,1,context.admitted_event_page_capacity,end);
+   if(page.status.ok()){
+    if(page.gap){result.status=failure(ErrorCode::Unavailable,"qmt_standard_event_source_gap");return;}
+    // 整个receipt已由原Common核验。limit=1只限复制量，durable_through仍覆盖Host完整持久前缀。
+    result.event_bootstrap_cursor=page.durable_through;result.event_bootstrap_ready=true;result.status={};return;
+   }
+   result.status=std::move(page.status);
+   // 新Host尚未形成首份空/非空receipt时可暂回404；保持原来源及原D等待原采集owner，不假设前沿0。
+   if(page.http_status!=404||result.status.code!=ErrorCode::NotSupported)return;
+   std::unique_lock<std::mutex> lock(mutex);
+   cv.wait_until(lock,(std::min)(end.end,Clock::now()+std::chrono::milliseconds(event_poll_ms)),
+    [&]{return worker_stop.load()||stop_requested.load();});
+  }
+ }
  void run_event_read(const Task& task,Completion& result,QmtHostTradeClient& client,SignedHttpDeadline& end)
  {
   result.event_failure=task.event_failure;
@@ -1602,6 +1635,7 @@ struct StandardQmtTrader::Impl {
       result.status=account->prepare(end);if(result.status.ok())result.status=events_enabled
        ?trade->prepare_event_read_context(end,result.event_context):trade->prepare(end);
       if(result.status.ok())result.status=pin_audit_source(*trade);
+      if(result.status.ok()&&task.kind==Kind::Prepare)prepare_event_bootstrap(result,*trade,end);
       if(result.status.ok()){
        QmtTradeEventReadContext context;
        result.status=trade->prepare_event_read_context(end,context);
@@ -1696,7 +1730,8 @@ struct StandardQmtTrader::Impl {
      wanted=add_size(add_size(task.order.payload(),result.status.reason.size()),result.command_id.size());
      if(task.kind==Kind::Query)wanted=events_enabled?result.charge:add_size(wanted,bytes(result.account));
      if(task.kind==Kind::Resolve)wanted=events_enabled?512:add_size(wanted,identity_budget.max_total_bytes);
-     if(events_enabled&&(task.kind==Kind::Prepare||task.kind==Kind::Login))wanted=add_size(context_reserve,512);
+     if(events_enabled&&(task.kind==Kind::Prepare||task.kind==Kind::Login))
+      wanted=add_size(add_size(context_reserve,512),result.event_bootstrap_reserve);
      if(task.kind==Kind::EventPage||task.kind==Kind::EventResolve)wanted=512;
     }
     if(task.kind==Kind::EventPage||task.kind==Kind::EventQuery||task.kind==Kind::EventResolve)task.event_context={};
@@ -1931,7 +1966,8 @@ struct StandardQmtTrader::Impl {
   // 只退WT候选；事件worker仍可能借用独立Plan，chain_charge直到join才可收回。
   if(event_chain)event_chain->candidate.reset();
  }
- void install_event_context(QmtTradeEventReadContext&& value,std::size_t& completion_charge)
+ void install_event_context(QmtTradeEventReadContext&& value,std::size_t& completion_charge,
+  bool bootstrap_ready,std::uint64_t bootstrap_cursor)
  {
   if(!events_enabled)return;
   const auto& d=value.admitted_limits;
@@ -1945,6 +1981,7 @@ struct StandardQmtTrader::Impl {
     &&value.admitted_event_page_capacity==event_context.admitted_event_page_capacity,"qmt_standard_event_context_changed");
    return;
   }
+  if(query_first)require(bootstrap_ready,"qmt_standard_event_bootstrap_missing");
   standard_event_budget::ContextBanks banks;
   standard_event_budget::ContextInputs limits{value.read_result_capacity,value.admitted_event_page_capacity,
    static_cast<std::size_t>(d.max_event_bytes),static_cast<std::size_t>(d.max_command_bytes),static_cast<std::size_t>(d.max_call_result_bytes)};
@@ -1958,6 +1995,8 @@ struct StandardQmtTrader::Impl {
   std::lock_guard<std::mutex> lock(mutex);
   require(completion_charge>=context_reserve,"qmt_standard_event_context_accounting");
   event_context=std::move(value);event_index=std::move(index);chain_reserve=reserve;event_context_banks=banks;
+  // 该基线由随后完整P/O/D/A覆盖；它不向交付索引登记历史回报，不ACK/删除Host事件或解除原未知委托。
+  if(query_first)read_cursor=handled_cursor=bootstrap_cursor;
   completion_charge-=context_reserve;context_charge=context_reserve;event_context_ready=true;next_event_poll_at=Clock::now();
  }
  bool event_lifecycle()const
@@ -2702,7 +2741,7 @@ int StandardQmtTrader::pump(std::uint32_t limit)
     x.fail(result.status);break;
    }
    if(x.events_enabled&&(result.kind==Impl::Kind::Prepare||result.kind==Impl::Kind::Login))
-    x.install_event_context(std::move(result.event_context),charge.n);
+    x.install_event_context(std::move(result.event_context),charge.n,result.event_bootstrap_ready,result.event_bootstrap_cursor);
    if(result.kind==Impl::Kind::Prepare){
     x.connected=true;x.phase=StandardQmtPhase::Connected;
     x.callback([&]{x.spi->handleEvent(wtp::WTE_Connect,0);});

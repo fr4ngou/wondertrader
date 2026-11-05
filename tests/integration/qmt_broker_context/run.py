@@ -148,6 +148,21 @@ def run_case(options, mode, active_order=False, cycle_mode=None, verify_order_ca
             report = decode((directory / 'native-result.json').read_bytes())
         if fixture.child.exit_code != 0 or not report or not report['passed']:
             raise AssertionError({'native': report, 'exit_code': fixture.child.exit_code})
+        bootstrap = None
+        if mode == 'query_first':
+            # 复用真实Host/WinSHM主链的原运输记录，核对首次前沿先于完整账户查询。
+            # 本夹具无启动前历史事件，durable>next 的多事件场景须另有实际证据。
+            first_page = fixture.proxy.pages[0]
+            request = first_page['request']
+            assert request['after_seq'] == 0 and request['limit'] == 1
+            arrivals = fixture.proxy.arrivals
+            event_at = next(index for index, value in enumerate(arrivals)
+                            if value['method'] == 'POST' and value['path'] == '/internal/v1/trade-events')
+            query_at = next(index for index, value in enumerate(arrivals)
+                            if value['method'] == 'POST' and value['path'].startswith('/internal/v1/operations/'))
+            assert event_at < query_at
+            bootstrap = {'durable_through': first_page['page']['receipt']['durable_through'],
+                         'before_initial_queries': True}
         expected = 2 if cycle_mode else 4 if mode == 'native' else 1
         if verify_order_cache:
             assert report['queried_active_orders'] == 1 and report['native_cached_orders'] == 1
@@ -178,6 +193,7 @@ def run_case(options, mode, active_order=False, cycle_mode=None, verify_order_ca
     return {'mode': mode, 'passed': True, 'queries': report['queries'], 'sdk_substitute_calls': report['inserts'],
             'broker_position': report['position'], 'remaining_quantity': report['remaining_quantity'],
             'active_order': active_order, 'cycle_mode': cycle_mode, 'owner_execution': owner_execution, 'closed': True, 'real_broker_calls': 0,
+            'event_bootstrap': bootstrap,
             'order_cache_sync': {key: report[key] for key in ('queried_active_orders', 'native_cached_orders',
                 'native_cancel_returned', 'cancel_transport_calls')} if verify_order_cache else None}
 

@@ -2,7 +2,7 @@
 
 类型：功能规格。整体状态：proposed。适用范围：自有标准 TraderQMT 的订单/成交事件消费、真实缺字段补查、同实例交付去重、查询交接与停止。代码存在、隔离链验证和目标 SDK 运行事实分别登记。
 
-已接受实施切片为SEV-R2的Common页校验与真实上下文携带、SEV-R3明确列出的mapper可选规范金融输出，以及SEV-R2b的独立事件mapper与P8事件begin、SEV-R2c的同次准备事件读取上下文、SEV-R4a的有限交付索引及SEV-R11的完整字段测试消费者。accepted只允许对应独立切片实现与验证；SEV-R8生产交接方案、缺字段补查及生产首次cursor选择继续proposed。SEV-R11只接受已知查询后新增事件的隔离验证，能力位保持0。
+已接受实施切片为SEV-R2的Common页校验与真实上下文携带、SEV-R3明确列出的mapper可选规范金融输出，以及SEV-R2b的独立事件mapper与P8事件begin、SEV-R2c的同次准备事件读取上下文、SEV-R4a的有限交付索引及SEV-R11的完整字段测试消费者。accepted只允许对应独立切片实现与验证；SEV-R14单独接受query_first首次准备的持久前沿选择，SEV-R8其余生产交接承诺继续proposed；缺字段补查按本文后续各已接受切片执行。SEV-R11只接受已知查询后新增事件的隔离验证，能力位保持0。
 
 依赖：[标准交易插件](native-qmt-standard-trader.md) STQ-P7/P8/P9、[共享内存交易](qmt-shm-trading.md) QST-R5/R6/R11/R18/R20/R21、[账户只读](qmt-shm-account-read.md)。本规格细化 STQ-P5 的后继消费设计；旧接口、金融解释与已接受要求继续生效。查询与回报覆盖的来源证据、跨进程应用未知仍为本规格显式待决项，不由新增配置布尔值消除。
 
@@ -977,3 +977,17 @@ events_enabled 域通过 WTSVariant 的原公开 asCString() 读取配置文字�
 #### C 诊断复制的交付失败
 
 EventQuery Returned 与 EventResolve 的完整原 Status 分别继续由原 account/resolved 对象持有。向 Completion 的 operation 槽复制诊断时先保原 ErrorCode；reason 复制发生资源异常，只清该副本 reason 并将独立 delivery_status 记为固定 IoError/空reason，不改变 operation code，不把它改写成本地 operation Failure。原完整来源 Status 保留，副本诊断降级由 delivery 失败准确记录。真实 operation Failure 优先于 delivery；原 OK 或合法 ControlStoppedBeforeStage/Pending 后的复制异常必须以 delivery IoError 结束，原 Pending 的正常停止身份保持可辨。原 D 只在 delivery 尚为 OK 时补 Timeout，已有交付故障保持。该规则不新增重试、补查、I/O 或 WT 接口。
+
+## SEV-R14 查询优先首次事件前沿（accepted 实施）
+
+范围为自有标准插件显式 `order_context=query_first` 且开启事件消费的首次 Prepare。原 native/default 路径及未开启事件的路径保持原行为。本节收敛新客户端从零重放 Host 历史事件、逐项触发重复账户查询而拖慢实际增量的问题；完整四查询仍各自取得券商事实，不构造四查询原子快照。
+
+1. worker 完成原来源认证、读取上下文和原命令恢复来源固定后，在向 owner 发布首次连接、触发 position→order→deal→account 四查询之前，沿原 Common `events(source, after_seq=0, limit=1, admitted_event_page_capacity, D)` 取得一次有界页。使用已核验 receipt 的 `durable_through=T`，小页的 `next_sequence` 仅代表本页末序号，不能用作完整前沿。
+2. 首份 receipt 尚未建立时，原 Host 可以返回 404/NotSupported；在原 Prepare 绝对 D 内、以原 event_poll_ms 等待同一来源的首份 receipt，stop 可唤醒等待。后继合法页成功必须覆盖暂态 Status 为 OK；有效 T=0 与尚无 receipt 分别表达。其他原错误、来源 gap 或到期沿原 Prepare 失败出口结束，不退回猜测的零前沿。
+3. owner 仅在首次安装认证上下文时将 `read_cursor` 和 `handled_cursor` 初始化为 T。该值表示随后四查询覆盖的启动基线；交付索引保持空，不为此前事件制造 SPI 已返回记录。完整四查询成功后，原 query_flow_mask=15 才允许消费 T 之后的事件；四查询之间到达的事件继续保留在原 Host 流中，并由原增量链消费。原处理前沿连续检查从 T+1 继续。
+4. Login、同实例后继读取及原运输恢复沿已安装上下文和既有游标继续，保持原校验，不重新取得启动前沿。来源换代与原未知委托仍受既有身份和恢复职责约束；本节不清空 pending/retained receipts/unknown_fenced，不替代原 audit、resume 或按原命令身份核查，不授权未知结果重新提交。
+5. 小页请求前沿用原 ContextBanks.chain 预留临时逻辑费用，保留至该 Prepare Completion 原终态退役；持久 context 沿原独立费用转移，不重复计入事件交付索引。原 HTTP 页上限、绝对 D、Host 事件保留与 ACK 归属保持，不增加磁盘表、删除或消费确认。
+
+验收先覆盖三个主路径：native/default 从原零游标继续；query_first 在已有多条历史事件时取得完整 durable_through 而非单页 next_sequence，并在原四查询后消费下一条增量；首读 404 后在同一原 D 内出现合法 receipt，Prepare 应成功。原标准插件/Context 验证入口继续承担完整四查询、未知命令责任和增量 SPI 的组合验收；函数级合成验证与完整插件运行证据分别记录。
+
+本节描述查询优先接入的启动分界，不声明券商四查询共享事务、历史事件已逐项交付、跨进程 SPI exactly-once 或真实 SDK 已完成所有交错验收。SEV-R8 其余缺口保留原范围。
