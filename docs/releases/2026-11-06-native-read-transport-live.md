@@ -1,0 +1,33 @@
+# 普通账户只读运输恢复上线
+
+类型：发布与业务验真。状态：deployed / 正式账户查询、同账恢复及独立页面通过。时间：2026-11-06北京时间05:01；自然行情尚未开盘。
+
+## 实际故障及修正边界
+
+04:30原Native49624退出，持久failure为plugin_error=10/IoError、host_fault=Plugin、session_fault=Execution，原因摘要精确对应Common固定常量qmt_http_exchange_failed。普通账户Query/Resolve原等待分类漏掉该实际WinHTTP运输错误，存在进入永久首错并退出的路径。原故障没有保存任务Kind、HTTP跳和Windows错误码，具体物理运输原因保持未知。04:35先用原入口恢复WT62048/Native60268，金融状态和已发委托身份保持。
+
+自有StandardQmtTrader仅新增4行：普通Query/Resolve的精确IoError/qmt_http_exchange_failed进入原wait_read。已进入POST的查询保留原receipt，沿原身份续核；不把失败交付为成功账户事实。首次连接、事件链、委托、撤单、身份/内容硬错均继续原路径，原截止、容量和停止语义保持。WT上游框架没有新增修改。
+
+源码adbea52，标签deploy/standard-read-transport-20261106，Standard摘要12979a2753e15ac4eadf4648ee787843f0306779bc48fe4b379a13445606a5ad；规格为[原标准适配合同](../specs/native-qmt-standard-trader.md)。独立delta无阻断。产品原分类函数在实际错误常量重放时由失败转通过，17项Kind/状态组合及完整Standard翻译单元编译通过；物理WinHTTP故障未向运行盘再次注入。这些验证各证明对应范围，未补造故障现场缺失的原生错误码。
+
+## 固定构建及采用
+
+使用scripts/execution_product.py在全新build/ef4构建：固定WT提交08b230dd05facf6d650d949bfe51054115a2ecb1及原两份已批准覆盖，永久自有输入与依赖前后核验；RESULT passed、25个安装文件、旧项目对象/库输入0。Boost/Spdlog/RapidJSON本次重新校验，无新上游覆盖。并行准备的增量链接在完整制品先完成后停止，未生成或部署增量DLL。
+
+原WT通过正式stop正常收束，旧Native60268退出0；首次即时OS检查发现收据先于解释器物理退出，因此在替换文件前停止。保留原stop及回退字节后，补齐有界实际PID退出等待，继续同一已关闭身份，未重复关闭或覆盖金融状态。
+
+稳定native-execution-007目录保留原业务配置路径，更新同批5组件：Host、CtaRuntime、StandardTrader、原股票执行器和ManagedStrategy；其他11件资料/Reader/Parser逐字节保持。全部16件旧文件及旧清单保存在QA的native-read-transport-before001。执行清单摘要由da4128e720b519e9972b04c601dbc89bb1bfc432317f8f1d98384277acc6afa5更新为9388b3ae910bf25a0cac98d142769c03e5bb68f2e989213c28bb59b8b5070c3e；新Standard DLL为e77968edbe738c029b9fad4f0e36534a7b54fcf2aa4a3e23d3da63ef7ece189e。
+
+原service_control start沿原clean及安装身份生成后继transition，CURRENT保持原入口、逻辑实例e474deb3-873f-4878-9781-0b2ddc4c2474和financial-state008。没有重置账户、资金、持仓、周期、订单或实际来源；没有新建运行控制器。观衡、独立日线及分钟采集保持运行，QMT策略没有启停。
+
+## 线上结果与余项
+
+新WT18760、Native73832真实运行，控制代8af1c11b-1f69-45bf-8292-b9d2afb6adb7，Native控制7f35d84e-efad-412b-9dd4-00fc19dbfc98。实际OS模块来自原稳定目录，新5件组件逐项匹配本次ef4输出；Native保存的安装身份为20cfb71b98ac9c71c385c18a6c0045bcdd7ceabe5ab18de873f108d3059b47d7。WT操作员部署元数据同步当前PID/控制代/Native身份，原组配置和启动/停止快捷方式继续适用。
+
+实际原读状态已记录queries=9、waiting=false、writes_blocked=false；新代无failure文件，持久进程日志有started/ready，旧代exit0/closed。交易来源签名HTTP200、hard_fault为空、无排队或执行中命令，仍为原1命令/1完成/4事件且已确认，无新增提交或未知围栏。
+
+正式观衡strategy-runtime及六角色接口均通过，策略账户资格合格，现金和可用资金452011.10元、持仓市值550090.70元、净值1002101.80元；8条标的持仓记录随来源读取，包含零仓记录时不按8项非零仓位解释。新代仍waiting_market_input，初始化/恢复与自然计算分别登记。
+
+QA为current-day-20261105-001的NATIVE-READ-TRANSPORT-STOP/INSTALL/START/POSTFLIGHT及回退目录；实际首错、17项重放和编译身份在account-read-failure-20261106-001，审查在standard-read-transport-review-20261106-001。原父/子进程输出只记录有界摘要，具体运输任务及原生错误码的历史缺口继续保留，不宣称原故障所有细节已查明。
+
+本轮交易、日线、报告读取和独立观察资料修正均已发布。整体目标保持active：本代自然计算→目标→模拟执行、真实后继收盘的辅助生效仍待真实市场事件；已有效模拟交易证据继续复用。之后处理用户报告的页面加载/自动刷新、深交所期权源解析及确认无引用产物清理。
