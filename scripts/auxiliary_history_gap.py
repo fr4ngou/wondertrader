@@ -59,6 +59,56 @@ class DerivedReport(TypedDict):
     derived_by_kind: dict[str,list[DerivedPoint]]  # 逐统计日数值派生结果，历史生效资格另核。
 
 
+class YearbookCell(TypedDict):
+    value: str  # 交易所分板块股票成交额，亿元，原表精度0.01亿元。
+    page: int  # PDF物理页码，从1开始，区别于书内印刷页码。
+    month: int  # 此单元格所属统计月份，1..12，保持原空白月份位置。
+    day: int  # 此单元格所属月份内日期，1..31。
+    bbox: list[float]  # PDF坐标[x0,top,x1,bottom]，单位pt(1/72英寸)，原点为页面左上角。
+
+
+class YearbookOverlap(TypedDict):
+    day: str  # 两份官方来源均存在的同一统计日。
+    yearbook: str  # 主板与创业板分表相加后的亿元数，保留十进制。
+    official: str  # 已核接口原规范值，亿元，不被年鉴覆盖。
+    difference: str  # 年鉴合计减接口值，亿元；两分表舍入可能造成0.01亿元尾差。
+
+
+class YearbookBook(TypedDict):
+    year: int  # 年鉴统计年份，区别于公开发行和本次取得年份。
+    file: str  # 同目录原PDF文件名，拒绝跨目录路径。
+    pdf_sha256: str  # 完整官方原PDF正文SHA256。
+    url: str  # 原官方静态出版物URL，保持出版来源。
+    received_at: str  # 本系统实际取得PDF的时刻，带UTC offset。
+    unit: str  # 固定yi_CNY，即亿元人民币，按该表明确单位解释。
+    boards: list[str]  # 固定main和chinext，表示主板及创业板股票口径。
+    pages: dict[str,int]  # 各板块原PDF物理页码，从1开始。
+    daily_cells: dict[str,dict[str,YearbookCell]]  # 统计日→板块→有坐标定位的单元格；空格不左移。
+    overlap: list[YearbookOverlap]  # 年鉴与已核接口的真实重叠日差值。
+    precision: str  # 每个分表0.01亿元展示精度，合计不冒充更高精度。
+    redistribution_permission: str  # 原出版物再分发许可状态，原件仅在受控QA保留。
+
+
+class YearbookPayload(TypedDict):
+    extraction_version: str  # 坐标提取算法版本，参与单元格来源身份。
+    books: list[YearbookBook]  # 完整原件、日期、单位及逐格提取的已核年鉴集合。
+
+
+class YearbookDocument(TypedDict):
+    schema: str  # 固定官方年鉴成交额协议版本。
+    payload: YearbookPayload  # 原件与提取值的完整来源清单。
+    payload_sha256: str  # payload规范JSON摘要，保护提取后修改。
+
+
+class ResearchOverlap(TypedDict):
+    statistic_date: str  # 官方与研究候选共同存在的统计日。
+    research: str  # 第三方融资余额候选，规范为亿元，保留原精度。
+    official: str  # 当前选中的官方融资余额，亿元。
+    difference: str  # 研究候选减官方值，亿元，保留差值方向。
+    within_display_resolution: bool  # 绝对差小于0.01亿元，仅作展示精度一致性检查。
+    observed_truncation_match: bool  # 候选正数截断至0.01亿元后与官方值相同的观察，不推定源算法。
+
+
 class AuditReport(TypedDict):
     schema: str  # 固定独立历史审计协议版本。
     observed_at: str  # 实际审计完成时刻，UTC offset明确。
@@ -69,7 +119,7 @@ class AuditReport(TypedDict):
     symbols: list[str]  # 实际请求的沪市ETF集合，证券缺口按Coverage记录。
     sources: dict[str,SourceCoverage]  # 五来源逐日汇总与实际缺口。
     official_complete_days: int  # 五来源均具备官方事实的日数量，不代替单字段覆盖。
-    research_overlap: list[dict]  # 官方/研究候选的同日差值及展示精度关系。
+    research_overlap: list[ResearchOverlap]  # 官方/研究候选的同日差值及展示精度关系。
     official_derived: DerivedReport  # 默认官方事实流派生，完全排除研究候选。
     research_derived: DerivedReport  # 显式研究流派生，保持research_only资格。
     source_qualification_counts: dict[str,int]  # 各来源资格的事实数量。
@@ -97,7 +147,7 @@ def write(path, value):
     temporary.replace(path)
 
 
-def extract_table(page, year, page_number):
+def extract_table(page, year, page_number) -> dict[str,YearbookCell]:
     """按PDF坐标读取空白单元格，防止文本串行抽取把月份左移。"""
     words = page.extract_words()
     text = re.sub(r'\s+', '', page.extract_text())
@@ -113,7 +163,7 @@ def extract_table(page, year, page_number):
     days = [w for w in words if (w['x0']+w['x1'])/2<date_right and w['top']>top+15 and re.fullmatch(r'[1-9]|[12][0-9]|3[01]',w['text'])]
     if len(days)!=31 or {int(w['text'])for w in days}!=set(range(1,32)):
         raise ValueError('yearbook_date_grid')
-    values = {}
+    values: dict[str,YearbookCell] = {}
     for row in days:
         number = int(row['text'])
         for index in range(12):
@@ -140,7 +190,7 @@ def build_yearbooks(publications, seed, output):
     if Path(seed).resolve() in output.parents or output==Path(seed).resolve() or output==publications.resolve()/'RECEIPTS.json' or output.suffix!='.json':
         raise ValueError('yearbook_output_scope')
     receipts = json.loads((publications/'RECEIPTS.json').read_bytes())
-    books = []
+    books: list[YearbookBook] = []
     for year, pages in ((2023,{'main':132,'chinext':225}),(2024,{'main':132,'chinext':226})):
         receipt = next(r for r in receipts if r['statistical_year']==year and r['status']=='captured')
         pdf = publications/(str(year)+'.pdf')
@@ -151,7 +201,7 @@ def build_yearbooks(publications, seed, output):
         if set(tables['main'])!=set(tables['chinext']):
             raise ValueError('yearbook_board_calendar_conflict')
         cells={day:{board:table[day]for board,table in tables.items()}for day in sorted(tables['main'])}
-        comparisons=[]
+        comparisons: list[YearbookOverlap]=[]
         for day, values in cells.items():
             capture=Path(seed)/'szse-turnover'/(day+'.json')
             if capture.is_file():
@@ -169,8 +219,9 @@ def build_yearbooks(publications, seed, output):
         books.append(dict(year=year,file=pdf.name,pdf_sha256=receipt['sha256'],url=receipt['url'],received_at=receipt['received_at'],
                           unit='yi_CNY',boards=['main','chinext'],pages=pages,daily_cells=cells,overlap=comparisons,
                           precision='each_board_rounded_to_0.01_yi_CNY',redistribution_permission='unverified; retained privately'))
-    payload=dict(extraction_version='szse-yearbook-coordinate-grid-v1',books=books)
-    write(output,dict(schema='guanheng.official-yearbook-turnover.v1',payload=payload,payload_sha256=_identity(payload)))
+    payload: YearbookPayload=dict(extraction_version='szse-yearbook-coordinate-grid-v1',books=books)
+    document: YearbookDocument=dict(schema='guanheng.official-yearbook-turnover.v1',payload=payload,payload_sha256=_identity(payload))
+    write(output,document)
     return dict(books=len(books),days=sum(len(b['daily_cells'])for b in books),overlap=sum(len(b['overlap'])for b in books))
 
 
@@ -205,7 +256,7 @@ def audit(seed, window_path, output, *, legacy_manifest=None, yearbook=None, res
                 raw_sha256=fact.raw_sha256 if fact else None,references=fact.references if fact else (),
                 research_readable=candidate is not None and candidate.qualification=='research_only',
                 unresolved_reason=None if fact else ('source_not_published_in_seed_response' if error and error.get('reason')=='auxiliary_source_not_published' else 'source_request_or_parse_unresolved' if day==days[-1] else 'official_transport_unavailable; research_candidate_separate' if candidate else 'official_transport_unavailable'),seed_failure=error))
-    research_overlap=[]
+    research_overlap: list[ResearchOverlap]=[]
     if research_margin:
         for fact in read_research_margin(*research_margin):
             original=official_map.get((fact.source,str(fact.statistic_date)))
