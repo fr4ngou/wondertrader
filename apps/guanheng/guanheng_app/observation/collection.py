@@ -14,6 +14,7 @@ from .daily_context import attach_daily_context
 from .calendars import admit_calendars
 from .metadata import asset_contract,computation_identity
 from .publication import validate_manifest,VALIDATION_CONTRACT
+from .asset_index import compact_assets
 from .query import ObservationReader,parquet_bytes
 from .storage import digest,encode
 from .stock_partitions import extend_daily_partitions
@@ -251,7 +252,8 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 context_parents=[*context_parents,*[parent for name in
                     (bond_mtm.TABLE,'source.csi_all','market.sh000001') for parent in table_parents.get(name,[])]]
             input_parents=[candidate['datasets'][name]['partition'] for name in definition.get('input_metrics',[])]
-            candidate['datasets'][key]=admit_dataset(reader.objects,definition,rows,[*([old['partition']] if 'partition' in old else []),*old['parents'],*context_parents,*input_parents,
+            # 只登记直接前代和本轮输入；递归历史由原不可变快照持有，避免每轮复制历史图。
+            candidate['datasets'][key]=admit_dataset(reader.objects,definition,rows,[*([old['partition']] if 'partition' in old else []),*context_parents,*input_parents,
                 *[r['source_manifest'] for r in relevant if r.get('source_manifest')]])
         candidate['source_tables']={key:reader.objects.put(parquet_bytes(rows),kind='standard') for key,rows in tables.items()}
         attach_boards(candidate,candidate['datasets'])
@@ -259,19 +261,22 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         executive_models.attach_boards(candidate,candidate['datasets'])
         t2108_models.attach_board(candidate)
         candidate['source_table_parents']=table_parents
+        active_assets=set()  # 本轮真实生成/复用的抓取资产身份；同内容复用也保持本轮登记。
         for receipt in receipts:
             if 'source_manifest' not in receipt:continue
             records=json.loads(reader.objects.get(receipt['source_manifest']))
-            register_standard_asset(reader.objects,candidate,receipt['source_id']+'.capture',receipt['source_manifest'],
-                [item['sha256'] for item in records],'standard.capture-manifest')
+            active_assets.add(register_standard_asset(reader.objects,candidate,receipt['source_id']+'.capture',receipt['source_manifest'],
+                [item['sha256'] for item in records],'standard.capture-manifest'))
             if receipt['status']=='success':extend_daily_partitions(reader.objects,candidate,records,check=finalization.remaining)
             source=next(item for item in config['sources'] if item['id']==receipt['source_id'])
             for index,item in enumerate(records):
                 identity=digest(encode(dict(source=receipt['source_id'],capture=receipt['started_at'],index=index,sha256=item['sha256'])))
+                active_assets.add(identity)
                 candidate['assets'][identity]=asset_contract(dict(asset_id=identity,sha256=item['sha256'],bytes=len(reader.objects.get(item['sha256'])),
                     group='source.capture',source_ref=receipt['source_id'],retrieved_at=item.get('retrieved_at'),ingested_at=run['completed_at'],
                     qualification='captured_bytes',usage=candidate['usage']),source=source,record=item,capture_id=receipt['source_manifest'])
         register_standard_assets(reader.objects,candidate)
+        run['asset_index']=compact_assets(reader.objects,candidate,manifest,previous,active_asset_ids=active_assets)
         candidate['computation_identity']=computation_identity()
         candidate['source_configuration_sha256']=digest(encode(config));candidate['published_at']=run['completed_at'];candidate['parent_snapshot']=previous
         candidate['validation_contract']=VALIDATION_CONTRACT

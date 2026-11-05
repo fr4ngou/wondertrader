@@ -9,6 +9,7 @@ from .metadata import validate_fields, field_contract
 from .query import ObservationReader, validate_rows
 from .storage import digest, encode, valid_sha
 from .stock_partitions import validate_stock_partitions
+from .asset_index import references as _references
 
 VALIDATION_CONTRACT = 'observation-manifest-validation/1'  # 领域规则变化时升级；既有原全量current继承版本1资格。
 
@@ -32,27 +33,6 @@ class _ValidationObjects:
             raise ObservationError('asset_size_mismatch', '观察资产大小与目录不符', 503)
         self.lengths[sha] = len(body)
         return body
-
-
-def _references(manifest):
-    """完整准入与前代复用从同一登记结构枚举引用及长度合同。"""
-    hashes = {item['sha256'] for item in manifest.get('assets', {}).values()}
-    hashes.update(item['partition'] for item in manifest['datasets'].values())
-    for item in manifest['datasets'].values():
-        hashes.update(item['parents'])
-    hashes.update(manifest.get('source_tables', {}).values())
-    for parents in manifest.get('source_table_parents', {}).values():
-        hashes.update(parents)
-    hashes.update(manifest[key] for key in ('migration_aliases', 'source_payload') if manifest.get(key))
-    hashes.update(item['object_sha256'] for item in manifest.get('references', {}).values() if item.get('object_sha256'))
-    for part in (manifest.get('stock_pb_partitions') or {}).get('partitions', {}).values():
-        hashes.add(part['sha256'])
-        hashes.update(part.get('parent_assets', []))
-    sizes = {}
-    for item in manifest.get('assets', {}).values():
-        hashes.update(item.get('parent_assets', []))
-        sizes.setdefault(item['sha256'], set()).add(item.get('byte_size', item.get('bytes')))
-    return hashes,sizes
 
 
 def _previous_validation(reader, previous_snapshot):
