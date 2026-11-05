@@ -1954,6 +1954,25 @@ struct StandardQmtTrader::Impl {
   if(rejected)error.reset(wtp::WTSError::create(wtp::WEC_ORDERINSERT,status.reason.c_str()));
   callback([&]{spi->onRspEntrust(entrust.get(),error.get());});
  }
+ void publish_write_failure(Completion& result,const Status& status,bool late_completion)
+ {
+  // Source已证明本次Insert未进入SDK：原pending先由settle_write结算，逐单错误仍完整交给原SPI。
+  // 查询优先模式下它只结束该委托，不写入全实例首错；真实未知等待和原硬故障继续独立保留。
+  if(query_first&&result.kind==Kind::Insert&&result.business_rejected&&result.insert_failure_confirmed
+     &&result.trade.phase==QmtTradePhase::DefinitelyNotCalled){
+   forget(result.order.insert.entrust_id);entrust_reply(result.order,result.status,true);return;
+  }
+  if(result.business_rejected||result.audit.role==PendingRole::UnadmittedTargetLookup)note(status);
+  else if(!result.insert_failure_confirmed&&status.code==ErrorCode::SubmissionUnknown){fence_unknown();note(status);}
+  else block(status);
+  if(result.kind==Kind::Insert&&result.insert_failure_confirmed){
+   if(late_completion){
+    const auto rejected=result.status.ok()?failure(ErrorCode::Unavailable,"qmt_standard_confirmed_not_called"):result.status;
+    forget(result.order.insert.entrust_id);entrust_reply(result.order,rejected,true);
+   }else {forget(result.order.insert.entrust_id);entrust_reply(result.order,result.status,true);}
+  }else if(!(query_first&&status.code==ErrorCode::SubmissionUnknown&&!hard_fault))
+   trader_error(status,!late_completion&&result.kind==Kind::Cancel?wtp::WEC_ORDERCANCEL:wtp::WEC_UNKNOWN);
+ }
  void retire_candidates()
  {
   if(events_enabled){
@@ -2716,24 +2735,15 @@ int StandardQmtTrader::pump(std::uint32_t limit)
    if(Clock::now()>=result.deadline){
     const auto error=failure(write&&!result.insert_failure_confirmed?ErrorCode::SubmissionUnknown:ErrorCode::Timeout,"qmt_standard_completion_deadline");
     if(write){
-     // 先公布写准入及身份退役，再通知外部；SPI重入观察到的就是本次终态。
-     if(result.business_rejected||result.audit.role==Impl::PendingRole::UnadmittedTargetLookup)x.note(error);else if(!result.insert_failure_confirmed&&error.code==ErrorCode::SubmissionUnknown){x.fence_unknown();x.note(error);}else x.block(error);
-     // 确定未提交的失败通知不再给SDK机会；晚pump仍只归还原WT委托一次。
-     if(result.kind==Impl::Kind::Insert&&result.insert_failure_confirmed){
-      const auto rejected=result.status.ok()?failure(ErrorCode::Unavailable,"qmt_standard_confirmed_not_called"):result.status;
-      x.forget(result.order.insert.entrust_id);x.entrust_reply(result.order,rejected,true);
-     }else if(!(x.query_first&&error.code==ErrorCode::SubmissionUnknown&&!x.hard_fault))x.trader_error(error);
+     // 两个失败出口共用分类与SPI交付；晚pump也只通知原委托一次，不给SDK第二次机会。
+     x.publish_write_failure(result,error,true);
      continue;
     }
     x.fail(error);break;
    }
    if(!result.status.ok()&&result.kind!=Impl::Kind::Resolve&&result.kind!=Impl::Kind::EventResolve){
     if(write){
-     if(result.business_rejected||result.audit.role==Impl::PendingRole::UnadmittedTargetLookup)x.note(result.status);else if(!result.insert_failure_confirmed&&result.status.code==ErrorCode::SubmissionUnknown){x.fence_unknown();x.note(result.status);}else x.block(result.status);
-     if(result.kind==Impl::Kind::Insert&&result.insert_failure_confirmed){
-      x.forget(result.order.insert.entrust_id);x.entrust_reply(result.order,result.status,true);
-     }else if(!(x.query_first&&result.status.code==ErrorCode::SubmissionUnknown&&!x.hard_fault))
-      x.trader_error(result.status,result.kind==Impl::Kind::Cancel?wtp::WEC_ORDERCANCEL:wtp::WEC_UNKNOWN);
+     x.publish_write_failure(result,result.status,false);
      continue;
     }
     x.block(result.status);

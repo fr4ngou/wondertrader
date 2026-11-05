@@ -453,3 +453,13 @@ P32-C1：原3253/3255完整ORDER各44行及原事件85..102、原命令40..47的
 旁证仅含原phase、读取/交付cursor、原页index/count、任务/队列/回调预留、实际排队和处理毫秒数、原D余量，以及原事件读取返回的运输枚举/系统码。transport_from_prior_retry明确运输字段来自已发生的中断重试，最近成功读取不冒充失败；默认零值表示未捕获该类错误。计时使用steady_clock，零任务/空闲worker字段不授业务证明。固定字段不含账户、金融数量、请求正文、私有路径或异常正文。首次旁证一旦冻结保持，诊断失败继续原业务首因和关闭D。
 
 P33-C1：隔离反馈让真实Standard在PageReady与ReadRetryWait的原截止分支失败，核原code/reason、固定纯值来源与第一次快照保持；该反馈仅验诊断接线，不宣称复现现场截止根因。P33-C2：同批自有Native/Standard编译核独立诊断ABI，原StandardQmtDiagnostics/ManagedTrader/ExecutionHost布局与接口严格保持；旧DLL缺少可选导出继续原失败收据。独立version/size严格核验。现场下一次原身份恢复由集成owner采证；现场页/重试耗尽原因在新旁证到达前保持unknown，预算或调度修正另以实际链证据决定。
+
+## STQ-P34 查询优先确定未调用委托的逐单拒绝（accepted 实施）
+
+显式 `order_context=query_first` 下，Source 原结果已证明 `Insert/DefinitelyNotCalled`、原 Completion 标明 business_rejected 与 insert_failure_confirmed 时，该结果属于对应委托的确定失败。沿原 settle_write 结算 pending/收据费用、将该提交责任置 None，再沿原 forget 退役 Identity，完整原原因和原 entrust_id/user_tag/方向/数量继续通过 onRspEntrust 的 WEC_ORDERINSERT 交付。它不写入全实例 first_error，不增加 unsafe 或写入围栏；后续合法委托和真实未知等待继续原路径。正常完成与越过原 D 才被 owner 消费的同一确定结果共用一个失败分类入口，均只交付原逐单结果一次，不重试金融提交。
+
+逐单通知直接使用原 entrust_reply；不得绕至自身会 note 首错的 trader_error，再次污染全实例诊断。原 Source 命令、结果、DefinitelyNotCalled 阶段和错误正文保持，通信 Journal 仍保原件；不生成成功委托、不修改策略资金或持仓、不为业务错误增加重复存储。已有全实例硬错、未知和入站/owner 错误不因逐单拒绝被清除。
+
+默认 native、Cancel、未证实未进入 SDK 的失败、SubmissionUnknown、未发送的本地错误、协议/来源错误及真实 SPI 交付异常沿原分类和责任保持。此前已锁存的错误不在本次逐单通知中重置；恢复与来源修正仍使用原合法新进程和原责任证据。
+
+P34-C1：实际失败交付方法正文的定向验证覆盖及时与晚到的 query_first 确定拒单：逐单原错误保留、Identity 退休一次、first_error/硬错保持空，随后未知可沿原 awaiting_observation 等待；改变该拒绝分类应复现 unsafe 污染。P34-C2：默认 native 的相同拒绝、Cancel、真实未知及来源硬错分别保持原结果和围栏；已有硬错不会被后继确定拒单清除。函数级替身证据与实际插件 SPI/Host/Source 的主链证据分别登记，完整源码翻译单元及新 DLL 由集成 owner 同批构建验证。
