@@ -140,3 +140,6 @@
 # 2026-11-05下午接续
 
 - [来源规则、逐单拒绝与下午原账本恢复](2026-11-05-source-binding-and-afternoon-recovery.md)：cash6自动下单成交和带活动单正常接续已验；589680模拟柜台拒单仍待处理。
+
+- [独立观衡117诊断与有界日志](2026-11-06-observer117-runtime-live.md)。
+- [分钟原查询责任恢复正式采用](2026-11-06-minute-retained-resume-live.md)。
