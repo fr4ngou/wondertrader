@@ -1,6 +1,10 @@
 import {expect,it} from 'vitest'
 import {automaticUpdateLabel,localSchedulerLabel,failureLabel,sourceLabel} from './presentation'
 
+it('定时失败仅描述该轮结果，不把后续已补发布的数据说成旧版本',()=>{
+  expect(automaticUpdateLabel({enabled:true,state:'running'},'failed')).toBe('最近定时更新失败')
+})
+
 it('已停止服务保留明确状态',()=>{
   expect(automaticUpdateLabel({enabled:false,state:'stopped',last_heartbeat:'2026-10-18T12:30:00+00:00'},'partial')).toBe('自动更新已停止')
 })

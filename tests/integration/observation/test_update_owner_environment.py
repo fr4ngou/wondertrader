@@ -54,6 +54,17 @@ class UpdateEnvironmentTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout), {
             'url': 'http://127.0.0.1:18136', 'token_matches': True, 'account_present': False})
 
+    def test_explicit_direct_hosts_preserve_proxy_for_other_sources(self):
+        # 直连例外属于本角色配置；其余来源仍使用继承代理，调用者环境保持原值。
+        prepared = self.prepared({'GUANHENG_MARKET_URL': 'http://127.0.0.1:18136',
+                                  'GUANHENG_MARKET_TOKEN': 'synthetic-test-token',
+                                  'NO_PROXY': 'localhost,127.0.0.1,investor.szse.cn,www.szse.cn'})
+        with patch.dict(os.environ, {'HTTP_PROXY': 'http://proxy.invalid:8080', 'NO_PROXY': 'localhost'}, clear=False):
+            environment = OWNER.launch_environment(prepared, 'live')
+            self.assertEqual(os.environ['NO_PROXY'], 'localhost')
+        self.assertEqual(environment['HTTP_PROXY'], 'http://proxy.invalid:8080')
+        self.assertEqual(environment['NO_PROXY'], 'localhost,127.0.0.1,investor.szse.cn,www.szse.cn')
+
     def test_changed_or_oversized_private_file_is_rejected(self):
         prepared = self.prepared({'GUANHENG_MARKET_URL': 'http://127.0.0.1',
                                   'GUANHENG_MARKET_TOKEN': 'synthetic-test-token'})

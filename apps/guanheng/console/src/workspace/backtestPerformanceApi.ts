@@ -61,6 +61,8 @@ export function validatePerformance(value: unknown, entry: ArchiveEntry): Backte
     || typeof metrics.native_cumulative_fees_cny === 'string' && metrics.native_cumulative_fees_cny.startsWith('-')
     || !nullableNumber(metrics.total_return_pct) || !nullableNumber(metrics.observed_max_drawdown_pct)
     || metrics.observed_max_drawdown_pct !== null && metrics.observed_max_drawdown_pct < 0) invalidBacktest()
+  if (entry.summary && (value.strategy.id !== entry.summary.strategy.id || value.strategy.version !== entry.summary.strategy.version
+    || metrics.initial_capital_cny !== entry.summary.initial_capital_cny)) invalidBacktest()
   keys(value.observations, 'total available missing last_trading_date')
   const observations = value.observations
   if (['total', 'available', 'missing'].some(k => !Number.isInteger(observations[k]) || (observations[k] as number) < 0 || (observations[k] as number) > 4096)

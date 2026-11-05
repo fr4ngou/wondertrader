@@ -6,7 +6,7 @@ export function automaticUpdateLabel(scheduler?:{enabled:boolean;state?:string;l
   if(scheduler.state==='not_running_or_stale')return scheduler.last_heartbeat?'自动更新心跳已过期，请查看更新与缺口':'自动更新尚未收到心跳，请查看更新与缺口'
   if(!scheduler.enabled)return '自动更新尚未启用'
   if(scheduler.state && scheduler.state!=='running')return '自动更新心跳异常，请查看更新与缺口'
-  if(lastStatus==='failed')return '最近自动更新失败 · 保留原版本'
+  if(lastStatus==='failed')return '最近定时更新失败'
   if(lastStatus==='partial')return '自动更新已运行 · 部分来源待补'
   return '自动更新已启用'
 }

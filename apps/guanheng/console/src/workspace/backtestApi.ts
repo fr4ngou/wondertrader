@@ -221,10 +221,21 @@ export async function fetchBacktestDay(ownerId: string, requestId: string, index
 }
 
 export type ArchiveSelection = { runId: string; receiptSha: string; reportSha?: string }
+export type ArchiveSummary = {
+  /** 完成证明绑定的原报告策略身份；名称和文件名均不参与归属推断。 */ strategy: {
+    /** 原报告声明的策略业务ID。 */ id: string
+    /** 该份报告实际使用的策略版本。 */ version: string
+  }
+  /** 原模型初始本金，人民币十进制文本；完整绩效在选择后另行核验。 */ initial_capital_cny: string
+}
 export type ArchiveEntry = { run_id: string; owner_id: string; request_id: string; record_count: number;
   report_sha256: string; receipt_sha256: string; scope: string;
+  /** 新目录提供的轻量归属；null为该份原件未取得归属，缺省表示旧目录合同。 */ summary?: ArchiveSummary | null
   configuration: { label: string; name: string; start: number; end: number; session_sha256: string; max_seconds: number } }
 export type ArchiveIndex = { schema: 'nbw-archive-index-v1'; runs: ArchiveEntry[]; invalid_receipts: number; unarchived_runs: number; scope: string }
+export type ArchiveSummaryIndex = Omit<ArchiveIndex, 'schema'> & {
+  /** 轻量归属目录的固定协议版本，区别于旧完成证明目录。 */ schema: 'nbw-archive-summary-index-v1'
+}
 export type ArchiveConfiguration = { schema: 'nbw-archive-configuration-v1'; run_id: string; request_id: string;
   receipt_sha256: string; report_sha256: string; installation_sha256: string; configuration: ArchiveEntry['configuration'];
   session_configuration: unknown; policy: unknown; fee_reserve_cny: unknown; fee_source: unknown; scope: string }
@@ -241,23 +252,39 @@ export function archiveConfiguration(value: unknown): value is ArchiveEntry['con
 }
 export async function fetchBacktestArchive(signal?: AbortSignal): Promise<ArchiveIndex> {
   const value = await fetchBacktestReadJson<unknown>('/v1/ui/backtest/archive', '历史回测归档', signal)
+  return archiveIndex(value, false) as ArchiveIndex
+}
+/** 列表先读原件归属，不再用全部报告的完整绩效发现策略身份。 */
+export async function fetchBacktestArchiveSummaries(signal?: AbortSignal): Promise<ArchiveSummaryIndex> {
+  const value = await fetchBacktestReadJson<unknown>('/v1/ui/backtest/archive-summaries', '回测报告目录', signal)
+  return archiveIndex(value, true) as ArchiveSummaryIndex
+}
+function archiveIndex(value: unknown, summaries: boolean): ArchiveIndex | ArchiveSummaryIndex {
   boundedBacktestTree(value)
   if (!object(value)) return invalid()
   exactKeys(value, ['schema', 'runs', 'invalid_receipts', 'unarchived_runs', 'scope'])
-  if (value.schema !== 'nbw-archive-index-v1' || !Array.isArray(value.runs) || value.runs.length > 128 || !boundedText(value.scope)
+  if (value.schema !== (summaries ? 'nbw-archive-summary-index-v1' : 'nbw-archive-index-v1') || !Array.isArray(value.runs) || value.runs.length > 128 || !boundedText(value.scope)
     || !Number.isInteger(value.invalid_receipts) || (value.invalid_receipts as number) < 0
     || !Number.isInteger(value.unarchived_runs) || (value.unarchived_runs as number) < 0
     || value.runs.length + (value.invalid_receipts as number) + (value.unarchived_runs as number) > 128) return invalid()
   const ids = new Set<string>()
   for (const entry of value.runs) {
     if (!object(entry)) return invalid()
-    exactKeys(entry, ['run_id', 'owner_id', 'request_id', 'record_count', 'report_sha256', 'receipt_sha256', 'configuration', 'scope'])
+    exactKeys(entry, ['run_id', 'owner_id', 'request_id', 'record_count', 'report_sha256', 'receipt_sha256', 'configuration', 'scope', ...(summaries ? ['summary'] : [])])
     if (!validId(entry.run_id) || !validId(entry.owner_id) || !validId(entry.request_id) || ids.has(entry.run_id)
       || !validDigest(entry.report_sha256) || !validDigest(entry.receipt_sha256) || !archiveConfiguration(entry.configuration)
       || !Number.isInteger(entry.record_count) || (entry.record_count as number) < 0 || (entry.record_count as number) > 4096 || !boundedText(entry.scope)) return invalid()
     ids.add(entry.run_id)
+    if (summaries && entry.summary !== null) {
+      if (!object(entry.summary) || !object(entry.summary.strategy)) return invalid()
+      exactKeys(entry.summary, ['strategy', 'initial_capital_cny']); exactKeys(entry.summary.strategy, ['id', 'version'])
+      if (!boundedText(entry.summary.strategy.id, 256) || !entry.summary.strategy.id.length
+        || !boundedText(entry.summary.strategy.version, 256) || !entry.summary.strategy.version.length
+        || typeof entry.summary.initial_capital_cny !== 'string' || entry.summary.initial_capital_cny.length > 512
+        || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(entry.summary.initial_capital_cny) || !/[1-9]/.test(entry.summary.initial_capital_cny)) return invalid()
+    }
   }
-  return value as ArchiveIndex
+  return value as ArchiveIndex | ArchiveSummaryIndex
 }
 export async function fetchArchiveConfiguration(entry: ArchiveEntry, signal?: AbortSignal): Promise<ArchiveConfiguration> {
   validateArchiveSelection({ runId: entry.run_id, receiptSha: entry.receipt_sha256 })

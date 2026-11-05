@@ -43,19 +43,20 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
   const [day, setDay] = useState<number | null>(null)
   const [detailSide, setDetailSide] = useState('left')
   const right = entries.find(e => e.run_id === rightId && e.run_id !== entry.run_id)
-  const single = useQuery({ queryKey: performanceKey(entry),
-    queryFn: ({ signal }) => fetchBacktestPerformance(entry, signal), enabled: ready && !right, staleTime: Infinity, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const comparison = useQuery({ queryKey: ['backtest-comparison', entry.run_id, entry.receipt_sha256, right?.run_id, right?.receipt_sha256],
     queryFn: ({ signal }) => fetchBacktestComparison(entry, right!, signal), enabled: ready && !!right, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
+  const single = useQuery({ queryKey: performanceKey(entry),
+    queryFn: ({ signal }) => fetchBacktestPerformance(entry, signal), enabled: ready && (!right || comparison.isError), staleTime: Infinity, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const current = right ? comparison : single
-  const leftValue = right ? comparison.data?.left : single.data
+  // 对比慢或失败时保留同一主报告缓存；首次对比失败可独立读取主报告。
+  const leftValue = right ? comparison.data?.left ?? single.data : single.data
   const rightValue = right ? comparison.data?.right : undefined
   useEffect(() => { if (leftValue) onReport?.(leftValue); if (rightValue) onReport?.(rightValue) }, [leftValue, rightValue, onReport])
   const visual = useQuery({ queryKey: ['backtest-visuals', entry.run_id, entry.receipt_sha256, entry.report_sha256], queryFn: ({ signal }) => fetchVisuals(entry, signal),
     enabled: ready && !!leftValue, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const rightVisual = useQuery({ queryKey: ['backtest-visuals', right?.run_id, right?.receipt_sha256, right?.report_sha256], queryFn: ({ signal }) => fetchVisuals(right!, signal),
     enabled: ready && !!right && !!rightValue, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
-  const detailEntry = detailSide === 'right' && right ? right : entry
+  const detailEntry = detailSide === 'right' && right && rightValue ? right : entry
   const detailValue = detailSide === 'right' && rightValue ? rightValue : leftValue
   const selectedDay = day ?? detailValue?.points.at(-1)?.[0] ?? null
   const metrics = leftValue?.metrics
@@ -84,7 +85,7 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
           <BacktestVisualChart left={leftValue} right={rightValue} visual={visual.data} rightVisual={rightVisual.data} mode={mode} markers={markers} onDay={setDay} />
           <p className="bt-muted bt-chart-caption">点选日期查看持仓与交易，滚轮可缩放。</p>
         </section>
-        <div className="bt-inspector-wrap">{right ? <label className="bt-detail-source">日期明细所属报告<select aria-label="日期明细所属报告" value={detailSide} onChange={e => setDetailSide(e.target.value)}><option value="left">主报告</option><option value="right">对比报告</option></select></label> : null}
+        <div className="bt-inspector-wrap">{right && rightValue ? <label className="bt-detail-source">日期明细所属报告<select aria-label="日期明细所属报告" value={detailSide} onChange={e => setDetailSide(e.target.value)}><option value="left">主报告</option><option value="right">对比报告</option></select></label> : null}
           <BacktestDateDetail key={detailEntry.run_id + detailEntry.receipt_sha256 + selectedDay} entry={detailEntry} day={selectedDay} dates={detailValue?.points.map(p => p[0]) ?? []} onDay={setDay} />
         </div>
       </div>}

@@ -44,6 +44,11 @@ def router(root):
     async def index(request: Request):
         return await read(request, lambda deadline: archive.list(deadline))
 
+    @routes.get('/archive-summaries')
+    async def summaries(request: Request):
+        """轻量原件归属目录；完整报告与绩效仍沿用户选中的原读取入口。"""
+        return await read(request, lambda deadline: archive.list(deadline, summaries=True))
+
     @routes.get('/source')
     async def source(request: Request):
         """目录状态与读取故障分别表达；持久归档在WT停止后仍保持可读。"""

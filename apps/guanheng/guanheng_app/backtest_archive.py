@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ from .strategy_host import HostError as HostError, HostResult, SCHEMA as HOST_SC
 from .backtest_reports import (validate_report_dict, project_session_record,
                                normalize_session, report_schema_for_input, PER_DATE_REPORT_SCHEMA,
                                project_input_business_diagnostics)
-from .backtest_performance import build_performance, build_comparison, MAX_RESPONSE
+from .backtest_performance import build_performance, build_comparison, MAX_RESPONSE, _fraction, _money
 
 SCHEMA = "nbw-completed-archive-v1"
 SCOPE = "isolated-raw-BT; real-source/RT/broker/production-unqualified"
@@ -173,7 +174,7 @@ class BacktestArchive:
             _require(_digest(receipt_sha) and _sha(raw) == receipt_sha, "归档身份已改变，请重新读取历史目录", 409)
         return directory, value, _sha(raw)
 
-    def list(self, deadline):
+    def list(self, deadline, *, summaries=False):
         read = _Read(deadline)
         _require(self._lock.acquire(blocking=False), "归档正在读取，请稍后重试", 429)
         try:
@@ -200,13 +201,22 @@ class BacktestArchive:
                     try:
                         _, value, receipt_sha = self._load(read, path.name)
                         self._capacity(read, path)
-                        runs.append({**{k: value[k] for k in ("run_id", "owner_id", "request_id", "record_count", "report_sha256", "configuration", "scope")},
-                                     "receipt_sha256": receipt_sha})
+                        item = {**{k: value[k] for k in ("run_id", "owner_id", "request_id", "record_count", "report_sha256", "configuration", "scope")},
+                                "receipt_sha256": receipt_sha}
+                        if summaries:
+                            # 列表归属与完整绩效分层；单份原件失败只影响本条归属。
+                            try:
+                                item['summary'] = self._summary(read, path, value)
+                            except (Exception, SystemExit) as error:
+                                logging.getLogger(__name__).warning('backtest_summary_unavailable run_id=%s error_type=%s',
+                                                                   path.name, type(error).__name__)
+                                item['summary'] = None
+                        runs.append(item)
                     except (Exception, SystemExit):
                         invalid += 1
             read.check()
             runs.sort(key=lambda item: item["run_id"])
-            response = {"schema": "nbw-archive-index-v1", "runs": runs, "invalid_receipts": invalid,
+            response = {"schema": "nbw-archive-summary-index-v1" if summaries else "nbw-archive-index-v1", "runs": runs, "invalid_receipts": invalid,
                         "unarchived_runs": unarchived, "scope": SCOPE}
             _require(len(_wire(response)) <= 524288)
             read.check()
@@ -217,6 +227,47 @@ class BacktestArchive:
             raise ArchiveError() from None
         finally:
             self._lock.release()
+
+    def _summary(self, read, directory, receipt):
+        """只投影完成证明绑定的报告归属及本金，不授完整报告/绩效读取资格。
+
+        每次仍核原请求、结果、安装及报告摘要，沿原文件/容量/截止合同；
+        完整来源、领域、原生输出和绩效仍在用户选择该报告时由_originals核验。
+        列表不重建全部报告、不缓存第二份完整金融报告，也不从名称推断版本。
+        """
+        _require(read.raw(directory / 'request.json', 16 * 1024 * 1024, checksum=True) == receipt['request_sha256'])
+        result, raw = read.value(directory / 'result.json', 32 * 1024 * 1024)
+        _require(_sha(raw) == receipt['result_sha256'])
+        _require(read.raw(directory / 'installation.json', 2 * 1024 * 1024, checksum=True) == receipt['installation_sha256'])
+        _require(result['schema'] == HOST_SCHEMA and result['run_id'] == receipt['run_id']
+                 and result['request_sha256'] == receipt['request_sha256']
+                 and result['installation_sha256'] == receipt['installation_sha256'])
+        report = result['report']
+        _require(_sha(_wire(report)) == receipt['report_sha256']
+                 and report['schema'] == result['report_schema']
+                 and len(report['records']) == receipt['record_count'])
+        from .backtest_reports import RETAINED_REPORT_SCHEMAS
+        if report['schema'] in RETAINED_REPORT_SCHEMAS:
+            strategy = dict(id=report['strategy_id'],  # 原报告中的策略业务ID。
+                            version=report['strategy_version'])  # 该份原报告的实际策略版本。
+            initial = report['policy']['initial_capital_cny']
+        else:
+            # 旧configured/V2族的身份归冻结输入；保留原已知族，未知族不猜归属。
+            _require(report['schema'] in ('nsb-report-v2', 'nsb-v2-report-v1', 'nsb-historical-report-v1'))
+            request, _raw = read.value(directory / 'request.json', 16 * 1024 * 1024)
+            _require(_sha(_raw) == receipt['request_sha256'])
+            session = request['session']
+            configured = session.get('strategy', session.get('config'))
+            strategy = dict(id=configured['strategy_id'],  # 旧报告族的冻结输入策略ID。
+                            version=configured['strategy_version'])  # 旧冻结输入的实际策略版本。
+            initial = session['policy']['initial_capital_cny']
+        _require(all(type(value) is str and 0 < len(value) <= 256
+                     and all(ord(char) >= 32 for char in value) for value in strategy.values()))
+        amount = _fraction(initial)
+        _require(amount > 0)
+        read.check()
+        return dict(strategy=strategy,  # 完成证明绑定的原报告/输入策略身份，不取展示名称。
+                    initial_capital_cny=_money(amount))  # 原模型初始本金，人民币十进制文本；不表示当前账户资金。
 
     def _originals(self, read, directory, value, result_raw=None):
         self._capacity(read, directory)

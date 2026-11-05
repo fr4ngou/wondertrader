@@ -4,7 +4,7 @@ import { fetchBacktestPerformance } from './backtestPerformanceApi'
 
 export const performanceKey = (entry: ArchiveEntry) => ['backtest-performance', entry.run_id, entry.receipt_sha256, entry.report_sha256]
 
-/** 沿原绩效接口核实报告归属，最多两份并行，复用同一完成身份的查询缓存。 */
+/** 只对用户当前选中的主/对比报告读取完整绩效，复用同一完成身份的缓存。 */
 export function useBacktestReports(entries: ArchiveEntry[], enabled: boolean) {
   const client = useQueryClient()
   const active = useIsFetching({ predicate: query => query.queryKey[0] === 'backtest-performance' || query.queryKey[0] === 'backtest-comparison' })

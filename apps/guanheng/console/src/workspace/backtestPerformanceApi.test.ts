@@ -3,6 +3,12 @@ import { fetchBacktestComparison, fetchBacktestPerformance, validatePerformance 
 import fixture from './backtest-performance.fixture.json'
 
 afterEach(() => vi.unstubAllGlobals())
+test('完整绩效继续匹配轻量目录的原策略版本及本金',()=>{
+  const summary={strategy:{id:fixture.left.strategy.id,version:fixture.left.strategy.version},initial_capital_cny:fixture.left.metrics.initial_capital_cny}
+  expect(validatePerformance(fixture.left,{...fixture.left_entry,summary})).toEqual(fixture.left)
+  expect(()=>validatePerformance(fixture.left,{...fixture.left_entry,summary:{...summary,strategy:{...summary.strategy,version:'wrong'}}})).toThrow('格式或身份无效')
+  expect(()=>validatePerformance(fixture.left,{...fixture.left_entry,summary:{...summary,initial_capital_cny:'2'}})).toThrow('格式或身份无效')
+})
 test('原生两族投影及原文件/规范会话不同摘要均保留，比较请求只读绑定双方receipt', async () => {
   const fetch = vi.fn().mockResolvedValueOnce(Response.json(fixture.left)).mockResolvedValueOnce(Response.json(fixture.comparison))
   vi.stubGlobal('fetch', fetch)

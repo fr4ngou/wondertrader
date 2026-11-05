@@ -21,6 +21,7 @@ BASE = Path(__file__).resolve().parent
 MARKET_ENVIRONMENT_KEYS = frozenset((
     'GUANHENG_MARKET_URL', 'GUANHENG_MARKET_TOKEN',
     'GUANHENG_MARKET_CONNECT_IP', 'GUANHENG_MARKET_TIMEOUT_SECONDS',
+    'NO_PROXY',  # 仅该独立更新角色的显式直连主机名单，其他来源继续继承原代理。
 ))
 
 

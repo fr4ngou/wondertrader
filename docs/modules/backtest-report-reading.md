@@ -6,6 +6,10 @@
 
 观衡归档HTTP先核完成证明、原请求、安装和所有原生输出，再调用WT自有 `backtest_reports.normalize_session`、`validate_report_dict` 及 `project_session_record`。报告准入复用 `retained_report` 的原领域校验、持仓/资金/数量核对及纯核重演。读取层只消费完成结果，不拥有执行、QMT通信或模型运行。
 
+列表入口另沿[BRP4](../specs/backtest-report-read-performance.md#brp4-列表归属与按选择读取)：`backtest_archive.list(summaries=True)`仅投影完成证明绑定的原策略版本和本金，核原请求/安装/结果/报告摘要，保留整run容量和同一截止。某份归属不可读时返回该条summary=null并记录固定run_id/error_type，其他条目继续可选；旧目录接口形状保持。完整来源、领域和原生输出核验由用户选中报告后的原读取入口承担，列表摘要不代表该次完整报告读取成功。
+
+`BacktestWorkspace`从轻量目录隔离策略及历史版本，`BacktestReportList`只为当前主报告及所选对比报告读取绩效；同完成身份复用原React Query缓存，未选绩效保持待读。慢报告不阻止列表和其他选择，对比失败保留同一主报告已读结果。图表、成交、持仓及日期明细继续原纯投影，不另建金融数据或缓存完整报告。
+
 纯值包的 `guanheng_strategy_native._numbers.text` 承担有界文本准入。控制字符扫描可使用与原逐字符判断等价的编译搜索，类型、长度、空白和控制字符的检查顺序及QuantityError语义保持；金融数值、数量和策略数学函数保持原实现。该优化作为独立纯值发行固定到只读组合锁，运行侧依赖独立保留。全Unicode/错误顺序等价、完整报告同值及实际HTTP证据分别登记。
 
 `normalize_session` 的固定基准输入族沿原实现。逐日输入先通过原 `RetainedReplayInput.from_dict` 和 `normalize_source_binding`，由原 core `json_value` 处理时间、枚举和数据类。适配层将该私有树一次转为有序独立纯值，逐节点计入与紧凑 `ensure_ascii=True` JSON相同的字节数；原8MiB内层及16MiB外层额度保持。此纯值与 `loads(canonical_bytes(...))` 等值且同键序，省去编码后解析同一数据的往返。

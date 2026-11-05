@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fetchReadJson } from '../api'
-import { commandBacktest, fetchBacktestDay, fetchBacktestWorkspace, fetchBacktestArchive, fetchArchiveConfiguration, fetchBacktestRecords } from './backtestApi'
+import { commandBacktest, fetchBacktestDay, fetchBacktestWorkspace, fetchBacktestArchive, fetchBacktestArchiveSummaries, fetchArchiveConfiguration, fetchBacktestRecords } from './backtestApi'
 import day from './backtest-day.fixture.json'
 
 vi.mock('../api', () => ({ fetchReadJson: vi.fn() }))
@@ -47,6 +47,25 @@ it('启动与取消各只发送一次同编号；不自动重试', async () => {
 const archiveEntry = { run_id: run.run_id, owner_id: run.owner_id, request_id: run.request_id, record_count: 5,
   report_sha256: 'a'.repeat(64), receipt_sha256: 'd'.repeat(64), configuration: { ...workspace.configuration, name: 'configured' }, scope: run.scope }
 const archiveIndex = { schema: 'nbw-archive-index-v1', runs: [archiveEntry], invalid_receipts: 0, unarchived_runs: 0, scope: run.scope }
+
+it('轻量目录严格绑定真实归属和本金，单份未知与原目录合同分开', async () => {
+  const summary={strategy:{id:'saved-model',version:'1.2.2'},initial_capital_cny:'1000000'}
+  vi.mocked(fetchReadJson).mockResolvedValue({...archiveIndex,schema:'nbw-archive-summary-index-v1',runs:[{...archiveEntry,summary}]})
+  expect((await fetchBacktestArchiveSummaries()).runs[0].summary).toEqual(summary)
+  expect(vi.mocked(fetchReadJson).mock.calls[0][0]).toBe('/v1/ui/backtest/archive-summaries')
+  vi.mocked(fetchReadJson).mockResolvedValue({...archiveIndex,schema:'nbw-archive-summary-index-v1',runs:[{...archiveEntry,summary:null}]})
+  expect((await fetchBacktestArchiveSummaries()).runs[0].summary).toBeNull()
+  vi.mocked(fetchReadJson).mockResolvedValue({...archiveIndex,runs:[{...archiveEntry,summary}]})
+  await expect(fetchBacktestArchive()).rejects.toThrow('格式或身份无效')
+})
+
+it.each([{strategy:{id:'model',version:''},initial_capital_cny:'100'},
+  {strategy:{id:'model',version:'1'},initial_capital_cny:'-1'},
+  {strategy:{id:'model',version:'1'},initial_capital_cny:'0'},
+  {strategy:{id:'model',version:'1'},initial_capital_cny:'Infinity'}])('轻量目录拒绝不明版本或无效本金', async summary=>{
+  vi.mocked(fetchReadJson).mockResolvedValue({...archiveIndex,schema:'nbw-archive-summary-index-v1',runs:[{...archiveEntry,summary}]})
+  await expect(fetchBacktestArchiveSummaries()).rejects.toThrow('格式或身份无效')
+})
 
 it('历史归档使用稳定run与receipt，保留原请求并且只发GET', async () => {
   vi.mocked(fetchReadJson).mockResolvedValueOnce(archiveIndex).mockResolvedValueOnce({ request_id: run.request_id, report_sha256: archiveEntry.report_sha256,

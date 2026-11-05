@@ -62,6 +62,17 @@ test('折叠日期表保留原精度净值与缺失观察', async () => {
   expect(table).toHaveTextContent(String(fixture.left.points.find(p=>p[1]!==null)![1]))
 })
 
+test('对比失败仍保留同一主报告的曲线和金额',async()=>{
+  mount();await screen.findByText('-123.45')
+  vi.mocked(api.fetchBacktestComparison).mockRejectedValueOnce(new Error('private comparison failure'))
+  fireEvent.change(screen.getByLabelText('选择比较报告'),{target:{value:fixture.right_entry.run_id}})
+  expect(await screen.findByRole('alert')).toHaveTextContent('当前保留上次结果')
+  expect(screen.getByRole('img',{name:'测试曲线'})).toBeVisible()
+  expect(screen.getByText('-123.45')).toBeVisible()
+  expect(screen.queryByLabelText('日期明细所属报告')).toBeNull()
+  expect(document.body).not.toHaveTextContent('private comparison failure')
+})
+
 test('比较保留本金差异提示并可切换明细报告，返回单份清除比较', async () => {
   mount(); await screen.findByText('-123.45')
   fireEvent.change(screen.getByLabelText('选择比较报告'), { target: { value: fixture.right_entry.run_id } })

@@ -208,7 +208,9 @@ class Fetcher:
                     if response.status_code != 200:
                         raise SourceFailure('source_http_'+str(response.status_code))
                     return body
-            except (httpx.TimeoutException,httpx.NetworkError):
+            except (httpx.TimeoutException,httpx.NetworkError,httpx.RemoteProtocolError):
+                # 响应头之前断开、正文传输中断属于远端运输失败；沿原两次额度，
+                # 不把没有正文的请求抛给上层误记为解析失败，也不延长原请求/批次D。
                 request_remaining()
                 if attempt:
                     raise SourceFailure('source_network_timeout') from None

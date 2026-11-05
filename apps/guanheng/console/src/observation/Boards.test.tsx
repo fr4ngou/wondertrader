@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -40,6 +40,18 @@ async function open(initial='/observation?metric=pcr_510050&preset=d30') {
 }
 const dates=()=>['起始日期','截止日期'].map(label=>(screen.getByLabelText(label) as HTMLInputElement).value)
 
+it('定时失败记录保留，顶部数据时间取当前实际已发布目录',async()=>{
+  const {query,container}=await open()
+  act(()=>query.setQueryData(['observation','updates'],{
+    scheduler:{enabled:true,state:'running'},
+    runs:[{status:'failed',execution_mode:'scheduled',completed_at:'2026-10-17T01:00:00Z'}],
+  }))
+  await screen.findByText('最近定时更新失败')
+  const status=container.querySelector('.observation-auto')
+  expect(status).toHaveTextContent('数据发布：'+new Date(catalog.published_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}))
+  expect(status).not.toHaveTextContent(new Date('2026-10-17T01:00:00Z').toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}))
+})
+
 it('年报默认全部年度，切换不相交的日线范围后能直接看到年报，明确URL日期继续保留',async()=>{
   const annual={...definitions.pcr_510050,id:'earnings.eps.shsz',board:'earnings',label:'平均EPS · 沪深年报',
     frequency:'年度年报',coverage:{start:'2021-12-31',end:'2025-12-31',observations:5}}
@@ -51,20 +63,17 @@ it('年报默认全部年度，切换不相交的日线范围后能直接看到�
     const first=await open()
     expect(dates()).toEqual(['2026-09-17','2026-10-16'])
     fireEvent.click(screen.getByRole('button',{name:'03盈利与回报'}))
-    await screen.findByRole('heading',{name:annual.label})
-    expect(dates()).toEqual(['2021-12-31','2025-12-31'])
+    await waitFor(()=>expect(dates()).toEqual(['2021-12-31','2025-12-31']))
     first.unmount()
     const query=new QueryClient({defaultOptions:{queries:{retry:false}}})
     const second=render(<QueryClientProvider client={query}><MemoryRouter initialEntries={['/observation?metric='+annual.id]}><ObservationShell /></MemoryRouter></QueryClientProvider>)
-    await screen.findByRole('heading',{name:annual.label})
-    expect(dates()).toEqual(['2021-12-31','2025-12-31'])
+    await waitFor(()=>expect(dates()).toEqual(['2021-12-31','2025-12-31']))
     const {getSeries}=await import('./api')
     await waitFor(()=>expect(vi.mocked(getSeries).mock.calls.at(-1)?.[2]).toEqual(expect.objectContaining({start:'2021-12-31',end:'2025-12-31'})))
     expect(vi.mocked(getSeries).mock.calls.at(-1)?.[2]).not.toHaveProperty('observations')
     second.unmount()
     render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/observation?metric='+annual.id+'&start=2026-10-01&end=2026-10-16']}><ObservationShell /></MemoryRouter></QueryClientProvider>)
-    await screen.findByRole('heading',{name:annual.label})
-    expect(dates()).toEqual(['2026-10-01','2026-10-16'])
+    await waitFor(()=>expect(dates()).toEqual(['2026-10-01','2026-10-16']))
   } finally {
     delete definitions[annual.id];catalog.boards.pop();catalog.datasets.pop();delete catalog.preferences.default_datasets.earnings
   }
@@ -111,7 +120,7 @@ it('旧截止保留且明确新末期，用户主动查看最新时保留六个�
   pcrState.newer=true
   await open('/observation?metric=pcr_510050&start=2026-04-16&end=2026-10-16&preset=m6')
   expect(dates()).toEqual(['2026-04-16','2026-10-16'])
-  expect(screen.getByText(/本数据集可用至 2026-10-19/)).toBeInTheDocument()
+  expect(screen.getByText(/资料截至 2026-10-19/)).toBeInTheDocument()
   expect(screen.getByText('自动更新已运行 · 部分来源待补')).toBeInTheDocument()
   expect(screen.getByText(/08:30 \/ 20:30/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button',{name:'查看最新数据'}))

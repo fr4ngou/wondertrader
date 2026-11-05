@@ -12,7 +12,10 @@ export function useStrategySelection(saved: StrategyDefinition[] = []) {
     retry: false, refetchInterval: 15_000, refetchOnWindowFocus: false, refetchOnReconnect: false })
   // 活动目录与已准入的历史报告各保留自身版本；衍生合并复用原查询缓存。
   const definitions = new Map((published.data ?? []).map(item => [strategyKey(item), item]))
-  for (const item of saved) if (!definitions.has(strategyKey(item))) definitions.set(strategyKey(item), item)
+  const names = new Map((published.data ?? []).map(item => [item.strategy_id, item.display_name]))
+  for (const item of saved) if (!definitions.has(strategyKey(item))) definitions.set(strategyKey(item), {
+    ...item, display_name: item.display_name === item.strategy_id ? names.get(item.strategy_id) ?? item.display_name : item.display_name,
+  })
   const query = { ...published, data: published.data || saved.length ? [...definitions.values()] : undefined }
   const requested = params.get('strategy')
   const selected = requested ? query.data?.find(item => strategyKey(item) === requested) : query.data?.[0]
