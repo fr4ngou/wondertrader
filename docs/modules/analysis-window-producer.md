@@ -51,7 +51,7 @@ flowchart LR
 
 `official_auxiliary.parse_source` 唯一解释五类原件：上交所ETF总份额的万份转亿份、沪深股票成交额的亿元、沪深融资余额的亿元；融资余额取融资字段。市场汇总需要沪深两份有效原件，字段缺失保持空值。源未发布、请求失败、日期不符、单位/结构变化、已确认零值分别有稳定原因；错误正文不进入公开状态。
 
-`AuxiliaryRefresh` 与AWP共用原线程和绝对截止，每轮最多10次、单请求最多3秒。新尾日缺口及近期五日修订优先，其后64日预热缺口和长历史缺口；近期成功日期每小时重核，旧日期每日重核。失败按60秒起、未发布按300秒起指数退避，最长一小时。`CONTINUITY.json`逐来源/日期原子保留重试状态，`COVERAGE.json`保存应查/已得日期、尾日和精确错误；启动和正常重启均沿原状态续接。有限CLI与常驻Owner复用WT `_InstanceLease` 互斥同一辅助根，AWP线程和Native资源确认关闭后释放。
+`AuxiliaryRefresh` 与AWP共用原线程和绝对截止，每轮最多10次，单次套接字等候设置最多3秒，并逐块检查刷新绝对截止；在途读取按该网络等候返回，关闭预算不足时原Owner保留租约并报告未关闭。新尾日缺口及近期五日修订优先，其后64日预热缺口和长历史缺口；近期成功日期每小时重核，旧日期每日重核。失败按60秒起、未发布按300秒起指数退避，最长一小时。`CONTINUITY.json`逐来源/日期原子保留重试状态，`COVERAGE.json`保存应查/已得日期、尾日和精确错误；启动和正常重启均沿原状态续接。有限CLI与常驻Owner复用WT `_InstanceLease` 互斥同一辅助根，AWP线程和Native资源确认关闭后释放。
 
 `auxiliary_store`先完整写压缩原文，再原子提交版本回执和日期指针。`source/versions/date/body_sha256.json.gz`及同名JSON保存旧版；`source/date.json`为当前指针。相同原件重核保留首次实际取得和生效实收时钟，内容修订产生新时钟；来源失败保留当前有效指针。旧种子的`date.json.gz`布局只读兼容。已核缓存同时绑定回执及原文元数据，变化后重新核摘要和唯一解析结果。
 
@@ -59,4 +59,6 @@ flowchart LR
 
 显式研究入口 `merge_auxiliary_research(observations, publications, *, data_sha256, derivation_sha256, strategy_id, strategy_version)` 返回研究行和版本化声明。它只对传入实际共同交易日采用`research-next-common-session-0925-v1`假设，不增加行情行，不改原publication时钟；每条研究行带`auxiliary-research:research-next-common-session-0925-v1`标记。声明绑定数据、派生代码、原件/实际时钟、策略及模型身份，真实历史首次可知仍未知，实时资格和历史因果资格固定False。实时拒绝与历史显式准入归V1消费模块，默认实时合并入口保持原规则。
 
-验真根为`E:/workspace/wondertrader-qa/data-continuity-20261105-001`。`MAINLINE-PUBLISHED001.json`记录普通wheel安装、真实已存行情回放、原Native Import/Reader、公开辅助来源读取、AWP发布、实际`MarketWindowFile`读回6056行和正常关闭；该证据未调用QMT/账户，也未生成未来行情。旧历史没有回填，后继真实收盘的在线生效由Root采用后核实。专属回归入口为`tests/integration/analysis_window_producer/test_auxiliary_continuity.py`，覆盖修订原件、同内容时钟、写入失败恢复、只读种子、重启退避、停止、互斥、单位、64日前缀、份额缺日及显式研究时钟。最终制品和复核身份随模块交付记录核对。
+验真根为`E:/workspace/wondertrader-qa/data-continuity-20261105-001`。最终普通包`wheels-final001`及安装成员由`BUILD-FINAL001.json`固定；`FINAL-AUDIT001.json`逐件核源码输入、wheel RECORD、实际安装及Native关闭收据。`MAINLINE-FINAL001.json`和`MAINLINE-FINAL-RESTART002.json`记录真实已存行情回放、原Native Import/Reader、公开辅助来源读取、AWP首次发布及同根恢复后第二次发布，实际`MarketWindowFile`两次读回6056行，两个Native树均0/EOF/join/closed。该证据未调用QMT/账户，也未生成未来行情。旧历史没有回填，后继真实收盘的在线生效由Root采用后核实。
+
+专属回归入口为`tests/integration/analysis_window_producer/test_auxiliary_continuity.py`，最终普通安装的`TEST-FINAL001.log`记录16项通过，覆盖修订原件、同内容时钟、写入失败恢复、只读种子、重启退避及缺源后恢复、停止、互斥、单位、64日前缀、份额缺日及显式研究时钟。完整源码两轴复核见同根`REVIEW-SPEC-001.md`和`REVIEW-STANDARDS-001.md`，实现提交`8300a87d392d740ad866a97c75118ad975437115`无P1/P2；最终制品绑定沿该根最终复核和交接核对。V1普通wheel为本模块隔离候选，正式组合须先合并开发者2拥有的实时拒绝、诊断及历史入口，再从组合源码重建；该模块候选不覆盖运行源码。
