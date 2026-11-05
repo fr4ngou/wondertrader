@@ -231,8 +231,17 @@ class RetainedBacktestSession:
             else:
                 result = decision.result.to_dict()
                 capture = replace(capture, basis=replace(capture.basis, input_sha256=result['input_sha256']))
+                from .execution_facts import buy_fee_basis
+                def fee_basis(target, current_basis, observation):
+                    # 与实时共用费用装配；旧代交接与新代分别使用实际消费目标，不改原NSQ。
+                    nonlocal capture
+                    basis = buy_fee_basis(target, self._inputs.policy, current_basis, observation,
+                        self._mapping, self._native_fees, self._native_fee_source, split_fills=False)
+                    capture = replace(capture, basis=basis)
+                    return basis
                 outcome, previous_status = advance_retained(decision.target, self._inputs.policy,
-                    capture.observation, capture.basis, self._state, limits=self._quantity_limits)
+                    capture.observation, capture.basis, self._state, limits=self._quantity_limits,
+                    basis_for_target=fee_basis)
                 status, reason = outcome.status, outcome.reason
         check()
         # 报告只保存当日业务结果与原值；累计模型信号由固定输入复现，不逐日重复。
@@ -277,6 +286,8 @@ class RetainedBacktestSession:
                 or config.start % 10000 > 1500 or Path(config.cwd).resolve() != Path.cwd().resolve()):
             raise SessionError('回放起止必须覆盖明确输入末日及独占CWD')
         identities, frozen = admit_native_files(self._mapping, config)
+        self._native_fees = json.loads(frozen['fees'])  # 与本次原Native使用同一份已准入费表，不读取后续可变模板。
+        self._native_fee_source = 'original-WT-fees:'+sha256(frozen['fees']).hexdigest()  # 本代完整费表身份；原实际记费归WT。
         base = Path(config.cwd)/'session-basefiles'
         base.mkdir(exist_ok=False)
         for name, data in frozen.items():
