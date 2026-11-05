@@ -22,12 +22,18 @@ def _pending_symbols(descriptor,progress):
 def requires_price_continuation(price_result,prior_pending_symbols=(),*,stock_plan=None,
                                 stock_progress=None):
     """股票和额外价格共用责任判断；stock_progress固定于股票回读前，不随恢复的新观察覆盖。"""
+    reference_pending=False  # 名册来源恢复责任，与原价格/HPR责任分别核验后共同决定接续。
+    scope=price_result.get('scope')
+    if scope is not None:
+        reference=_load(scope).get('reference_state',{})
+        # 价格完成只证明已知名单；名册暂缺仍归原owner接续。captured的合法unsupported不触发空转。
+        reference_pending=reference.get('state')in('waiting_reference_capability','reference_source_unavailable')
     pending=set(prior_pending_symbols)
     if stock_plan is not None:
         pending.update(_pending_symbols(stock_plan,stock_progress))
     if price_result['inputs']is not None:
         inputs=_load(price_result['inputs'])
         pending.update(_pending_symbols(inputs['plan'],inputs['preparation']))
-    return any(symbol in price_result['securities']and not price_result['securities'][symbol]['target_readable']
+    return reference_pending or any(symbol in price_result['securities']and not price_result['securities'][symbol]['target_readable']
                and price_result['securities'][symbol].get('reason')not in('source_halted_no_trade','before_listing','after_expiry','not_price_instrument')
                for symbol in pending)

@@ -158,6 +158,16 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                 try:
                     registered = registered_requests(index)  # 创建输入和已有REQUEST恢复共用同一原件损坏准入。
                     if time.monotonic() >= next_input_observation:
+                        # INDEX只保存派生接续标志；升级后的旧false从不可变结果重建，复用原重试节拍。
+                        entry=index.get(day,{})
+                        if entry.get('price_result')is not None:
+                            from integrations.guanheng.daily_price_continuation import requires_price_continuation
+                            if stopped():raise InterruptedError('daily reference continuation stopped')
+                            required=requires_price_continuation(_load(entry['price_result']))
+                            if stopped():raise InterruptedError('daily reference continuation stopped')
+                            if entry.get('price_continuation_required')!=required:
+                                entry['price_continuation_required']=required
+                                _save(index_path,index)
                         status['input_reads'] = observe_input_reads(index, read_state, target_day=day,
                             deadline=time.monotonic()+5, cancelled=stopped)  # 只核既有v8/v9身份，不补发旧页或旧批次。
                         input_recovery_failed = False

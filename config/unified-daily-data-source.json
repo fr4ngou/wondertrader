@@ -418,7 +418,7 @@
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "07b2196e24d9920f8fda3f038289d91305d93781cda766863b65f6df8536b529",
+      "sha256": "35eb86355a0242d00726071ea51d2e77ba74c41d154d9a377444bfd50e523310",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -454,7 +454,7 @@
       "source": "integrations/guanheng/daily_price_archive.py"
     },
     "integrations/guanheng/daily_price_continuation.py": {
-      "sha256": "a3d44de3ec523b239fd623f41c64413cc00d25d90b0dafcfaf4e083c6cc7c1cf",
+      "sha256": "0c1161c6f65f8f7edf826d93bea3b1bd914c27c862b6463bc370a205d08d5efc",
       "source": "integrations/guanheng/daily_price_continuation.py"
     },
     "integrations/guanheng/daily_price_inputs.py": {
@@ -714,5 +714,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.20"
+  "version": "0.2.0a1+unified.21"
 }
