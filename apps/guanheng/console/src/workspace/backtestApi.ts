@@ -228,10 +228,24 @@ export type ArchiveSummary = {
   }
   /** 原模型初始本金，人民币十进制文本；完整绩效在选择后另行核验。 */ initial_capital_cny: string
 }
-export type ArchiveEntry = { run_id: string; owner_id: string; request_id: string; record_count: number;
-  report_sha256: string; receipt_sha256: string; scope: string;
+export type ArchiveEntry = {
+  /** 原完成归档的运行ID，用于选择同一份报告。 */ run_id: string
+  /** 原运行所有者ID，沿完成证明保留。 */ owner_id: string
+  /** 原运行请求ID，沿完成证明保留。 */ request_id: string
+  /** 原报告记录数，按该报告声明的期数计数。 */ record_count: number
+  /** 原规范报告正文的SHA256，绑定完整绩效读取。 */ report_sha256: string
+  /** 完成证明原字节的SHA256，绑定同一归档身份。 */ receipt_sha256: string
+  /** 原归档声明的适用范围，不扩大运行或交易资格。 */ scope: string
   /** 新目录提供的轻量归属；null为该份原件未取得归属，缺省表示旧目录合同。 */ summary?: ArchiveSummary | null
-  configuration: { label: string; name: string; start: number; end: number; session_sha256: string; max_seconds: number } }
+  /** 完成证明保存的运行配置摘要，展示标签不参与金融归属。 */ configuration: {
+    /** 原报告的展示标签。 */ label: string
+    /** 原WT回测配置名称。 */ name: string
+    /** 原回测起点，YYYYMMDDHHmm整数。 */ start: number
+    /** 原回测终点，YYYYMMDDHHmm整数。 */ end: number
+    /** 原冻结会话输入的SHA256。 */ session_sha256: string
+    /** 原运行截止预算，单位秒。 */ max_seconds: number
+  }
+}
 export type ArchiveIndex = { schema: 'nbw-archive-index-v1'; runs: ArchiveEntry[]; invalid_receipts: number; unarchived_runs: number; scope: string }
 export type ArchiveSummaryIndex = Omit<ArchiveIndex, 'schema'> & {
   /** 轻量归属目录的固定协议版本，区别于旧完成证明目录。 */ schema: 'nbw-archive-summary-index-v1'
