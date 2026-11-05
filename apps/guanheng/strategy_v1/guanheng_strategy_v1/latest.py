@@ -14,7 +14,8 @@ from guanheng_strategy_core.contracts import EvaluationBudget, FrozenHistory, Ke
 from guanheng_strategy_core.features import build_daily_features
 from guanheng_strategy_core.models import DailyObservation, observation_close_at, validate_observations
 from guanheng_strategy_core.signals import ROLE_SIGNAL_MACHINES
-from .historical import RetainedHistoricalModel
+from .historical import RetainedHistoricalModel, AUXILIARY_RESEARCH_MARKER
+from .diagnostics import describe_evaluation, failure_diagnostics
 
 from .role_profile import KC_SYMBOL, ROLE_SYMBOLS, STRATEGY_ID, STRATEGY_VERSION, SYMBOLS
 ZONE = ZoneInfo('Asia/Shanghai')
@@ -24,6 +25,7 @@ class RetainedValidationError(ValueError):
     """固定原因码与中文说明；不回显账户或调用者原值。"""
     def __init__(self, code, reason):
         self.code, self.reason = code, reason
+        self.diagnostics = failure_diagnostics(code)  # 原错误的只读阶段说明；输入覆盖未知保持空，不代替计算。
         super().__init__(reason)
 
 
@@ -332,6 +334,9 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
             and historical.factor_sha256 == history.factor_revision
             and historical.basis_date == analysis.basis_date and historical.received_at == view.received_at,
             'source_mismatch', '回测假设与实际历史批次不一致')
+        if historical.auxiliary_research is not None:
+            _require(historical.auxiliary_input_sha256 == sha256(clock.encode(history)).hexdigest(),
+                     'research_input_mismatch', '辅助研究声明与本次完整历史输入不一致')
     _require(analysis.known_at <= view.received_at
         and (view.received_at <= request.decision_cutoff if historical_model is None
              else request.decision_cutoff <= view.received_at)
@@ -349,12 +354,20 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         and type(analysis.basis_date) is date,
         'source_mismatch', '历史版本、前复权基准或来源声明不一致')
     _require(type(history.observations) is tuple and type(analysis.bars) is tuple
-        and 800 <= len(history.observations) <= clock.budget.max_observations
+        and len(history.observations) <= clock.budget.max_observations
         and len(analysis.bars) == len(history.observations), 'capacity_exceeded', '需要完整有界八证券预热历史')
+    _require(bool(history.observations), 'incomplete_history', '行情窗口尚未提供完整证券历史')
     raw, adjusted, copied_bars = [], [], []
     for source, item in zip(history.observations, analysis.bars):
         clock()
         row, bar = _observation(source), _copy(item, AnalysisBar)
+        research_markers = [ref for ref in row.evidence_refs if ref.startswith('auxiliary-research:')]
+        if research_markers:
+            _require(historical_model is not None, 'research_input_forbidden', '辅助研究假设输入仅供显式历史回测')
+            _require(historical.auxiliary_research is not None and research_markers == [AUXILIARY_RESEARCH_MARKER],
+                     'research_model_required', '研究行需要匹配的显式研究声明')
+        elif historical_model is not None and historical.auxiliary_research is not None:
+            raise RetainedValidationError('research_input_mismatch', '辅助研究模型要求全部历史行保留研究标记')
         other = _observation(bar.observation)
         _require((row.symbol, row.trade_date) == (other.symbol, other.trade_date)
             and _number(bar.factor) and bar.factor > 0 and _number(bar.raw_close) and bar.raw_close > 0
@@ -384,10 +397,11 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         and all({row.symbol for row in raw[i:i+8]} == set(SYMBOLS) for i in range(0, len(raw), 8)),
         'incomplete_history', '历史日期与八证券覆盖不完整')
     try:
-        validate_observations(raw)
-        validate_observations(adjusted)
+        validate_observations(raw, universe=SYMBOLS, check=clock)
+        validate_observations(adjusted, universe=SYMBOLS, check=clock)
     except ValueError:
         raise RetainedValidationError('invalid_history', '行情或辅助事实未通过因果校验') from None
+    _require(len(days) >= 100, 'warmup_required', '完整市场历史尚未完成原百日预热')
     _require(type(request.cycles) is tuple and len(request.cycles) == 8
         and type(request.previous_exits) is tuple and len(request.previous_exits) <= 8,
         'invalid_cycles', '需要全部八证券的当前持仓周期')
@@ -514,6 +528,9 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         model_decisions=decisions, allocation_state=allocation,
         analysis_source_kind=analysis.source_kind,
         source_qualified=False, execution_qualified=False)
+    value['diagnostics'] = describe_evaluation(tuple(raw),
+        evaluation_dates=tuple(f.observation.trade_date for f in series['510300.SH']),
+        decisions=decisions, calculation_state='completed', targets=weights, check=clock)
     if historical_model is not None:
         value['historical_model'] = historical
     encoded = clock.encode(value)

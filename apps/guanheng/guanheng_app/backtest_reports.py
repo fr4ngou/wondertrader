@@ -76,3 +76,9 @@ def project_session_record(report, index, *, check=None):
         return project_record(validate_report_dict(report, check=check), index, check=check)
     from .strategy_session import project_session_record as legacy
     return legacy(report, index, check=check)
+
+
+def project_input_business_diagnostics(report, session, *, check=None):
+    """唯一策略沿WT解释字段覆盖；其他原报告族保持原读取合同。"""
+    from .retained_report import ValidatedRetainedReport, project_input_business_diagnostics as project
+    return project(report, session, check=check) if type(report) is ValidatedRetainedReport else None

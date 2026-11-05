@@ -14,7 +14,8 @@ from uuid import uuid4
 
 from .strategy_host import HostError as HostError, HostResult, SCHEMA as HOST_SCHEMA, _path, _json
 from .backtest_reports import (validate_report_dict, project_session_record,
-                               normalize_session, report_schema_for_input, PER_DATE_REPORT_SCHEMA)
+                               normalize_session, report_schema_for_input, PER_DATE_REPORT_SCHEMA,
+                               project_input_business_diagnostics)
 from .backtest_performance import build_performance, build_comparison, MAX_RESPONSE
 
 SCHEMA = "nbw-completed-archive-v1"
@@ -400,6 +401,7 @@ class BacktestArchive:
                                 else session.get("strategy", session.get("config"))),
                             "policy": session["policy"], "fee_reserve_cny": session["fee_reserve_cny"],
                             "fee_source": session["fee_source"], "scope": SCOPE}
+                response['business_diagnostics'] = project_input_business_diagnostics(admitted, session, check=read.check)
             elif index is None:
                 _require(type(offset) is int and 0 <= offset <= 4096 and type(limit) is int and 1 <= limit <= 50, code=422)
                 headers = [{k: row[k] for k in ("trading_date", "minute", "status", "reason")} for row in report["records"]]
@@ -412,6 +414,8 @@ class BacktestArchive:
                             "record": projected["record"], "evaluation_summary": projected["evaluation_summary"], "scope": SCOPE}
                 if projected["report_schema"] != "nsb-report-v2":
                     response["report_schema"] = projected["report_schema"]
+                if 'diagnostics' in projected:
+                    response['diagnostics'] = projected['diagnostics']
             read.check()
             _require(len(_wire(response)) <= MAX_RESPONSE, "归档页面超过响应容量")
             read.check()

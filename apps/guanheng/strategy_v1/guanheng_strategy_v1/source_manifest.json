@@ -77,12 +77,13 @@
     "1.2.2 binds the KC role to 588030.SH own market/factor/cycle facts; normal same-ledger role handoff retires only the old zero-inventory NSQ plan."
   ],
   "owned_sources": {
-    "__init__.py": "fad75c631c54702b3eb2a915b8b66e0b9f3fb821b9c9aa96b7a74f555c2c34b9",
-    "historical.py": "7ada722a06b0a8eaa3ae5a9281e5c92b6c7d1fc5668a535d1dc8b6dfe8368cad",
-    "latest.py": "85b519d2fd8f587bf6c73f8de5e6f1a55a565ad0d3bd51f2f14b5c68e8f73de4",
-    "role_profile.py": "d59cc38177e43e8c183615dd6136a6efdc04d1992a779edfa5d6bd9286cbf4d3"
+    "__init__.py": "51a416785c6887ed6da91a1426ca1f6dfa2c8cc0c01d0207b7a35ee81c354ebf",
+    "historical.py": "d584dabe277ef889b31f73ac3167367204af7541033adf28e17747bc40be34d6",
+    "latest.py": "2e4183243f231f80e73c9a9c777151b36e9d780e752857c3c10b91289ba15b55",
+    "role_profile.py": "18c4f9271ff9d3e018a8aeee8d8fd366fb9c1e25e7a0435baa1533a7c821ef53",
+    "diagnostics.py": "ef5f1d1659da2dab0521a4535ad72aaad6075c166e5c435c4695f6486875ceb8"
   },
-  "package_version": "0.1.0a11",
+  "package_version": "0.1.0a12",
   "dependencies": {
     "guanheng-strategy-core": "0.1.0a8",
     "tzdata": "2026.3"
@@ -95,5 +96,7 @@
   "actual_cycle_rule_sources": {
     "ledger_engine.py": "f7dcbc5c8faeb36aaef2adaf3f774f1765128445dcb17924a81e2359ff8477d8",
     "signals.py": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238"
-  }
+  },
+  "business_diagnostics_schema": "guanheng.strategy-business-diagnostics.v1",
+  "auxiliary_research_model": "research-next-common-session-0925-v1"
 }

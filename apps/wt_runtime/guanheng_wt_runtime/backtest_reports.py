@@ -41,3 +41,19 @@ def project_session_record(report, index, *, check=None):
     if type(report) is not ValidatedRetainedReport:
         report = validate_report_dict(report, check=check)
     return project_record(report, index, check=check)
+
+
+def project_business_diagnostics(report, *, check=None):
+    """观衡和操作员共用WT只读诊断；历史原报告缺字段时保持未知。"""
+    from .retained_report import ValidatedRetainedReport, project_diagnostics
+    if type(report) is not ValidatedRetainedReport:
+        report = validate_report_dict(report, check=check)
+    return project_diagnostics(report, check=check)
+
+
+def project_input_business_diagnostics(report, session, *, check=None):
+    """沿已准入原报告和原冻结输入解释旧报告缺口，不重算或重写原回测。"""
+    from .retained_report import ValidatedRetainedReport, project_input_diagnostics
+    if type(report) is not ValidatedRetainedReport:
+        report = validate_report_dict(report, check=check)
+    return project_input_diagnostics(report, session, check=check)

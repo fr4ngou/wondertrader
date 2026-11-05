@@ -10,6 +10,7 @@ from guanheng_strategy_v1 import (
     RetainedHistoricalModel, RetainedInput, RetainedResult, evaluate_current_view,
     evaluate_historical_model,
 )
+from guanheng_strategy_v1.role_profile import READABLE_STRATEGY_VERSIONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,11 +35,24 @@ def evaluate_retained(request: RetainedInput, policy: QuantityPolicy, *,
 
 def target_for_result(value, policy, *, previous_target=None):
     """纯核结果的唯一经济目标投影；报告摘要复用同一投影核对状态。"""
+    return _target_for_identity(value, policy, (STRATEGY_ID, STRATEGY_VERSION, ALGORITHM_ID), previous_target)
+
+
+def target_for_report_result(value, policy, *, strategy_id, strategy_version, algorithm_id, previous_target=None):
+    """原归档只读复核使用其原版本身份；不改变实时入口或原NSQ资金/数量规则。"""
+    if (strategy_id != STRATEGY_ID or strategy_version not in READABLE_STRATEGY_VERSIONS
+            or algorithm_id != strategy_id+'@'+strategy_version+'/ledger-front-ratio-v1'):
+        raise ValueError('归档策略身份不属于受支持报告族')
+    return _target_for_identity(value, policy, (strategy_id, strategy_version, algorithm_id), previous_target)
+
+
+def _target_for_identity(value, policy, identity, previous_target):
+    """实时与归档复用原经济目标投影；身份由各自准入边界明确提供。"""
     if type(policy) is not QuantityPolicy:
         raise ValueError('需要原NSQ明确的策略理论资本policy')
-    if (value['strategy_id'], value['strategy_version']) != (STRATEGY_ID, STRATEGY_VERSION):
+    if (value['strategy_id'], value['strategy_version']) != identity[:2]:
         raise ValueError('策略目标与本次角色版本不匹配')
-    target = EconomicTarget(value['strategy_id'], ALGORITHM_ID,
+    target = EconomicTarget(value['strategy_id'], identity[2],
         value['configuration_sha256'], policy.policy_id, value['source_allocation_date'],
         tuple(sorted(value['targets'])),
         tuple(Weight(symbol, repr(float(weight))) for symbol, weight in sorted(value['targets'].items())))

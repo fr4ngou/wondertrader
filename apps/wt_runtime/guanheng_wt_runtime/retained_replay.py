@@ -16,6 +16,7 @@ from guanheng_strategy_core.models import observation_close_at
 from guanheng_strategy_native import Basis, Limits, Price, QuantityPolicy
 from guanheng_strategy_v1 import (
     CycleExit, PositionCycle, RetainedHistoricalModel, RetainedInput,
+    describe_evaluation, summarize_diagnostics, contextualize_diagnostics,
     RetainedValidationError, SYMBOLS, STRATEGY_ID, STRATEGY_VERSION,
 )
 from .retained_evaluation import evaluate_retained, advance_retained
@@ -186,7 +187,10 @@ class RetainedBacktestSession:
                 bars=tuple(b for b in full.analysis.bars if b.observation.trade_date <= cutoff.date())),
             cycles=cycles, previous_exits=exits, decision_cutoff=cutoff,
             cycles_captured_at=cutoff, cycles_valid_until=cutoff+timedelta(seconds=1))
-        return request, self._inputs.model, None
+        model = self._inputs.model
+        if model.auxiliary_research is not None:
+            model = replace(model, auxiliary_input_sha256=sha256(canonical_bytes(request.history)).hexdigest())
+        return request, model, None
 
     def _report_market(self):
         """原报告合同保持；明确逐日来源的派生入口登记其自己的报告族。"""
@@ -234,7 +238,12 @@ class RetainedBacktestSession:
         # 报告只保存当日业务结果与原值；累计模型信号由固定输入复现，不逐日重复。
         summary = None if result is None else dict(
             schema='guanheng.retained-replay-decision.v1', full_result_sha256=_digest(result),
-            **{k: v for k, v in result.items() if k not in ('schema', 'model_decisions', 'allocation_state')})
+            **{k: v for k, v in result.items() if k not in ('schema', 'model_decisions', 'allocation_state', 'diagnostics')})
+        if summary is not None:
+            prior = next((r['result']['targets'] for r in reversed(self._records) if r['result'] is not None), None)
+            self._business_diagnostics = contextualize_diagnostics(result['diagnostics'],
+                targets=result['targets'], previous_targets=prior)
+            summary['diagnostics'] = summarize_diagnostics(self._business_diagnostics)
         record = dict(trading_date=day, minute=minute, status=status, reason=reason,
             result=summary, capture=capture, outcome=outcome, previous_status=previous_status, readback=())
         if publication is not None:
@@ -308,5 +317,7 @@ class RetainedBacktestSession:
             source_qualified=False, execution_qualified=False)
         report.update(self._report_market())
         # 顶层模型与逐日结果共用领域规范编码，时间及输入身份保持同一表示。
+        report['diagnostics'] = getattr(self, '_business_diagnostics', None) or describe_evaluation(
+            self._inputs.request.history.observations, calculation_state='warming_up' if self._records else 'not_scheduled')
         raw = canonical_bytes(report, max_bytes=self._maximum)
         return json.loads(raw)

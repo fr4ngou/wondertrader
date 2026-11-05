@@ -15,3 +15,5 @@ PREVIOUS_KC_SYMBOL = '589680.SH'
 STRATEGY_ID, STRATEGY_VERSION = 'resonance-regime-v1', '1.2.2'
 ALGORITHM_ID = STRATEGY_ID + '@' + STRATEGY_VERSION + '/ledger-front-ratio-v1'
 SYMBOLS = tuple(sorted(ROLE_SYMBOLS.values()))
+# 仅限原归档只读准入；实时纯核仍严格使用当前STRATEGY_VERSION与角色。
+READABLE_STRATEGY_VERSIONS = ('1.1.2', '1.2.1', STRATEGY_VERSION)

@@ -1,6 +1,8 @@
 """观衡报告边界：只读事实准入由WT公开读取接口唯一拥有。"""
 from guanheng_wt_runtime.backtest_reports import validate_report_dict as _validate
 from guanheng_wt_runtime.backtest_reports import project_session_record as _project
+from guanheng_wt_runtime.backtest_reports import project_business_diagnostics as _diagnostics
+from guanheng_wt_runtime.backtest_reports import project_input_business_diagnostics as _input_diagnostics
 from guanheng_wt_runtime.retained_report import ValidatedRetainedReport
 from guanheng_wt_runtime.strategy_replay_facts import SessionError as _WTSessionError
 
@@ -34,3 +36,12 @@ def validate_report(value, *, check=None):
 def project_record(report, index, *, check=None):
     """返回独立值；不启动Porter、运行进程或任何原生会话。"""
     return _read(_project, report, index, check=check)
+
+
+def project_business_diagnostics(report, *, check=None):
+    """沿WT唯一只读结果读取整体诊断；旧报告的缺记录保持None。"""
+    return _read(_diagnostics, report, check=check)
+
+
+def project_input_business_diagnostics(report, session, *, check=None):
+    return _read(_input_diagnostics, report, session, check=check)
