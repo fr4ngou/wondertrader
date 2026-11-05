@@ -7,8 +7,65 @@ import { validateStrategyDetails } from './strategyDetailsApi'
 import account from './account-v2.fixture.json'
 import type { AccountOverviewV2, AccountRow } from './accountApi'
 import type { CapitalBaseline, StrategyCapital } from './strategyCapital'
+import runtimeFixture from './strategy-runtime.fixture.json'
+import diagnosticFixture from './strategy-diagnostics.fixture.json'
 
 const missing = (reason:string)=>({value:null,reason})
+
+test.each([
+ (v: typeof diagnosticFixture.diagnostics) => { const roles=v.roles as Record<string,unknown>;[roles['510300.SH'],roles['510050.SH']]=[roles['510050.SH'],roles['510300.SH']] },
+ (v: typeof diagnosticFixture.diagnostics) => { (v.roles['510300.SH'].field_coverage as unknown)={} },
+ (v: typeof diagnosticFixture.diagnostics) => { (v.roles['510300.SH'].branches as unknown)={} },
+ (v: typeof diagnosticFixture.diagnostics) => { v.roles['510300.SH'].field_coverage.close.evaluation.first_non_null_date='2099-01-01' },
+ (v: typeof diagnosticFixture.diagnostics) => { v.roles['510300.SH'].last_successful_calculation_date='2099-01-01' },
+])('详情共用V1生成结构元数据并隔离坏诊断', change => {
+ const warning=vi.spyOn(console,'warn').mockImplementation(()=>{})
+ try {
+  const diagnostics=structuredClone(diagnosticFixture.diagnostics);change(diagnostics)
+  const value={...fixture(),calculation:{...structuredClone(runtimeFixture.strategy),diagnostics}}
+  const result=validateStrategyDetails(value)
+  expect(result.calculation?.diagnostics_state).toBe('unavailable')
+  expect(result.calculation?.diagnostics_reason).toBe('invalid_diagnostics')
+  expect(result.calculation?.positions).toEqual(runtimeFixture.strategy.positions)
+  expect(result.account).toEqual(value.account)
+  expect(warning).toHaveBeenCalledExactlyOnceWith('strategy_diagnostics_unavailable')
+ } finally {warning.mockRestore()}
+})
+
+test.each([null,runtimeFixture.strategy.decision_at])('详情共用原计算时间与缺失原因：%s',decision_at=>{
+ const warning=vi.spyOn(console,'warn').mockImplementation(()=>{})
+ try {
+  const calculation={...structuredClone(runtimeFixture.strategy),decision_at,diagnostics:null,
+   diagnostics_state:'absent',diagnostics_reason:decision_at===null?'not_calculated':'not_recorded'}
+  const value={...fixture(),calculation}
+  expect(validateStrategyDetails(value).calculation?.diagnostics_state).toBe('absent')
+  const result=validateStrategyDetails({...value,calculation:{...calculation,
+   diagnostics_reason:decision_at===null?'not_recorded':'not_calculated'}})
+  expect(result.calculation?.diagnostics_state).toBe('unavailable')
+  expect(result.calculation?.positions).toEqual(runtimeFixture.strategy.positions)
+  expect(result.calculation?.decision_at).toBe(decision_at)
+  expect(result.account).toEqual(value.account)
+  expect(warning).toHaveBeenCalledExactlyOnceWith('strategy_diagnostics_unavailable')
+ } finally {warning.mockRestore()}
+})
+
+test('策略详情采用同一诊断降级结果，坏附加字段不影响核心状态和持仓', () => {
+ const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+ try {
+  const diagnostics = structuredClone(diagnosticFixture.diagnostics)
+  diagnostics.roles['510300.SH'].signal_counts!.BUY = -1
+  const value = { ...fixture(), calculation: { ...structuredClone(runtimeFixture.strategy), diagnostics } }
+  const result = validateStrategyDetails(value)
+  expect(result.calculation?.diagnostics).toBeNull()
+  expect(result.calculation?.diagnostics_state).toBe('unavailable')
+  expect(result.calculation?.diagnostics_reason).toBe('invalid_diagnostics')
+  expect(result.calculation?.positions).toEqual(runtimeFixture.strategy.positions)
+  expect(result.calculation?.status).toBe(runtimeFixture.strategy.status)
+  expect(result.account).toEqual(value.account)
+  expect(value.calculation.diagnostics.roles['510300.SH'].signal_counts!.BUY).toBe(-1)
+  expect(warning).toHaveBeenCalledExactlyOnceWith('strategy_diagnostics_unavailable')
+ } finally { warning.mockRestore() }
+})
 const fixture = ()=>({schema_version:'guanheng.strategy-details.v1',read_only:true,observed_at:'2026-11-01T01:00:00Z',
  strategy:{strategy_id:'resonance-regime-v1',strategy_version:'1.1.2',display_name:'共振市场状态 ETF 策略'},
  assignment:{scope:'current-account-inventory',label:'现有持仓归属此策略',reason:'按用户确认展示当前账户持仓；历史开仓和成交记录不迁移。'},

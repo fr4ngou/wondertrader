@@ -1,5 +1,6 @@
 """原CTA业务结果的纯白名单投影；不持有或创建运行owner。"""
 from datetime import datetime, timezone
+import logging
 import math
 import re
 from .strategy_catalog import strategy_definition
@@ -50,6 +51,27 @@ def _observation(value, symbols):
     _require(observed.verified and {p.symbol for p in observed.positions} == set(symbols))
     _time(observed.observed_at)
     return observed
+
+
+def _diagnostics(result, symbols, outcome):
+    """附加诊断独立准入；错误仅影响诊断，核心资金/持仓继续原验证。"""
+    value = result.get('diagnostics')
+    if value is None:
+        return None, 'absent', 'not_recorded'
+    try:
+        from guanheng_strategy_v1 import validate_diagnostics, contextualize_diagnostics
+        validate_diagnostics(value, symbols=symbols)
+        # 与原回测逐日投影一致：setter接收目标仍为pending，原NSQ确认converged才完成。
+        execution = ('not_requested' if outcome is None else
+                     'completed' if outcome['status'] == 'converged' else 'pending')
+        return contextualize_diagnostics(value, execution_state=execution), 'available', None
+    except Exception as error:
+        # 每次投影最多一条固定事件/异常类型；不写输入、异常原文或账户资料。
+        try:
+            logging.getLogger(__name__).warning('strategy_diagnostics_unavailable error_type=%s', type(error).__name__)
+        except Exception:
+            pass  # 附加告警本身也不能改变已核核心读取的结果。
+        return None, 'unavailable', 'invalid_diagnostics'
 
 
 def published_identity(identity, report):
@@ -111,6 +133,8 @@ def project_strategy(value, *, runtime_state='ready'):
     rows = {s: dict(symbol=s, target_weight=None, theoretical_quantity=None, theoretical_sellable=None,
                    pending_target=None, stage_target=None, broker_quantity=None, broker_sellable=None) for s in symbols}
     decision_at = None
+    diagnostics = None
+    diagnostics_state, diagnostics_reason = 'absent', 'not_calculated'
     if result is not None:
         from .execution_configured import _restore_quantity_state
         _require(type(result) is dict and result.get('schema') == 'guanheng.retained-resonance-result.v1'
@@ -170,11 +194,16 @@ def project_strategy(value, *, runtime_state='ready'):
     from .strategy_capital_projection import project_baseline, project_capital
     capital_origin = project_baseline(report.get('capital_baseline'))
     capital = project_capital(report.get('capital'), capital_origin, runtime_state=runtime_state)
+    if result is not None:
+        diagnostics, diagnostics_state, diagnostics_reason = _diagnostics(result, symbols, outcome)
     return dict(strategy_id=identity,  # 同轮WT发布的策略身份；不从App当前依赖反推。
                 display_name=definition['display_name'],
                 strategy_version=definition['strategy_version'],  # WT实际版本，未发布时None；不生成缺失版本。
                 status=status, status_label=_LABELS[status], decision_at=decision_at,
                 broker_observed_at=broker_at, broker_position_qualified=False,
                 execution_position_qualified=execution_qualified, positions=list(rows.values()),
-                capital_baseline=capital_origin, capital=capital)
+                capital_baseline=capital_origin, capital=capital,
+                diagnostics=diagnostics,  # 本轮V1统一业务诊断；未计算、未记录或无效时为None。
+                diagnostics_state=diagnostics_state,  # 附加信息的可用性，独立于原策略和账户状态。
+                diagnostics_reason=diagnostics_reason)  # 稳定原因码；可用时None，不回显原始诊断。
 

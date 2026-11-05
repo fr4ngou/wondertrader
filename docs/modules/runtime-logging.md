@@ -20,6 +20,14 @@ EOF在内存形成尾行/流摘要后沿原回收，日志异步留存。`snapsh
 
 原审查的慢I/O及重叠轮转反例已加入回归：阻塞fsync时原停止/截止/管道EOF继续，两个实际隐藏进程共享系列仍守容量且记录写失败。七项及原CLI七项和独立delta复查通过；额外自然退出不调用drain也留下完整四条事件。实现已随[Runtime14.4](../releases/2026-11-06-runtime14-auxiliary-live.md)普通安装采用，保留原封存覆盖；Native与TradeHost新事件已实际落盘。[日线21](../releases/2026-11-06-daily21-reference-resume-live.md)的新版外部运行器同样沿此公共owner记录SourceMarketProcess，业务更新仍由日线状态及原请求/结果说明。
 
+## 独立观衡Web日志
+
+`scripts/runtime_templates/observer-web.py`的本运行代owner在原`web.log`入口接管stdout/stderr；沿标准库`RotatingFileHandler`同步追加和轮转，不增加服务、线程或队列。默认当前文件和三个数字备份各最多4MiB，本系列总量最多16MiB。按实际UTF-8字节计数，Windows换行不扩展字节；每次write按最多16384个字符分片，无换行长输出也有界。升级遇到本系列超限旧文件时保留最新可解码UTF-8尾部，文件名和原文本读取方式保持。单次旧尾部读取最多4MiB；日志owner不积累输入正文。
+
+文件打开、轮转、追加或flush失败时，本代日志停止后续磁盘追加，只累计丢弃字符数；独立Web继续处理读取和正常停止，日志结果不控制WT。首次故障及关闭时尝试原子写入同代`web-log-status.json`，记录closed、ok/degraded、预算、确认追加字节、丢弃字符和固定错误类型。故障后的后续输出只更新内存计数，关闭状态给最终累计值；磁盘整体不可写时该状态文件也可能缺失，不能据缺失认定日志成功。
+
+stdout/stderr重定向覆盖整个Runner和运行异常处理，在正常及异常路径恢复原流，关闭文件句柄。运行异常以固定类型写入日志，并保留原`failure.json`语义；日志故障与Web运行失败分别表达。原Web文本继续私有留存，不作为公开事件接口。同步磁盘I/O可能延迟本Web，不承诺磁盘挂起时HTTP仍立即完成；WT独立运行。正常关闭沿原App lifespan和OS退出证明，日志只在自己的私有目录留存。历史控制代仍归原控制证据保留策略，本次轮转不删除其他运行代、金融记录或来源Journal。该实现的隔离HTTP主链已核；正式采用按后续独立Web发布记录登记。
+
 ## 当前覆盖与采用边界
 
 | 调用链 | 当前已核覆盖 | 仍需完成 |

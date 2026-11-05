@@ -1,0 +1,1181 @@
+{
+  "scope": "synthetic coverage from the unique V1 generator; no account or execution qualification",
+  "diagnostics": {
+    "schema": "guanheng.strategy-business-diagnostics.v1",
+    "auxiliary_availability_model": "actually-received",
+    "calculation_state": "completed",
+    "error_code": null,
+    "input_range": {
+      "first_date": "2024-04-19",
+      "last_date": "2024-04-22",
+      "expected_dates": 2
+    },
+    "evaluation_range": {
+      "first_date": "2024-04-22",
+      "last_date": "2024-04-22",
+      "expected_dates": 1
+    },
+    "roles": {
+      "510300.SH": {
+        "role": "csi300",
+        "field_coverage": {
+          "open": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "high": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "low": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "close": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "volume": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "amount": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "share_probability": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 2
+              }
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 1
+              }
+            }
+          },
+          "turnover_percentile": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 2
+              }
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 1
+              }
+            }
+          },
+          "margin_percentile": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 2
+              }
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 1
+              }
+            }
+          }
+        },
+        "auxiliary_fields": [
+          "share_probability",
+          "turnover_percentile",
+          "margin_percentile"
+        ],
+        "latest_missing_fields": [
+          "share_probability",
+          "turnover_percentile",
+          "margin_percentile"
+        ],
+        "branches": {
+          "resonance_lamps": {
+            "required_fields": [
+              "share_probability",
+              "turnover_percentile",
+              "margin_percentile"
+            ],
+            "missing_fields": [
+              "share_probability",
+              "turnover_percentile",
+              "margin_percentile"
+            ],
+            "state": "unavailable"
+          }
+        },
+        "input_state": "input_missing",
+        "signal_counts": {
+          "BUY": 0,
+          "SELL": 0
+        },
+        "latest_action": "HOLD",
+        "signal_state": "input_missing",
+        "last_successful_calculation_date": "2024-04-22",
+        "last_fully_informed_date": null
+      },
+      "510050.SH": {
+        "role": "sh50",
+        "field_coverage": {
+          "open": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "high": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "low": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "close": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "volume": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "amount": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "shares_delta_yi": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 2
+              }
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 1
+              }
+            }
+          }
+        },
+        "auxiliary_fields": [
+          "shares_delta_yi"
+        ],
+        "latest_missing_fields": [
+          "shares_delta_yi"
+        ],
+        "branches": {
+          "entries": {
+            "required_fields": [
+              "shares_delta_yi"
+            ],
+            "missing_fields": [
+              "shares_delta_yi"
+            ],
+            "state": "unavailable"
+          },
+          "sh50_large_redemption": {
+            "required_fields": [
+              "shares_delta_yi"
+            ],
+            "missing_fields": [
+              "shares_delta_yi"
+            ],
+            "state": "unavailable"
+          }
+        },
+        "input_state": "input_missing",
+        "signal_counts": {
+          "BUY": 0,
+          "SELL": 0
+        },
+        "latest_action": "HOLD",
+        "signal_state": "input_missing",
+        "last_successful_calculation_date": "2024-04-22",
+        "last_fully_informed_date": null
+      },
+      "510500.SH": {
+        "role": "zz500",
+        "field_coverage": {
+          "open": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "high": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "low": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "close": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "volume": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "amount": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "shares_delta_yi": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 2
+              }
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 1
+              }
+            }
+          }
+        },
+        "auxiliary_fields": [
+          "shares_delta_yi"
+        ],
+        "latest_missing_fields": [
+          "shares_delta_yi"
+        ],
+        "branches": {
+          "zz500_cluster_reversal": {
+            "required_fields": [
+              "shares_delta_yi"
+            ],
+            "missing_fields": [
+              "shares_delta_yi"
+            ],
+            "state": "unavailable"
+          },
+          "zz500_distribution_cluster": {
+            "required_fields": [
+              "shares_delta_yi"
+            ],
+            "missing_fields": [
+              "shares_delta_yi"
+            ],
+            "state": "unavailable"
+          }
+        },
+        "input_state": "input_missing",
+        "signal_counts": {
+          "BUY": 0,
+          "SELL": 0
+        },
+        "latest_action": "HOLD",
+        "signal_state": "input_missing",
+        "last_successful_calculation_date": "2024-04-22",
+        "last_fully_informed_date": null
+      },
+      "512100.SH": {
+        "role": "zz1000",
+        "field_coverage": {
+          "open": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "high": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "low": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "close": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "volume": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "amount": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          }
+        },
+        "auxiliary_fields": [],
+        "latest_missing_fields": [],
+        "branches": {},
+        "input_state": "ready",
+        "signal_counts": {
+          "BUY": 0,
+          "SELL": 0
+        },
+        "latest_action": "HOLD",
+        "signal_state": "conditions_not_met",
+        "last_successful_calculation_date": "2024-04-22",
+        "last_fully_informed_date": "2024-04-22"
+      },
+      "588000.SH": {
+        "role": "kc50",
+        "field_coverage": {
+          "open": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "high": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "low": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "close": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "volume": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "amount": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "shares_delta_yi": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 2
+              }
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 1
+              }
+            }
+          }
+        },
+        "auxiliary_fields": [
+          "shares_delta_yi"
+        ],
+        "latest_missing_fields": [
+          "shares_delta_yi"
+        ],
+        "branches": {
+          "entries": {
+            "required_fields": [
+              "shares_delta_yi"
+            ],
+            "missing_fields": [
+              "shares_delta_yi"
+            ],
+            "state": "unavailable"
+          },
+          "large_subscription_exemption": {
+            "required_fields": [
+              "shares_delta_yi"
+            ],
+            "missing_fields": [
+              "shares_delta_yi"
+            ],
+            "state": "unavailable"
+          }
+        },
+        "input_state": "input_missing",
+        "signal_counts": {
+          "BUY": 0,
+          "SELL": 0
+        },
+        "latest_action": "HOLD",
+        "signal_state": "input_missing",
+        "last_successful_calculation_date": "2024-04-22",
+        "last_fully_informed_date": null
+      },
+      "589000.SH": {
+        "role": "kc_composite",
+        "field_coverage": {
+          "open": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "high": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "low": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "close": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "volume": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "amount": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "shares_delta_yi": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 2
+              }
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 0,
+              "first_non_null_date": null,
+              "last_non_null_date": null,
+              "missing_reasons": {
+                "not_supplied_in_observation": 1
+              }
+            }
+          }
+        },
+        "auxiliary_fields": [
+          "shares_delta_yi"
+        ],
+        "latest_missing_fields": [
+          "shares_delta_yi"
+        ],
+        "branches": {
+          "kc_cluster_reversal": {
+            "required_fields": [
+              "shares_delta_yi"
+            ],
+            "missing_fields": [
+              "shares_delta_yi"
+            ],
+            "state": "unavailable"
+          },
+          "kc_distribution_cluster": {
+            "required_fields": [
+              "shares_delta_yi"
+            ],
+            "missing_fields": [
+              "shares_delta_yi"
+            ],
+            "state": "unavailable"
+          }
+        },
+        "input_state": "input_missing",
+        "signal_counts": {
+          "BUY": 0,
+          "SELL": 0
+        },
+        "latest_action": "HOLD",
+        "signal_state": "input_missing",
+        "last_successful_calculation_date": "2024-04-22",
+        "last_fully_informed_date": null
+      },
+      "159780.SZ": {
+        "role": "sc50",
+        "field_coverage": {
+          "open": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "high": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "low": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "close": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "volume": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "amount": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          }
+        },
+        "auxiliary_fields": [],
+        "latest_missing_fields": [],
+        "branches": {},
+        "input_state": "ready",
+        "signal_counts": {
+          "BUY": 0,
+          "SELL": 0
+        },
+        "latest_action": "HOLD",
+        "signal_state": "conditions_not_met",
+        "last_successful_calculation_date": "2024-04-22",
+        "last_fully_informed_date": "2024-04-22"
+      },
+      "515080.SH": {
+        "role": "dividend",
+        "field_coverage": {
+          "open": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "high": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "low": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "close": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "volume": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          },
+          "amount": {
+            "input": {
+              "expected_count": 2,
+              "non_null_count": 2,
+              "first_non_null_date": "2024-04-19",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            },
+            "evaluation": {
+              "expected_count": 1,
+              "non_null_count": 1,
+              "first_non_null_date": "2024-04-22",
+              "last_non_null_date": "2024-04-22",
+              "missing_reasons": {}
+            }
+          }
+        },
+        "auxiliary_fields": [],
+        "latest_missing_fields": [],
+        "branches": {},
+        "input_state": "ready",
+        "signal_counts": {
+          "BUY": 0,
+          "SELL": 0
+        },
+        "latest_action": "HOLD",
+        "signal_state": "conditions_not_met",
+        "last_successful_calculation_date": "2024-04-22",
+        "last_fully_informed_date": "2024-04-22"
+      }
+    },
+    "target_state": "produced",
+    "execution_state": "not_observed"
+  }
+}

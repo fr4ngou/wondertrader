@@ -50,10 +50,11 @@ export function validateStrategyDetails(v: unknown): StrategyDetails {
   if (v.account !== null) validateAccountOverview(v.account)
   if (v.runtime_scope_id !== undefined && v.runtime_scope_id !== null
     && (typeof v.runtime_scope_id !== 'string' || !/^[a-f0-9]{64}$/.test(v.runtime_scope_id))) return invalid()
-  if (v.calculation !== null) validateStrategyRuntime({schema_version:'guanheng.strategy-runtime.v1',read_only:true,
-    observed_at:v.observed_at,state:'available',strategy:v.calculation})
+  // 采用同一消费者的诊断独立降级结果；丢弃返回值会把坏附加信息继续交给页面。
+  const calculation = v.calculation === null ? null : validateStrategyRuntime({schema_version:'guanheng.strategy-runtime.v1',read_only:true,
+    observed_at:v.observed_at,state:'available',strategy:v.calculation}).strategy
   validateCapitalFields(v)
-  return v as StrategyDetails
+  return { ...v, calculation } as StrategyDetails
 }
 export async function fetchStrategyDetails(signal: AbortSignal) {
   return validateStrategyDetails(await fetchReadJson<unknown>('/v1/ui/strategy-details', '策略详情', signal, 'workspace', 4000))

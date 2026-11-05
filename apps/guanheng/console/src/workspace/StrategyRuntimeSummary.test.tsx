@@ -1,18 +1,102 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import StrategyRuntimeSummary from './StrategyRuntimeSummary'
 import fixture from './strategy-runtime.fixture.json'
+import diagnosticFixture from './strategy-diagnostics.fixture.json'
 import { validateStrategyRuntime, type StrategyRuntime } from './strategyRuntimeApi'
 
 const clients: QueryClient[] = []
-afterEach(() => { cleanup(); clients.splice(0).forEach(c => c.clear()); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); clients.splice(0).forEach(c => c.clear()); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
   clients.push(client)
   render(<QueryClientProvider client={client}><StrategyRuntimeSummary /></QueryClientProvider>)
+  return client
 }
 const response = (v: unknown) => new Response(JSON.stringify(v))
+
+test('实时统一诊断保留V1逐角色缺口，旧响应及null继续可读', () => {
+  const value = { ...structuredClone(fixture), strategy: { ...structuredClone(fixture.strategy), diagnostics: diagnosticFixture.diagnostics } }
+  const result = validateStrategyRuntime(value)
+  expect(result.strategy?.diagnostics?.roles['510300.SH'].latest_missing_fields).toEqual(['share_probability', 'turnover_percentile', 'margin_percentile'])
+  expect(result.strategy?.diagnostics_state).toBe('available')
+  expect(validateStrategyRuntime(fixture).strategy?.diagnostics).toBeNull()
+  expect(validateStrategyRuntime(fixture).strategy?.diagnostics_reason).toBe('not_recorded')
+  expect(validateStrategyRuntime({ ...value, strategy: { ...value.strategy, diagnostics: null } }).strategy?.diagnostics).toBeNull()
+})
+
+test('诊断刷新损坏只降级附加信息，已核核心仍展示且恢复后可继续读', async () => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const value = { ...structuredClone(fixture), strategy: { ...structuredClone(fixture.strategy), diagnostics: diagnosticFixture.diagnostics } }
+  const invalid = structuredClone(value)
+  invalid.strategy.diagnostics.roles['510300.SH'].signal_counts!.BUY = -1
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(value)).mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(value)))
+  const client = mount(); await screen.findByText('正在调整卖出目标')
+  fireEvent.click(screen.getByRole('button', { name: '刷新策略结果' }))
+  await waitFor(() => expect(client.getQueryData<StrategyRuntime>(['independent-strategy-runtime'])?.strategy?.diagnostics_state).toBe('unavailable'))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.getByText('正在调整卖出目标')).toBeVisible()
+  expect(screen.getByText(/结果读取时间（北京时间）：2026-10-29 19:38:13/)).toBeVisible()
+  expect(warning).toHaveBeenCalledExactlyOnceWith('strategy_diagnostics_unavailable')
+  fireEvent.click(screen.getByRole('button', { name: '刷新策略结果' }))
+  await waitFor(() => expect(client.getQueryData<StrategyRuntime>(['independent-strategy-runtime'])?.strategy?.diagnostics_state).toBe('available'))
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+test.each([
+  (v: typeof diagnosticFixture.diagnostics) => { const roles = v.roles as Record<string, unknown>; [roles['510300.SH'], roles['510050.SH']] = [roles['510050.SH'], roles['510300.SH']] },
+  (v: typeof diagnosticFixture.diagnostics) => { (v.roles['510300.SH'].field_coverage as unknown) = {} },
+  (v: typeof diagnosticFixture.diagnostics) => { (v.roles['510300.SH'].branches as unknown) = {} },
+  (v: typeof diagnosticFixture.diagnostics) => { v.roles['510300.SH'].field_coverage.close.evaluation.first_non_null_date = '2099-01-01' },
+  (v: typeof diagnosticFixture.diagnostics) => { v.roles['510300.SH'].last_successful_calculation_date = '2099-01-01' },
+  (v: typeof diagnosticFixture.diagnostics) => { v.roles['510300.SH'].auxiliary_fields.reverse() },
+  (v: typeof diagnosticFixture.diagnostics) => { v.roles['510300.SH'].branches.resonance_lamps.required_fields.reverse() },
+  (v: typeof diagnosticFixture.diagnostics) => { delete (v.roles as Record<string, unknown>)['510300.SH'] },
+  (v: typeof diagnosticFixture.diagnostics) => { v.roles['510300.SH'].signal_counts!.BUY = -1 },
+  (v: typeof diagnosticFixture.diagnostics) => { (v as unknown as { calculation_state: unknown }).calculation_state = ['completed'] },
+  (v: typeof diagnosticFixture.diagnostics) => { v.input_range.expected_dates = 0 },
+  (v: typeof diagnosticFixture.diagnostics) => { v.schema = 'unknown.diagnostic.v9' },
+])('非空诊断字段、证券或版本错误只降级诊断', change => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const diagnostics = structuredClone(diagnosticFixture.diagnostics)
+  change(diagnostics)
+  const result = validateStrategyRuntime({ ...fixture, strategy: { ...fixture.strategy, diagnostics } })
+  expect(result.strategy?.diagnostics).toBeNull()
+  expect(result.strategy?.diagnostics_state).toBe('unavailable')
+  expect(result.strategy?.diagnostics_reason).toBe('invalid_diagnostics')
+  expect(result.strategy?.positions).toEqual(fixture.strategy.positions)
+  expect(result.strategy?.status).toBe(fixture.strategy.status)
+  expect(warning).toHaveBeenCalledExactlyOnceWith('strategy_diagnostics_unavailable')
+})
+
+test('服务端明确诊断降级及矛盾附加元数据均保持核心可读', () => {
+  const degraded = validateStrategyRuntime({ ...fixture, strategy: { ...fixture.strategy,
+    diagnostics: null, diagnostics_state: 'unavailable', diagnostics_reason: 'invalid_diagnostics' } })
+  expect(degraded.strategy?.diagnostics_state).toBe('unavailable')
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const mismatched = validateStrategyRuntime({ ...fixture, strategy: { ...fixture.strategy,
+    diagnostics: diagnosticFixture.diagnostics, diagnostics_state: 'absent', diagnostics_reason: 'not_recorded' } })
+  expect(mismatched.strategy?.diagnostics_state).toBe('unavailable')
+  expect(mismatched.strategy?.positions).toEqual(fixture.strategy.positions)
+  expect(warning).toHaveBeenCalledExactlyOnceWith('strategy_diagnostics_unavailable')
+})
+
+// 同一原decision_at事实同时拥有缺失原因；等待/已计算的双向矛盾只降级诊断。
+test.each([null, fixture.strategy.decision_at])('缺失诊断原因匹配原计算事实：%s', decision_at => {
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const input = { ...fixture, strategy: { ...fixture.strategy, decision_at, diagnostics: null,
+    diagnostics_state: 'absent', diagnostics_reason: decision_at === null ? 'not_calculated' : 'not_recorded' } }
+  expect(validateStrategyRuntime(input).strategy?.diagnostics_state).toBe('absent')
+  const invalid = { ...input, strategy: { ...input.strategy,
+    diagnostics_reason: decision_at === null ? 'not_recorded' : 'not_calculated' } }
+  const result = validateStrategyRuntime(invalid)
+  expect(result.strategy?.diagnostics_state).toBe('unavailable')
+  expect(result.strategy?.diagnostics_reason).toBe('invalid_diagnostics')
+  expect(result.strategy?.decision_at).toBe(decision_at)
+  expect(result.strategy?.positions).toEqual(fixture.strategy.positions)
+  expect(warning).toHaveBeenCalledExactlyOnceWith('strategy_diagnostics_unavailable')
+})
 
 test('WT只读分析状态正常展示且保留券商持仓', async () => {
   const data = structuredClone(fixture) as StrategyRuntime

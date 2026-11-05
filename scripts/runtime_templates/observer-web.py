@@ -6,6 +6,8 @@ import ctypes
 from ctypes import wintypes
 import hashlib
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import math
 import msvcrt
 import os
@@ -41,6 +43,144 @@ def write(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
+
+
+class _WebLogHandler(RotatingFileHandler):
+    """沿标准库轮转，按UTF-8实际字节准入；写失败交回本Web日志owner。"""
+    def __init__(self, path, maximum, backups, failed):
+        self.failed = failed  # 仅更新本日志的有限故障计数，不递归写stderr。
+        super().__init__(path, maxBytes=maximum, backupCount=backups,
+                         encoding='utf-8', errors='backslashreplace', delay=True)
+        self.terminator = ''  # stdout/stderr原有换行保持，不为每次write额外插行。
+        self.setFormatter(logging.Formatter('%(message)s'))
+
+    def _open(self):
+        # 禁止Windows换行转换，使容量核算与实际文件字节一致。
+        return open(self.baseFilename, self.mode, encoding=self.encoding,
+                    errors=self.errors, newline='')
+
+    def shouldRollover(self, record):
+        if self.stream is None:
+            self.stream = self._open()
+        self.stream.seek(0, os.SEEK_END)
+        size = len(self.format(record).encode('utf-8', 'backslashreplace'))
+        return self.stream.tell() + size > self.maxBytes
+
+    def handleError(self, record):
+        self.failed(sys.exc_info()[1])  # logging默认错误处理会回写已重定向stderr。
+
+
+class WebLog:
+    """本运行代的两条文本流共用有界磁盘系列，无队列、行缓冲或新线程。
+
+    默认web.log及三个备份各4MiB。每次write切成有限片段，大段无换行
+    和多字节字符同样守总预算。故障后本代停止日志写入并计数丢弃字符，
+    Web继续自己的生命周期；原控制回执与WT均不受日志结果控制。
+    """
+    encoding = 'utf-8'  # 两条流统一使用UTF-8，原日志保持文本读取。
+    errors = 'backslashreplace'  # 非法代理字符以有限ASCII转义留存。
+
+    def __init__(self, path, *, maximum=4 * 1024 * 1024, backups=3):
+        require(type(maximum) is int and maximum >= 64 and type(backups) is int and backups >= 1,
+                'web_log_budget')
+        self.path = Path(path)  # 原私有运行代web.log入口，仅管理该文件及数字备份。
+        self.maximum, self.backups = maximum, backups  # 单份字节预算、备份份数；总量为maximum*(backups+1)。
+        self.written_bytes = 0  # 本次owner实际成功追加的UTF-8字节数，不代表历史保留量。
+        self.dropped_characters = 0  # 写失败后未持久化的Python字符数，无原文内存积累。
+        self.write_failures = 0  # 文件打开、轮转、追加或flush首次失败次数。
+        self.error_type = None  # 固定异常类别，不保存路径、异常正文或凭据。
+        self.closed = False  # 本owner关闭后禁止新write，stdout/stderr由外层context恢复。
+        self.handler = _WebLogHandler(self.path, maximum, backups, self._failed)  # 标准库锁覆盖轮转和追加。
+        try:
+            # 升级前的大文件保留最新UTF-8尾部；旧正文仍使用原文件名直接可读。
+            for current in [self.path, *[self.path.with_name(self.path.name + '.' + str(i))
+                                       for i in range(1, backups + 1)]]:
+                if current.exists() and current.stat().st_size > maximum:
+                    with current.open('r+b') as stream:
+                        stream.seek(-maximum, os.SEEK_END)
+                        tail = stream.read(maximum).decode('utf-8', 'ignore').encode('utf-8')
+                        stream.seek(0)
+                        stream.write(tail)
+                        stream.truncate()
+        except OSError as error:
+            self._failed(error)
+            self._save_status()
+
+    def _failed(self, error):
+        self.write_failures += 1
+        self.error_type = ('OSError' if isinstance(error, OSError) else 'LogWriteError')
+
+    def isatty(self):
+        return False
+
+    def write(self, value):
+        if self.closed:
+            raise ValueError('write to closed Web log')
+        if not isinstance(value, str):
+            raise TypeError('Web log expects text')
+        # 非法Unicode代理字符的backslashreplace至多六字节，不突破单份预算。
+        chunk = min(16384, self.maximum // 6)
+        previous_error = self.error_type
+        self.handler.acquire()
+        try:
+            for start in range(0, len(value), chunk):
+                piece = value[start:start + chunk]
+                if self.error_type is None:
+                    self.handler.emit(logging.LogRecord('observer.web', logging.INFO, '', 0, piece, (), None))
+                    if self.error_type is None:
+                        self.written_bytes += len(piece.encode('utf-8', 'backslashreplace'))
+                        continue
+                self.dropped_characters += len(value) - start
+                break
+        finally:
+            self.handler.release()
+        if previous_error is None and self.error_type is not None:
+            self._save_status()  # 首次失败的整次write已计入丢弃数；后续输出不反复访问故障磁盘。
+        return len(value)
+
+    def flush(self):
+        if not self.closed and self.error_type is None:
+            try:
+                self.handler.flush()
+            except OSError as error:
+                self._failed(error)
+                self._save_status()
+
+    def close(self):
+        if self.closed:
+            return
+        try:
+            self.handler.close()
+        except OSError as error:
+            self._failed(error)
+        self.closed = True
+        self._save_status()
+
+    def _save_status(self):
+        # 状态为常量大小；磁盘整体不可写时允许缺失，原ready/closed不伪装日志成功。
+        status = self.path.with_name('web-log-status.json')
+        temporary = status.with_suffix('.tmp')
+        try:
+            temporary.write_text(json.dumps(dict(
+                schema='guanheng.web-log-status.v1',  # 本Web日志owner的私有状态格式。
+                closed=self.closed,  # 文件句柄生命周期已结束；与App的closed证明分别表达。
+                state='degraded' if self.error_type else 'ok',  # 该日志owner是否观察到写故障。
+                maximum_file_bytes=self.maximum,  # 每份日志的UTF-8字节上限。
+                maximum_total_bytes=self.maximum * (self.backups + 1),  # 本代完整轮转系列的字节上限。
+                written_bytes=self.written_bytes,  # 本次确认追加量，历史已轮转字节仍计入。
+                dropped_characters=self.dropped_characters,  # 故障后丢弃字符累计，未保存正文。
+                write_failures=self.write_failures,  # 本次文件打开、追加、轮转、flush及close故障次数。
+                error_type=self.error_type)), encoding='utf-8')  # 固定OSError/LogWriteError；None表示未观察到。
+            os.replace(temporary, status)
+        except OSError:
+            with contextlib.suppress(OSError):
+                temporary.unlink(missing_ok=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
 
 
 class Process:
@@ -319,12 +459,13 @@ def main():
         if args.action == '_serve':
             require(args.profile_sha256 == expected, 'profile_identity')
             require(str(UUID(args.control_id)) == args.control_id, 'control_uuid')
-            with (root / args.control_id / 'web.log').open('a', encoding='utf8') as log:
+            with WebLog(root / args.control_id / 'web.log') as log:
                 with contextlib.redirect_stderr(log), contextlib.redirect_stdout(log):
                     try:
                         with asyncio.Runner(loop_factory=asyncio.SelectorEventLoop) as runner:
                             runner.run(serve(args.profile, cfg, expected, args.control_id))
                     except BaseException as error:
+                        print('Web_runtime_failure: ' + type(error).__name__, file=sys.stderr)
                         with Process(os.getpid()) as process:
                             identity = process.snapshot()
                         write(root / args.control_id / 'failure.json', dict(control_id=args.control_id,

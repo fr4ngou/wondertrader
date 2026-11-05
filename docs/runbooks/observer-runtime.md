@@ -83,3 +83,11 @@ WT日常启停使用[当前实例公开契约](../specs/wt-service-control.md)�
 重启同版使用原 profile；外部读取配置与个人目录保持。升级或回退时，先用旧 profile 正常 stop 并保留 closed 证据，再为新版本创建新的 profile 和控制目录，引用新安装的解释器与 SPA，沿用原读取配置及个人目录。修改 profile 会改变运行身份，因此运行期间保留原 profile 供 stop 使用。版本切换只处理 Web，WT 和市场更新角色继续独立运行。
 
 该入口只管理经它启动的 Web。已有直接 `pythonw -m guanheng_app` 启动的实例没有这些控制回执，须由其原 Owner 正常退出后，再迁到本入口；本工具不会附着到任意 PID 或强杀旧实例。
+
+### Web日志留存
+
+有界日志模板沿本代`web.log`及`web.log.1`至`.3`留存，默认每份最多4MiB、合计16MiB；旧代日志和其他业务证据保持原目录。超预算旧日志只保留最新UTF-8尾部。stdout/stderr大段输出按实际字节轮转；本代没有后台日志队列。实现和边界见[运行日志模块](../modules/runtime-logging.md#独立观衡web日志)。
+
+首次日志故障及正常/异常关闭时检查同代`web-log-status.json`：`state=ok`表示本日志owner未观察到文件写失败；`degraded`需查看固定`error_type`、`write_failures`和丢弃字符数。首次故障回执给当次write后的计数，关闭回执给最终累计值。日志故障后本代停止追加，页面读取和原正常stop继续；修复目录或磁盘后沿原profile正常重启，恢复日志写入。磁盘整体不可写可能同时影响状态文件，缺失不授成功。原`ready/closed/failure/exit`继续独立判定Web生命周期，日志状态不控制WT。
+
+日志轮转沿本系列容量自动保留最新记录；历史控制代、来源Journal、账户和交易证据的清理仍沿各自owner及授权，不把16MiB误认为全机所有日志的合计预算。

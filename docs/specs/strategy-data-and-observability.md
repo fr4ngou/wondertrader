@@ -58,6 +58,18 @@ flowchart LR
 
 实时和回测使用同一诊断语义。旧报告/输入/原生输出保持可读；受影响回测以新版本记录重跑，不覆盖归档。观衡读取同一公开结果；界面布局改动先设计，不能在本任务随意改UI。
 
+实时公开读取沿原`/v1/ui/strategy-runtime`及`/v1/ui/strategy-details.calculation`共享`project_strategy`，在原策略投影上增加可空`diagnostics`。该值只取WT本轮`core_result.diagnostics`，调用V1唯一`validate_diagnostics`按本轮证券准入，并沿原`contextualize_diagnostics`投影NSQ执行阶段：无outcome为`not_requested`、原outcome确认`converged`为`completed`、其余已产生outcome为`pending`；与原回测逐日公开投影一致。目标变化、字段覆盖、信号次数及缺失分支保持原纯核结果，不在读取层重算或补造。
+
+当前尚无计算结果或旧生产者没有诊断字段时，`diagnostics=null`；原`status`及`decision_at`分别表达等待与是否已有实际计算，不能将null填成成功、零缺口或零信号。附加诊断独立声明`diagnostics_state=available/absent/unavailable`及`diagnostics_reason`：可用时原诊断逐值保留且reason为null；未计算为absent/not_calculated；旧结果未记录为absent/not_recorded；诊断格式、版本、角色或投影错误为unavailable/invalid_diagnostics并将诊断值置null。此类错误不改变已通过原准入的资金、持仓、策略状态及时间，也不使整份核心读取失败。
+
+v1读取合同采用可选新增字段：新浏览器接纳旧响应缺字段及显式null，并按原是否有决策时间补齐absent原因；提供诊断时严格核版本、字段、有限数量、日期及同轮证券。浏览器独立隔离直接读到的坏诊断或矛盾诊断元数据，保留已核核心字段；`strategy-details`复用并采用同一消费者的归一化结果。后端和浏览器每次投影最多各记录一条固定事件/异常类型的脱敏告警，不写原诊断、异常正文或账户信息，不增加持久诊断账本。真正核心字段错误继续沿原整份读取失败和同查询成功缓存保留规则处理。只扩展读取数据与类型，本模块保持已确认页面布局。
+
+验收先以已安装的WT公开发布合同、冻结原报告/模型结果和实际V1诊断走原观察文件→运行引用→App正式路由→浏览器数据消费者，记录原诊断、执行阶段及逐角色缺口一致；真实现场仍在等待行情时如实保持等待。再覆盖旧无字段、无计算、诊断损坏/跨证券时仅诊断降级且核心保持、核心字段损坏时原失败保持及恢复；全过程零运行/交易owner、零正式数据写入，不将隔离模型重放记为新的现场自然计算。
+
+浏览器所需的角色/证券映射、必需市场字段、辅助字段及分支结构由V1现有协议常量生成`strategyDiagnosticWire.generated.ts`，绑定诊断与角色声明源码SHA256；维护入口`python -B scripts/generate-strategy-diagnostic-wire.py`，`--check`核对当前源码身份。浏览器按此元数据核完整字段/分支集合、原角色归属、依赖顺序及日期范围，保留原验证器对历史可替换物理证券的读取语义，不手写另一套角色依赖或信号计算。覆盖首尾日期必须有序且落入所属输入/评估范围，角色计算日与完整依赖日落入实际评估范围。
+
+显式absent原因与原`decision_at`一致：无决策时间仅接受not_calculated，有决策时间仅接受not_recorded；反向矛盾同坏诊断独立降级为unavailable/invalid_diagnostics。缺少旧可选元数据仍沿同一事实补齐。运行摘要与策略详情共同采用这份归一化，核心资金、持仓及状态准入保持。
+
 ## SDO-R5 有界持久日志
 
 复用WT现有运行及委托/成交记录。自有组件覆盖来源更新、字段缺口、派生/发布、调度/计算、目标、执行查询/回报、启动/退出和恢复。建立覆盖表，逐项标识已记录、缺失、仅内存、未核实和路径。

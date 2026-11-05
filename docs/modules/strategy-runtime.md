@@ -18,6 +18,18 @@
 
 按[SDO](../specs/strategy-data-and-observability.md)输出逐角色输入覆盖、调度/计算及无交易原因。合法None与正常无信号分别解释；诊断复用实际依赖与数学，不修改信号、目标或执行行为。
 
+### 实时诊断的只读公开链
+
+V1纯核将统一诊断写入`core_result.diagnostics`，WT原执行发布者沿同一策略观察发布结果。观衡`strategy_runtime_projection.project_strategy`复用V1的`validate_diagnostics`及`contextualize_diagnostics`，只增加原NSQ已观察到的执行阶段；字段覆盖、角色依赖、信号和目标状态保持原结果。原`wt_business_observation.observe_strategy`和`observer_strategy_details.observe_details`共用这一投影，分别提供`strategy.diagnostics`及`calculation.diagnostics`，无第二套诊断或金融存储。
+
+无实际计算及旧观察缺诊断字段均投影null；原等待状态与决策时间保持。诊断独立携带available/absent/unavailable状态及稳定原因，未计算和旧未记录分别为not_calculated/not_recorded；坏诊断为unavailable/invalid_diagnostics。后端复用V1准入，格式/版本/角色错误只清空诊断并记录单条脱敏告警，不影响已核资金、持仓和策略状态。
+
+浏览器`strategyRuntimeApi`拥有有界线协议校验和诊断独立降级，策略详情复用并采用同一归一化结果；旧响应缺字段仍可读，非空诊断须匹配当前策略证券。直接读到的坏诊断只影响诊断值及其状态，核心保持；真正核心错误继续沿原读取失败/同查询成功保持规则。无附加持久存储，原账户事实与读取预算保持。该链只提供公开数据，不改变页面布局、运行包或信号数学。
+
+浏览器的完整字段/分支及角色映射来自[生成元数据](../../apps/guanheng/console/src/workspace/strategyDiagnosticWire.generated.ts)，由[生成工具](../../scripts/generate-strategy-diagnostic-wire.py)直接读取V1现有协议声明并绑定两份所有者源码摘要；更新后运行生成器与`--check`，不复制信号数学或另定证券范围。覆盖日期受所属范围约束，角色计算日期受实际评估范围约束。显式absent原因按原decision_at核实：无计算为not_calculated、已有计算旧未记录为not_recorded；矛盾只降级附加字段。详情共用相同校验及归一化。
+
+回归入口为[实时投影与原HTTP链](../../tests/integration/strategy_diagnostics/test_runtime_projection.py)及[浏览器消费者与失败保持](../../apps/guanheng/console/src/workspace/StrategyRuntimeSummary.test.tsx)。隔离冻结行情的模型重放、已安装发布合同的路由读取和浏览器消费者分别留证，现场自然调度资格单独核实。
+
 覆盖冷启动、状态缺失/损坏、重复调度、跨日、数据不足、策略异常和资源超限。验证相同冻结输入下的信号与目标，分别记录模拟、隔离运行及实际运行证据。
 
 实际委托交由[交易执行](execution.md)，模拟行为见[回测](backtest.md)，用户入口和策略配置见[业务集成](business-integration.md)。
