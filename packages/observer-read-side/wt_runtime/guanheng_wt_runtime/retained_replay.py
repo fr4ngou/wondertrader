@@ -1,4 +1,4 @@
-"""唯一1.1.2日线回放，使用原持仓/资金、NSQ、撮合和userdata。
+"""唯一1.2.1日线回放，使用原持仓/资金、NSQ、撮合和userdata。
 
 同步run由外层预绑定Job和总截止约束。首模型从原生flat开始，独占所有setter；
 不用于实时接管。完整报告的HTTP/归档消费者沿各自公开schema接入。
@@ -16,7 +16,8 @@ from guanheng_strategy_core.models import observation_close_at
 from guanheng_strategy_native import Basis, Limits, Price, QuantityPolicy
 from guanheng_strategy_v1 import (
     CycleExit, PositionCycle, RetainedHistoricalModel, RetainedInput,
-    RetainedValidationError, SYMBOLS,
+    describe_evaluation, summarize_diagnostics, contextualize_diagnostics,
+    RetainedValidationError, SYMBOLS, STRATEGY_ID, STRATEGY_VERSION,
 )
 from .retained_evaluation import evaluate_retained, advance_retained
 from .strategy_porter import BacktestConfig, BacktestPorter, Callbacks, Target
@@ -186,7 +187,10 @@ class RetainedBacktestSession:
                 bars=tuple(b for b in full.analysis.bars if b.observation.trade_date <= cutoff.date())),
             cycles=cycles, previous_exits=exits, decision_cutoff=cutoff,
             cycles_captured_at=cutoff, cycles_valid_until=cutoff+timedelta(seconds=1))
-        return request, self._inputs.model, None
+        model = self._inputs.model
+        if model.auxiliary_research is not None:
+            model = replace(model, auxiliary_input_sha256=sha256(canonical_bytes(request.history)).hexdigest())
+        return request, model, None
 
     def _report_market(self):
         """原报告合同保持；明确逐日来源的派生入口登记其自己的报告族。"""
@@ -227,14 +231,28 @@ class RetainedBacktestSession:
             else:
                 result = decision.result.to_dict()
                 capture = replace(capture, basis=replace(capture.basis, input_sha256=result['input_sha256']))
+                from .execution_facts import buy_fee_basis
+                def fee_basis(target, current_basis, observation):
+                    # 与实时共用费用装配；旧代交接与新代分别使用实际消费目标，不改原NSQ。
+                    nonlocal capture
+                    basis = buy_fee_basis(target, self._inputs.policy, current_basis, observation,
+                        self._mapping, self._native_fees, self._native_fee_source, split_fills=False)
+                    capture = replace(capture, basis=basis)
+                    return basis
                 outcome, previous_status = advance_retained(decision.target, self._inputs.policy,
-                    capture.observation, capture.basis, self._state, limits=self._quantity_limits)
+                    capture.observation, capture.basis, self._state, limits=self._quantity_limits,
+                    basis_for_target=fee_basis)
                 status, reason = outcome.status, outcome.reason
         check()
         # 报告只保存当日业务结果与原值；累计模型信号由固定输入复现，不逐日重复。
         summary = None if result is None else dict(
             schema='guanheng.retained-replay-decision.v1', full_result_sha256=_digest(result),
-            **{k: v for k, v in result.items() if k not in ('schema', 'model_decisions', 'allocation_state')})
+            **{k: v for k, v in result.items() if k not in ('schema', 'model_decisions', 'allocation_state', 'diagnostics')})
+        if summary is not None:
+            prior = next((r['result']['targets'] for r in reversed(self._records) if r['result'] is not None), None)
+            self._business_diagnostics = contextualize_diagnostics(result['diagnostics'],
+                targets=result['targets'], previous_targets=prior)
+            summary['diagnostics'] = summarize_diagnostics(self._business_diagnostics)
         record = dict(trading_date=day, minute=minute, status=status, reason=reason,
             result=summary, capture=capture, outcome=outcome, previous_status=previous_status, readback=())
         if publication is not None:
@@ -268,6 +286,8 @@ class RetainedBacktestSession:
                 or config.start % 10000 > 1500 or Path(config.cwd).resolve() != Path.cwd().resolve()):
             raise SessionError('回放起止必须覆盖明确输入末日及独占CWD')
         identities, frozen = admit_native_files(self._mapping, config)
+        self._native_fees = json.loads(frozen['fees'])  # 与本次原Native使用同一份已准入费表，不读取后续可变模板。
+        self._native_fee_source = 'original-WT-fees:'+sha256(frozen['fees']).hexdigest()  # 本代完整费表身份；原实际记费归WT。
         base = Path(config.cwd)/'session-basefiles'
         base.mkdir(exist_ok=False)
         for name, data in frozen.items():
@@ -302,11 +322,13 @@ class RetainedBacktestSession:
         report = dict(schema=REPORT_SCHEMA, session_id=self._session_id, input_sha256=self._input_id,
             scope=REPORT_SCOPE, policy=self._inputs.policy,
             configuration_sha256=sha256(canonical_bytes(self._inputs.request.configuration)).hexdigest(),
-            strategy_id='resonance-regime-v1', strategy_version='1.1.2', historical_model=self._inputs.model,
+            strategy_id=STRATEGY_ID, strategy_version=STRATEGY_VERSION, historical_model=self._inputs.model,
             status=self._records[-1]['status'] if self._records else 'blocked_no_calculation',
             native_files=identities, native_outputs=tuple(native_outputs), callback_counts=counts, records=tuple(self._records),
             source_qualified=False, execution_qualified=False)
         report.update(self._report_market())
         # 顶层模型与逐日结果共用领域规范编码，时间及输入身份保持同一表示。
+        report['diagnostics'] = getattr(self, '_business_diagnostics', None) or describe_evaluation(
+            self._inputs.request.history.observations, calculation_state='warming_up' if self._records else 'not_scheduled')
         raw = canonical_bytes(report, max_bytes=self._maximum)
         return json.loads(raw)

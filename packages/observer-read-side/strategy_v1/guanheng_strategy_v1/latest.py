@@ -1,5 +1,5 @@
-"""正式1.1.2的完整纯决策；实际周期和复权事实由外部owner冻结提供。"""
-from dataclasses import MISSING, dataclass, fields, is_dataclass, replace
+"""正式1.2.2的完整纯决策；实际周期和复权事实由外部owner冻结提供。"""
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass, replace
 from datetime import date, datetime
 from decimal import Context, Decimal, ROUND_HALF_UP
 from hashlib import sha256
@@ -14,13 +14,10 @@ from guanheng_strategy_core.contracts import EvaluationBudget, FrozenHistory, Ke
 from guanheng_strategy_core.features import build_daily_features
 from guanheng_strategy_core.models import DailyObservation, observation_close_at, validate_observations
 from guanheng_strategy_core.signals import ROLE_SIGNAL_MACHINES
-from .historical import RetainedHistoricalModel
+from .historical import RetainedHistoricalModel, AUXILIARY_RESEARCH_MARKER
+from .diagnostics import describe_evaluation, failure_diagnostics
 
-STRATEGY_ID, STRATEGY_VERSION = 'resonance-regime-v1', '1.1.2'
-ROLE_SYMBOLS = {'csi300': '510300.SH', 'sh50': '510050.SH', 'zz500': '510500.SH',
-    'zz1000': '512100.SH', 'kc50': '588000.SH', 'kc_composite': '589000.SH',
-    'sc50': '159780.SZ', 'dividend': '515080.SH'}
-SYMBOLS = tuple(sorted(ROLE_SYMBOLS.values()))
+from .role_profile import KC_SYMBOL, ROLE_SYMBOLS, STRATEGY_ID, STRATEGY_VERSION, SYMBOLS
 ZONE = ZoneInfo('Asia/Shanghai')
 
 
@@ -28,6 +25,7 @@ class RetainedValidationError(ValueError):
     """固定原因码与中文说明；不回显账户或调用者原值。"""
     def __init__(self, code, reason):
         self.code, self.reason = code, reason
+        self.diagnostics = failure_diagnostics(code)  # 原错误的只读阶段说明；输入覆盖未知保持空，不代替计算。
         super().__init__(reason)
 
 
@@ -67,14 +65,14 @@ def _copy(value, kind):
 @dataclass(frozen=True, slots=True)
 class RetainedConfig:
     """六参数沿已核正式配置；预算为账户比例，算法不把它改成全部现金。"""
-    config_revision: str
-    budget_fraction: float
-    symbol_cap_weight: float = .25
-    max_weight_change: float = .25
-    kc_composite_signal_symbol: str = '589000.SH'
-    kc_composite_execution_symbol: str = '589000.SH'
-    signal_warmup_policy_version: str = 'regime-available-v1'
-    state_input_policy_version: str = 'ledger-front-ratio-v1'
+    config_revision: str  # 配置所有者提供的版本身份；变更角色后必须生成新的非空ASCII身份。
+    budget_fraction: float  # 策略预算占账户比例；沿原配置，范围(0, 0.95]，无单位。
+    symbol_cap_weight: float = .25  # 单证券目标权重上限；沿原规则固定0.25。
+    max_weight_change: float = .25  # 单次权重变化上限；沿原规则固定0.25。
+    kc_composite_signal_symbol: str = KC_SYMBOL  # 本版科创角色信号证券；使用博时科创100自身原价与前复权历史。
+    kc_composite_execution_symbol: str = KC_SYMBOL  # 本版科创角色执行证券；须与信号、周期和成本证券一致。
+    signal_warmup_policy_version: str = 'regime-available-v1'  # 现有信号预热规则版本；沿原可用历史语义。
+    state_input_policy_version: str = 'ledger-front-ratio-v1'  # 实际周期及同基准前复权输入规则；沿1.1.2分支。
 
 
 def validate_retained_configuration(config: RetainedConfig) -> None:
@@ -87,19 +85,25 @@ def validate_retained_configuration(config: RetainedConfig) -> None:
              config.signal_warmup_policy_version, config.state_input_policy_version))
         and (config.kc_composite_signal_symbol, config.kc_composite_execution_symbol,
              config.signal_warmup_policy_version, config.state_input_policy_version)
-        == ('589000.SH', '589000.SH', 'regime-available-v1', 'ledger-front-ratio-v1'),
-        'invalid_configuration', '配置须符合正式1.1.2六参数和策略预算')
+        == (KC_SYMBOL, KC_SYMBOL, 'regime-available-v1', 'ledger-front-ratio-v1'),
+        'invalid_configuration', '配置须符合正式1.2.2六参数和策略预算')
 
 
 @dataclass(frozen=True, slots=True)
 class PositionCycle:
-    """B原生状态的只读周期投影；quantity为股/份，unknown不生成目标。"""
+    """B原生周期/初始库存的只读事实，quantity单位为股。
+
+    held使用实际opened_at；initial_inventory使用带时区的新运行baseline_at，
+    首个严格晚于该基准的分析收盘形成参考价。flat/held的baseline_at为空，
+    规范JSON省略此字段以保留旧输入身份；新系统重启沿用原基准。
+    """
     symbol: str
     status: str
     quantity: int
     source_sha256: str
     cycle_id: str | None = None
     opened_at: datetime | None = None
+    baseline_at: datetime | None = field(default=None, metadata={'omit_none': True})
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,8 +184,9 @@ class RetainedInput:
             cycles = []
             for item in data['cycles']:
                 cycle = _wire(item, PositionCycle)
-                if cycle.get('opened_at') is not None:
-                    cycle['opened_at'] = _wire_time(cycle['opened_at'])
+                for name in ('opened_at', 'baseline_at'):
+                    if cycle.get(name) is not None:
+                        cycle[name] = _wire_time(cycle[name])
                 cycles.append(PositionCycle(**cycle))
             data['cycles'] = tuple(cycles)
             previous = data.get('previous_exits', [])
@@ -283,7 +288,8 @@ def _observation(value):
         'invalid_history', '辅助事实必须为有限数值或明确缺失')
     _require(type(row.evidence_refs) is tuple and len(row.evidence_refs) <= 32
         and all(_text(item) for item in row.evidence_refs)
-        and type(row.auxiliary_source_dates) is tuple and len(row.auxiliary_source_dates) <= 32
+        # 成交额先做5日均值再取60日分位，完整来源前缀最多60+5-1=64日。
+        and type(row.auxiliary_source_dates) is tuple and len(row.auxiliary_source_dates) <= 64
         and all(type(day) is date for day in row.auxiliary_source_dates)
         and (row.auxiliary_available_at is None or _time(row.auxiliary_available_at))
         and (row.market_available_at is None or _time(row.market_available_at))
@@ -328,6 +334,9 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
             and historical.factor_sha256 == history.factor_revision
             and historical.basis_date == analysis.basis_date and historical.received_at == view.received_at,
             'source_mismatch', '回测假设与实际历史批次不一致')
+        if historical.auxiliary_research is not None:
+            _require(historical.auxiliary_input_sha256 == sha256(clock.encode(history)).hexdigest(),
+                     'research_input_mismatch', '辅助研究声明与本次完整历史输入不一致')
     _require(analysis.known_at <= view.received_at
         and (view.received_at <= request.decision_cutoff if historical_model is None
              else request.decision_cutoff <= view.received_at)
@@ -345,12 +354,20 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         and type(analysis.basis_date) is date,
         'source_mismatch', '历史版本、前复权基准或来源声明不一致')
     _require(type(history.observations) is tuple and type(analysis.bars) is tuple
-        and 800 <= len(history.observations) <= clock.budget.max_observations
+        and len(history.observations) <= clock.budget.max_observations
         and len(analysis.bars) == len(history.observations), 'capacity_exceeded', '需要完整有界八证券预热历史')
+    _require(bool(history.observations), 'incomplete_history', '行情窗口尚未提供完整证券历史')
     raw, adjusted, copied_bars = [], [], []
     for source, item in zip(history.observations, analysis.bars):
         clock()
         row, bar = _observation(source), _copy(item, AnalysisBar)
+        research_markers = [ref for ref in row.evidence_refs if ref.startswith('auxiliary-research:')]
+        if research_markers:
+            _require(historical_model is not None, 'research_input_forbidden', '辅助研究假设输入仅供显式历史回测')
+            _require(historical.auxiliary_research is not None and research_markers == [AUXILIARY_RESEARCH_MARKER],
+                     'research_model_required', '研究行需要匹配的显式研究声明')
+        elif historical_model is not None and historical.auxiliary_research is not None:
+            raise RetainedValidationError('research_input_mismatch', '辅助研究模型要求全部历史行保留研究标记')
         other = _observation(bar.observation)
         _require((row.symbol, row.trade_date) == (other.symbol, other.trade_date)
             and _number(bar.factor) and bar.factor > 0 and _number(bar.raw_close) and bar.raw_close > 0
@@ -380,10 +397,13 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         and all({row.symbol for row in raw[i:i+8]} == set(SYMBOLS) for i in range(0, len(raw), 8)),
         'incomplete_history', '历史日期与八证券覆盖不完整')
     try:
-        validate_observations(raw)
-        validate_observations(adjusted)
+        validate_observations(raw, universe=SYMBOLS, check=clock)
+        validate_observations(adjusted, universe=SYMBOLS, check=clock)
+    except RetainedValidationError:
+        raise
     except ValueError:
         raise RetainedValidationError('invalid_history', '行情或辅助事实未通过因果校验') from None
+    _require(len(days) >= 100, 'warmup_required', '完整市场历史尚未完成原百日预热')
     _require(type(request.cycles) is tuple and len(request.cycles) == 8
         and type(request.previous_exits) is tuple and len(request.previous_exits) <= 8,
         'invalid_cycles', '需要全部八证券的当前持仓周期')
@@ -393,20 +413,35 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         _require(cycle.symbol in SYMBOLS and cycle.symbol not in cycles and _hash(cycle.source_sha256)
             and type(cycle.quantity) is int and 0 <= cycle.quantity <= 10**12,
             'invalid_cycles', '持仓周期数量或来源无效')
-        _require(type(cycle.status) is str and cycle.status in ('flat', 'held'), 'unknown_cycle', '实际持仓起点待恢复')
-        _require((cycle.status == 'flat' and cycle.quantity == 0 and cycle.cycle_id is None and cycle.opened_at is None)
+        _require(type(cycle.status) is str and cycle.status in ('flat', 'held', 'initial_inventory'),
+                 'unknown_cycle', '持仓周期或初始库存起点尚未确认')
+        _require((cycle.status == 'flat' and cycle.quantity == 0 and cycle.cycle_id is None
+                    and cycle.opened_at is None and cycle.baseline_at is None)
             or (cycle.status == 'held' and cycle.quantity > 0 and _text(cycle.cycle_id)
-                and _time(cycle.opened_at) and utc_timestamp(cycle.opened_at) <= request.cycles_captured_at),
-            'invalid_cycles', '实际持仓须有已核实开仓周期')
+                and cycle.baseline_at is None and _time(cycle.opened_at)
+                and utc_timestamp(cycle.opened_at) <= request.cycles_captured_at)
+            or (cycle.status == 'initial_inventory' and cycle.quantity > 0 and _text(cycle.cycle_id)
+                and cycle.opened_at is None and _time(cycle.baseline_at)
+                and utc_timestamp(cycle.baseline_at) <= request.cycles_captured_at),
+            'invalid_cycles', '持仓须有已核实的实际周期或明确的新运行库存基准')
         if cycle.opened_at is not None:
             cycle = replace(cycle, opened_at=utc_timestamp(cycle.opened_at))
+        if cycle.baseline_at is not None:
+            cycle = replace(cycle, baseline_at=utc_timestamp(cycle.baseline_at))
         cycles[cycle.symbol] = cycle
+    _require(len({c.baseline_at for c in cycles.values() if c.status == 'initial_inventory'}) <= 1,
+             'invalid_cycles', '同一初始库存批次须采用一致的新运行基准')
     records = {}
     for value in request.previous_exits:
         record = _copy(value, CycleExit)
         _require(record.symbol in SYMBOLS and record.symbol not in records and _text(record.cycle_id)
             and _text(record.path) and type(record.trade_date) is date and record.trade_date <= days[-1],
             'invalid_exit', '原生策略退出状态无效')
+        cycle = cycles[record.symbol]
+        if cycle.status == 'initial_inventory':
+            _require(record.cycle_id == cycle.cycle_id
+                and observation_close_at(record.trade_date) > cycle.baseline_at,
+                'invalid_exit', '初始库存只接受新运行基准之后同周期的退出状态')
         records[record.symbol] = record
     previous_exits = tuple(records[s] for s in sorted(records))
     normalized = replace(request, configuration=config, history=replace(history, observations=tuple(raw)),
@@ -432,16 +467,25 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         cycle, record = cycles[symbol], records.get(symbol)
         model = decisions[symbol][-1] if decisions[symbol] else None
         actual_exit = None
-        if cycle.status == 'held' and role != 'csi300':
+        if cycle.status != 'flat' and role != 'csi300':
             values = features[symbol]
-            opening_day = cycle.opened_at.astimezone(ZONE).date()
-            opening = next((i for i, f in enumerate(values) if f.observation.trade_date == opening_day), None)
-            _require(opening is not None or opening_day > days[-1],
-                     'opening_history_missing', '实际开仓交易日缺少分析行情')
-            if opening is None:
-                # 原1.1.2允许当日成交先于首根新收盘价，参考价形成前年龄为零。
-                opening = len(values)
-            first_price = next((i for i, f in enumerate(values) if observation_close_at(f.observation.trade_date) >= cycle.opened_at), None)
+            if cycle.status == 'initial_inventory':
+                # 新基准只开启之后的规则状态；既有行情不冒充旧实际周期。
+                _require(cycle.baseline_at.astimezone(ZONE).date() >= days[0],
+                         'initial_inventory_history_missing', '新运行基准所需行情不完整，请保留原基准核查')
+                first_price = next((i for i, f in enumerate(values)
+                    if observation_close_at(f.observation.trade_date) > cycle.baseline_at), None)
+                opening = first_price if first_price is not None else len(values)
+            else:
+                opening_day = cycle.opened_at.astimezone(ZONE).date()
+                opening = next((i for i, f in enumerate(values) if f.observation.trade_date == opening_day), None)
+                _require(opening is not None or opening_day > days[-1],
+                         'opening_history_missing', '实际开仓交易日缺少分析行情')
+                if opening is None:
+                    # 原1.1.2允许当日成交先于首根新收盘价，参考价形成前年龄为零。
+                    opening = len(values)
+                first_price = next((i for i, f in enumerate(values)
+                    if observation_close_at(f.observation.trade_date) >= cycle.opened_at), None)
             ages[symbol] = max(0, len(values)-opening-1)
             if first_price is not None:
                 actual = ROLE_SIGNAL_MACHINES[role](values, symbol=symbol, start_index=first_price,
@@ -452,13 +496,13 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
             records[symbol] = CycleExit(symbol, cycle.cycle_id, days[-1], actual_exit.path)
             exits[symbol] = actual_exit.path
         elif record is not None:
-            recovered = cycle.status == 'held' and record.cycle_id == cycle.cycle_id and days[-1] > record.trade_date
+            recovered = cycle.status != 'flat' and record.cycle_id == cycle.cycle_id and days[-1] > record.trade_date
             fresh = model is not None and model.action == 'BUY' and model.trade_date > record.trade_date
             if recovered or fresh:
                 records.pop(symbol)
             else:
                 exits[symbol] = record.path
-    _require(all(c.status != 'held' or c.symbol in exits for c in cycles.values())
+    _require(all(c.status == 'flat' or c.symbol in exits for c in cycles.values())
         or allocation.get('last_event_date') is not None,
         'allocation_unavailable', '实际持仓已确认，尚无完整分配判断')
     weights = _targets(symbols=set(SYMBOLS),
@@ -486,6 +530,9 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         model_decisions=decisions, allocation_state=allocation,
         analysis_source_kind=analysis.source_kind,
         source_qualified=False, execution_qualified=False)
+    value['diagnostics'] = describe_evaluation(tuple(raw),
+        evaluation_dates=tuple(f.observation.trade_date for f in series['510300.SH']),
+        decisions=decisions, calculation_state='completed', targets=weights, check=clock)
     if historical_model is not None:
         value['historical_model'] = historical
     encoded = clock.encode(value)

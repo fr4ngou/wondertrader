@@ -67,18 +67,23 @@
   "source_use": "static only; never import old QMT",
   "core": "guanheng-strategy-core==0.1.0a8",
   "adaptations": [
-    "Single retained 1.1.2 entry; legacy pipeline archived outside runtime",
+    "1.2.1 uses the complete retained actual-cycle engine from 1.1.2 and an explicitly bound KC ETF role",
     "Shared feature/signal/allocation mathematics; externally supplied native cycles and exit state",
     "Pure current-visible reconstruction; no old ledger, worker, scheduler or broker dependency",
     "Explicit historical final-basis model shares the strict current-view rule engine; actual receipt retained",
-    "Continued actual exits keep original economic event date; resolution creates current decision event"
+    "Continued actual exits keep original economic event date; resolution creates current decision event",
+    "Explicit initial inventory inception; no imported old opening, trades or cycle state; restart retains inception",
+    "1.2.1 binds signal/execution to the same role ETF and preserves 1.1.2 actual-cycle, initial inventory and front-ratio mathematics.",
+    "1.2.2 binds the KC role to 588030.SH own market/factor/cycle facts; normal same-ledger role handoff retires only the old zero-inventory NSQ plan."
   ],
   "owned_sources": {
-    "historical.py": "7ada722a06b0a8eaa3ae5a9281e5c92b6c7d1fc5668a535d1dc8b6dfe8368cad",
-    "latest.py": "e72eeca05d5539d84b059bf965906d683c46b72f3c58a42aa6a6df7aead4a0d9",
-    "__init__.py": "c32bc60fbd9213a925862b62bad1f4cbf6ec9e8faccc5bb886cc596e1dd152d8"
+    "__init__.py": "51a416785c6887ed6da91a1426ca1f6dfa2c8cc0c01d0207b7a35ee81c354ebf",
+    "historical.py": "d584dabe277ef889b31f73ac3167367204af7541033adf28e17747bc40be34d6",
+    "latest.py": "d54218abb31fa674490279e4faf03da8468fb185c3ae5312d04fd622d28ad16c",
+    "role_profile.py": "18c4f9271ff9d3e018a8aeee8d8fd366fb9c1e25e7a0435baa1533a7c821ef53",
+    "diagnostics.py": "ef5f1d1659da2dab0521a4535ad72aaad6075c166e5c435c4695f6486875ceb8"
   },
-  "package_version": "0.1.0a7",
+  "package_version": "0.1.0a7+resonance122.diagnostics.1",
   "dependencies": {
     "guanheng-strategy-core": "0.1.0a8",
     "tzdata": "2026.3"
@@ -87,9 +92,11 @@
     "guanheng-strategy-core==0.1.0a8",
     "tzdata==2026.3"
   ],
-  "algorithm_identity": "resonance-regime-v1@1.1.2/ledger-front-ratio-v1",
+  "algorithm_identity": "resonance-regime-v1@1.2.2/ledger-front-ratio-v1",
   "actual_cycle_rule_sources": {
     "ledger_engine.py": "f7dcbc5c8faeb36aaef2adaf3f774f1765128445dcb17924a81e2359ff8477d8",
     "signals.py": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238"
-  }
+  },
+  "business_diagnostics_schema": "guanheng.strategy-business-diagnostics.v1",
+  "auxiliary_research_model": "research-next-common-session-0925-v1"
 }

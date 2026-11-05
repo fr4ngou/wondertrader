@@ -1,5 +1,7 @@
 # 观衡永久源码与独立读取发行
 
+OSB-R7：后继报告读取版使用V1读取发行0.1.0a7+resonance122.diagnostics.1及WT读取发行0.1.0a11+read10.diagnostics.1，消费已交付的1.2.2及逐角色诊断协议。V1纯模型/辅助/诊断共用执行侧已验源码，读取发行的source_manifest.package_version与自身元数据一致；WT仅同步报告边界和其纯数据依赖，原读取版控制/生命周期及性能实现保留。App独立固定两包版本，使用真实已完成归档核本次普通安装；不启动WT、QMT、执行器或重新运行回测，不改变页面布局。
+
 类型：接口规格。状态：accepted。前缀OSB。依据Root对App71/004永久源码归仓的明确委派，沿[独立部署](../architecture/adr/0016-independent-wt-runtime-and-observer.md)及[离线制品](observer-runtime-package.md)，不改变运行或交易职责。
 
 OSB-R1：App唯一长期入口为apps/guanheng；四个读取变体分别位于packages/observer-read-side的strategy_core、strategy_native、strategy_v1、wt_runtime，与WT执行发行分别维护。永久归仓基线为0.1.0a72+source.1。用户要求修复报告503的纯标量转换后继为App 0.1.0a74+scalar.1、Native读取0.1.0a1+read2，沿[BRP](backtest-report-read-performance.md)限定成功纯值复用；原a73读池实验保留失败资格，读池及JSON守卫已恢复原实现。保留a71标准Selector、当前C70运行故障说明/五个前端后继、Core/read2、V1/a7和WT/read4。部署locator继续独立，不覆盖B/Host/WT框架。
