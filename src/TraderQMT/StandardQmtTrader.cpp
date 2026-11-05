@@ -1413,6 +1413,10 @@ struct StandardQmtTrader::Impl {
   if(value.read_not_dispatched||value.read_interrupted||ended_retained_read(value))return true;
   if(value.status.ok())return Clock::now()>=value.deadline&&!value.event_page.gap;
   const auto& status=value.status;
+  // Common只在真实WinHTTP交换失败时产生该固定原因。普通账户读取回到原身份核查/等待；
+  // 已进入POST的查询由下方held_reads续核原receipt，事件链继续其原运输分类，委托/撤单保持原路径。
+  if((value.kind==Kind::Query||value.kind==Kind::Resolve)
+   &&status.code==ErrorCode::IoError&&status.reason=="qmt_http_exchange_failed")return true;
   if(status.code==ErrorCode::Timeout||status.code==ErrorCode::SubmissionUnknown)return true;
   if(status.code==ErrorCode::StaleSession)return status.reason=="qmt_host_binding_changed"
     ||status.reason=="qmt_trade_binding_changed";
