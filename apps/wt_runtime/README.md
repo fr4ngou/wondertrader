@@ -1,5 +1,7 @@
 # WT独立运行包
 
+辅助数据/诊断/费用候选的[46成员永久源码闭包](source_closures/0.1.0a14+auxiliary.diagnostics.fees.3/README.md)已完成完整原生回测与App读取；当前线上身份按部署记录核实。
+
 类型：模块说明。状态：开发及隔离验收中。适用规格：[WRI](../../docs/specs/independent-wt-runtime.md)。
 
 `guanheng-wt-runtime`为独立的普通Python wheel，拥有QMT共享内存Host、原生历史服务、采集及执行的进程生命周期。WT原Runner/CTA、Reader/Writer和Parser/Trader继续承担行情、策略与交易算法。观衡独立部署，只读消费WT接口；该包不导入观衡Web包、FastAPI或SPA。
