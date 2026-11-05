@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from integrations.guanheng.auxiliary_history_sources import (
     _fact, _identity, import_legacy_archive, load_facts, publications_from_facts,
@@ -171,6 +172,57 @@ class HistorySourcesTests(unittest.TestCase):
         document['payload_sha256']=_identity(document['payload']);path.write_text(json.dumps(document))
         with self.assertRaisesRegex(ValueError,'values'):
             read_legacy_manifest(path)
+
+    def test_public_float_overflow_and_underflow_are_rejected(self):
+        for number in ('1E+10000','1E-10000'):
+            shares=_fact('sse-shares',self.day,{'510300.SH':number},self.stamp,'1'*64,'official_json',())
+            with self.assertRaisesRegex(ValueError,'float_range'):
+                publications_from_facts([shares],[self.day])
+            pair=[_fact(source,self.day,number,self.stamp,str(i)*64,'official_json',())
+                  for i,source in enumerate(('sse-margin','szse-margin'),1)]
+            with self.assertRaisesRegex(ValueError,'float_range'):
+                publications_from_facts(pair,[self.day])
+
+    def test_existing_import_is_bound_to_requested_calendar(self):
+        old,seed=self.legacy();output=self.root/'import';import_legacy_archive(old,seed,[self.day],output)
+        with self.assertRaisesRegex(ValueError,'job_scope_changed'):
+            import_legacy_archive(old,seed,[self.day,'2024-01-03'],output)
+
+    def test_manifest_failure_before_commit_resumes_from_originals(self):
+        old,seed=self.legacy();output=self.root/'import'
+        with patch('integrations.guanheng.auxiliary_history_sources.os.replace',side_effect=OSError('synthetic_commit_failure')):
+            with self.assertRaises(OSError):import_legacy_archive(old,seed,[self.day],output)
+        self.assertFalse((output/'ARCHIVE.json').exists())
+        self.assertEqual(import_legacy_archive(old,seed,[self.day],output)['records'],1)
+        self.assertEqual(read_legacy_manifest(output/'ARCHIVE.json')[0].values,'123.45')
+
+    def test_share_cache_is_verified_completely_then_projected_to_subset(self):
+        from guanheng_analysis_window_producer.official_auxiliary import source_request
+        root=self.root/'sse-shares';root.mkdir()
+        body=json.dumps(dict(result=[dict(SEC_CODE='510300',STAT_DATE=self.day,TOT_VOL='10000'),
+                                     dict(SEC_CODE='510050',STAT_DATE=self.day,TOT_VOL='20000')])).encode()
+        record=dict(schema='guanheng.official-auxiliary-capture.v1',source='sse-shares',statistic_date=self.day,
+            url=source_request('sse-shares',self.day)[0],received_at=self.stamp,historical_first_available='unknown',
+            body_sha256=hashlib.sha256(body).hexdigest(),values={'510300.SH':'1','510050.SH':'2'})
+        (root/(self.day+'.json')).write_text(json.dumps(record));(root/(self.day+'.json.gz')).write_bytes(gzip.compress(body))
+        fact=read_official_capture(self.root,'sse-shares',self.day,['510300.SH'])
+        self.assertEqual(fact.values,{'510300.SH':'1'})
+
+    def test_window_identity_uses_exact_first_read_bytes(self):
+        from scripts.auxiliary_history_gap import audit
+        seed=self.root/'seed';seed.mkdir();(seed/'FAILURES.json').write_text('{}')
+        row=dict(symbol='510300.SH',trade_date=self.day,open=1,high=1,low=1,close=1,volume=1,amount=1)
+        raw=json.dumps(dict(history=dict(observations=[row]))).encode();window=self.root/'window.json';window.write_bytes(raw)
+        original=Path.read_bytes;reads=[]
+        def changing(path):
+            if path==window:
+                reads.append(1)
+                return raw if len(reads)==1 else b'changed source bytes'
+            return original(path)
+        with patch.object(Path,'read_bytes',new=changing):audit(seed,window,self.root/'audit')
+        report=json.loads((self.root/'audit/REPORT.json').read_bytes())
+        self.assertEqual(len(reads),1)
+        self.assertEqual(report['window_sha256'],hashlib.sha256(raw).hexdigest())
 
 
 if __name__=='__main__':

@@ -11,6 +11,74 @@ import json
 from pathlib import Path
 import re
 import sys
+from typing import TypedDict, NotRequired
+
+
+class CoverageEntry(TypedDict):
+    source: str  # 五类业务来源名，单位由该来源定义。
+    statistic_date: str  # 应有统计日，ISO日期，与取得时间分开。
+    expected: bool  # 本次完整市场日历要求此来源存在。
+    readable: bool  # 官方来源原件与规范值均通过当前解析校验。
+    seed_readable: bool  # 原只读种子存在对应回执；总量报告另核原件。
+    qualification: str | None  # 实际选中来源资格，缺失保留None。
+    values: dict[str, str] | str | None  # 规范十进制值，份额亿份，其余亿元；缺失不填零。
+    received_at: str | None  # 当前owner实际取得上界，带时区。
+    origin_received_at: str | None  # 旧工程原采集时刻，带时区，不作为当前导入时刻。
+    historical_first_available: str  # 恒unknown，历史首次发布时间未证实。
+    evidence_sha256: str | None  # 日期、值、单位、实际知晓及原件共同身份。
+    raw_sha256: str | None  # 原文或完整年鉴表格来源身份。
+    references: tuple[str, ...]  # 可回读的原件、封套及页码定位。
+    research_readable: bool  # 另有第三方研究候选，仍未进入官方默认事实流。
+    unresolved_reason: str | None  # 未解决的实际原因，已解决为None。
+    seed_failure: dict | None  # 原种子失败类型/原因，不把原请求失败改为零值。
+    derived_symbols: NotRequired[list[str]]  # 份额字段具有相邻原件的证券；只对shares来源出现。
+    publication_usable: bool  # 可形成完整原AuxiliaryPublication；市场合计要求双边。
+    derived_usable: bool  # 原公式已具备数值派生前缀，区别于历史行因果资格。
+    derived_available_at: str | None  # 所有依赖实际取得上界的最晚时刻，带时区。
+    derived_time_basis: str  # 时钟依据声明，禁止由统计日伪造历史知晓时间。
+
+
+class SourceCoverage(TypedDict):
+    expected: int  # 本日历应有的统计日数量。
+    seed_readable: int  # 种子中已核通过的原来源日数量。
+    readable: int  # 官方补齐后可读来源日数量。
+    research_only: int  # 仅有独立第三方研究候选的日数量。
+    missing: list[str]  # 官方事实仍未解决的精确日期，零值不会充作缺失。
+    tail: str | None  # 最新可读官方统计日，无事实则None。
+
+
+class DerivedPoint(TypedDict):
+    statistic_date: str  # 唯一原公式所用的最新来源统计日。
+    value: float  # 0..100分位刻度，来自原策略模块，适配器不改公式。
+    available_at: str  # 全部前缀依赖实际可知上界的最晚时刻，带时区。
+    source_dates: list[str]  # 完整依赖来源日期，成交热度最多64点。
+
+
+class DerivedReport(TypedDict):
+    publications_by_kind: dict[str,int]  # 各类完整原AuxiliaryPublication数量。
+    derived_by_kind: dict[str,list[DerivedPoint]]  # 逐统计日数值派生结果，历史生效资格另核。
+
+
+class AuditReport(TypedDict):
+    schema: str  # 固定独立历史审计协议版本。
+    observed_at: str  # 实际审计完成时刻，UTC offset明确。
+    window_sha256: str  # 唯一一次读取窗口原文的SHA，与计算输入完全相同。
+    window_rows: int  # 输入市场行数量，包含各证券逐日行。
+    days: int  # 去重后的来源交易日数量。
+    date_range: list[str]  # 输入首尾日期，不作为首尾间完整日历的推定。
+    symbols: list[str]  # 实际请求的沪市ETF集合，证券缺口按Coverage记录。
+    sources: dict[str,SourceCoverage]  # 五来源逐日汇总与实际缺口。
+    official_complete_days: int  # 五来源均具备官方事实的日数量，不代替单字段覆盖。
+    research_overlap: list[dict]  # 官方/研究候选的同日差值及展示精度关系。
+    official_derived: DerivedReport  # 默认官方事实流派生，完全排除研究候选。
+    research_derived: DerivedReport  # 显式研究流派生，保持research_only资格。
+    source_qualification_counts: dict[str,int]  # 各来源资格的事实数量。
+    actual_historical_merge_changed_rows: int  # 真实窗口严格知晓时钟下被合并改变的行数量。
+    historical_merge_basis: str  # 实际取得依据声明，禁止回填历史首次知晓时间。
+    seed_files: int  # 审计前种子普通文件数量。
+    seed_unchanged: bool  # 种子前后完整文件集合/内容摘要一致。
+    production_adopted: bool  # 本模块恒False，现场采用归Root。
+    source_policy: str  # 默认官方流及显式研究流的来源边界。
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(Path(__file__).resolve().parent))
@@ -115,7 +183,8 @@ def audit(seed, window_path, output, *, legacy_manifest=None, yearbook=None, res
     if output==seed or seed in output.parents:
         raise ValueError('seed_output_overlap')
     output.mkdir(parents=True,exist_ok=True)
-    window=json.loads(Path(window_path).read_bytes());rows=window['history']['observations']
+    window_raw=Path(window_path).read_bytes()
+    window=json.loads(window_raw);rows=window['history']['observations']
     days=sorted({r['trade_date']for r in rows});symbols=sorted({r['symbol']for r in rows if r['symbol'].endswith('.SH')})
     before={str(p.relative_to(seed)):hashlib.sha256(p.read_bytes()).hexdigest()for p in seed.rglob('*')if p.is_file()}
     facts=load_facts((seed,),days,symbols,legacy_manifest=legacy_manifest,yearbook=yearbook,research_margin=research_margin)
@@ -123,7 +192,7 @@ def audit(seed, window_path, output, *, legacy_manifest=None, yearbook=None, res
     research=publications_from_facts(facts.values(),days,research=True)
     official_map={(f.source,str(f.statistic_date)):f for f in official.source_facts}
     initial_failures=json.loads((seed/'FAILURES.json').read_bytes())
-    coverage=[]
+    coverage: list[CoverageEntry]=[]
     for day in days:
         for source in SOURCES:
             key=(source,day);fact=official_map.get(key);candidate=facts.get(key)
@@ -176,12 +245,12 @@ def audit(seed, window_path, output, *, legacy_manifest=None, yearbook=None, res
             entry['derived_usable']=day in derived_days[kind]
             entry['derived_available_at']=derived_days[kind][day]['available_at']if entry['derived_usable']else None
         entry['derived_time_basis']='actual_receipt_or_current_import_upper_bound; no historical backfill'
-    summaries={source:dict(expected=len(days),seed_readable=sum(r['seed_readable']for r in coverage if r['source']==source),
+    summaries: dict[str,SourceCoverage]={source:dict(expected=len(days),seed_readable=sum(r['seed_readable']for r in coverage if r['source']==source),
         readable=sum(r['readable']for r in coverage if r['source']==source),research_only=sum(r['research_readable']for r in coverage if r['source']==source),
         missing=[r['statistic_date']for r in coverage if r['source']==source and not r['readable']],
         tail=max((r['statistic_date']for r in coverage if r['source']==source and r['readable']),default=None))for source in SOURCES}
-    report=dict(schema='guanheng.auxiliary-history-audit.v1',observed_at=datetime.now(timezone.utc).isoformat(),
-        window_sha256=hashlib.sha256(Path(window_path).read_bytes()).hexdigest(),window_rows=len(rows),days=len(days),date_range=[days[0],days[-1]],symbols=symbols,
+    report: AuditReport=dict(schema='guanheng.auxiliary-history-audit.v1',observed_at=datetime.now(timezone.utc).isoformat(),
+        window_sha256=hashlib.sha256(window_raw).hexdigest(),window_rows=len(rows),days=len(days),date_range=[days[0],days[-1]],symbols=symbols,
         sources=summaries,official_complete_days=sum(all((s,d)in official_map for s in SOURCES)for d in days),
         research_overlap=research_overlap,
         official_derived=official_derived,research_derived=research_derived,

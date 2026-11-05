@@ -11,15 +11,44 @@ from decimal import Decimal
 import gzip
 import hashlib
 import json
+import math
+import os
 from io import BytesIO
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TypedDict
+from uuid import uuid4
 from urllib.parse import urlsplit, parse_qs
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
 SOURCES = ('sse-shares', 'sse-turnover', 'szse-turnover', 'sse-margin', 'szse-margin')
 MAX_RAW_BYTES = 32 * 1024 * 1024
+
+
+class _LegacyRecord(TypedDict):
+    source: str  # 所补五类业务来源之一，原件仍属于交易所来源。
+    statistic_date: str  # 原统计日，ISO日期，区别于取得日。
+    raw: str  # 独立导入目录内的原件相对路径，内容须与原SHA一致。
+    evidence: str  # 独立目录内原v3封套相对路径，保持原字段和摘要。
+    original_raw: str  # 旧工程原件路径，仅用于追溯，消费从独立副本读取。
+    original_evidence: str  # 旧工程原封套路径，原工程保持只读。
+    values: str  # 正数十进制规范值，成交额/融资余额均为亿元。
+    received_at: str  # 当前owner首次导入时刻，带UTC offset，缓存复用保持原值。
+    origin_received_at: str  # 旧工程原始采集时刻，带UTC offset，不授当前owner历史知晓资格。
+
+
+class _LegacyPayload(TypedDict):
+    records: list[_LegacyRecord]  # 此冻结作业成功导入的原件及规范值。
+    origin: str  # 已解析绝对路径的旧原件根，续接须匹配。
+    seed: str  # 已解析绝对路径的只读种子根，续接须匹配。
+    requested_days: list[str]  # 本次有限作业完整日期集合；扩大范围须新作业。
+    historical_first_available: str  # 恒为unknown，历史首次可获知时间未经证明。
+
+
+class _LegacyDocument(TypedDict):
+    schema: str  # 固定导入协议guanheng.legacy-official-import.v1。
+    payload: _LegacyPayload  # 范围与来源均绑定的不可变导入事实。
+    payload_sha256: str  # payload规范JSON摘要，不以可变游标代替原件。
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +105,14 @@ def _received(value: str) -> datetime:
     if stamp.utcoffset() is None:
         raise ValueError('history_source_timezone')
     return stamp
+
+
+def _finite_float(value) -> float:
+    """公共策略接口使用float；十进制转换后的溢出、下溢与非正数在此拒绝。"""
+    number=float(value)
+    if not math.isfinite(number) or number<=0:
+        raise ValueError('history_publication_float_range')
+    return number
 
 
 def _fact(source, day, values, received, raw_sha, qualification, references, origin_received=None):
@@ -169,10 +206,16 @@ def import_legacy_archive(root: Path, seed: Path, days: Iterable[str], output: P
     """
     from datetime import timezone
     root,seed,output=Path(root).resolve(),Path(seed).resolve(),Path(output).resolve()
+    days=sorted(set(days))
+    if not days or len(days)>4096 or any(date.fromisoformat(d).isoformat()!=d for d in days):
+        raise ValueError('history_legacy_scope_capacity')
     if any(output==p or p in output.parents or output in p.parents for p in (root,seed)):
         raise ValueError('history_legacy_output_overlap')
     manifest=output/'ARCHIVE.json'
     if manifest.exists():
+        payload=_json(manifest)['payload']
+        if (payload.get('origin')!=str(root) or payload.get('seed')!=str(seed) or payload.get('requested_days')!=days):
+            raise ValueError('history_legacy_job_scope_changed; use a new output root')
         result=read_legacy_manifest(manifest)
         return dict(reused=True,records=len(result),manifest=str(manifest))
     output.mkdir(parents=True,exist_ok=True);records=[]
@@ -201,12 +244,18 @@ def import_legacy_archive(root: Path, seed: Path, days: Iterable[str], output: P
             directory=output/source/day;directory.mkdir(parents=True,exist_ok=True)
             target=directory/raw_path.name;target.write_bytes(body)
             envelope=directory/evidence_path.name;envelope.write_bytes(evidence_path.read_bytes())
-            records.append(dict(source=source,statistic_date=day,raw=str(target.relative_to(output)),
+            record: _LegacyRecord=dict(source=source,statistic_date=day,raw=str(target.relative_to(output)),
                 evidence=str(envelope.relative_to(output)),original_raw=str(raw_path),original_evidence=str(evidence_path),
-                values=value,received_at=received,origin_received_at=evidence['retrieved_at']))
-    payload=dict(records=records,origin=str(root),seed=str(seed),historical_first_available='unknown')
-    manifest.write_text(json.dumps(dict(schema='guanheng.legacy-official-import.v1',payload=payload,payload_sha256=_identity(payload)),indent=2),encoding='utf-8')
-    read_legacy_manifest(manifest)
+                values=value,received_at=received,origin_received_at=evidence['retrieved_at'])
+            records.append(record)
+    payload: _LegacyPayload=dict(records=records,origin=str(root),seed=str(seed),requested_days=days,historical_first_available='unknown')
+    document: _LegacyDocument=dict(schema='guanheng.legacy-official-import.v1',payload=payload,payload_sha256=_identity(payload))
+    temporary=manifest.with_name('ARCHIVE.'+str(uuid4())+'.tmp')
+    # 先完整写入和回读全部原件，再原子提交；进程中断不会留下截断的正式清单。
+    with temporary.open('xb')as stream:
+        stream.write(json.dumps(document,indent=2).encode('utf-8'));stream.flush();os.fsync(stream.fileno())
+    read_legacy_manifest(temporary)
+    os.replace(temporary,manifest)
     return dict(reused=False,records=len(records),manifest=str(manifest))
 
 
@@ -254,9 +303,12 @@ def read_official_capture(root: Path, source: str, day: str, symbols: Iterable[s
             or record.get('url') != url or _hash(body) != record.get('body_sha256')
             or record.get('historical_first_available') != 'unknown'):
         raise ValueError('history_capture_identity')
-    values = parse_source(source, day, body, set(symbols))
+    complete_symbols=set(record['values'])if source=='sse-shares'and type(record['values'])is dict else set()
+    values = parse_source(source, day, body, complete_symbols)
     if values != record['values']:
         raise ValueError('history_capture_values')
+    if source=='sse-shares':
+        requested=set(symbols);values={k:v for k,v in values.items()if k in requested}
     return _fact(source, day, values, record['received_at'], record['body_sha256'],
                  'official_json', (str(receipt), str(archive)))
 
@@ -393,17 +445,18 @@ def publications_from_facts(facts: Iterable[SourceFact], days: Iterable[str], *,
         shares = selected.get(('sse-shares', day))
         if shares:
             for symbol, value in shares.values.items():
-                output.append(AuxiliaryPublication('shares', shares.statistic_date, float(value),
+                output.append(AuxiliaryPublication('shares', shares.statistic_date, _finite_float(value),
                               shares.received_at, shares.received_at, shares.evidence_sha256, symbol))
         for kind in ('turnover', 'margin'):
             pair = [selected.get((exchange + '-' + kind, day)) for exchange in ('sse', 'szse')]
             if not all(pair):
                 continue
             available = max(p.received_at for p in pair)
-            number = sum(Decimal(p.values) for p in pair)
+            try:number = sum(Decimal(p.values) for p in pair)
+            except ArithmeticError:raise ValueError('history_publication_decimal_range')from None
             identity = _identity(dict(kind=kind, statistic_date=day,
                                       sources=[p.evidence_sha256 for p in pair], available_at=available.isoformat()))
-            output.append(AuxiliaryPublication(kind, date.fromisoformat(day), float(number),
+            output.append(AuxiliaryPublication(kind, date.fromisoformat(day), _finite_float(number),
                                                available, available, identity))
     missing = tuple((source, day) for day in days for source in SOURCES if (source, day) not in selected)
     return PublicationBundle(tuple(output), 'research_only' if research else 'official_observed',
