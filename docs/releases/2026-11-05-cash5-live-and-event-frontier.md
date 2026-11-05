@@ -1,6 +1,6 @@
 # 现金5线上结果与事件消费修复
 
-时间：2026-11-05北京时间11:41。状态：in-progress。范围：自有QMT接入与运行装配；没有新增WT框架修改。
+时间：2026-11-05北京时间12:10。状态：in-progress。范围：自有QMT接入与运行装配；没有新增WT框架修改。
 
 ## 实际运行结果
 
@@ -29,3 +29,15 @@ cash5在10:15沿原process_lost_reconciled流程接续，WRI21352/Native4484实�
 ## 下一项验收
 
 首次连接跳过已由初始查询覆盖的旧事件，查询期间新增事件交付一次；原未知委托继续原身份核查。新插件经同批构建后，沿原金融状态恢复，实际核对实时成交、P、开仓周期与连续自动执行，最后核对独立观衡展示。当前无需用户新增决策。
+
+## 事件前沿部署与午休恢复结果
+
+修正已合入b524d14，Standard源码SHA6b4d2a8b0514da623657882ed8d90e5574645286a5a19d0b5c8c0477184bc9c8。独立delta静态审查complete，完整翻译单元MSVC语法检查及实际方法/DTO/银行的合成回归通过；该合成证据分别覆盖默认路径、durable=37而next=1、404后真实零前沿，并以去掉成功Status重置得到实际失败。完整插件/SDK业务结果继续单列。
+
+build/ef1正式同批构建通过，25安装文件、旧项目二进制输入0；此前长目录构建在Boost解压时触发Windows路径长度错误，未采用。稳定native-execution007的五个组件来自ef1同次构建，旧五组件及清单已另存私有回退目录。没有重打Python轮子，也没有修改QMT正文。
+
+12:02启动金融WRI39580/Native55152，交易插件连接通过。恢复按原身份向券商订单832817087（515080）发撤单，原通信Journal序号281明确sdk_returned、sdk_entered=true、signal_sent=true、无error。12:03:10券商完整查询仍为原状态50、剩余1000；Native在reconcile_orders等待至原启动截止后退出，plugin/host/session错误均为0。此结果尚未证明撤单终态；午休时间与等待并存，下午必须先查原订单，不能猜测成交/撤成。
+
+该次初始化没有取得ready、没有进入CTA；按前次已绑定交接逐字核验三份金融JSON均未变化。service003下午接续材料引用最后真正拥有该金融状态的Native4484；原失败初始化及已发撤单的Journal保持。准备只证明材料完整，未启动service003，也没有生成正常退出或恢复成功证明。当前金融仍faulted，另外四个数据服务继续运行。
+
+证据：EVENT-FRONTIER-ACTIVATION001、EVENT-FRONTIER-NOON-BROKER001、EVENT-FRONTIER-POST-NOON-PLAN001，以及standard-frontier-20261105-001/RESULT.json。下午沿已准备入口只启动一次并观察同一实际实例，未核清时保留原身份和故障。
