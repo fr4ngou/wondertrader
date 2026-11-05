@@ -1,5 +1,7 @@
 # 验证证据
 
+- [受管进程首错留存候选](2026-11-05-process-log-retention.md)：真实隐藏子进程、原内存清空后的脱敏异常及12项窄回归；正式采用待完成。
+
 - [当前策略四类辅助输入缺失](2026-11-05-strategy-auxiliary-gap.md)：实际6056条分析输入全部缺四字段，三角色模型无信号，科创份额退出的因果对照；辅助来源接线仍是主线缺口。
 
 - [执行前置启动失败的原账接续](2026-11-05-service-preexecution-recovery.md)：真实Controller/Runtime两次依赖失败后同入口成功，原transition/账本保持、未知执行拒绝复用、45模块普通wheel和14项安装回归；线上由Root采用。
@@ -921,3 +923,4 @@
 - [寿险/财险季度原XLS数字接续：最新官方2026Q2，隔离发布/安装API导出及历史保持通过；正式部署待接收](2026-11-03-insurance-allocation-continuation.md)。
 
 - [全类别日线数据owner候选](2026-11-04-unified-daily-categories-candidate.md)：7870个旧名单价格身份、同owner补齐/发布、原件/DSB复用、v9完整合成协议及明确待验范围。
+- [国信QMT辅助接口核查](2026-11-05-qmt-auxiliary-api-research.md)：内置接口优先、旧来源对照、四只ETF真实证券资料读取与历史份额/市场汇总的待验边界。

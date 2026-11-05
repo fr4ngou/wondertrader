@@ -1,5 +1,7 @@
 # 模块导航
 
+- [运行日志与业务诊断](runtime-logging.md)：原WT/Journal复用、自有持久诊断、磁盘/内存预算、覆盖表与采用边界。
+
 - [WT统一日线与证券资料](unified-daily-data.md)：同一Reader/原价及供应商前复权、日期缺口、缓存优先持续更新与独立安装角色。
 
 - [WT闭合日线读取](collected-daily-history.md)：原Writer日线/收盘快照、统一历史与独立图表消费；持续原生日线配置后继单独核实。

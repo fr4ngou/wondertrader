@@ -13,6 +13,7 @@ import threading
 import time
 from uuid import uuid4
 from .thread_owner import ThreadOwner
+from .runtime_diagnostics import ProcessEventLog
 
 _SHA = re.compile(r'[0-9a-f]{64}')
 
@@ -154,6 +155,8 @@ class ManagedLocalProcess:
         self._directory = Path(config.control_root) / self._control_id if config else None
         self._host_pid = self._exit_code = None
         self._stop_written = False
+        self._diagnostic = (ProcessEventLog(Path(config.control_root), self._control_id, self._thread_name)
+                            if config else None)  # 与原部署根关联；不保存凭据或原始管道正文。
 
     @property
     def startup_seconds(self):
@@ -173,12 +176,16 @@ class ManagedLocalProcess:
                     'error_code': self._error, 'forced': self._forced, 'pid': self._host_pid}
 
     def _failure(self, code):
+        first = False
         with self._condition:
             if self._error is None:
                 self._error = code
+                first = True
             self._state = 'faulted'
         self.request_close()
         self._ready.set()
+        if first and self._diagnostic is not None:
+            self._diagnostic.event('process_failure', code=code)
 
     def request_close(self):
         with self._condition:
@@ -239,17 +246,23 @@ class ManagedLocalProcess:
             while True:
                 chunk = pipe.read(4096)
                 if not chunk:
+                    if self._diagnostic is not None:
+                        self._diagnostic.finish(index)
                     self._eof[index] = True
                     self._wake.set()
                     return
                 prefix = self._buffers[index]
+                if self._diagnostic is not None:
+                    self._diagnostic.feed(index, chunk)
                 remaining = self.config.max_output_bytes - len(prefix)
                 if remaining:
                     prefix.extend(chunk[:remaining])
                 if len(chunk) > remaining:
                     self._failure('output_limit')
                 # 超额后仍排空；原始字节只留有限私有内存，status从不暴露它。
-        except BaseException:
+        except BaseException as error:
+            if self._diagnostic is not None:
+                self._diagnostic.event('process_failure', code='pipe_read', error=error)
             self._failure('pipe_read')
 
     def _start_readers(self):
@@ -369,6 +382,8 @@ class ManagedLocalProcess:
                 job.start(argv, str(Path(cfg.pythonw).parent), deadline=startup_deadline, clock=self._clock)
             finally:
                 self._job_start_finished = True
+            if self._diagnostic is not None:
+                self._diagnostic.event('process_started')
             stage = 'pipe_start'
             self._start_readers()
             stage = 'control_receipt'
@@ -393,6 +408,8 @@ class ManagedLocalProcess:
                             if not self._stop.is_set():
                                 self._state = 'ready'
                         stage = 'control_receipt'
+                        if self._diagnostic is not None:
+                            self._diagnostic.event('process_ready')
                         self._ready.set()
                     elif now >= startup_deadline:
                         self._failure('startup_timeout')
@@ -417,7 +434,9 @@ class ManagedLocalProcess:
                 self._graceful = self._stop_written
             elif self._exit_code != 0:
                 self._failure('host_exit')
-        except BaseException:
+        except BaseException as error:
+            if self._diagnostic is not None:
+                self._diagnostic.event('process_failure', code=stage, error=error)
             self._failure(stage)
         finally:
             if self._job is not None and self._error is not None:
@@ -439,6 +458,8 @@ class ManagedLocalProcess:
                     self._graceful = False
             self._ready.set()
             self._wake.set()
+            if self._diagnostic is not None:
+                self._diagnostic.event('process_closed', code=self._error, exit_code=self._exit_code)
 
     def start(self, deadline):
         _require(type(deadline) in (int, float) and math.isfinite(deadline))
