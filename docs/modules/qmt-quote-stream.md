@@ -51,6 +51,8 @@ QuoteCollection（外部历史/待归仓路径：`../../integrations/guanheng/qu
 
 持续分钟覆盖及恢复沿[MCC规格](../specs/continuous-minute-collection.md)。采集子配置可显式引用`maintenance={path,sha256}`；省略保持原采集路径。接收线程成功交付整包后只记录证券源毫秒、接收秒和计数。原管理循环运行`MinuteCollectionMaintenance`：消费资料owner当前指针、分批调用标准Reader、观察实际缺口，并接续原`SourcePreparingMarket`闭合日任务。原status/ready/closed合同保持，旁路`coverage.json`和`minute-maintenance.json`分别保存时间/名册差异与实际分钟覆盖；从未收到、当前未订、未知分母及不支持类别分别保留。
 
+维护的滚动日期仅决定分钟扫描与补齐目标。生产者仍有界遍历自己的原窗口，接续已派发而尚未消费的原slot；退出日期范围的请求不会因此失去消费者。交接继续使用原客户端的完整响应验证、持久化和消费确认，至多推进一个原ID后交还管理循环；没有新准备或重新派发。原责任交接与窗口工作并存时轮流选择，窗口内部保留到期重试与新窗口交替，避免未知历史饿死新缺口。`minute-maintenance.json.retained_read_resume`描述本步状态、原request_id及扫描窗口数；它与分钟价格覆盖分别解释。已确认成功页使用原窗口保存的完整响应，原失败和未知页继续原客户端语义。
+
 完整行情Source由`guanheng_qmt_shm.market_source.render_market_source`复用原冻结器生成，包含原QST/HPR/v7/v8四owner、单`agent_tick` timer及四个生命周期回调。无消费者旧交易owner在新行情正文中移除，独立账户交易/v9正文保持原所有权。开发、实际来源和正式切换状态沿[MCC证据](../evidence/2026-11-04-continuous-minute-collection.md)分别登记。
 
 | 字段/观察 | 实际含义 | 使用边界 |

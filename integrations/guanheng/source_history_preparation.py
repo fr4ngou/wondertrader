@@ -22,7 +22,7 @@ from .qmt_minute_import import import_dataset,_Native
 from .source_market import NativeSourceMarket,create_native_source_market
 from .quote_collection_service import _inspect,_read
 from .source_history_transport import BoundHistorySource,SourcePending,require
-from .source_history_reads import HistoryReadOperations
+from .source_history_reads import HistoryReadOperations,retained_resume_state
 from .source_history_selection import select_sources,SourceSelectionConflict
 from .source_history_repository import PreparedHistoryRepository,PreparedHistoryReader,PreparedHistoryBudget,recovery_preferences
 from . import source_history_followup as followup
@@ -56,6 +56,7 @@ class SourcePreparingMarket:
     def __init__(self,configuration,*,environ=None,clock=time.monotonic,wall_clock=time.time):
         self.owner=threading.get_ident();self.base=self.overlay=self.lock=self.published_reader=None
         self.overlay_key=None;self.closed=False;self.clock=clock;self.wall_clock=wall_clock
+        self._retained_resume_paths=None  # 可重建原窗口扫描游标；原请求责任仍由窗口及slot持有。
         try:
             require(type(configuration)is dict and set(configuration)=={'mode','base','preparation'}and configuration['mode']=='source-preparing')
             self.base_configuration=configuration['base'];c=configuration['preparation']
@@ -120,6 +121,61 @@ class SourcePreparingMarket:
 
     def _members(self):
         return self.repository.count()
+
+    @staticmethod
+    def _retained_records(state):
+        """仅枚举本窗口已经登记的原读取，包含before/after、HPR和全部后继capture。"""
+        for phase in ('before','after'):
+            if state[phase] is not None:
+                for record in state[phase]['pages']:
+                    require(record['request']['operation_id']=='market.history_1m')
+                    yield record
+        if state['prepare'] is not None:
+            require(state['prepare']['request']['operation_id']=='market.history_prepare')
+            yield state['prepare']
+        tracking=state.get('follow_up')
+        if tracking is not None:
+            for capture in tracking['reads']:
+                if capture['capture'] is not None:
+                    for record in capture['capture']['pages']:
+                        require(record['request']['operation_id']=='market.history_1m')
+                        yield record
+
+    def resume_read_responsibility(self,deadline,*,maximum_windows=64):
+        """跨滚动日期续核原已派发读取；至多一个原ID，不产生新Source请求。"""
+        self._check()
+        require(type(maximum_windows)is int and 1<=maximum_windows<=64)
+        if not self.c.get('retained_reads',False):
+            return retained_resume_state('idle')
+        if self._retained_resume_paths is None:
+            self._retained_resume_paths=iter(self.repository.directories())
+        scan_deadline=min(deadline,self.clock()+1)
+        scanned=0
+        while scanned<maximum_windows and self.clock()<scan_deadline:
+            directory=next(self._retained_resume_paths,None)
+            if directory is None:
+                self._retained_resume_paths=None
+                return retained_resume_state('idle',scanned_windows=scanned)
+            scanned+=1
+            path=directory/'receipt.json'
+            if not path.exists():continue
+            state=decode(_read(path,self.c['max_bytes']))
+            require(state['schema']==self.receipt_schema and state['configuration_sha256']==self.identity
+                    and self.repository.directory(state['query'])[1]==directory)
+            for record in self._retained_records(state):
+                if record.get('consumed')is True or record.get('retained_slot')is None:continue
+                arguments=record['request']['arguments'];query=state['query']
+                symbol=query['code']+('.SH'if query['exchange']=='SSE'else'.SZ')
+                require(arguments['symbol']==symbol and str(query['from'])+'00'<=arguments['start_time']
+                        <=arguments['end_time']<=str(query['to'])+'00')
+                rid=record['request'].get('request_id')
+                try:
+                    result=self.reads.resume_existing(record,lambda:self._save(directory,state),deadline)
+                except SourcePending:
+                    return retained_resume_state('pending',record['request'].get('request_id')or rid,scanned)
+                if result is not None:
+                    return dict(result,scanned_windows=scanned)
+        return retained_resume_state('scanning',scanned_windows=scanned)
 
     def _save(self,directory,state):
         raw=canonical(state);require(len(raw)<=self.c['max_bytes'])

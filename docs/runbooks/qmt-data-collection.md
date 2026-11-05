@@ -52,6 +52,12 @@ Root维护前确认当前HPR/日线轮次完成或原请求责任已交接，原
 
 `run-role`复用原`ManagedLocalProcess`及WRI命令，`stop-role`只发送该owner身份的正常停止；实际closed由原监督者发布。`accept-minutes`查询实际策略八ETF、股票和沪深指数，逐项记录该日原值与尾时刻；结果只证明所列样本。来源不支持的市场、当日历史准入、缺少分钟与覆盖未知继续保留。正式源采用和运行资格按[MCC证据](../evidence/2026-11-04-continuous-minute-collection.md)核定。
 
+### 原读取责任与共享容量
+
+Host保留终态并等待消费时，先按原request_id找到生产者窗口及retained-reads slot，分别核对原请求、票据、完整响应、窗口所属证券和日期。采集owner的`retained_read_resume`恢复已派发的未消费读取，并与原窗口工作交替；窗口内部仍在到期重试和新窗口间轮流，日期退出lookback后也继续交接。该路径仅查询原ID并确认完整结果已持久接收，不重新提交准备、不修改Host Journal或容量。state为pending时保留原身份；unavailable时按原last_error_type核身份、内容及读取故障。consumed只证明结果交接，价格成功与原生完整性仍看原窗口/Reader。
+
+升级沿`stage-program`与`prepare-update`产生固定候选，保持原producer配置及workspace、Source配对、原请求、Native根和金融角色。Root正常停止原数据角色、核关闭后采用候选，再从原配置恢复；此修正不要求修改或重启QMT正文。启动后核实际PID/控制代、原ID逐项转consumed、Host等待消费数量下降，以及公开分钟和收盘归档仍可读取。失败按原角色协议退回旧程序，保留已经保存的结果和消费事实；回退不重置Journal或原slot。
+
 动态日线`.9`及原HPR保留的最终候选见[正式采用材料与验证](../evidence/2026-11-04-minute-daily-adoption-candidate.md)。该实例包含固定程序/配置、三份quotes及回退绑定、逐阶段正常启停命令和两个公开入口的12样本/实际采集覆盖验收；正式维护和运行资格由Root执行后登记。
 
 启用原生day归档、50常用指数持续订阅与统一历史动态尾部时，按[持续日线手册](continuous-native-day.md)生成同批配置。维护窗口一次切换后复用原收盘归档，后续每日无需手工打包日线。

@@ -12,6 +12,7 @@ from .collection_minute_reader import CollectionMinuteReader
 from .market_generation import read_fixed, read_generation
 from .security_reference import _descriptor, _reference_catalog, _calendar
 from .source_history_transport import require
+from .source_history_reads import retained_resume_state
 
 ZONE = timezone(timedelta(hours=8))
 
@@ -53,6 +54,7 @@ class MinuteCollectionMaintenance:
         self.queued = set()  # 同轮去重，最大为当前证券数乘日期数。
         self.retry_at = {}  # 未完窗口的下次观察时点；到期仍沿原请求，与新窗口轮流推进。
         self.prefer_retry = True  # 两类队列均可推进时轮流选择，慢失败原请求不会长期抢占未尝试窗口。
+        self.prefer_retained_resume = True  # 原读取交接与窗口工作并存时交替，历史责任不会饿死新窗口。
         self.symbols = []  # 本次原生产base支持的标准代码；资料新增只产生订阅差异。
         self.cursor = 0  # 可重建扫描游标；不属于来源完成事实。
         self.dates = ()  # 原官方日历确认的闭合日及当天。
@@ -61,6 +63,7 @@ class MinuteCollectionMaintenance:
         self.reference_error = None  # 固定失败类型，不保存来源异常正文。
         self.cycle = 0  # 本进程完成扫描轮数，不作为历史覆盖资格。
         self.last_error_type = None  # 可重试观察失败类型；原生关闭失败向外层收束。
+        self.retained_read_resume = retained_resume_state('not_scanned')  # 原已派发读取交接进度，独立于滚动分钟日期。
         try:
             require(type(configuration) is dict and set(configuration) == {
                 'schema', 'producer', 'metadata', 'lookback_trading_days', 'batch_size',
@@ -184,6 +187,19 @@ class MinuteCollectionMaintenance:
                 self.cursor = 0; self.cycle += 1
         # 本地覆盖扫描照常进行；Source尚未连接时保留队首，避免启动失败项排到全市场队尾。
         ready_retries = [(due, key) for key, due in self.retry_at.items() if due <= self.clock()]
+        window_work = bool(self.jobs or ready_retries)
+        if source_ready and (self.prefer_retained_resume or not window_work):
+            try:
+                self.retained_read_resume = self.producer.resume_read_responsibility(
+                    self.clock() + self.producer.c['timeout_seconds'])
+            except (OSError, ValueError, KeyError, TypeError):
+                self.retained_read_resume = retained_resume_state('unavailable')
+                raise
+            if self.retained_read_resume['state'] in ('consumed', 'pending'):
+                # 原终态由原client交接；下个管理步保留给原窗口队列，未知历史也不能长期独占。
+                self.prefer_retained_resume = False
+                self.next_step = self.clock() + self.c['interval_seconds']
+                return
         if source_ready and (self.jobs or ready_retries):
             if ready_retries and (self.prefer_retry or not self.jobs):
                 unused, key = min(ready_retries)
@@ -193,6 +209,7 @@ class MinuteCollectionMaintenance:
             else:
                 symbol, day = key = self.jobs.popleft(); self.queued.remove(key)
                 self.prefer_retry = True
+            self.prefer_retained_resume = True  # 窗口推进或其失败后，下步仍给原责任交接机会。
             row = self.rows[key]
             grid = self.producer.base.expected_minutes(symbol, day)
             if grid:
@@ -221,7 +238,8 @@ class MinuteCollectionMaintenance:
             reference_error=self.reference_error, last_error_type=self.last_error_type,
             calendar_sha256=getattr(self, 'calendar_sha', None),
             scan_cycles=self.cycle, scan_cursor=self.cursor, scan_symbols=len(self.symbols),
-            dates=list(self.dates), queued_count=len(self.jobs), states=dict(Counter(r['state'] for r in rows)), rows=rows)
+            dates=list(self.dates), queued_count=len(self.jobs), states=dict(Counter(r['state'] for r in rows)), rows=rows,
+            retained_read_resume=self.retained_read_resume)  # 有界原ID交接状态；不授分钟完整性。
 
     def close(self):
         require(threading.get_ident() == self.owner)

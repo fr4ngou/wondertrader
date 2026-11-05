@@ -7,6 +7,14 @@ from uuid import uuid4
 from .source_history_transport import SourcePending, require
 
 
+def retained_resume_state(state, request_id=None, scanned_windows=0):
+    """原读取责任接续的有界观察；业务成功及分钟完整性仍由原窗口持有。"""
+    return dict(
+        state=state,  # not_scanned/scanning/idle/pending/consumed/unavailable，仅描述消费交接进度。
+        request_id=request_id,  # 正在续核的原Host请求ID；无原请求时为None，不生成新ID。
+        scanned_windows=scanned_windows)  # 本次管理步已检查的窗口数，不是全库总数。
+
+
 class HistoryReadOperations:
     """原SourcePreparingMarket单线程拥有；本地slot文件不另造Host请求身份。"""
     def __init__(self, transport, root, *, retained=False):
@@ -41,6 +49,12 @@ class HistoryReadOperations:
         require(slot.parent.name == 'retained-reads' and re.fullmatch(r'[0-9a-f]{32}\.json', slot.name) is not None)
         operation, arguments = record['request']['operation_id'], record['request']['arguments']
         require(operation in ('market.history_1m', 'market.history_prepare'))
+        if record.get('consumed') is True:
+            from guanheng_qmt_shm.read_retention_client import inspect_saved_result
+            # 原窗口已经保存完整响应；成功页复用相同严格校验，避免分页恢复反复读旧slot。
+            reply = inspect_saved_result(record)
+            if reply is not None and reply['ok'] is True:
+                return reply
         try:
             result = self.client.read(operation, arguments, slot, deadline=deadline, expected_binding=record['binding'])
             return result['reply']
@@ -58,6 +72,35 @@ class HistoryReadOperations:
                 record.clear()
                 record.update(original, retained_slot=location)
                 save()
+
+    def resume_existing(self, record, save, deadline):
+        """只交接已派发的原slot；从不创建slot或提交bound-operation。"""
+        if self.client is None or record.get('retained_slot') is None:
+            return None
+        slot = Path(record['retained_slot'])
+        self._directory(slot.parent.parent)
+        require(slot.parent.name == 'retained-reads' and re.fullmatch(r'[0-9a-f]{32}\.json', slot.name) is not None)
+        if not slot.exists():
+            return None
+        original = json.loads(slot.read_bytes())
+        require(original['request']['operation_id'] == record['request']['operation_id']
+                and original['request']['arguments'] == record['request']['arguments']
+                and original['binding'] == record['binding'])
+        rid = record['request'].get('request_id')
+        require(rid is None or rid == original['request']['request_id'])
+        from guanheng_qmt_shm.read_retention_client import inspect_saved_result
+        inspect_saved_result(original)  # 原请求、票据、profile及已有结果沿唯一客户端验证器校验。
+        if not original['attempted'] or original.get('admission_rejection') is not None:
+            return None
+        # 读取前已核原slot且只有本owner写入，client必走lookup或已有完整结果的确认路径。
+        try:
+            self.observe(record, save, deadline)
+        except (SourcePending, ValueError):
+            if record.get('consumed') is not True:
+                raise
+            # 业务失败/未知也已完整交接，原窗口语义由原调用链继续判断。
+        return retained_resume_state('consumed' if record.get('consumed') is True else 'pending',
+                                     original['request']['request_id'])
 
     def _directory(self, directory):
         parts = directory.relative_to(self.root).parts
