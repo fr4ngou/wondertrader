@@ -1,5 +1,7 @@
 # 观衡量化系统移植入口
 
+- [自动交易主线数据、诊断与日志收敛](mainline-data-observability-20261105.md)：开发者1/2/杂役模块边界、Root集成、真实验收和稀疏协作。
+
 - [2026-11-02主路径接续](mainpath-closeout-20261102.md)：异常恢复、WT日线持续尾部与指数补齐、独立观衡接收；当前模块所有权和实际验收。
 
 - [观衡验收修复并行计划](observer-acceptance-parallel.md)：八图功能缺口、开发者1/2/杂役完整模块、公共接缝及单一集成；[UI调研与截图审阅](observer-ui-design-research.md)记录组件依据和三套视觉方向。

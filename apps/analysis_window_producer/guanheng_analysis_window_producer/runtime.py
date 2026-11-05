@@ -130,7 +130,8 @@ class AnalysisWindowProducer:
 
     def __init__(self, provider, *, directory, publication, artifacts, python=sys.executable,
                  worker_cwd=None, interval_seconds=60., refresh_seconds=120., max_age_seconds=600.,
-                 start_date='2021-11-01', max_rows_per_symbol=4096, source_identity=None):
+                 start_date='2021-11-01', max_rows_per_symbol=4096, source_identity=None,
+                 auxiliary_directory=None):
         self.provider = provider
         self.directory, self.publication = Path(directory).absolute(), Path(publication).absolute()
         need(self.directory != self.publication and all(type(v) in (int, float) and math.isfinite(v)
@@ -159,6 +160,11 @@ class AnalysisWindowProducer:
         need(len(qna.canonical(self._configuration)) <= 32768, 'analysis_configuration_capacity')
         self.interval, self.refresh_seconds, self.max_age = interval_seconds, refresh_seconds, max_age_seconds
         self.start_date, self.max_rows = start_date, max_rows_per_symbol
+        # 可选辅助原文归WT发布Owner；观衡不参与采集，原价格/原生日线身份保持。
+        self.auxiliary_directory = Path(auxiliary_directory).absolute() if auxiliary_directory is not None else None
+        self._auxiliary_cache = {}  # 当前Owner独占的已核原文缓存；历史窗口收缩时回收无引用条目。
+        if self.auxiliary_directory is not None:
+            self._configuration['auxiliary_directory'] = str(self.auxiliary_directory)
         self._lock, self._stop, self._wake = threading.RLock(), threading.Event(), threading.Event()
         self._thread = None
         self._runner = None
@@ -331,6 +337,28 @@ class AnalysisWindowProducer:
                     candidate = load(candidate_path, 32*1024*1024)
                     candidate['analysis']['known_at'] = identity['source_received_at']
                     candidate['current_view']['received_at'] = identity['source_received_at']
+                    if self.auxiliary_directory is not None:
+                        from .official_auxiliary import capture, enrich_window, SOURCES
+                        days = sorted({row['trade_date'] for row in candidate['history']['observations']})
+                        symbols = {row['symbol'] for row in candidate['history']['observations'] if row['symbol'].endswith('.SH')}
+                        self.auxiliary_directory.mkdir(parents=True, exist_ok=True)
+                        source_errors = []
+                        # 长历史补齐使用有限CLI；常驻Owner只增量刷新最后两天，
+                        # 每个请求使用剩余刷新截止，关闭后不再发新请求。
+                        for day in days[-2:]:
+                            for source in SOURCES:
+                                self._check(deadline)
+                                remaining = self._effective(deadline)-time.monotonic()
+                                if remaining < 2:
+                                    source_errors.append(dict(source=source, day=day, reason='refresh_budget'))
+                                    continue
+                                try:
+                                    capture(source, day, self.auxiliary_directory, symbols, timeout=min(3., remaining-1.))
+                                except (OSError, ValueError) as error:
+                                    source_errors.append(dict(source=source, day=day, reason=type(error).__name__))
+                        candidate, auxiliary = enrich_window(candidate, self.auxiliary_directory, cache=self._auxiliary_cache)
+                        auxiliary['source_errors'] = source_errors
+                        self._save_state(auxiliary=auxiliary)
                     need(len(qna.canonical(candidate)) <= 32*1024*1024, 'analysis_publication_capacity')
                     self._check(deadline)
                     # 与 request_close 串行准入；关闭获得锁后不会再发布新窗口。

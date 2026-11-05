@@ -1,5 +1,7 @@
 # 验证证据
 
+- [当前策略四类辅助输入缺失](2026-11-05-strategy-auxiliary-gap.md)：实际6056条分析输入全部缺四字段，三角色模型无信号，科创份额退出的因果对照；辅助来源接线仍是主线缺口。
+
 - [执行前置启动失败的原账接续](2026-11-05-service-preexecution-recovery.md)：真实Controller/Runtime两次依赖失败后同入口成功，原transition/账本保持、未知执行拒绝复用、45模块普通wheel和14项安装回归；线上由Root采用。
 
 - [形成中日K、HPR及实际金融恢复](../releases/2026-11-05-current-day-and-hpr-live.md)：真实Writer/SDK/App、线上日周月及分钟、六角色、原账恢复和仍待修正的资金资格。

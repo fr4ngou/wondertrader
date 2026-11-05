@@ -33,6 +33,8 @@ flowchart LR
 
 ## 时间、修订和故障
 
+辅助事实接入及完整性按[SDO](../specs/strategy-data-and-observability.md)实施。价格发布、辅助捕获、派生合并和策略消费分别标识；成功发布价格不表示全部策略输入完整。数据更新由WT管理，页面刷新只读。
+
 `basis_date` 是八证券最新共同闭合日；上海 15:00 前排除当日，再按实际观测日期求交集。原始 OHLC 不在运输层复权或补值，复权由原 WT Reader 按原因子处理。同日价格/量额或因子修订也产生新的来源及发布身份。
 
 `source_oldest_received_at` 用于来源年龄判断，`source_received_at` 表示快照全部收齐；`generated_at/published_at` 是计算和发布时刻。发布窗口的 known_at/current_view.received_at 对应实际收齐时间，重新计算不会刷新旧源时间；历史数据首次可知时间仍未知，不能据此宣称历史时点可得性。

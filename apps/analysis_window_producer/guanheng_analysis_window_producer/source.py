@@ -28,12 +28,28 @@ def write_json(path, value):
     path = Path(path)
     temporary = path.with_name(path.name + '.' + str(uuid4()) + '.tmp')
     raw = canonical(value)
-    with temporary.open('xb') as stream:
-        if stream.write(raw) != len(raw):
-            raise OSError('analysis_write_incomplete')
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    try:
+        with temporary.open('xb') as stream:
+            if stream.write(raw) != len(raw):
+                raise OSError('analysis_write_incomplete')
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.name == 'nt' and path.exists():
+            # Windows读者可能仍持有上一代文件；ReplaceFileW沿已发布文件的
+            # 共享删除语义原子换代，完整旧内容由其读句柄保留。读者应使用_open_read。
+            import ctypes
+            from ctypes import wintypes
+            api = ctypes.WinDLL('kernel32', use_last_error=True)
+            replace = api.ReplaceFileW
+            replace.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                                wintypes.DWORD, wintypes.LPVOID, wintypes.LPVOID]
+            replace.restype = wintypes.BOOL
+            if not replace(str(path), str(temporary), None, 0, None, None):
+                raise ctypes.WinError(ctypes.get_last_error())
+        else:
+            os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def closed_through(now):

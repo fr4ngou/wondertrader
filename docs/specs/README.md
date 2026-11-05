@@ -1,3 +1,5 @@
+- [策略数据、业务诊断与运行日志](strategy-data-and-observability.md)：SDO，辅助来源/持续更新、逐角色与回测诊断、日志留存与发布验真。
+
 - [全市场分钟采集、覆盖与自动恢复](continuous-minute-collection.md)：原QST/Writer/Reader、动态名册对照、自然归档与原身份补缺接续。
 
 - [观衡统一WT日线消费](observer-wt-daily-consumer.md)：同一WT快照、七指标、原计划与后继历史保留，独立安装和回退。

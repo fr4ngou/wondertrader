@@ -286,7 +286,8 @@ def _observation(value):
         'invalid_history', '辅助事实必须为有限数值或明确缺失')
     _require(type(row.evidence_refs) is tuple and len(row.evidence_refs) <= 32
         and all(_text(item) for item in row.evidence_refs)
-        and type(row.auxiliary_source_dates) is tuple and len(row.auxiliary_source_dates) <= 32
+        # 成交额先做5日均值再取60日分位，完整来源前缀最多60+5-1=64日。
+        and type(row.auxiliary_source_dates) is tuple and len(row.auxiliary_source_dates) <= 64
         and all(type(day) is date for day in row.auxiliary_source_dates)
         and (row.auxiliary_available_at is None or _time(row.auxiliary_available_at))
         and (row.market_available_at is None or _time(row.market_available_at))

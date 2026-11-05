@@ -82,7 +82,7 @@
     "latest.py": "85b519d2fd8f587bf6c73f8de5e6f1a55a565ad0d3bd51f2f14b5c68e8f73de4",
     "role_profile.py": "d59cc38177e43e8c183615dd6136a6efdc04d1992a779edfa5d6bd9286cbf4d3"
   },
-  "package_version": "0.1.0a10",
+  "package_version": "0.1.0a11",
   "dependencies": {
     "guanheng-strategy-core": "0.1.0a8",
     "tzdata": "2026.3"
