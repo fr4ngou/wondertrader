@@ -120,9 +120,11 @@ class AssetIndexTests(unittest.TestCase):
         candidate = copy.deepcopy(previous)
         candidate['assets'][new_id] = asset_contract(dict(asset_id=new_id, sha256=new_sha,
             bytes=len(reader.objects.get(new_sha)), group='standard.stock-pb', source_ref=key))
+        current_metadata = copy.deepcopy(candidate['assets'][new_id])
         candidate['stock_pb_partitions'] = dict(partitions={key: dict(sha256=new_sha, parent_assets=[])})
         compact_assets(reader.objects, candidate, previous, digest(encode(previous)))
         self.assertIn(new_id, candidate['assets'])
+        self.assertEqual(candidate['assets'][new_id], current_metadata)
         self.assertNotIn(old_id, candidate['assets'])
         self.assertIn(old_id, previous['assets'])
 

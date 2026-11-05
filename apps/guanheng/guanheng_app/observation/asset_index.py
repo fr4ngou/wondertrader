@@ -53,7 +53,7 @@ def compact_assets(objects, manifest, previous, previous_snapshot, *, active_ass
     retained = {key: item for key, item in assets.items()
         if item.get('group') not in _DYNAMIC_GROUPS or key in active}
     for key in current:
-        if key in retained:
+        if key in retained and retained[key].get('group') in ('standard.metric', 'standard.source-table'):
             # 分区正文可能未变；显式前代快照仍保留原成功采集及旧谱系的查阅入口。
             retained[key]['previous_snapshot'] = previous_snapshot
     manifest['assets'] = retained
