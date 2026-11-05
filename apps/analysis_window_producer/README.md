@@ -16,4 +16,6 @@
 
 辅助启用项为`producer.auxiliary_directory`和可选只读`auxiliary_seed_directory`。来源取得、修订归档、逐日重试、字段覆盖和显式研究接口见[辅助事实持续更新](../../docs/modules/analysis-window-producer.md#辅助事实持续更新)。默认省略保持原价格路径，辅助采集由WT持有，观衡只读。新配置使用新工作根及发布位置，保留原根和请求责任供回退；实时模式保留真实实收时刻，研究模式必须显式选择并由消费者拒绝流入实时。
 
+历史补齐以可选`producer.auxiliary_history_snapshot={path,sha256}`接入核定官方快照；严格协议、容量、实际时钟及完整事实键优先规则见[固定官方历史快照接缝](../../docs/modules/analysis-window-producer.md#固定官方历史快照接缝)。快照引用进入原Owner配置身份，仅填当前缺口，持续来源错误保留，研究快照拒绝。交付仅需更新AWP普通wheel，V1公式和包元数据保持原位。
+
 源码在本目录；[模块说明](../../docs/modules/analysis-window-producer.md)、[最终规格](../../docs/specs/qmt-analysis-window-producer.md)、[验证入口](../../tests/integration/analysis_window_producer/README.md)。真实 QMT、共享装配和生产资格沿根集成证据单列。

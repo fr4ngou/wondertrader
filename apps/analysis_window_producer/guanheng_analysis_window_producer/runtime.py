@@ -131,7 +131,7 @@ class AnalysisWindowProducer:
     def __init__(self, provider, *, directory, publication, artifacts, python=sys.executable,
                  worker_cwd=None, interval_seconds=60., refresh_seconds=120., max_age_seconds=600.,
                  start_date='2021-11-01', max_rows_per_symbol=4096, source_identity=None,
-                 auxiliary_directory=None, auxiliary_seed_directory=None):
+                 auxiliary_directory=None, auxiliary_seed_directory=None, auxiliary_history_snapshot=None):
         self.provider = provider
         self.directory, self.publication = Path(directory).absolute(), Path(publication).absolute()
         need(self.directory != self.publication and all(type(v) in (int, float) and math.isfinite(v)
@@ -172,6 +172,13 @@ class AnalysisWindowProducer:
             self._configuration['auxiliary_directory'] = str(self.auxiliary_directory)
         if self.auxiliary_seed_directory is not None:
             self._configuration['auxiliary_seed_directory'] = str(self.auxiliary_seed_directory)
+        self.auxiliary_history_snapshot = None  # 固定官方历史引用；不授持续来源已更新或研究资格。
+        if auxiliary_history_snapshot is not None:
+            from .auxiliary_history import load_history_snapshot
+            checked = load_history_snapshot(auxiliary_history_snapshot)
+            self.auxiliary_history_snapshot = checked.reference
+            self._configuration['auxiliary_history_snapshot'] = deepcopy(checked.reference)
+        need(len(qna.canonical(self._configuration)) <= 32768, 'analysis_configuration_capacity')
         self._lock, self._stop, self._wake = threading.RLock(), threading.Event(), threading.Event()
         self._thread = None
         self._runner = None
@@ -344,18 +351,29 @@ class AnalysisWindowProducer:
                     candidate = load(candidate_path, 32*1024*1024)
                     candidate['analysis']['known_at'] = identity['source_received_at']
                     candidate['current_view']['received_at'] = identity['source_received_at']
-                    if self.auxiliary_directory is not None:
+                    if self.auxiliary_directory is not None or self.auxiliary_history_snapshot is not None:
                         from .official_auxiliary import enrich_window
                         from .auxiliary_refresh import AuxiliaryRefresh
                         days = sorted({row['trade_date'] for row in candidate['history']['observations']})
                         symbols = {row['symbol'] for row in candidate['history']['observations'] if row['symbol'].endswith('.SH')}
-                        if self._auxiliary_refresh is None:
-                            self._auxiliary_refresh = AuxiliaryRefresh(self.auxiliary_directory,
-                                seed_directory=self.auxiliary_seed_directory)
-                        refresh = self._auxiliary_refresh.refresh(days, symbols,
-                            deadline=self._effective(deadline), check=lambda: self._check(deadline))
+                        refresh = dict(enabled=False, reason='history_snapshot_only')
+                        if self.auxiliary_directory is not None:
+                            if self._auxiliary_refresh is None:
+                                self._auxiliary_refresh = AuxiliaryRefresh(self.auxiliary_directory,
+                                    seed_directory=self.auxiliary_seed_directory)
+                            refresh = self._auxiliary_refresh.refresh(days, symbols,
+                                deadline=self._effective(deadline), check=lambda: self._check(deadline))
+                        history_snapshot = None
+                        if self.auxiliary_history_snapshot is not None:
+                            from .auxiliary_history import load_history_snapshot, history_failure
+                            try:
+                                history_snapshot = load_history_snapshot(self.auxiliary_history_snapshot)
+                            except (ValueError, OSError) as error:
+                                self._save_state(auxiliary_history_error=history_failure(error))
+                                raise
                         candidate, auxiliary = enrich_window(candidate, self.auxiliary_directory,
-                            cache=self._auxiliary_cache, seed_root=self.auxiliary_seed_directory)
+                            cache=self._auxiliary_cache, seed_root=self.auxiliary_seed_directory,
+                            history_snapshot=history_snapshot)
                         auxiliary['refresh'] = refresh
                         self._save_state(auxiliary=auxiliary)
                     need(len(qna.canonical(candidate)) <= 32*1024*1024, 'analysis_publication_capacity')

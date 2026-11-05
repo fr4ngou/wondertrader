@@ -62,3 +62,13 @@ flowchart LR
 验真根为`E:/workspace/wondertrader-qa/data-continuity-20261105-001`。最终普通包`wheels-final001`及安装成员由`BUILD-FINAL001.json`固定；`FINAL-AUDIT001.json`逐件核源码输入、wheel RECORD、实际安装及Native关闭收据。`MAINLINE-FINAL001.json`和`MAINLINE-FINAL-RESTART002.json`记录真实已存行情回放、原Native Import/Reader、公开辅助来源读取、AWP首次发布及同根恢复后第二次发布，实际`MarketWindowFile`两次读回6056行，两个Native树均0/EOF/join/closed。该证据未调用QMT/账户，也未生成未来行情。旧历史没有回填，后继真实收盘的在线生效由Root采用后核实。
 
 专属回归入口为`tests/integration/analysis_window_producer/test_auxiliary_continuity.py`，最终普通安装的`TEST-FINAL001.log`记录16项通过，覆盖修订原件、同内容时钟、写入失败恢复、只读种子、重启退避及缺源后恢复、停止、互斥、单位、64日前缀、份额缺日及显式研究时钟。完整源码两轴复核见同根`REVIEW-SPEC-001.md`和`REVIEW-STANDARDS-001.md`，实现提交`8300a87d392d740ad866a97c75118ad975437115`无P1/P2；最终制品绑定沿该根最终复核和交接核对。V1普通wheel为本模块隔离候选，正式组合须先合并开发者2拥有的实时拒绝、诊断及历史入口，再从组合源码重建；该模块候选不覆盖运行源码。
+
+## 固定官方历史快照接缝
+
+可选`producer.auxiliary_history_snapshot={path,sha256}`接入历史补齐模块已经核定的官方事实。`path`为普通文件绝对路径，`sha256`绑定完整字节，两者规范后进入原AWP配置身份。构造时核准、每轮发布前重新核固定摘要，修改引用需要原正常交接及新配置；省略时保持原发布路径。可独立使用历史快照，此时持续来源明确为`enabled=False/reason=history_snapshot_only`。
+
+`auxiliary_history.load_history_snapshot`有界读取同一代文件，最多32MiB/65536事实，拒绝重复JSON字段及重复完整事实键。顶层严格六字段：`schema=guanheng.auxiliary-history-publications.v1`、`qualification=official_observed`、`historical_first_available=unknown`、`publications`、`source_delivery_sha256`和带时区的实际`generated_at`。每事实严格为原七字段：kind、statistic_date、value、available_at、received_at、source_sha256、symbol。`available_at`固定为空，日期/证券/有限正数/原文摘要沿唯一`AuxiliaryPublication`准入，实际接收不得晚于快照生成，生成不得晚于当前时间。研究标签、假设可知时间、字段漂移、未来时钟及字节漂移在消费前拒绝，保留上一成功发布。
+
+`fill_history`按完整`(kind,symbol,statistic_date)`只填缺；当前来源完整份额/沪深汇总及其修订优先，快照不拆开与当前单边沪深原件混算。仅保留当前实际窗口证券和日期，随后共用原`merge_auxiliary`、字段覆盖、真实实收时钟和原AWP发布；不写伪交易所响应或增加行情行。快照覆盖报告单列总数、适用数、当前事实数和实际导入数、交付摘要与实际生成时刻，`continuous_source_updated=False`固定。原持续来源错误、重试和尾日照常保留；历史补齐不把来源失败改为持续已更新。快照读取/校验失败记录稳定`auxiliary_history_error`，内容与文件异常正文不进入公开状态。
+
+该接缝由AWP单wheel交付，保持原V1依赖和唯一公式；Root负责普通组合及现场同账采用。采用时准备新配置/工作根/发布位置和原制品回退引用；回退正常关闭新Owner后恢复原配置/路径，保留快照、原件、金融状态和未知请求。专属根因验证入口为`tests/integration/analysis_window_producer/test_auxiliary_history_snapshot.py`。真实固定输入为Root已核6736条官方快照，原757日/6056行行情保留实际时钟，历史实际生效仍按后继真实收盘核验。

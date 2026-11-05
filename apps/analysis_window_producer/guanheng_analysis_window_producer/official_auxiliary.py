@@ -264,14 +264,20 @@ def observed_publications(root, days, *, cache=None, seed_root=None):
     return tuple(result)
 
 
-def enrich_window(window, root, *, cache=None, seed_root=None):
+def enrich_window(window, root, *, cache=None, seed_root=None, history_snapshot=None):
     """将已实际取得的辅助值合并到原值历史；前复权行情保持原Owner结果。"""
     from copy import deepcopy
     from guanheng_strategy_core.models import DailyObservation
     from guanheng_strategy_v1.auxiliary import merge_auxiliary, auxiliary_coverage
     rows = window['history']['observations']
     days = sorted({r['trade_date'] for r in rows})
-    publications = observed_publications(root, days, cache=cache, seed_root=seed_root)
+    publications = (observed_publications(root, days, cache=cache, seed_root=seed_root)
+                    if root is not None else ())
+    history_report = None
+    if history_snapshot is not None:
+        from .auxiliary_history import fill_history
+        publications, history_report = fill_history(publications, history_snapshot,
+            days={date.fromisoformat(day) for day in days}, symbols={row['symbol'] for row in rows})
 
     def observation(raw):
         value = dict(raw)
@@ -305,6 +311,8 @@ def enrich_window(window, root, *, cache=None, seed_root=None):
         availability_basis='actually-received', historical_first_available='unknown',
         first_received_at=min((p.received_at.isoformat() for p in publications), default=None),
         fields=auxiliary_coverage(after, publications))
+    if history_report is not None:
+        report['history_snapshot'] = history_report
     if count:
         identity = hashlib.sha256(json.dumps(updated['history'], sort_keys=True, separators=(',', ':'),
                                             allow_nan=False).encode()).hexdigest()
