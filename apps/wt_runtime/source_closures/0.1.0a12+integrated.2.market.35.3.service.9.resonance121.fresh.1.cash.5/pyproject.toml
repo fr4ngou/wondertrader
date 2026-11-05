@@ -1,0 +1,23 @@
+[build-system]
+requires = ["flit_core==3.12.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "guanheng-wt-runtime"
+version = "0.1.0a12+integrated.2.market.35.3.service.9.resonance121.fresh.1.cash.5"
+description = "Independent WonderTrader runtime and QMT process ownership"
+requires-python = ">=3.12"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = ["guanheng-market-client==0.15.0"]
+
+[project.optional-dependencies]
+execution = ["guanheng-strategy-v1==0.1.0a9", "guanheng-strategy-native==0.1.0a1"]
+
+[project.scripts]
+guanheng-wt = "guanheng_wt_runtime.__main__:main"
+guanheng-wt-service = "guanheng_wt_runtime.service_control:main"
+
+[tool.flit.module]
+name = "guanheng_wt_runtime"
+
+

@@ -81,9 +81,18 @@ int wmain(int argc,wchar_t** argv){
             auto value=f.adapter.trades_observation();require(!value.known&&value.error==2&&f.sink.trades==2,"trade_conflict_unknown_original_notifications");
         }
         {
-            TradeFixture f(base,policy,"trade-date");auto a=f.trade("a"),b=f.trade("b");f.adapter.onPushTrade(a.get());
-            b->setTradeDate(20261023);f.adapter.onPushTrade(b.get());
-            auto value=f.adapter.trades_observation();require(!value.known&&value.error==3&&f.sink.trades==2,"trade_date_unknown_original_notifications");
+            // 真实根因：完整查询含多日；同一成交编号可在不同日期重用。
+            TradeFixture f(base,policy,"trade-date");auto a=f.trade("same-id"),b=f.trade("same-id");
+            b->setTradeDate(20261023);auto batch=keep(WTSArray::create());batch->append(a.get());batch->append(b.get());
+            f.adapter.onRspTrades(batch.get());auto history=f.adapter.trades_observation();
+            require(history.known&&!history.error&&history.trades.size()==2&&f.sink.trades==0,"trade_multi_date_query_known");
+            require(!history.trades[0].first_live_revision&&!history.trades[1].first_live_revision
+                &&history.trades[0].trade_date!=history.trades[1].trade_date,"trade_query_preserves_dates_not_live");
+            f.adapter.onRspTrades(batch.get());f.adapter.onPushTrade(b.get());f.adapter.onPushTrade(b.get());
+            auto value=f.adapter.trades_observation();
+            require(value.known&&!value.error&&value.trades.size()==2&&f.sink.trades==2,"trade_dates_preserved_original_notifications");
+            require(value.query_revision==3&&value.live_revision==2
+                &&!value.trades[0].first_live_revision&&value.trades[1].first_live_revision==1,"trade_query_live_date_identity");
         }
         std::puts("trade_projection_query_live_duplicate_out_of_order_unknown_disconnect_capacity_conflict_date_passed");return 0;
     }catch(const std::exception& error){std::fprintf(stderr,"%s\n",error.what());return 1;}

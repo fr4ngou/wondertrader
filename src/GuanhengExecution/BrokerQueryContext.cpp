@@ -97,13 +97,13 @@ void BrokerQueryAdapter::onRspAccount(wtp::WTSArray* rows) {
 }
 void BrokerQueryAdapter::observe_trade(const BrokerTradeObservation& value,bool live){
     if(trade_metadata_.error)return;
-    if(trade_date_&&trade_date_!=value.trade_date){trade_metadata_.error=3;trade_metadata_.known=false;return;}
-    trade_date_=value.trade_date;
-    auto found=trade_rows_.find(value.trade_id);
+    // 券商完整查询可跨日；日期属于每笔事实，同日编号冲突仍由下方逐字段核验。
+    const auto key=std::to_string(value.trade_date)+":"+value.trade_id;
+    auto found=trade_rows_.find(key);
     if(found==trade_rows_.end()){
         if(trade_rows_.size()>=max_rows_){trade_metadata_.error=1;trade_metadata_.known=false;return;}
         auto copy=value;if(live)copy.first_live_revision=trade_metadata_.live_revision;
-        trade_rows_.emplace(value.trade_id,std::move(copy));return;
+        trade_rows_.emplace(key,std::move(copy));return;
     }
     auto& old=found->second;
     if(old.symbol!=value.symbol||old.order_id!=value.order_id||old.trade_date!=value.trade_date

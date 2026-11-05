@@ -583,6 +583,15 @@ class RetainedStrategy:
             self.flat_sources[symbol]=self._flat_source(symbol,broker,trades)
 
     def _opening_cycle(self,symbol,broker,trades,cutoff,check):
+        if self.inputs.capital_baseline is not None:
+            # 唯一策略已核初始库存作为来源起点；完整实际成交与本次P一致才恢复开仓时间。
+            # 查询事实可跨运行代，不能把仅驻内存的提交序号当作重启后的必要材料。
+            from .execution_cycle_source import queried_opening_cycle
+            initial=next((row for row in self.inputs.request.cycles if row.symbol==symbol),None)
+            return queried_opening_cycle(symbol,self.mapping[symbol],initial,
+                self.inputs.capital_baseline['baseline_at'],
+                self._broker_rows(broker).get(self.mapping[symbol],(0,0))[0],
+                datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc),cutoff,trades,check)
         source=self.flat_sources.get(symbol)
         if source is None or trades is None or not trades.known or trades.submission_revision is None:return None
         latest=min(cutoff,datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc))
@@ -743,7 +752,10 @@ class RetainedStrategy:
                     metadata.pop(symbol,None);cycles.append(PositionCycle(symbol,'flat',0,source))
                 else:
                     actual=self._opening_cycle(symbol,broker,trades,cutoff,check)
-                    if old is None:old=actual
+                    if self.inputs.capital_baseline is not None:
+                        # 完整查询已证明当前周期；真实卖平再买覆盖旧周期，缺证据则等待。
+                        old=actual
+                    elif old is None:old=actual
                     elif actual is not None and actual['cycle_id']==old['cycle_id']:
                         if datetime.fromisoformat(actual['opened_at'])<datetime.fromisoformat(old['opened_at']):old=actual
                     if old is None:status, reason = 'waiting_actual_cycle','actual_opening_source_required'
