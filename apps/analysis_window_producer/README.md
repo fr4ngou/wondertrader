@@ -2,7 +2,7 @@
 
 类型：模块入口。状态：开发验收中。唯一要求为 [AWP](../../docs/specs/qmt-analysis-window-producer.md) 和 [provider 合同](../../docs/specs/qmt-analysis-window-provider.md)。
 
-`guanheng_analysis_window_producer.runtime.AnalysisWindowProducer` 由 WT 持有。它使用显式只读 v7 来源，持续获取唯一 1.1.2 的八证券日线、原因子和基准参考，沿原日线 Import、原 WT Reader 和原 QNA 发布完整 v1 文件。观衡和 R24 只读消费。每轮先获取来源，Native DLL 在隐藏 Job 内运行，源或原生失败保持最后成功文件。
+`guanheng_analysis_window_producer.runtime.AnalysisWindowProducer` 由 WT 持有。它使用显式只读 v7 来源，持续获取当前唯一策略的八证券日线、原因子和基准参考，沿原日线 Import、原 WT Reader 和原 QNA 发布完整 v1 文件。观衡和 R24 只读消费。每轮先获取来源，Native DLL 在隐藏 Job 内运行，源或原生失败保持最后成功文件。
 
 `create_producer(configuration)` 为后继 WRI 注册接缝；当前共享 dispatcher 保持。独立命令为 `guanheng-analysis-window --configuration <deployment.json>`，进程持续运行，部署 owner 通过其目录内 `STOP.json` 请求关闭。Python owner 使用 `start(deadline=...)`、`status()`、`refresh()`、`request_close(deadline=...)`、`close(seconds)`。
 
@@ -14,4 +14,6 @@
 
 显式 `history_preparation` 连接原 HPR v6，在同 capture 内先准备近期日线缓存，再由原 v7 读回真实日期和内容。首次只补当前闭合日，后继按最后准备尾日推进并按间隔合并同日请求；暖机仍读取已有历史。原请求/结果保持，未知沿原 GET；返回只表示 call_returned/coverage unknown。省略该配置保持原读取路径。发行固定 core a2，原分析算法字节保持；新增 replay 接口由其独立证据负责。
 
-源码在本目录；[模块说明](../../docs/modules/qmt-analysis-window-producer.md)、[运维手册](../../docs/runbooks/qmt-analysis-window-producer.md)、[验证入口](../../tests/integration/analysis_window_producer/README.md)。真实 QMT、共享装配和生产资格沿根集成证据单列。
+辅助启用项为`producer.auxiliary_directory`和可选只读`auxiliary_seed_directory`。来源取得、修订归档、逐日重试、字段覆盖和显式研究接口见[辅助事实持续更新](../../docs/modules/analysis-window-producer.md#辅助事实持续更新)。默认省略保持原价格路径，辅助采集由WT持有，观衡只读。新配置使用新工作根及发布位置，保留原根和请求责任供回退；实时模式保留真实实收时刻，研究模式必须显式选择并由消费者拒绝流入实时。
+
+源码在本目录；[模块说明](../../docs/modules/analysis-window-producer.md)、[最终规格](../../docs/specs/qmt-analysis-window-producer.md)、[验证入口](../../tests/integration/analysis_window_producer/README.md)。真实 QMT、共享装配和生产资格沿根集成证据单列。

@@ -8,8 +8,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
-from decimal import Decimal
-import gzip
+from decimal import Decimal, DecimalException
 import hashlib
 import json
 from pathlib import Path
@@ -18,13 +17,15 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .source import write_json
+from .auxiliary_store import (SOURCES, MAX_BODY_BYTES, read_capture, commit_capture, validate_key,
+    capture_signature)
 
-MAX_RESPONSE = 4*1024*1024
-SOURCES = ('sse-shares', 'sse-turnover', 'szse-turnover', 'sse-margin', 'szse-margin')
+MAX_RESPONSE = MAX_BODY_BYTES
 
 
 def source_request(source, day):
     """固定公开报表及日期参数；单位和结果日期在解析边界再次核对。"""
+    validate_key(source, day)
     if source.startswith('sse-'):
         origin = 'https://query.sse.com.cn'
         referer = 'https://www.sse.com.cn/'
@@ -53,7 +54,9 @@ def source_request(source, day):
 
 def positive(value):
     number = Decimal(str(value).replace(',', '').strip())
-    if not number.is_finite() or number <= 0:
+    if number == 0:
+        raise ValueError('auxiliary_source_zero')
+    if not number.is_finite() or number < 0:
         raise ValueError('auxiliary_source_number')
     return number
 
@@ -66,10 +69,21 @@ def unique(rows):
 
 def parse_source(source, day, body, symbols):
     """返回来源规范值：份额亿份，成交额/融资余额亿元；不混用融资融券合计。"""
+    validate_key(source, day)
+    try:
+        return _parse_source(source, day, body, symbols)
+    except (KeyError, TypeError, AttributeError, DecimalException, json.JSONDecodeError):
+        raise ValueError('auxiliary_source_schema') from None
+
+
+def _parse_source(source, day, body, symbols):
+    """唯一报表字段解释；单位/日期不符与尚未发布分别保持可定位原因。"""
     value = json.loads(body)
     if source.startswith('sse-'):
         rows = value.get('result')
-        if type(rows) is not list or not rows:
+        if type(rows) is not list:
+            raise ValueError('auxiliary_source_schema')
+        if not rows:
             raise ValueError('auxiliary_source_not_published')
         if source == 'sse-shares':
             found = {}
@@ -103,46 +117,70 @@ def parse_source(source, day, body, symbols):
     if '亿元' not in meta.get('cols', {}).get(field, ''):
         raise ValueError('auxiliary_source_unit')
     rows = tab['data']
+    if not rows:
+        raise ValueError('auxiliary_source_not_published')
     row = unique([r for r in rows if r.get('lbmc') == '股票']) if source == 'szse-turnover' else unique(rows)
     return str(positive(row[field]))
 
 
-def capture(source, day, root, symbols, *, timeout=15):
-    """每个日期/来源独立缓存；既有原文摘要核对后重用，失败保持可重试。"""
-    directory = root/source
-    directory.mkdir(exist_ok=True)
-    receipt, archive = directory/(day+'.json'), directory/(day+'.json.gz')
+def source_failure(error):
+    """只输出固定原因及异常类型，服务器正文与URL不进入诊断。"""
+    known = {'auxiliary_source_schema', 'auxiliary_source_not_published',
+        'auxiliary_source_date_or_duplicate', 'auxiliary_source_symbols_missing',
+        'auxiliary_source_date', 'auxiliary_source_unit', 'auxiliary_source_unique_row',
+        'auxiliary_source_number', 'auxiliary_source_zero', 'auxiliary_source_http', 'auxiliary_source_response_capacity',
+        'auxiliary_cache_identity', 'auxiliary_cache_values', 'auxiliary_source_clock'}
+    reason = str(error) if type(error) is ValueError and str(error) in known else 'request_failed'
+    return dict(type=type(error).__name__, reason=reason)
+
+
+def capture(source, day, root, symbols, *, timeout=15, refresh=False, seed_root=None):
+    """取得或重核某日来源；修订保留原文，失败保持上次有效值及原时钟。"""
     url, referer = source_request(source, day)
-    if receipt.exists():
-        record = json.loads(receipt.read_bytes())
-        body = gzip.decompress(archive.read_bytes())
-        if (record.get('url') != url or record.get('statistic_date') != day
-                or hashlib.sha256(body).hexdigest() != record.get('body_sha256')):
+    record = read_capture(root, source, day, parse_source)
+    if record is None and seed_root is not None:
+        record = read_capture(seed_root, source, day, parse_source)
+    if record is not None:
+        if record.get('url') != url:
             raise ValueError('auxiliary_cache_identity')
-        record['values'] = parse_source(source, day, body, symbols)
-        return record
+        if not refresh:
+            return record
     request = Request(url, headers={'User-Agent': 'Mozilla/5.0', 'Referer': referer})
+    deadline = time.monotonic()+timeout
     with urlopen(request, timeout=timeout) as response:
         if response.status != 200:
             raise ValueError('auxiliary_source_http')
-        body = response.read(MAX_RESPONSE+1)
+        blocks, size = [], 0
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError('auxiliary_source_deadline')
+            block = response.read1(min(65536, MAX_RESPONSE+1-size))
+            if not block:
+                break
+            blocks.append(block)
+            size += len(block)
+            if size > MAX_RESPONSE:
+                raise ValueError('auxiliary_source_response_capacity')
+        body = b''.join(blocks)
     if len(body) > MAX_RESPONSE:
         raise ValueError('auxiliary_source_response_capacity')
     received = datetime.now(timezone.utc).isoformat()
     values = parse_source(source, day, body, symbols)
-    # 两个文件只有回执提交后才可消费；异常留下的同名原文由该单写者重试覆盖。
-    archive.write_bytes(gzip.compress(body, mtime=0))
-    record = dict(schema='guanheng.official-auxiliary-capture.v1', source=source, statistic_date=day,
-                  url=url, received_at=received, body_sha256=hashlib.sha256(body).hexdigest(),
-                  historical_first_available='unknown', values=values)
-    write_json(receipt, record)
-    return record
+    return commit_capture(root, source, day, body, values, received, record, url=url)
 
 
 def capture_dates(days, symbols, root, *, workers=2):
-    """有界并行的有限补齐；先处理近期日期，每个工作线程串行访问五类来源。"""
+    """有限补齐独占同一辅助根；常驻Owner运行时CLI不能竞争写入该根。"""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    from guanheng_wt_runtime.__main__ import _InstanceLease
+    with _InstanceLease(root, 'auxiliary'):
+        return _capture_dates(days, symbols, root, workers=workers)
+
+
+def _capture_dates(days, symbols, root, *, workers):
+    """有界并行有限补齐；每个日期线程串行访问五来源，成功回执持续提交。"""
+    days = sorted(set(days))
     if workers not in (1, 2, 3, 4) or len(days) > 4096:
         raise ValueError('auxiliary_capture_capacity')
     completed, failures = {}, {}
@@ -154,7 +192,7 @@ def capture_dates(days, symbols, root, *, workers=2):
                 records[source] = capture(source, day, root, symbols)
             except Exception as error:
                 # 不输出服务器正文；精确来源及异常类别足以重试同一只读日期。
-                errors[source] = dict(type=type(error).__name__, reason=str(error)[:160])
+                errors[source] = source_failure(error)
             time.sleep(.15)
         return day, records, errors
 
@@ -174,7 +212,7 @@ def capture_dates(days, symbols, root, *, workers=2):
     return completed
 
 
-def observed_publications(root, days, *, cache=None):
+def observed_publications(root, days, *, cache=None, seed_root=None):
     """从已提交原文重建可用于后续决策的事实，使用本系统实际取得时刻。
 
     历史首次可知未知的记录不会回填历史available_at。一次补齐过去多年数据时，
@@ -187,59 +225,53 @@ def observed_publications(root, days, *, cache=None):
         records = {}
         for source in SOURCES:
             path = root/source/(day+'.json')
+            if not path.exists() and seed_root is not None:
+                path = Path(seed_root)/source/(day+'.json')
             if not path.exists():
                 continue
-            archive = path.with_suffix('.json.gz')
-            signature = tuple((p.stat().st_mtime_ns, p.stat().st_size) for p in (path, archive))
             cached = cache.get(str(path)) if cache is not None else None
-            if cached is not None and cached[0] == signature:
+            if cached is not None and cached[0] == capture_signature(path.parent.parent, source, day, cached[1]):
                 records[source] = cached[1]
                 continue
-            record = json.loads(path.read_bytes())
-            body = gzip.decompress(archive.read_bytes())
-            if (record.get('schema') != 'guanheng.official-auxiliary-capture.v1'
-                    or record.get('source') != source or record.get('statistic_date') != day
-                    or hashlib.sha256(body).hexdigest() != record.get('body_sha256')):
+            record = read_capture(path.parent.parent, source, day, parse_source)
+            if record['url'] != source_request(source, day)[0]:
                 raise ValueError('auxiliary_cache_identity')
-            # 重新走唯一解析器，缓存中的规范值与原文必须一致。
-            symbols = set(record['values']) if source == 'sse-shares' else set()
-            if parse_source(source, day, body, symbols) != record['values']:
-                raise ValueError('auxiliary_cache_values')
             records[source] = record
             if cache is not None:
-                cache[str(path)] = (signature, record)
+                cache[str(path)] = (capture_signature(path.parent.parent, source, day, record), record)
         statistic_date = date.fromisoformat(day)
         shares = records.get('sse-shares')
         if shares:
-            received = datetime.fromisoformat(shares['received_at'])
+            received = datetime.fromisoformat(shares.get('effective_received_at', shares['received_at']))
             for symbol, number in shares['values'].items():
                 result.append(AuxiliaryPublication('shares', statistic_date, float(number),
-                    received, received, shares['body_sha256'], symbol))
+                    None, received, shares['body_sha256'], symbol))
         for kind in ('turnover', 'margin'):
             pair = [records.get(exchange+'-'+kind) for exchange in ('sse', 'szse')]
             if not all(pair):
                 continue
-            received = max(datetime.fromisoformat(r['received_at']) for r in pair)
+            received = max(datetime.fromisoformat(r.get('effective_received_at', r['received_at'])) for r in pair)
             identity = hashlib.sha256(json.dumps([r['body_sha256'] for r in pair], separators=(',', ':')).encode()).hexdigest()
             total = sum(Decimal(r['values']) for r in pair)
-            result.append(AuxiliaryPublication(kind, statistic_date, float(total), received, received, identity))
+            result.append(AuxiliaryPublication(kind, statistic_date, float(total), None, received, identity))
     if cache is not None:
         # 缓存属于该发布Owner，仅保留本次历史范围内的最多5*4096个原件摘要。
-        active = {str(root/source/(day+'.json')) for day in days for source in SOURCES}
+        roots = (root,) if seed_root is None else (root, Path(seed_root))
+        active = {str(base/source/(day+'.json')) for base in roots for day in days for source in SOURCES}
         for key in tuple(cache):
             if key not in active:
                 del cache[key]
     return tuple(result)
 
 
-def enrich_window(window, root, *, cache=None):
+def enrich_window(window, root, *, cache=None, seed_root=None):
     """将已实际取得的辅助值合并到原值历史；前复权行情保持原Owner结果。"""
     from copy import deepcopy
     from guanheng_strategy_core.models import DailyObservation
-    from guanheng_strategy_v1.auxiliary import merge_auxiliary
+    from guanheng_strategy_v1.auxiliary import merge_auxiliary, auxiliary_coverage
     rows = window['history']['observations']
     days = sorted({r['trade_date'] for r in rows})
-    publications = observed_publications(root, days, cache=cache)
+    publications = observed_publications(root, days, cache=cache, seed_root=seed_root)
 
     def observation(raw):
         value = dict(raw)
@@ -271,7 +303,8 @@ def enrich_window(window, root, *, cache=None):
             target[name] = value
     report = dict(schema='guanheng.auxiliary-window-merge.v1', publications=len(publications), enriched_rows=count,
         availability_basis='actually-received', historical_first_available='unknown',
-        first_received_at=min((p.received_at.isoformat() for p in publications), default=None))
+        first_received_at=min((p.received_at.isoformat() for p in publications), default=None),
+        fields=auxiliary_coverage(after, publications))
     if count:
         identity = hashlib.sha256(json.dumps(updated['history'], sort_keys=True, separators=(',', ':'),
                                             allow_nan=False).encode()).hexdigest()

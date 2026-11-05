@@ -131,7 +131,7 @@ class AnalysisWindowProducer:
     def __init__(self, provider, *, directory, publication, artifacts, python=sys.executable,
                  worker_cwd=None, interval_seconds=60., refresh_seconds=120., max_age_seconds=600.,
                  start_date='2021-11-01', max_rows_per_symbol=4096, source_identity=None,
-                 auxiliary_directory=None):
+                 auxiliary_directory=None, auxiliary_seed_directory=None):
         self.provider = provider
         self.directory, self.publication = Path(directory).absolute(), Path(publication).absolute()
         need(self.directory != self.publication and all(type(v) in (int, float) and math.isfinite(v)
@@ -162,9 +162,16 @@ class AnalysisWindowProducer:
         self.start_date, self.max_rows = start_date, max_rows_per_symbol
         # 可选辅助原文归WT发布Owner；观衡不参与采集，原价格/原生日线身份保持。
         self.auxiliary_directory = Path(auxiliary_directory).absolute() if auxiliary_directory is not None else None
+        self.auxiliary_seed_directory = (Path(auxiliary_seed_directory).absolute()
+            if auxiliary_seed_directory is not None else None)  # 已核种子只读；新原文及修订另写当前Owner根。
+        need(self.auxiliary_seed_directory is None or self.auxiliary_directory is not None
+            and self.auxiliary_seed_directory != self.auxiliary_directory, 'analysis_auxiliary_directories')
+        self._auxiliary_refresh = None  # 沿原发布线程持有，无第二个调度器或后台服务。
         self._auxiliary_cache = {}  # 当前Owner独占的已核原文缓存；历史窗口收缩时回收无引用条目。
         if self.auxiliary_directory is not None:
             self._configuration['auxiliary_directory'] = str(self.auxiliary_directory)
+        if self.auxiliary_seed_directory is not None:
+            self._configuration['auxiliary_seed_directory'] = str(self.auxiliary_seed_directory)
         self._lock, self._stop, self._wake = threading.RLock(), threading.Event(), threading.Event()
         self._thread = None
         self._runner = None
@@ -338,26 +345,18 @@ class AnalysisWindowProducer:
                     candidate['analysis']['known_at'] = identity['source_received_at']
                     candidate['current_view']['received_at'] = identity['source_received_at']
                     if self.auxiliary_directory is not None:
-                        from .official_auxiliary import capture, enrich_window, SOURCES
+                        from .official_auxiliary import enrich_window
+                        from .auxiliary_refresh import AuxiliaryRefresh
                         days = sorted({row['trade_date'] for row in candidate['history']['observations']})
                         symbols = {row['symbol'] for row in candidate['history']['observations'] if row['symbol'].endswith('.SH')}
-                        self.auxiliary_directory.mkdir(parents=True, exist_ok=True)
-                        source_errors = []
-                        # 长历史补齐使用有限CLI；常驻Owner只增量刷新最后两天，
-                        # 每个请求使用剩余刷新截止，关闭后不再发新请求。
-                        for day in days[-2:]:
-                            for source in SOURCES:
-                                self._check(deadline)
-                                remaining = self._effective(deadline)-time.monotonic()
-                                if remaining < 2:
-                                    source_errors.append(dict(source=source, day=day, reason='refresh_budget'))
-                                    continue
-                                try:
-                                    capture(source, day, self.auxiliary_directory, symbols, timeout=min(3., remaining-1.))
-                                except (OSError, ValueError) as error:
-                                    source_errors.append(dict(source=source, day=day, reason=type(error).__name__))
-                        candidate, auxiliary = enrich_window(candidate, self.auxiliary_directory, cache=self._auxiliary_cache)
-                        auxiliary['source_errors'] = source_errors
+                        if self._auxiliary_refresh is None:
+                            self._auxiliary_refresh = AuxiliaryRefresh(self.auxiliary_directory,
+                                seed_directory=self.auxiliary_seed_directory)
+                        refresh = self._auxiliary_refresh.refresh(days, symbols,
+                            deadline=self._effective(deadline), check=lambda: self._check(deadline))
+                        candidate, auxiliary = enrich_window(candidate, self.auxiliary_directory,
+                            cache=self._auxiliary_cache, seed_root=self.auxiliary_seed_directory)
+                        auxiliary['refresh'] = refresh
                         self._save_state(auxiliary=auxiliary)
                     need(len(qna.canonical(candidate)) <= 32*1024*1024, 'analysis_publication_capacity')
                     self._check(deadline)
@@ -424,6 +423,8 @@ class AnalysisWindowProducer:
         with self._lock:
             resources = self._runner is None or bool(self._runner.receipt and self._runner.receipt['resources_closed'])
             closed = joined and resources
+            if closed and self._auxiliary_refresh is not None:
+                self._auxiliary_refresh.close()
             if self._lease_acquired:
                 self._save_state(closed=closed)
                 if closed:
