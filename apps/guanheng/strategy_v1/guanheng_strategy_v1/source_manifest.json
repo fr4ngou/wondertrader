@@ -73,15 +73,16 @@
     "Explicit historical final-basis model shares the strict current-view rule engine; actual receipt retained",
     "Continued actual exits keep original economic event date; resolution creates current decision event",
     "Explicit initial inventory inception; no imported old opening, trades or cycle state; restart retains inception",
-    "1.2.1 binds signal/execution to the same role ETF and preserves 1.1.2 actual-cycle, initial inventory and front-ratio mathematics."
+    "1.2.1 binds signal/execution to the same role ETF and preserves 1.1.2 actual-cycle, initial inventory and front-ratio mathematics.",
+    "1.2.2 binds the KC role to 588030.SH own market/factor/cycle facts; normal same-ledger role handoff retires only the old zero-inventory NSQ plan."
   ],
   "owned_sources": {
-    "__init__.py": "5c184bd09355ccde530523af86dd5cc75945a08f72020f6490f7999f16ff6b6e",
+    "__init__.py": "fad75c631c54702b3eb2a915b8b66e0b9f3fb821b9c9aa96b7a74f555c2c34b9",
     "historical.py": "7ada722a06b0a8eaa3ae5a9281e5c92b6c7d1fc5668a535d1dc8b6dfe8368cad",
-    "latest.py": "c195165c63c0714635df578eebef8565875f69d0ba9f691a3a9e4b4a20457bfd",
-    "role_profile.py": "f8464b581c9b5af648651cd559e2fadd2462abaf0d315e2228955041431f0c6e"
+    "latest.py": "85b519d2fd8f587bf6c73f8de5e6f1a55a565ad0d3bd51f2f14b5c68e8f73de4",
+    "role_profile.py": "d59cc38177e43e8c183615dd6136a6efdc04d1992a779edfa5d6bd9286cbf4d3"
   },
-  "package_version": "0.1.0a9",
+  "package_version": "0.1.0a10",
   "dependencies": {
     "guanheng-strategy-core": "0.1.0a8",
     "tzdata": "2026.3"
@@ -90,7 +91,7 @@
     "guanheng-strategy-core==0.1.0a8",
     "tzdata==2026.3"
   ],
-  "algorithm_identity": "resonance-regime-v1@1.2.1/ledger-front-ratio-v1",
+  "algorithm_identity": "resonance-regime-v1@1.2.2/ledger-front-ratio-v1",
   "actual_cycle_rule_sources": {
     "ledger_engine.py": "f7dcbc5c8faeb36aaef2adaf3f774f1765128445dcb17924a81e2359ff8477d8",
     "signals.py": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238"

@@ -164,6 +164,8 @@ def execution_permission_origin_configuration(native, *, deadline=float('inf'), 
     origin以原配置文件和SHA冻结，不授金融动作。实际准入继续核原关闭、查询、
     未决命令及金融文件。最多16跳，支持后继原账停写及正常发行接续。
     """
+    from .execution_role_replacement import role_origin_configuration
+    native = role_origin_configuration(native, deadline=deadline)
     marker = native.get('execution_permission_origin')
     if marker is None:return native
     _require(depth < 16 and type(marker) is dict and set(marker) == {'schema','file','sha256'}
@@ -386,14 +388,17 @@ def _normalized(binding):
     return result
 
 
-def _compatible_python(previous, current):
+def _compatible_python(previous, current, *, role_handoff=False):
     """最新进程前代及恢复原owner共用同一纯模型/解释器不变规则。"""
     before,after=_normalized(previous),_normalized(current)
     for key in before.keys()|after.keys():
         if before.get(key)!=after.get(key):
             _require(key.startswith('site/guanheng_wt_runtime/')
                 or key.startswith('site/guanheng_wt_runtime-')and key.endswith('.dist-info/METADATA')
-                or key=='venv/pyvenv.cfg')
+                or key=='venv/pyvenv.cfg'
+                or role_handoff and (key.startswith('site/guanheng_strategy_v1/')
+                    or key in ('site/guanheng_strategy_v1-0.1.0a9.dist-info/METADATA',
+                               'site/guanheng_strategy_v1-0.1.0a10.dist-info/METADATA')))
 
 
 def load_transition(native, identities=None, *, binding=None, deadline=float('inf')):
@@ -413,6 +418,14 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
         and value['schema'] == 'guanheng.execution-recovery-transition.v1')
     previous_configuration=predecessor_configuration(native,deadline=deadline)
     _require(compatible_business_configuration(native,previous_configuration,deadline=deadline))
+    from .execution_role_replacement import is_role_handoff
+    role_handoff = is_role_handoff(native, previous_configuration)
+    if role_handoff:
+        # 换代只接受真实正常关闭；故障/回档不得借此切换金融模型。
+        _require(not any(k in value for k in ('restoration','initialization_abort')))
+        terminal = _json(_read(Path(value['predecessor_control_directory'])/'closed.json',4096,
+                              deadline=deadline,clock=time.monotonic))
+        _require(terminal.get('ok') is True and terminal.get('recovery_ready') is True)
     previous = Path(value['predecessor_control_directory']); _inspect(previous, directory=True)
     old_raw = _read(previous / 'python-binding.json', 256 * 1024, deadline=deadline,clock=time.monotonic)
     _require(hashlib.sha256(old_raw).hexdigest() == _sha(value['predecessor_python_binding_sha256']))
@@ -420,7 +433,7 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
     _require(old['schema'] == 'guanheng.cta-python-binding.v1')
     if identities is not None:
         _require(binding is not None and digest(identities) == value['successor_python_code_identity'])
-        _compatible_python(old,binding)
+        _compatible_python(old,binding,role_handoff=role_handoff)
     restored=state_origin(value,deadline=deadline)
     if restored is not None and identities is not None:_compatible_python(restored['binding'],binding)
     return value, digest(dict((restored['binding']if restored else old)['files']))

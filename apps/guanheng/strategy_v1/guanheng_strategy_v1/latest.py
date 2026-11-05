@@ -1,4 +1,4 @@
-"""正式1.2.1的完整纯决策；实际周期和复权事实由外部owner冻结提供。"""
+"""正式1.2.2的完整纯决策；实际周期和复权事实由外部owner冻结提供。"""
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass, replace
 from datetime import date, datetime
 from decimal import Context, Decimal, ROUND_HALF_UP
@@ -67,8 +67,8 @@ class RetainedConfig:
     budget_fraction: float  # 策略预算占账户比例；沿原配置，范围(0, 0.95]，无单位。
     symbol_cap_weight: float = .25  # 单证券目标权重上限；沿原规则固定0.25。
     max_weight_change: float = .25  # 单次权重变化上限；沿原规则固定0.25。
-    kc_composite_signal_symbol: str = KC_SYMBOL  # 本版科创综指信号证券；使用鹏华自身原价与前复权历史。
-    kc_composite_execution_symbol: str = KC_SYMBOL  # 本版科创综指执行证券；须与信号、周期和成本证券一致。
+    kc_composite_signal_symbol: str = KC_SYMBOL  # 本版科创角色信号证券；使用博时科创100自身原价与前复权历史。
+    kc_composite_execution_symbol: str = KC_SYMBOL  # 本版科创角色执行证券；须与信号、周期和成本证券一致。
     signal_warmup_policy_version: str = 'regime-available-v1'  # 现有信号预热规则版本；沿原可用历史语义。
     state_input_policy_version: str = 'ledger-front-ratio-v1'  # 实际周期及同基准前复权输入规则；沿1.1.2分支。
 
@@ -84,7 +84,7 @@ def validate_retained_configuration(config: RetainedConfig) -> None:
         and (config.kc_composite_signal_symbol, config.kc_composite_execution_symbol,
              config.signal_warmup_policy_version, config.state_input_policy_version)
         == (KC_SYMBOL, KC_SYMBOL, 'regime-available-v1', 'ledger-front-ratio-v1'),
-        'invalid_configuration', '配置须符合正式1.2.1六参数和策略预算')
+        'invalid_configuration', '配置须符合正式1.2.2六参数和策略预算')
 
 
 @dataclass(frozen=True, slots=True)

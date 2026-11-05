@@ -102,7 +102,10 @@ public:
     }
     void on_tick(ICtaStraCtx*,const char* code,WTSTickData* tick)override{
         try {
-            cta_require(code&&tick);std::lock_guard<std::mutex> guard(binding.quote_mutex);
+            cta_require(code);
+            // 原WT可沿历史理论仓位继续订阅退役证券；当前桥只观察声明reads，不扩大缓存或执行集合。
+            if(!binding.reads.count(code))return;
+            cta_require(tick);std::lock_guard<std::mutex> guard(binding.quote_mutex);
             auto at=binding.quotes.find(code);cta_require(at!=binding.quotes.end());
             const auto& raw=tick->getTickStruct();
             cta_require(std::isfinite(raw.price)&&raw.price>0&&raw.action_date&&raw.action_time,GH_RT_UNKNOWN);

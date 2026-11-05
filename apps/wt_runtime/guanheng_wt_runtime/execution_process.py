@@ -90,6 +90,13 @@ class ExecutionProcessConfig:
             _require(type(refresh) is dict and set(refresh)=={'interval_ms'}
                      and type(refresh['interval_ms']) is int and 1000<=refresh['interval_ms']<=60000)
         required_files = {'app/GuanhengCtaRuntime.dll', 'app/traders/TraderQMTStandard.dll', 'app/executers/WtExeFact.dll'}
+        if 'role_replacement' in config:
+            # 退役证券过滤器属于本代安装闭包；与原DLL一样由发行清单逐字节校验。
+            name = config['environment']['filters']
+            relative = PurePosixPath(name)
+            _require(type(name) is str and name and not relative.is_absolute()
+                     and '..' not in relative.parts and ':' not in name and '\\' not in name)
+            required_files.add('app/' + name)
         for name in config['base_data'].values():
             required_files.add('app/' + name)
         for item in config['strategies']:

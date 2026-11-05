@@ -4,8 +4,8 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-strategy-v1"
-version = "0.1.0a9"
-description = "Role-bound Resonance 1.2.1 pure model and actual position-cycle decisions"
+version = "0.1.0a10"
+description = "Role-bound Resonance 1.2.2 pure model and actual position-cycle decisions"
 readme = "README.md"
 requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]

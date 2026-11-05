@@ -32,7 +32,9 @@ inline std::map<std::string,double> cta_targets(wtp::ICtaStraCtx& ctx,const std:
     std::map<std::string,double> values;
     ctx.enum_position([&](const char* code,double quantity){
         auto name=cta_text(code,GH_RT_CODE_BYTES);
-        cta_require(reads.count(name)&&std::isfinite(quantity)&&values.size()<GH_RT_MAX_READS,GH_RT_NATIVE);
+        // 原上下文保留历史理论账；本接口只投影声明reads，实际账户范围仍由券商观察准入核验。
+        if(!reads.count(name))return;
+        cta_require(std::isfinite(quantity)&&values.size()<GH_RT_MAX_READS,GH_RT_NATIVE);
         cta_require(values.emplace(name,quantity).second,GH_RT_NATIVE);
     },false);
     return values;

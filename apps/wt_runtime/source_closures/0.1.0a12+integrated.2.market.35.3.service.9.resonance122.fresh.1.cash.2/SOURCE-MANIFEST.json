@@ -1,0 +1,411 @@
+{
+  "schema": "wt.runtime-source-closure.v1",
+  "version": "0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2",
+  "base_commit": "9a0b3f9a36a991a1bfc74af8d1fa315dbf4798b3",
+  "installed_wheel": "guanheng_wt_runtime-0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2-py3-none-any.whl",
+  "installed_wheel_sha256": "5c59df3c82c0ecb5d0d14d104ccd14ed6663526b8b702c85470faceb95aa9308",
+  "pyproject_sha256": "5a210d814e69d93d842c3ad975c6610496b48bbc84930a4c8a282c4e0a07fc23",
+  "modules": [
+    {
+      "name": "__init__.py",
+      "sha256": "b4257fae5644f574bf93689c3e56c1b6c58c22d408e32186d692cc1c9944e46d",
+      "source": "base"
+    },
+    {
+      "name": "__main__.py",
+      "sha256": "61aaba66131c6b634eceef829e08872ecb048315f8521ea9ca0269178b89c31d",
+      "source": "base"
+    },
+    {
+      "name": "account_observation_process.py",
+      "sha256": "40242654c5a6b4b27d10915ceff6c573c6094d63b84cc2bddaa06e0e3812c618",
+      "source": "overlay"
+    },
+    {
+      "name": "account_protocol.py",
+      "sha256": "4eaffd1d5839dbe9c76f22c2b926f74f5ca3728a74bfd3d0cf407546779b1b17",
+      "source": "base"
+    },
+    {
+      "name": "account_scan_config.py",
+      "sha256": "541c4efc6f711c593c97c4c5725a30500dfa18d8a70519c4fae01380a9d7cdf7",
+      "source": "base"
+    },
+    {
+      "name": "account_scan_runtime.py",
+      "sha256": "4f5f08dfbeeb91a29c2ca20495cd8fb424f0306de2d4e68ec17d7d1eef9df598",
+      "source": "base"
+    },
+    {
+      "name": "analysis_window_process.py",
+      "sha256": "ea27042148212a350b104f7f8d29101350e0cd4a185209c94ea84017983a4d25",
+      "source": "base"
+    },
+    {
+      "name": "backtest_cli.py",
+      "sha256": "bfd720398e5b40e042541bae04453822eddd24e5d6a9c088444c5fef1de6ffe2",
+      "source": "overlay"
+    },
+    {
+      "name": "backtest_completion.py",
+      "sha256": "0e1baf44c3e21d846df1df627b73a0016f6f86ccaea1eabdf439928fa660a82f",
+      "source": "overlay"
+    },
+    {
+      "name": "backtest_installation.py",
+      "sha256": "1f2dd9df6a17f47c43c862619258a600f62316b186c0bb44f918e9b91cab3bb9",
+      "source": "base"
+    },
+    {
+      "name": "backtest_reports.py",
+      "sha256": "88b43e18c274cdbf463f21b1cef471c78af4c5dc927061ef88c7a8ae9601b4b0",
+      "source": "overlay"
+    },
+    {
+      "name": "collection_observation.py",
+      "sha256": "5b3e3feccb074a0541197cf5ab63a78a7a1d26a5d56ba948d068786edf11386c",
+      "source": "base"
+    },
+    {
+      "name": "execution_configured.py",
+      "sha256": "2be11524989394f9cb06bf1ad3d5ada9b1f00ab55f6f99c8b8ffef1b392edae3",
+      "source": "overlay"
+    },
+    {
+      "name": "execution_cycle_source.py",
+      "sha256": "a729e5022d2163b8258d7272f6ff8b7b584d7bb8a5d83eb79c80607a04e76866",
+      "source": "overlay"
+    },
+    {
+      "name": "execution_facts.py",
+      "sha256": "1997ba38c65e6fcbba1d2deee680663f15b0b639cdc4bc273fdf817604734afc",
+      "source": "overlay"
+    },
+    {
+      "name": "execution_market_window.py",
+      "sha256": "431dcde1b0267ec930bf12e823ef14141a1a58bd4d310dfe749934c183f283fb",
+      "source": "overlay"
+    },
+    {
+      "name": "execution_process.py",
+      "sha256": "56e3c2fbebc2b131c0acdafefb16bd5ecbb49e18e28816b673e59d60f8177dcc",
+      "source": "overlay"
+    },
+    {
+      "name": "execution_recovery.py",
+      "sha256": "ae4cea78351a1602c83d3e7187f3d5720a0e3630dcc09e106cbec44aa3b54628",
+      "source": "overlay"
+    },
+    {
+      "name": "execution_role_replacement.py",
+      "source": "overlay",
+      "sha256": "a7067447ed1658c30187d769d1e6b54fbc99886acee75205718e4f86272a4bd1"
+    },
+    {
+      "name": "execution_source_wait.py",
+      "sha256": "327b3381cc7950f78313b0be90a24f39482cb1cc5a4029239776373b5f616ad0",
+      "source": "base"
+    },
+    {
+      "name": "execution_strategy.py",
+      "sha256": "e47a0ea9cbe3226f26a28fa5084e181505a03ac52c16f70ab41bec28d27947a0",
+      "source": "base"
+    },
+    {
+      "name": "history_preparation_process.py",
+      "sha256": "6bdbaa88d85b73f54d20dc8e2fa257a55db74b659cfdebab63e099269ad325eb",
+      "source": "base"
+    },
+    {
+      "name": "initial_inventory.py",
+      "sha256": "08ec62e98371e0196e62b05c54378e68733842587c299b0351f8af92e4edf1ef",
+      "source": "overlay"
+    },
+    {
+      "name": "initial_inventory_execution.py",
+      "sha256": "bf547e08d3bd1b821d9614dd70309a7ad9ac59c3ea2cad3b64cddaf2a4e9dab8",
+      "source": "base"
+    },
+    {
+      "name": "managed_local_process.py",
+      "sha256": "a6d26ecc0a4d956331a3bf5ace500ab1d445f26d1978978e70e1c8f370413fd3",
+      "source": "base"
+    },
+    {
+      "name": "qmt_host_process.py",
+      "sha256": "c55cb235b312939525c077ade804896c435ca626c420b70b26204b68594c79b5",
+      "source": "base"
+    },
+    {
+      "name": "quote_collection_process.py",
+      "sha256": "b2a03ce2900e83d3ba409e6b7ba1f78fa7782985955bdd275b4a9c7c9beb59b6",
+      "source": "base"
+    },
+    {
+      "name": "report_values.py",
+      "sha256": "6ed30e2f6dfee6ede78961e406519672ffc6f6a8f893250ed779ff3acdb5f2f5",
+      "source": "base"
+    },
+    {
+      "name": "retained_evaluation.py",
+      "sha256": "f3472a3bb7efe47231fc7f3deec6178b243c4cb7340d1866bfb28dd4da06fe93",
+      "source": "overlay"
+    },
+    {
+      "name": "retained_per_date_replay.py",
+      "sha256": "68389ee4bdf2c45c011740f1cb5d7bb14a3a3c191bd477171c58e715c9c3bb36",
+      "source": "base"
+    },
+    {
+      "name": "retained_replay.py",
+      "sha256": "19b52688ba3423dfd5a94c78b9530fbea7e3d04b6a7458af72fd8a579f5b236b",
+      "source": "overlay"
+    },
+    {
+      "name": "retained_report.py",
+      "sha256": "9574da6b6d4f77ef9a6622621b97f7b76f622dcb6107014f2b6fb35a6902e6da",
+      "source": "overlay"
+    },
+    {
+      "name": "runtime.py",
+      "sha256": "98205a90071c447160122a8defc32057175cfff0a099ffe07b5522ad1108242f",
+      "source": "overlay"
+    },
+    {
+      "name": "runtime_diagnostics.py",
+      "sha256": "40fcfa7f4d6240ed9aab2590f7b2fb0225fa1fd583251ae6c76e05c25b67eaef",
+      "source": "base"
+    },
+    {
+      "name": "service_control.py",
+      "sha256": "8f2ca6be9ccdbbd48d0760dc7bb97ea443b6ae631c33f4bd63711a294547feea",
+      "source": "overlay"
+    },
+    {
+      "name": "snapshot_publisher.py",
+      "sha256": "9e8b7ed80728b18901f4541bbc7fb052c2b961d77e209642bcab64d559338340",
+      "source": "base"
+    },
+    {
+      "name": "source_market_process.py",
+      "sha256": "0a594d469679a5cae69e8c1cd735e78c46a26de5cc1d17b5733c3e800c1cfd9e",
+      "source": "base"
+    },
+    {
+      "name": "strategy_capital.py",
+      "sha256": "6a7ac789aca783c49bc56015245d7a2ab98a4356574f093916305f9e8db0c716",
+      "source": "overlay"
+    },
+    {
+      "name": "strategy_host.py",
+      "sha256": "5bf29b509c58f20173143ab24246f2b55d7353a9cbde4df69391f1f88732b0fc",
+      "source": "base"
+    },
+    {
+      "name": "strategy_job.py",
+      "sha256": "91cc52596b09d9042d298c8a3c8ed2134fe8fe0c8354b34366fc90fc1689c133",
+      "source": "base"
+    },
+    {
+      "name": "strategy_porter.py",
+      "sha256": "d6a4c4c52fdd61a82de811188269b5d854942d458f327563e541a2f1326c028c",
+      "source": "base"
+    },
+    {
+      "name": "strategy_replay_facts.py",
+      "sha256": "8357c47789c9b252f96d742f5216e7eb847d8cb5d63dcecc2a8141c6113e7e60",
+      "source": "base"
+    },
+    {
+      "name": "strategy_runner.py",
+      "sha256": "7a910fe8c957cb4d0496c3365e34bd3212d80f6fa91911d429c9d7be927a3e9f",
+      "source": "overlay"
+    },
+    {
+      "name": "thread_owner.py",
+      "sha256": "c04d7653add7f55c20eb6db122c10c296b0f6adce08cc26ec54aa3f5514af0d7",
+      "source": "base"
+    },
+    {
+      "name": "trade_host_process.py",
+      "sha256": "50a7f9080b3bd1f1a3e160ff3ac77de958de69546339a0c3146953dc1e186488",
+      "source": "base"
+    }
+  ],
+  "payload_sha256": {
+    "guanheng_wt_runtime/__init__.py": "b4257fae5644f574bf93689c3e56c1b6c58c22d408e32186d692cc1c9944e46d",
+    "guanheng_wt_runtime/__main__.py": "61aaba66131c6b634eceef829e08872ecb048315f8521ea9ca0269178b89c31d",
+    "guanheng_wt_runtime/account_observation_process.py": "40242654c5a6b4b27d10915ceff6c573c6094d63b84cc2bddaa06e0e3812c618",
+    "guanheng_wt_runtime/account_protocol.py": "4eaffd1d5839dbe9c76f22c2b926f74f5ca3728a74bfd3d0cf407546779b1b17",
+    "guanheng_wt_runtime/account_scan_config.py": "541c4efc6f711c593c97c4c5725a30500dfa18d8a70519c4fae01380a9d7cdf7",
+    "guanheng_wt_runtime/account_scan_runtime.py": "4f5f08dfbeeb91a29c2ca20495cd8fb424f0306de2d4e68ec17d7d1eef9df598",
+    "guanheng_wt_runtime/analysis_window_process.py": "ea27042148212a350b104f7f8d29101350e0cd4a185209c94ea84017983a4d25",
+    "guanheng_wt_runtime/backtest_cli.py": "bfd720398e5b40e042541bae04453822eddd24e5d6a9c088444c5fef1de6ffe2",
+    "guanheng_wt_runtime/backtest_completion.py": "0e1baf44c3e21d846df1df627b73a0016f6f86ccaea1eabdf439928fa660a82f",
+    "guanheng_wt_runtime/backtest_installation.py": "1f2dd9df6a17f47c43c862619258a600f62316b186c0bb44f918e9b91cab3bb9",
+    "guanheng_wt_runtime/backtest_reports.py": "88b43e18c274cdbf463f21b1cef471c78af4c5dc927061ef88c7a8ae9601b4b0",
+    "guanheng_wt_runtime/collection_observation.py": "5b3e3feccb074a0541197cf5ab63a78a7a1d26a5d56ba948d068786edf11386c",
+    "guanheng_wt_runtime/execution_configured.py": "2be11524989394f9cb06bf1ad3d5ada9b1f00ab55f6f99c8b8ffef1b392edae3",
+    "guanheng_wt_runtime/execution_cycle_source.py": "a729e5022d2163b8258d7272f6ff8b7b584d7bb8a5d83eb79c80607a04e76866",
+    "guanheng_wt_runtime/execution_facts.py": "1997ba38c65e6fcbba1d2deee680663f15b0b639cdc4bc273fdf817604734afc",
+    "guanheng_wt_runtime/execution_market_window.py": "431dcde1b0267ec930bf12e823ef14141a1a58bd4d310dfe749934c183f283fb",
+    "guanheng_wt_runtime/execution_process.py": "56e3c2fbebc2b131c0acdafefb16bd5ecbb49e18e28816b673e59d60f8177dcc",
+    "guanheng_wt_runtime/execution_recovery.py": "ae4cea78351a1602c83d3e7187f3d5720a0e3630dcc09e106cbec44aa3b54628",
+    "guanheng_wt_runtime/execution_role_replacement.py": "a7067447ed1658c30187d769d1e6b54fbc99886acee75205718e4f86272a4bd1",
+    "guanheng_wt_runtime/execution_source_wait.py": "327b3381cc7950f78313b0be90a24f39482cb1cc5a4029239776373b5f616ad0",
+    "guanheng_wt_runtime/execution_strategy.py": "e47a0ea9cbe3226f26a28fa5084e181505a03ac52c16f70ab41bec28d27947a0",
+    "guanheng_wt_runtime/history_preparation_process.py": "6bdbaa88d85b73f54d20dc8e2fa257a55db74b659cfdebab63e099269ad325eb",
+    "guanheng_wt_runtime/initial_inventory.py": "08ec62e98371e0196e62b05c54378e68733842587c299b0351f8af92e4edf1ef",
+    "guanheng_wt_runtime/initial_inventory_execution.py": "bf547e08d3bd1b821d9614dd70309a7ad9ac59c3ea2cad3b64cddaf2a4e9dab8",
+    "guanheng_wt_runtime/managed_local_process.py": "a6d26ecc0a4d956331a3bf5ace500ab1d445f26d1978978e70e1c8f370413fd3",
+    "guanheng_wt_runtime/qmt_host_process.py": "c55cb235b312939525c077ade804896c435ca626c420b70b26204b68594c79b5",
+    "guanheng_wt_runtime/quote_collection_process.py": "b2a03ce2900e83d3ba409e6b7ba1f78fa7782985955bdd275b4a9c7c9beb59b6",
+    "guanheng_wt_runtime/report_values.py": "6ed30e2f6dfee6ede78961e406519672ffc6f6a8f893250ed779ff3acdb5f2f5",
+    "guanheng_wt_runtime/retained_evaluation.py": "f3472a3bb7efe47231fc7f3deec6178b243c4cb7340d1866bfb28dd4da06fe93",
+    "guanheng_wt_runtime/retained_per_date_replay.py": "68389ee4bdf2c45c011740f1cb5d7bb14a3a3c191bd477171c58e715c9c3bb36",
+    "guanheng_wt_runtime/retained_replay.py": "19b52688ba3423dfd5a94c78b9530fbea7e3d04b6a7458af72fd8a579f5b236b",
+    "guanheng_wt_runtime/retained_report.py": "9574da6b6d4f77ef9a6622621b97f7b76f622dcb6107014f2b6fb35a6902e6da",
+    "guanheng_wt_runtime/runtime.py": "98205a90071c447160122a8defc32057175cfff0a099ffe07b5522ad1108242f",
+    "guanheng_wt_runtime/runtime_diagnostics.py": "40fcfa7f4d6240ed9aab2590f7b2fb0225fa1fd583251ae6c76e05c25b67eaef",
+    "guanheng_wt_runtime/service_control.py": "8f2ca6be9ccdbbd48d0760dc7bb97ea443b6ae631c33f4bd63711a294547feea",
+    "guanheng_wt_runtime/snapshot_publisher.py": "9e8b7ed80728b18901f4541bbc7fb052c2b961d77e209642bcab64d559338340",
+    "guanheng_wt_runtime/source_market_process.py": "0a594d469679a5cae69e8c1cd735e78c46a26de5cc1d17b5733c3e800c1cfd9e",
+    "guanheng_wt_runtime/strategy_capital.py": "6a7ac789aca783c49bc56015245d7a2ab98a4356574f093916305f9e8db0c716",
+    "guanheng_wt_runtime/strategy_host.py": "5bf29b509c58f20173143ab24246f2b55d7353a9cbde4df69391f1f88732b0fc",
+    "guanheng_wt_runtime/strategy_job.py": "91cc52596b09d9042d298c8a3c8ed2134fe8fe0c8354b34366fc90fc1689c133",
+    "guanheng_wt_runtime/strategy_porter.py": "d6a4c4c52fdd61a82de811188269b5d854942d458f327563e541a2f1326c028c",
+    "guanheng_wt_runtime/strategy_replay_facts.py": "8357c47789c9b252f96d742f5216e7eb847d8cb5d63dcecc2a8141c6113e7e60",
+    "guanheng_wt_runtime/strategy_runner.py": "7a910fe8c957cb4d0496c3365e34bd3212d80f6fa91911d429c9d7be927a3e9f",
+    "guanheng_wt_runtime/thread_owner.py": "c04d7653add7f55c20eb6db122c10c296b0f6adce08cc26ec54aa3f5514af0d7",
+    "guanheng_wt_runtime/trade_host_process.py": "50a7f9080b3bd1f1a3e160ff3ac77de958de69546339a0c3146953dc1e186488"
+  },
+  "metadata_sha256": "5e83931bb0e0a172d0e8ccf931f6d9bf91384020839e1880cccadd1d7a979ffe",
+  "companions": {
+    "strategy": {
+      "installed_wheel": "guanheng_strategy_v1-0.1.0a10-py3-none-any.whl",
+      "installed_wheel_sha256": "040c9dd645670213309743a4eb965d389e2243123e175c6f2c7589590235a46f",
+      "payload_sha256": {
+        "guanheng_strategy_v1/__init__.py": "fad75c631c54702b3eb2a915b8b66e0b9f3fb821b9c9aa96b7a74f555c2c34b9",
+        "guanheng_strategy_v1/historical.py": "7ada722a06b0a8eaa3ae5a9281e5c92b6c7d1fc5668a535d1dc8b6dfe8368cad",
+        "guanheng_strategy_v1/latest.py": "85b519d2fd8f587bf6c73f8de5e6f1a55a565ad0d3bd51f2f14b5c68e8f73de4",
+        "guanheng_strategy_v1/role_profile.py": "d59cc38177e43e8c183615dd6136a6efdc04d1992a779edfa5d6bd9286cbf4d3",
+        "guanheng_strategy_v1/source_manifest.json": "4f9b10d98780accc1eabfed937be6b70f1e9683c835a41df2737a96ab0b19eb5"
+      },
+      "metadata_sha256": "97e43e54e8f0b401632fe46be9f69cf98597b0fb4f80947bbcec5bd36229ff0c",
+      "sources": {
+        "pyproject.toml": {
+          "source": "apps/guanheng/strategy_v1/pyproject.toml",
+          "sha256": "0492aafa2d297f98e9b15a6a9ddda57cc444ac36db83e8b5eeb8afe2f6693e58"
+        },
+        "README.md": {
+          "source": "apps/guanheng/strategy_v1/README.md",
+          "sha256": "3c6c79981678b5a545b4ac406564f1c1980077ae569106e359c73f1439bd9340"
+        },
+        "guanheng_strategy_v1/__init__.py": {
+          "source": "apps/guanheng/strategy_v1/guanheng_strategy_v1/__init__.py",
+          "sha256": "fad75c631c54702b3eb2a915b8b66e0b9f3fb821b9c9aa96b7a74f555c2c34b9"
+        },
+        "guanheng_strategy_v1/historical.py": {
+          "source": "apps/guanheng/strategy_v1/guanheng_strategy_v1/historical.py",
+          "sha256": "7ada722a06b0a8eaa3ae5a9281e5c92b6c7d1fc5668a535d1dc8b6dfe8368cad"
+        },
+        "guanheng_strategy_v1/latest.py": {
+          "source": "apps/guanheng/strategy_v1/guanheng_strategy_v1/latest.py",
+          "sha256": "85b519d2fd8f587bf6c73f8de5e6f1a55a565ad0d3bd51f2f14b5c68e8f73de4"
+        },
+        "guanheng_strategy_v1/role_profile.py": {
+          "source": "apps/guanheng/strategy_v1/guanheng_strategy_v1/role_profile.py",
+          "sha256": "d59cc38177e43e8c183615dd6136a6efdc04d1992a779edfa5d6bd9286cbf4d3"
+        },
+        "guanheng_strategy_v1/source_manifest.json": {
+          "source": "apps/guanheng/strategy_v1/guanheng_strategy_v1/source_manifest.json",
+          "sha256": "4f9b10d98780accc1eabfed937be6b70f1e9683c835a41df2737a96ab0b19eb5"
+        }
+      }
+    },
+    "qna": {
+      "installed_wheel": "guanheng_native_analysis_core-0.1.0a2+mdphttp.1.resonance122.1-py3-none-any.whl",
+      "installed_wheel_sha256": "f695450a07d4f96e9a594dab1a5657cdb65ab4ab0f5b322cfef4299515f7ecbd",
+      "payload_sha256": {
+        "guanheng_market_client/qmt_native_replay.py": "7cda1f48252b97c328681fdafe150d6f55646c06d266161300233d12947f8701",
+        "integrations/__init__.py": "348a73e7c800613533d42c78b6c2068af983783ae0141c3acb41fd12aceed66f",
+        "integrations/guanheng/__init__.py": "348a73e7c800613533d42c78b6c2068af983783ae0141c3acb41fd12aceed66f",
+        "integrations/guanheng/dependencies.py": "8de074ad4a551ad1fc5afced2f1daee5413ced5290860fb47cd3e40a82941ea1",
+        "integrations/guanheng/models.py": "b0bbdc96c9f24283fa99afb4684b2f09ea288e9374583b4ab27fe4534611b89f",
+        "integrations/guanheng/native_history.py": "2d1a6e68ab79fd39df30e9153af57e646c7c61e4df5868da4dc21bfd7874e302",
+        "integrations/guanheng/price_quality.py": "8865e50e7e5c2ed63b514cdf5755c52141d65ad8379a010459d5e9d595005d5e",
+        "integrations/guanheng/qmt_dat_layout.py": "4b62c99d49a4bbf0026619805886c1b2cd643c2c893b48e05746171b1fedc9aa",
+        "integrations/guanheng/qmt_minute_import.py": "d8a4cd5f781801ce9756a8abf359d66daf718a03885b936fa757993137cb1b09",
+        "integrations/guanheng/qmt_native_adjustment.py": "90a821dda105b3a59442246650545b38920e2d602d7c12cf8f7114488ac379a6",
+        "integrations/guanheng/qmt_native_replay.py": "0818f03dc71c0b8f08c7b102c53ec2540cd48d40cf7debd521bd32a19106f2d1",
+        "integrations/guanheng/source_history_transport.py": "f328b1f515c3de508a56504a9c7b4f7e23b6fb18991283a4c1400dbea74b70e0"
+      },
+      "metadata_sha256": "551f449ad10d6bd70865910ae0defb4ec73cc685d685e02812343aa467af54ff",
+      "sources": {
+        "guanheng_market_client/qmt_native_replay.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/guanheng_market_client/qmt_native_replay.py",
+          "sha256": "7cda1f48252b97c328681fdafe150d6f55646c06d266161300233d12947f8701"
+        },
+        "integrations/__init__.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/__init__.py",
+          "sha256": "348a73e7c800613533d42c78b6c2068af983783ae0141c3acb41fd12aceed66f"
+        },
+        "integrations/guanheng/__init__.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/__init__.py",
+          "sha256": "348a73e7c800613533d42c78b6c2068af983783ae0141c3acb41fd12aceed66f"
+        },
+        "integrations/guanheng/dependencies.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/dependencies.py",
+          "sha256": "8de074ad4a551ad1fc5afced2f1daee5413ced5290860fb47cd3e40a82941ea1"
+        },
+        "integrations/guanheng/models.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/models.py",
+          "sha256": "b0bbdc96c9f24283fa99afb4684b2f09ea288e9374583b4ab27fe4534611b89f"
+        },
+        "integrations/guanheng/native_history.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/native_history.py",
+          "sha256": "2d1a6e68ab79fd39df30e9153af57e646c7c61e4df5868da4dc21bfd7874e302"
+        },
+        "integrations/guanheng/price_quality.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/price_quality.py",
+          "sha256": "8865e50e7e5c2ed63b514cdf5755c52141d65ad8379a010459d5e9d595005d5e"
+        },
+        "integrations/guanheng/qmt_dat_layout.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/qmt_dat_layout.py",
+          "sha256": "4b62c99d49a4bbf0026619805886c1b2cd643c2c893b48e05746171b1fedc9aa"
+        },
+        "integrations/guanheng/qmt_minute_import.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/qmt_minute_import.py",
+          "sha256": "d8a4cd5f781801ce9756a8abf359d66daf718a03885b936fa757993137cb1b09"
+        },
+        "integrations/guanheng/qmt_native_adjustment.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/qmt_native_adjustment.py",
+          "sha256": "90a821dda105b3a59442246650545b38920e2d602d7c12cf8f7114488ac379a6"
+        },
+        "integrations/guanheng/qmt_native_replay.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/qmt_native_replay.py",
+          "sha256": "0818f03dc71c0b8f08c7b102c53ec2540cd48d40cf7debd521bd32a19106f2d1"
+        },
+        "integrations/guanheng/source_history_transport.py": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/integrations/guanheng/source_history_transport.py",
+          "sha256": "f328b1f515c3de508a56504a9c7b4f7e23b6fb18991283a4c1400dbea74b70e0"
+        },
+        "pyproject.toml": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/pyproject.toml",
+          "sha256": "3a6b516cdee814873c3db181305f977672916a80f2ff987cf1e8dc1faa582300"
+        },
+        "README.md": {
+          "source": "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/overlays/qna/README.md",
+          "sha256": "9606f0bd32aacc3baf4e36c7f20d7a88056edf37608a7c5fc004ed1de1996d86"
+        }
+      }
+    }
+  },
+  "build_tools": {
+    "scripts/source_packages.py": "7d66a1ce63e5297e941e3dca734619bdc53a261848a4745eff00bfba1876a50d",
+    "scripts/client_sdk.py": "57b5741faa3a84386002d7b70b47598fa144a642c07aeb0f8b96e822e1e5b93e",
+    "scripts/native_support/__init__.py": "65298d9149036b2a60f2e8b08cb6132f2de2fc4a88b1de4c9eb40766ef5fdfbe",
+    "scripts/native_support/process_startup.py": "4a7e1dc10c1c40831436abd0c5606569b1e533ec13493ca062fa8e58d238b6bd",
+    "apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2/build.py": "881320cec80683a765c9a674432eca277280b1548ad481e6f618630d335c8093"
+  }
+}

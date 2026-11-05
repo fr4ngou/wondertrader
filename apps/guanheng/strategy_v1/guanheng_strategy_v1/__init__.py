@@ -1,4 +1,4 @@
-"""唯一保留共振1.2.1纯策略；实际状态与执行归原生宿主。"""
+"""唯一保留共振1.2.2纯策略；实际状态与执行归原生宿主。"""
 from guanheng_strategy_core.dependency_identity import package_identity
 
 _PACKAGE_VERSION, _DEPENDENCIES, _MANIFEST = package_identity(__name__, 'guanheng-strategy-v1')
