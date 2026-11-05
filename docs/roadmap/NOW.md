@@ -1,5 +1,7 @@
 # 当前工作
 
+2026-11-06 03:08：正式日线21的r001已完成8024个价格证券、618批QMT原价/前复权缓存捕获；140项HPR均真实call_returned，正在沿原ID进行完整readback，尚未发布本轮Native价格结果。主交易41052/Native49624、日线33644及独立观衡保持；分析窗口已发布9次。正式18136抽样读回沪深股票/ETF、上证及深证成指11月5日日线，北交所899001样本无目标日，缺口保持。QA为`current-day-20261105-001/DAILY21-CACHE-COVERAGE005.json`、`DAILY21-FORMAL-READER001.json`、`DAILY21-LOGS-ACTUAL003.json`；缓存共同日期不等于Native覆盖。已安排daily_gap_source_facts子任务只读核7股票与当前指数缺口的真实原因，仅完整交付或可行动阻塞通知，不操作QMT/运行数据。日志模块说明已同步已部署及未覆盖范围。无新增决策，目标active，页面专项继续后置。
+
 2026-11-06 02:43追加只读验真：分析准备的一次read_ticket_ended已按原owner流程重试，新的46d92a70批次于02:42:24实际发布，第6次成功，phase=published/error=null；原5次成功与请求记录保留。QMT签名交易状态200、无hard_fault或unknown fence；独立观衡正式归档接口实际返回5份、invalid_receipts=0。证据`current-day-20261105-001/MAINLINE-READONLY-POST-DAILY21.json`。全市场r001已完成资料捕获，价格批读正在推进，尚未核成最终覆盖；页面故障仍按用户顺序后置。
 
 2026-11-06 02:35：日线unified.21已独立采用，修复来源恢复后已发布partial名册未接续的根因。新Runtime46676/数据33644，六角色ready，主交易41052/Native49624保持；实际自动建立11月5日price-first/r001，126批明细已完成、8086保留范围形成。group020及桌面启停快捷方式同步更新。见[日线21发布](../releases/2026-11-06-daily21-reference-resume-live.md)。当前继续核价格发布/分类覆盖，尚未把名册数当作日线完成；自然策略执行和后继收盘辅助生效仍待交易时段。用户截图问题继续后置，无新增决策项，目标active。
