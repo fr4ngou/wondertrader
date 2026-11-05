@@ -924,3 +924,4 @@
 
 - [全类别日线数据owner候选](2026-11-04-unified-daily-categories-candidate.md)：7870个旧名单价格身份、同owner补齐/发布、原件/DSB复用、v9完整合成协议及明确待验范围。
 - [国信QMT辅助接口核查](2026-11-05-qmt-auxiliary-api-research.md)：内置接口优先、旧来源对照、四只ETF真实证券资料读取与历史份额/市场汇总的待验边界。
+- [辅助持续更新与进程日志接收](2026-11-05-auxiliary-and-process-log-intake.md)：开发者1十文件合入核同、原Runtime13闭包保留43模块及日志候选普通安装真实进程验真，现场保持原运行。
