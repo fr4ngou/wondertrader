@@ -1,5 +1,7 @@
 # 当前事实
 
+文档维护规则已明确实施者同步更新所属索引、上层导航与引用，并随文档在同一提交维护；人工核对和现有本地检查继续适用。见[本次验证](../evidence/2026-11-05-document-index-lifecycle.md)。
+
 核实时间：2026-11-05北京时间15:20。当前Runtime resonance122.fresh.1.cash.2、解释器016，稳定CURRENT对应service008-role/activation004。整体目标active。
 
 ## 唯一策略与交易
