@@ -729,28 +729,13 @@ class RetainedStrategy:
     def _buy_fee_basis(self, target, basis, observation):
         """为本次原NSQ实际消费的目标装配新增买入组费用预留；不修改目标或现金。
 
-        显式预留继续沿原输入。缺预留时复用已核WT开仓费率、同次原价和原NSQ份数；
-        每股向上取分形成可覆盖整数股部分成交舍入的保守界，实际费用继续归WT。
+        显式预留作为最低值，并覆盖已核WT开仓费率、同次原价和原NSQ份数；
+        共用回放的费用事实装配，实际费用继续归WT。
         此值是本策略预算的配置模型预留，不声明券商佣金或独立子账户现金。
         """
-        if self.inputs.fee_reserve_cny is not None:
-            return basis
-        from guanheng_strategy_native import target_quantities
-        from .execution_facts import _decimal
-        total = Fraction(0)
-        for wanted, actual, price in zip(target_quantities(target,self.inputs.policy,basis),
-                                        observation.positions,basis.prices,strict=True):
-            delta = max(0,wanted.shares-actual.actual)
-            if not delta:continue
-            exchange, product, unused = self.mapping[wanted.symbol].split('.')
-            fee = self.native_fees[exchange+'.'+product]
-            rate = Fraction(repr(fee['open']))
-            unit_fee = rate if fee['byvolume'] else rate*Fraction(price.raw_cny_per_share)
-            # 原WT商品calcFee按每笔成交四舍五入到分；逐股向上取分覆盖任意整数股拆分。
-            cents = unit_fee*100
-            total += delta*((cents.numerator+cents.denominator-1)//cents.denominator)/Fraction(100)
-        return replace(basis,fee_reserve_cny=_decimal(total),
-                       fee_source=self.native_fee_source+':open-integer-share-cent-upper')
+        from .execution_facts import buy_fee_basis
+        return buy_fee_basis(target, self.inputs.policy, basis, observation, self.mapping,
+                             self.native_fees, self.native_fee_source, split_fills=True)
 
     def _current_quotes(self, context, cutoff):
         """读取原WT已应用tick副本；日线读缓存不承担当前报价及事件时点。"""

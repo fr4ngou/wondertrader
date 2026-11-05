@@ -1,5 +1,7 @@
 # 模块导航
 
+- [历史辅助来源缺口](../../integrations/guanheng/auxiliary_history_sources.md)：旧官方原件、年鉴统计、研究隔离及实际取得时间，统一事实消费接口。
+
 - [运行日志与业务诊断](runtime-logging.md)：原WT/Journal复用、自有持久诊断、磁盘/内存预算、覆盖表与采用边界。
 
 - [WT统一日线与证券资料](unified-daily-data.md)：同一Reader/原价及供应商前复权、日期缺口、缓存优先持续更新与独立安装角色。

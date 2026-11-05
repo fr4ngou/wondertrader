@@ -1,5 +1,6 @@
 """现金ETF原生资料准入与精确金额编码；由原回放接缝迁入。"""
 from fractions import Fraction
+from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 import json
@@ -8,6 +9,41 @@ from types import MappingProxyType
 
 class SessionError(ValueError):
     """回放准入或原生事实失配。"""
+
+
+def buy_fee_basis(target, policy, basis, observation, mapping, fees, source, *, split_fills):
+    """按本次目标和原WT费表装配买入费用，显式预留作为最低值。
+
+    split_fills=True为实盘异步成交：逐份向上取分覆盖任意整数份拆分的舍入；
+    回放单次原撮合用整笔费率及最低费，再按原WT规则四舍五入到分。
+    此函数只提供现金准入事实，目标权重/份数、NSQ阶段及实际记费保持原owner。
+    """
+    from guanheng_strategy_native import target_quantities
+    if type(split_fills) is not bool:
+        raise SessionError('native_fee_fill_model')
+    total = Fraction(0)
+    for wanted, position, price in zip(target_quantities(target, policy, basis),
+                                       observation.positions, basis.prices, strict=True):
+        delta = max(0, wanted.shares-position.actual)
+        if not delta:
+            continue
+        exchange, product, unused = mapping[wanted.symbol].split('.')
+        # 原WT calc_fee在费表没有此品种时返回0；保持该明确配置语义。
+        fee = fees.get(exchange+'.'+product, {'open': 0, 'byvolume': True})
+        rate = Fraction(str(fee['open']))
+        minimum = Fraction(str(fee.get('minfee', 0))) if rate > 0 else Fraction(0)
+        unit = rate if fee['byvolume'] else rate*Fraction(price.raw_cny_per_share)
+        if split_fills:
+            cents = max(unit, minimum)*100
+            amount = delta*Fraction((cents.numerator+cents.denominator-1)//cents.denominator, 100)
+        else:
+            cents = max(unit*delta, minimum)*100
+            amount = Fraction((2*cents.numerator+cents.denominator)//(2*cents.denominator), 100)
+        total += amount
+    floor = Fraction(basis.fee_reserve_cny) if basis.fee_reserve_cny is not None else Fraction(0)
+    return replace(basis, fee_reserve_cny=_decimal(max(floor, total)),
+        fee_source=source+(':open-integer-share-cent-upper' if split_fills else ':open-original-single-match-cent')+
+            ':configured-minimum')
 
 
 def native_price_ticks(mapping, frozen):
