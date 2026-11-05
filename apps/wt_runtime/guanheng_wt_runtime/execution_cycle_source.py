@@ -114,8 +114,8 @@ def queried_opening_cycle(symbol, native_symbol, initial_cycle, baseline_at,
             origin = origin.isoformat()
         return dict(status='initial_inventory', cycle_id=initial['cycle_id'],
                     baseline_at=origin, source_sha256=initial['source_sha256'])
-    if not opening[1].user_tag:
-        return None
+    # 完整券商成交查询可以缺WT附属标签；本入口的归属来自唯一策略及原固定账户基准。
+    # 实际买入时刻、逐笔身份和数量链均已核实；保留原空标签，不伪造live或策略标记。
     occurred, row = opening
     anchor = dict(symbol=symbol, baseline_at=baseline_at,
                   initial_cycle={key: initial[key] for key in ('symbol', 'status', 'quantity', 'source_sha256')})

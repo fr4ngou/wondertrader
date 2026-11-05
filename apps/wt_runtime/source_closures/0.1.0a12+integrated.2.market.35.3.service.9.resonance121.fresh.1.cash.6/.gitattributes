@@ -1,0 +1,2 @@
+overlays/guanheng_wt_runtime/*.py -text whitespace=cr-at-eol
+overlays/qna/integrations/guanheng/*.py -text whitespace=cr-at-eol
