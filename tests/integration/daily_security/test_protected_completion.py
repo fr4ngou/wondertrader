@@ -104,6 +104,31 @@ class ProtectedCompletionTests(unittest.TestCase):
             body=canonical(reply);record['result'].update(result_body_b64=bound.b64(body),result_body_sha256=bound.digest(body))
             self.assertEqual(self.plan(Path(directory),record)['tasks'],[])
 
+    def test_confirmed_not_dispatched_allows_new_gap_task(self):
+        # 正常停止在SDK派发前中止，明确未调用；原UUID/错误继续留存。
+        with tempfile.TemporaryDirectory()as directory:
+            record=receipt();request=record['request']
+            reply=finalize_result(dict(request_id=request['request_id'],operation_id=OPERATION,ok=False,
+                error_code='preparation_not_executed',completed_at='2026-11-04T01:00:00Z'),8192)
+            body=canonical(reply)
+            record['result'].update(result_body_b64=bound.b64(body),result_body_sha256=bound.digest(body),
+                                    dispatch_binding=None,result_binding=None)
+            plan=self.plan(Path(directory),record)
+            self.assertEqual(len(plan['tasks']),1)
+            self.assertEqual(plan['protected_requests'][0]['execution_state'],'not_executed')
+            self.assertEqual(plan['protected_requests'][0]['request_id'],request['request_id'])
+
+    def test_not_executed_requires_consumption_and_no_dispatch_proof(self):
+        for consumed,dispatch in [(False,None),(True,'original')]:
+            with self.subTest(consumed=consumed,dispatch=dispatch),tempfile.TemporaryDirectory()as directory:
+                record=receipt();request=record['request']
+                reply=finalize_result(dict(request_id=request['request_id'],operation_id=OPERATION,ok=False,
+                    error_code='preparation_not_executed',completed_at='2026-11-04T01:00:00Z'),8192)
+                body=canonical(reply);record['consumed']=consumed
+                record['result'].update(result_body_b64=bound.b64(body),result_body_sha256=bound.digest(body),
+                    dispatch_binding=record['binding']if dispatch else None,result_binding=None)
+                self.assertEqual(self.plan(Path(directory),record)['tasks'],[])
+
     def test_success_without_original_dispatch_and_result_proof_stays_unknown(self):
         with tempfile.TemporaryDirectory()as directory:
             record=receipt();record['result'].update(dispatch_binding=None,result_binding=None)

@@ -1,6 +1,7 @@
 """闭合日日线批读的通信代接续；原SDK继续拥有请求、结果和消费确认。"""
 import hashlib
 from pathlib import Path
+import time
 
 from guanheng_qmt_shm.analysis_batch_source import BatchAnalysisSource
 from guanheng_qmt_shm.read_retention_client import RetainedReadClient, RetainedReadBindingChanged
@@ -66,6 +67,22 @@ def capture_source_binding(capture, batches):
     return anchor_digest
 
 
+def _capture_slot_metadata(slot, original, anchor):
+    """原槽和跳过的中断槽共用来源准入，缺原代记录或业务身份变化明确失败。"""
+    binding = original['binding']
+    if binding == anchor['binding']:
+        selected = anchor
+    else:
+        digest = hashlib.sha256(encode(binding)).hexdigest()
+        selected = strict_json(read_fixed(slot.parent.parent/'read-generations'/(digest+'.json'), maximum=1048576))
+    if (selected['binding'] != binding or selected['profile'] != original['profile']
+            or selected['limits'] != original['limits']):
+        raise ValueError('daily batch original slot generation differs')
+    if _hpr_business_identity(selected) != _hpr_business_identity(anchor):
+        raise RetainedReadBindingChanged('daily_batch_business_identity_changed')
+    return selected
+
+
 class _DailyBatchClient(RetainedReadClient):
     """只为同一业务来源选择通信代；原槽的UUID、票据和截止始终保持。"""
 
@@ -94,17 +111,7 @@ class _DailyBatchClient(RetainedReadClient):
         generations = slot.parent.parent / 'read-generations'
         if slot.exists():
             original = strict_json(read_fixed(slot, maximum=16777216))
-            binding = original['binding']
-            if binding == anchor['binding']:
-                selected = anchor
-            else:
-                digest = hashlib.sha256(encode(binding)).hexdigest()
-                selected = strict_json(read_fixed(generations / (digest + '.json'), maximum=1048576))
-            if (selected['binding'] != binding or selected['profile'] != original['profile']
-                    or selected['limits'] != original['limits']):
-                raise ValueError('daily batch original slot generation differs')
-            if _hpr_business_identity(selected) != _hpr_business_identity(anchor):
-                raise RetainedReadBindingChanged('daily_batch_business_identity_changed')
+            selected = _capture_slot_metadata(slot, original, anchor)
             expected = selected['binding']
         else:
             expected = None  # 新槽的实际metadata由上面的SDK准入钩子统一认证、比较和保存。
@@ -126,3 +133,28 @@ class DailyBatchAnalysisSource(BatchAnalysisSource):
 
     def __init__(self, transport, *, lifetime_ms=30000):
         self.client = _DailyBatchClient(transport, lifetime_ms=lifetime_ms)  # 原SDK请求owner，随调用线程关闭transport。
+
+    def _slot(self, directory, batch_id, arguments, deadline):
+        """缓存纯查询的中断终态允许新观察；原结果及未决责任永不覆盖。"""
+        from guanheng_qmt_shm.read_retention_client import inspect_saved_result, RetainedReadPending
+        from guanheng_qmt_shm_agent.analysis_batch import POLICY
+        anchor = strict_json(read_fixed(directory/'BINDING.json', maximum=1048576))
+        revision = 0
+        while True:
+            if time.monotonic() >= deadline:
+                raise RetainedReadPending('read_new_request_budget_exhausted')
+            suffix = '' if revision == 0 else '.r%d' % revision
+            slot = directory/'slots'/(batch_id + suffix + '.json')
+            if not slot.exists():
+                return slot
+            original = strict_json(read_fixed(slot, maximum=16777216))
+            request = original['request']
+            if (request['operation_id'] != 'market.market_data' or request['arguments'] != arguments
+                    or request['policy_id'] != POLICY):
+                raise ValueError('daily batch original observation differs')
+            _capture_slot_metadata(slot, original, anchor)
+            reply = inspect_saved_result(original)  # 原SDK核请求/票据、完整响应及consumed，无网络或文件修改。
+            if (reply is None or reply.get('ok') is not False
+                    or reply.get('error_code') != 'operation_interrupted'):
+                return slot  # 成功、未消费或其它未知均沿该槽；只有明确中断的纯读取选择后继。
+            revision += 1

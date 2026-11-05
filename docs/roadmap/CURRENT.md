@@ -1,6 +1,6 @@
 # 当前事实
 
-核实日期：2026-11-05凌晨。当前身份沿稳定CURRENT/部署索引定位，正常重启会换代。整体目标active。
+核实日期：2026-11-05北京时间09:25。当前身份沿稳定CURRENT/部署索引定位，正常重启会换代。整体目标active。
 
 ## 唯一策略与交易
 
@@ -12,28 +12,22 @@
 
 ## WT入口与独立观衡
 
-E:/workspace/wondertrader-data/wt-service的启动/停止快捷方式采用wt-control-20261105-001/operator003/group_control.py及group005.json，复用原ServiceController组合五服务。完整一次停止13.05秒、恢复43.03秒，原资金和持仓连续；该次观衡进程保持。
+日常快捷方式采用wt-control-20261105-001/operator006/group_control.py及group010.json；沿原ServiceController组合HPR、采集、报价、日线与金融五服务。前次完整正常停止/恢复、资金持仓接续证据复用；本次仅替换受影响日线和采集角色。HPR WRI37208/Host71140、采集WRI10380/collector15000/history18760、报价WRI22688/history71892、日线WRI28736/history62204、金融WRI32360/Native47840实际存活。
 
-当前HPR WRI37208/Host71140；采集WRI53260/collector75932/history35356；报价WRI22688/history71892；日线WRI14724/history49188；金融如上。原QMT策略正文、权限和Journal未切换，无新增WT框架差异。
-
-观衡0.1.0a111+wtgroup.2、SDK0.17独立运行http://127.0.0.1:18143。多实例目录沿各服务稳定CURRENT读取最近发布状态，Windows实际存活归运行控制器核实。行情/策略/系统状态三页真实刷新与五卡片通过；WT通信、数据与交易不由观衡管理。
-
-独立市场观察spread_sw的11月4日发布行仍为sse_reference=None，第二张图的叠加缺点待原更新owner重新生成；普通000001.SH行情恢复不自动改写已发布观察快照。
+观衡0.1.0a111+wtgroup.2、SDK0.17独立运行http://127.0.0.1:18143，按各角色CURRENT跟随。spread_sw 11月4日原独立来源已刷新，sse_reference=3686.172；真实图表及API恢复。WT生命周期仍由WT管理。
 
 ## 日线与分钟
 
-股票5612项HPR、508批回读、941910行Native转换完成。跨Host代快照准入已修复，03:25正式发布11月4日版本，generation0103ea9e116943b3a19ce54764682943。18143中300308和上证日线最新均为11月4日；UTC前日16:00Z在页面按北京时间正确显示。
+r001于04:52正式published、continuation_required=false，CURRENT generation2ca1a1e6ead944fcb179db420cc66497。597项价格准备及190批回读完成；941910股票行Native结果保持。300308、588170及上证日线在18143实读均到11月4日。
 
-该发布仍有ETF/指数缺口，588170样本停11月3日。当前价格登记范围中目标日可读股票5571、ETF1276、指数618项；范围含历史登记，不能直接作为全市场完整分母。日线固定程序program013、服务wt-control-20261105-001/daily-service004，原daily配置/任务/发布根保持。永久源码声明unified.14与实际固定源程序分别记录，未称已安装该版wheel。
+实际日线program016/daily-service007与分钟program017/data-service003分别固定，源码声明unified.17。只读中断后继、可证HPR未派发识别及重试/新窗口轮流调度已采用，原slot/Journal/请求保持。
 
-同日修订深目录实际触发277/283字符路径失败；新修订使用rNNN，本次未提交REQUEST且无新槽的准备根保留后改登r001。r001按原身份和间隔继续，短暂RetainedReadPending保留原责任与已成功11月4日CURRENT。
+登记价格范围目标日股票5572、ETF1717、指数642项可读；全市场完整资格仍未成立，来源历史登记、非价格项、6项股票停牌数量未知及指数/ETF余缺分别记录。指标27项预热不足、6项stale。两常用指数11月3/4日均恢复各240根，实际统一查询可读11月4日15:00；8ETF及当前来源支持的49常用指数优先补齐。北交所366项分钟、SSE.932000映射继续。
 
-后继检查定位到实际停止点：r001缓存188槽中0093-front_ratio.json为已保存/consumed的operation_interrupted失败结果；原SDK将其归read_original_terminal_unknown，持续复读无法推进。Host认证正常，2份held_unknown占64份容量，不是容量已满。该只读查询的后继观察适配尚未完成，保留原件及正式CURRENT，继续作为明确功能阻断处理。
-
-旧HPR在02:03实际退出，曾使旧采集组合关闭；最早异常原因未知。新HPR独立于实时采集并保留首故障诊断，不能称原异常根因已解决。此前把旧成功快照当作仍运行的判断已更正，现在同时核实际进程、原身份和业务日期。原分钟program007/Source/Writer保持，既有8ETF/2股票实读保持，两项指数及北交所分钟范围继续。
+早前HPR02:03退出最早原因未知；当前已分离HPR与采集并保留首故障诊断。当前Source/Writer保持，不能以旧成功状态替代实际进程证据。
 
 ## 剩余与决策
 
-剩余：1.2.1自然计算及后继调仓；ETF/指数同日补齐和全范围覆盖；分钟余项；确认无引用的最终清理。此前已清一干净worktree、约461MiB重复依赖及六旧Web，当前引用的配对、故障、金融状态、回退和HPR依赖根保持。
+剩余：1.2.1自然计算及后继调仓；日线全范围余缺；北交所分钟及来源映射；确认无引用的最终清理。此前已清一干净worktree、约461MiB重复依赖及六旧Web，当前引用的配对、故障、金融状态、回退和HPR依赖根保持。
 
-无需用户新增决策。开发者目标保持清除，普通进度留本会话；新增WT框架修改继续先获批准，不研究假设并发缺陷。实际源码、制品、审查和运行结果见[本轮记录](../releases/2026-11-05-independent-wt-control-and-observer111.md)。[原事实](CURRENT-history-20261104-before-cash3.md)及[更早原件](CURRENT-history-20261104.md)保留历史定位。
+无需用户新增决策。开发者目标保持清除，普通进度留本会话；新增WT框架修改继续先获批准，不研究假设并发缺陷。实际源码、制品、审查和运行结果见[本轮恢复](../releases/2026-11-05-daily-read-and-minute-recovery.md)及[原统一启停](../releases/2026-11-05-independent-wt-control-and-observer111.md)。[原事实](CURRENT-history-20261104-before-cash3.md)及[更早原件](CURRENT-history-20261104.md)保留历史定位。

@@ -94,17 +94,21 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
             if (reply is not None and reply['ok'] is True and reply['data']['effect'] == 'call_returned'
                     and all(slot['result'][key]==slot['binding']for key in('admitted_binding','dispatch_binding','result_binding'))):
                 state = 'call_returned'
+            elif (reply is not None and reply['ok'] is False and reply.get('error_code') == 'preparation_not_executed'
+                    and slot['result']['admitted_binding'] == slot['binding']
+                    and slot['result']['dispatch_binding'] is None and slot['result']['result_binding'] is None):
+                state = 'not_executed'  # 原Host明确在SDK派发前停止；原结果留证，后继可按真实缺口新建任务。
         protected.append(dict(
             slot=str(Path(path).absolute()),  # 原持久slot绝对位置，结果和消费事实继续由原owner拥有。
             request_id=original['request_id'],  # 原UUID；本计划只引用，绝不改写或重新生成。
             operation_id=original['operation_id'],  # 原业务操作，HPR与普通批读责任分别处理。
             arguments=original['arguments'],  # 原证券/日期/截止参数，保留原值。
             request_sha256=hashlib.sha256(encode(original)).hexdigest(),  # 原请求语义摘要，不绑定后续消费状态。
-            execution_state=state))  # 已完整核验/消费的SDK返回或未知；不授缓存覆盖资格。
+            execution_state=state))  # 已返回、明确未派发或未知，均不授缓存覆盖资格。
     blocked = {}
     for item in protected:
         if (item['operation_id'] == 'market.history_prepare' and item['arguments']['period'] == '1d'
-                and item['execution_state'] != 'call_returned'):
+                and item['execution_state'] not in ('call_returned','not_executed')):
             args = item['arguments']
             blocked.setdefault(args['symbol'], []).append((args['start_time'], args['end_time'], item['request_id']))
     gaps = {symbol: [] for symbol in securities}

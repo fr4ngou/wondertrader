@@ -162,7 +162,7 @@
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/__init__.py"
     },
     "guanheng_qmt_shm/analysis_batch_source.py": {
-      "sha256": "fda6f1352019f40903bdeb72f2717dcda028cff5b07c335a2772f9dd89975618",
+      "sha256": "4d7a4135f50a54ba7bbdbf2d5c0431e0a0b9bbd8307a83132838632d3203e3b2",
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/analysis_batch_source.py"
     },
     "guanheng_qmt_shm/bound.py": {
@@ -410,7 +410,7 @@
       "source": "integrations/guanheng/daily_front_archive.py"
     },
     "integrations/guanheng/daily_gap_update.py": {
-      "sha256": "09f1b5d6e38de633403c5b504f2cfd2786b3272c7a58e969a2fb8eabc2635256",
+      "sha256": "cf6ec331dc23074f08cb7cfbcdea3e307bfa18858f8a9dfa4b5705795f7a26f4",
       "source": "integrations/guanheng/daily_gap_update.py"
     },
     "integrations/guanheng/daily_generation.py": {
@@ -647,7 +647,7 @@
     },
     "integrations/guanheng/collection_maintenance.py": {
       "source": "integrations/guanheng/collection_maintenance.py",
-      "sha256": "a7ed29e711aae6e6befb1c4a517f01a3e16f95c4813e72d60486ece8721d3e32"
+      "sha256": "e2ffa52c7e5cd4d8caf119f83d073303ae9a0c3fd376061d8054af69bc0aef19"
     },
     "integrations/guanheng/collection_minute_reader.py": {
       "source": "integrations/guanheng/collection_minute_reader.py",
@@ -670,7 +670,7 @@
       "sha256": "ee8df3a23d2bd1d68d445979642aa6651a5882c5bee3b20cb59e8cb872a35ea7"
     },
     "integrations/guanheng/daily_batch_source.py": {
-      "sha256": "d95d537ad72c8d8003fe11291c5c3f564050942f7486602372c62cc9d456b967",
+      "sha256": "646103ef89f7915149b0bcc543ffc9e13d1aeede830ea51c4345d13ec5706719",
       "source": "integrations/guanheng/daily_batch_source.py"
     }
   },
@@ -706,5 +706,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.14"
+  "version": "0.2.0a1+unified.17"
 }

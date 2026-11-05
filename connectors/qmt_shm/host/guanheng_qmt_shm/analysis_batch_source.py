@@ -66,7 +66,7 @@ class BatchAnalysisSource:
                     max_rows=request['max_rows'], adjustment=adjustment)
                 # 完整arguments准入交原Host/Agent；消费前再次核同批来源和结构。
                 batch_id = '%04d-%s' % (index, adjustment)
-                slot = directory/'slots'/(batch_id+'.json')
+                slot = self._slot(directory, batch_id, args, deadline)
                 returned = self.client.read('market.market_data', args, slot, deadline=deadline,
                     expected_binding=metadata['binding'], minimum_new_request_seconds=minimum_new_request_seconds)
                 reply = returned['reply']
@@ -100,6 +100,10 @@ class BatchAnalysisSource:
             source_kind=request['source_kind'])
         _save(directory/'manifest.json',manifest)
         return manifest
+
+    def _slot(self, directory, batch_id, arguments, deadline):
+        """批次原持久位置；专用读取owner可选后继观察，默认路径和恢复行为保持。"""
+        return directory/'slots'/(batch_id+'.json')
 
 
 def read_capture(directory):
