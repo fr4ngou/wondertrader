@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from guanheng_strategy_core.contracts import canonical_bytes
 from guanheng_strategy_core.models import observation_close_at
@@ -15,6 +16,7 @@ from guanheng_strategy_v1 import (
 )
 from guanheng_strategy_v1.historical import AUXILIARY_RESEARCH_MARKER, AuxiliaryResearchDeclaration
 from guanheng_strategy_v1.role_profile import KC_SYMBOL, SYMBOLS
+from guanheng_strategy_v1 import describe_evaluation
 
 ROOT = Path(__file__).resolve().parents[3]
 AUXILIARY = ('shares_delta_yi', 'share_probability', 'turnover_percentile', 'margin_percentile')
@@ -151,6 +153,42 @@ class CompleteKernelDiagnostics(unittest.TestCase):
             value = deepcopy(original);change(value)
             with self.assertRaises(ValueError):
                 validate_diagnostics(value, symbols=SYMBOLS)
+
+    def test_shared_validator_timeout_keeps_original_failure_kind(self):
+        import guanheng_strategy_v1.latest as latest
+        original = latest.validate_observations
+        def deadline_during_validation(*args, **kwargs):
+            clock = kwargs['check']
+            clock.started -= clock.budget.max_seconds+1
+            return original(*args, **kwargs)
+        request = sample()
+        calls = (lambda: evaluate_current_view(request), lambda: evaluate_historical_model(
+            historical_request(request), history_model(request)))
+        for call in calls:
+            with patch.object(latest, 'validate_observations', deadline_during_validation):
+                with self.assertRaises(RetainedValidationError) as caught:
+                    call()
+            self.assertEqual(caught.exception.code, 'calculation_timeout')
+            self.assertEqual(caught.exception.diagnostics['calculation_state'], 'calculation_failed')
+
+    def test_unscheduled_and_unrecorded_signals_are_distinct_from_zero(self):
+        request = sample()
+        unscheduled = describe_evaluation(request.history.observations)
+        self.assertEqual(unscheduled['calculation_state'], 'not_scheduled')
+        days = sorted({r.trade_date for r in request.history.observations})[99:]
+        legacy = describe_evaluation(request.history.observations, evaluation_dates=days, calculation_state='completed')
+        self.assertIsNone(legacy['roles']['510300.SH']['signal_counts'])
+        self.assertEqual(legacy['roles']['510300.SH']['signal_state'], 'not_recorded')
+        validate_diagnostics(legacy, symbols=SYMBOLS)
+
+    def test_target_readback_is_pending_until_native_converges(self):
+        from guanheng_wt_runtime.backtest_reports import validate_report_dict, project_session_record
+        raw = json.loads((Path(__file__).parent/'fixtures/native-buying.json').read_bytes())
+        admitted = validate_report_dict(raw)
+        projected = project_session_record(admitted, 0)
+        self.assertEqual(projected['record']['status'], 'buying')
+        self.assertTrue(projected['record']['readback'])
+        self.assertEqual(projected['diagnostics']['execution_state'], 'pending')
 
 
 class ExplicitResearchModel(unittest.TestCase):

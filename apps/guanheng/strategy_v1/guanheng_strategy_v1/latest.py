@@ -399,6 +399,8 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
     try:
         validate_observations(raw, universe=SYMBOLS, check=clock)
         validate_observations(adjusted, universe=SYMBOLS, check=clock)
+    except RetainedValidationError:
+        raise
     except ValueError:
         raise RetainedValidationError('invalid_history', '行情或辅助事实未通过因果校验') from None
     _require(len(days) >= 100, 'warmup_required', '完整市场历史尚未完成原百日预热')

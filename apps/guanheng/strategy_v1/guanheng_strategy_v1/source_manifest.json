@@ -79,7 +79,7 @@
   "owned_sources": {
     "__init__.py": "51a416785c6887ed6da91a1426ca1f6dfa2c8cc0c01d0207b7a35ee81c354ebf",
     "historical.py": "d584dabe277ef889b31f73ac3167367204af7541033adf28e17747bc40be34d6",
-    "latest.py": "2e4183243f231f80e73c9a9c777151b36e9d780e752857c3c10b91289ba15b55",
+    "latest.py": "d54218abb31fa674490279e4faf03da8468fb185c3ae5312d04fd622d28ad16c",
     "role_profile.py": "18c4f9271ff9d3e018a8aeee8d8fd366fb9c1e25e7a0435baa1533a7c821ef53",
     "diagnostics.py": "ef5f1d1659da2dab0521a4535ad72aaad6075c166e5c435c4695f6486875ceb8"
   },

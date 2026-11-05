@@ -387,8 +387,11 @@ def project_record(report, index, *, check=None):
             for q in row['outcome']['submit_targets']]
         result = dict(record=row, evaluation_summary=evaluation, report_schema=report._wire['schema'])
         if evaluation is not None and 'diagnostics' in evaluation:
+            # setter回读只证明目标已接收；只有原NSQ用实际原生观察确认converged才算执行完成。
+            execution = ('not_requested' if row['outcome'] is None else
+                         'completed' if row['outcome']['status'] == 'converged' else 'pending')
             result['diagnostics'] = contextualize_diagnostics(evaluation['diagnostics'],
-                execution_state='completed' if row['readback'] else 'not_requested')
+                execution_state=execution)
         elif evaluation is None and 'diagnostics' in report._wire:
             result['diagnostics'] = failure_diagnostics('warmup_required')
         return result
