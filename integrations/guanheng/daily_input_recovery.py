@@ -71,7 +71,8 @@ def observe_input_reads(index, state, *, target_day, deadline, cancelled):
     roots = {}
     for day, row in index.items():
         roots.update((Path(path).parent/'inputs', day) for path in
-                     [*row.get('history_requests', []), *([row['request']] if row.get('request') else [])])
+                     [*row.get('history_requests', []), *([row['request']] if row.get('request') else []),
+                      *row.get('price_history_requests',[]),*([row['price_request']]if row.get('price_request')else[])])
     slots = state['slots']
     discovery = state.setdefault('discovery', {})
     discovered = state.setdefault('discovered', set())

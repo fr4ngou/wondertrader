@@ -36,9 +36,15 @@ Host专用入口为`guanheng_qmt_shm.history_preparation_bootstrap.build_read_se
 
 ## 离线配对与验证
 
+原HostControlLoop按[HPR3-R1](../specs/qmt-history-preparation.md#hpr3-r1-合法控制拒绝与原请求收束)区分合法控制拒绝和原生终态。前者沿原ID/正文/派发绑定持久保存原中断结果，HPR未知保持未知；后继独立请求继续使用同一owner。原生成功仍须完整finish_bound，所有ACK在持久核实后发出。错误回复不进入重复消费的关闭循环，真正认证或协议损坏继续原失败路径。最近拒绝的诊断仅含固定枚举及计数，不包含请求正文或凭据。
+
 `guanheng_qmt_shm.history_preparation_pair.create_pair(config, agent_root=..., credentials=..., output=..., sdk_metadata=..., stdlib_license=..., reconnect_seconds=...)`复用原冻结memory runtime和常驻回调，只额外注入固定全局download函数。它只生成新E盘私有目录，不安装/启动终端；SDK元数据及CPython许可沿原冻结器核身份。新manifest schema为`qmt.history-preparation-pair.v1`，qualified_in_qmt与order_ready保持false。该开发配对不接入旧CLI verify，加载前由操作owner核新manifest完整文件、来源清单及配置身份。
 
 可复现隔离入口见测试说明（外部历史/待归仓路径：`../../tests/integration/qmt_history_preparation/README.md`）。真实HTTP/WinSHM主链只使用合成Context及下载替身；回读保持原History1mAdapter，下载替身是新增bar的唯一写入者。真实全局函数、目标QMT实例、1d历史回读及完整来源覆盖由主会话实际验收。
+
+## 固定来源兼容发行
+
+[HPR控制拒绝兼容闭包](../../compat/market-python/hpr-control-rejection001/README.md)实现[HPR4-R1](../specs/qmt-history-preparation.md#hpr4-r1-固定来源兼容发行)：正常Host wheel精确依赖原marketdaily.4 Agent；63个Host和60个Agent模块永久保存，成员身份与实际原配对核验。仅四个行为模块及发行版本改变，原paired_control诊断overlay保留。原pair不变，后继pair由新环境的原产品工厂生成及核验，QMT正文逐字节保持。构建、安装与真实采用资格分开，具体命令见[源码手册](../runbooks/market-python-sources.md#hpr控制拒绝兼容发行)。
 
 ## HPR5独立产品入口
 

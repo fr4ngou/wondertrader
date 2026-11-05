@@ -1245,6 +1245,13 @@ export interface MarketChartNativeSource {
   price_unit?: 'CNY' | 'unknown'
   volume_unit?: 'share' | 'lot' | 'unknown'
   amount_unit?: 'CNY' | 'unknown'
+  /** WT原Writer末根的当前值资格；已归档日线不提供。 */
+  current_day?: {
+    date: number // 原交易日YYYYMMDD。
+    source_at: string // 原tick时刻，ISO8601及明确时区。
+    observed_at: string // WT读取Writer副本时刻，区别行情发生时间。
+    closed: false // 当前值尚未取得原生日线归档资格。
+  } | null
 }
 
 export interface MarketChartBundle {

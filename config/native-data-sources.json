@@ -368,11 +368,11 @@
         },
         "src/GuanhengDataKit/Session.cpp": {
           "source": "config/native-data-variants/collection004/src/GuanhengDataKit/Session.cpp",
-          "sha256": "3faf23a8e162105b57ca8d8d50d29720801a9c078342873390ccb4a9e87623be"
+          "sha256": "e86618a8a2a302d638cf7ef4245870a4d9c53ed40852645df772cf47603456dc"
         },
         "src/GuanhengDataKit/Session.h": {
           "source": "config/native-data-variants/collection004/src/GuanhengDataKit/Session.h",
-          "sha256": "24ab1e41b8bd50c774343db285757b7ea357f2dc72e46c5b025f8295b06835d2"
+          "sha256": "2a1fb5b9006ad044219dccab508c1988798e8017a2e254fd747fced58bdd8683"
         },
         "src/GuanhengCommon/QmtReadTransport.cpp": {
           "source": "config/native-data-variants/collection004/src/GuanhengCommon/QmtReadTransport.cpp",

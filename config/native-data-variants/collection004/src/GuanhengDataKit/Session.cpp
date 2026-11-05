@@ -144,6 +144,24 @@ int gh_datakit_archive_done(void* value,const char* sid){
 }
 // key=4 是原 Writer sink 的累计错误数，允许生产/归档线程并发时由管理线程读取。
 uint64_t gh_datakit_count(void* value,uint32_t key){if(!value)return 0;auto& s=*static_cast<Session*>(value);if(key==0)return s.input?s.input->codes.size():0;if(key==1)return s.delivered.load();if(key==2)return s.data.processed.load();if(key==3)return s.lifecycle_writer?1:0;if(key==4)return s.data.writer_errors.load(std::memory_order_acquire);return 0;}
+int gh_datakit_current_day(void* value,const char* code,const char* exchange,GHCurrentDay* output){
+    if(!value||!code||!exchange||!output)return -1;
+    try{
+        auto& s=*static_cast<Session*>(value);
+        if(std::this_thread::get_id()!=s.management)return -2;
+        std::lock_guard<std::mutex> guard(s.mutex);
+        if(s.closed)return -1;
+        if(s.data.writer_failed())return -6;
+        // getCurTick在原tick-cache锁内创建独立对象；此处只读该副本。
+        // 与原收盘日线相同的OHLC/累计量额字段，原Writer仍独占归档和分钟算法。
+        auto tick=std::unique_ptr<wtp::WTSTickData,void(*)(wtp::WTSTickData*)>(
+            s.data.getCurTick(code,exchange),[](wtp::WTSTickData* item){if(item)item->release();});
+        if(!tick)return 0;
+        *output={tick->tradingdate(),tick->actiondate(),tick->actiontime(),
+            tick->open(),tick->high(),tick->low(),tick->price(),tick->totalvolume(),tick->totalturnover()};
+        return 1;
+    }catch(...){return -5;}
+}
 int gh_datakit_close(void* value){
     if(!value)return -1;
     auto* s=static_cast<Session*>(value);

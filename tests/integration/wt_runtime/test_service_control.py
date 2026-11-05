@@ -347,6 +347,168 @@ class ServiceControlTests(unittest.TestCase):
         self.assertEqual(successor_runtime["instance_id"], self.instance_id)
         self.assertEqual(controller.stop()[0], 0)
 
+    def _dependency_failure_controller(self, *, fail_runs=(2,), execution_failure=False, incomplete_close=False):
+        """真实Runtime串行start/逆序close；只有来源/Native进程为隔离替身。"""
+        from types import SimpleNamespace
+        from guanheng_wt_runtime.runtime import Runtime, RuntimeConfig
+        from guanheng_wt_runtime.execution_process import ManagedPythonExecutionProcess
+
+        native = _write(self.root / "pre-native.json", {"recovery": {"mode": "record_clean"}})
+        descriptor = _write(self.root / "pre-execution.json", {
+            "schema": "guanheng.execution-deployment.v1", "configuration": str(native),
+            "configuration_sha256": _sha(native), "initial_inventory": {"fixture": "original"}})
+        value = json.loads(self.runtime.read_bytes())
+        value["components"] = {
+            "analysis_host": {"kind": "qmt_read", "descriptor": str(self.host), "sha256": "0" * 64},
+            "execution": {"kind": "execution", "descriptor": str(descriptor), "sha256": _sha(descriptor)}}
+        _write(self.runtime, value)
+        service = json.loads(self.service_path.read_bytes())
+        service["bootstrap_configuration_sha256"] = _sha(self.runtime)
+        _write(self.service_path, service)
+        ledger = _write(self.root / "unchanged-ledger.json", {"cash": 1000000, "positions": {"fixture": 100}})
+        entries, native_calls = [], []
+
+        class Source:
+            def __init__(owner, failed): owner.failed, owner.state = failed, "new"
+            def start(owner, deadline): owner.state = "faulted" if owner.failed else "ready"; return not owner.failed
+            def request_close(owner): pass
+            def close(owner, timeout): owner.state = "closed"; return not (owner.failed and incomplete_close)
+            def status(owner): return dict(state=owner.state, ready=owner.state == "ready", error_code=None, pid=None)
+
+        class Execution(ManagedPythonExecutionProcess):
+            def start(owner, deadline):
+                native_calls.append(owner._control_id)
+                if execution_failure and len(entries) + 1 in fail_runs:
+                    owner._state = "faulted"; owner._error = "fixture_no_ready"; return False
+                owner._directory.mkdir()
+                raw = Path(owner.config.configuration).read_bytes()
+                (owner._directory / "execution.json").write_bytes(raw)
+                owner._host_pid, owner._state = os.getpid(), "ready"
+                _write(owner._directory / "ready.json", dict(schema="guanheng.execution.ready.v1",
+                    control_id=owner._control_id, config_sha256=_sha(Path(owner.config.configuration)),
+                    pid=owner._host_pid, closed=False))
+                return True
+            def close(owner, timeout=2):
+                if owner._host_pid is None: return super().close(timeout)
+                owner._state = "closed"; return True
+
+        def launch(command, cwd, environment):
+            args = {command[j]:command[j+1] for j in range(len(command)-1) if command[j].startswith("--")}
+            directory = Path(args["--control-directory"]); directory.mkdir()
+            identity = dict(control_id=args["--control-id"], instance_id=self.instance_id,
+                configuration_sha256=args["--config-sha256"], pid=os.getpid())
+            def factory(component):
+                if component.kind == "qmt_read":return Source(len(entries)+1 in fail_runs and not execution_failure)
+                item = json.loads(Path(component.descriptor).read_bytes())
+                return Execution(SimpleNamespace(control_root=self.control, configuration=item["configuration"],
+                    configuration_sha256=item["configuration_sha256"], stop_seconds=5, startup_seconds=5))
+            runtime = Runtime(RuntimeConfig.from_path(args["--config"],args["--config-sha256"]), factory=factory)
+            process = _FakeProcess(); success = runtime.start(__import__('time').monotonic()+5)
+            if not success:
+                closed = runtime.close(5)
+                _write(directory / "failure.json", dict(schema="guanheng.wt-runtime-failure.v1", **identity,
+                    components_closed=closed, error_code="runtime_failure", status="faulted"))
+                process.code = 2
+            else:
+                _write(directory / "ready.json", dict(schema="guanheng.wt-runtime-ready.v1", **identity))
+            _write(directory / "status.json", {**runtime.status(), **identity})
+            entries.append((directory, runtime, identity, process))
+            return process
+
+        def sleep(unused):
+            for directory, runtime, identity, process in entries:
+                if (directory / "stop.json").exists() and not (directory / "closed.json").exists():
+                    self.assertTrue(runtime.close(5))
+                    _write(directory / "status.json", {**runtime.status(), **identity})
+                    _write(directory / "closed.json", dict(schema="guanheng.wt-runtime-closed.v1", **identity,
+                        components_closed=True, error_code=None, status="stopped"))
+                    process.code = 0
+        return ServiceController(ServiceConfig.from_path(self.service_path), launcher=launch, sleeper=sleep), entries, native_calls, ledger
+
+    def test_dependency_failure_reuses_original_transition_then_same_start_succeeds(self):
+        controller, entries, native_calls, ledger = self._dependency_failure_controller(fail_runs=(2,3), incomplete_close=True)
+        ledger_raw = ledger.read_bytes()
+        self.assertEqual(controller.start()[0], 0); self.assertEqual(controller.stop()[0], 0)
+        def prepare(configuration, previous, control, destination, **unused):
+            _write(Path(destination), dict(schema="guanheng.execution-recovery-transition.v1",
+                predecessor_configuration=str(previous), predecessor_control_directory=str(control)))
+            return dict(file=str(destination), sha256=_sha(Path(destination)))
+        with patch("guanheng_wt_runtime.service_control.prepare_transition", side_effect=prepare) as called:
+            self.assertEqual(controller.start()[0], 2)
+            failed_id = entries[-1][2]["control_id"]
+            record = json.loads((self.generations / failed_id / "generation.json").read_bytes())
+            transition = Path(record["transition_file"]); raw = transition.read_bytes()
+            before = json.loads(Path(record["runtime_configuration"]).read_bytes())["components"]["execution"]
+            self.assertEqual(controller.start()[0], 2)
+            self.assertEqual(controller.start()[0], 0)
+            self.assertEqual(called.call_count, 1)
+        latest = json.loads((self.generations / entries[-1][2]["control_id"] / "generation.json").read_bytes())
+        self.assertEqual(latest["transition_file"], str(transition))
+        after = json.loads(Path(latest["runtime_configuration"]).read_bytes())["components"]["execution"]
+        self.assertEqual(before, after)
+        self.assertEqual(json.loads(raw)["predecessor_control_directory"], str(self.control / native_calls[0]))
+        self.assertEqual(transition.read_bytes(), raw); self.assertEqual(ledger.read_bytes(), ledger_raw)
+        self.assertEqual(len(native_calls), 2)
+        self.assertTrue(all(item[1].status()["components"]["execution"]["pid"] is None for item in entries[1:3]))
+        self.assertEqual(controller.stop()[0], 0)
+
+    def test_execution_start_failure_without_ready_keeps_unknown_and_does_not_reuse(self):
+        controller, entries, native_calls, ledger = self._dependency_failure_controller(execution_failure=True)
+        self.assertEqual(controller.start()[0], 0); self.assertEqual(controller.stop()[0], 0)
+        def prepare(configuration, previous, control, destination, **unused):
+            _write(Path(destination), {"schema":"guanheng.execution-recovery-transition.v1"})
+            return dict(file=str(destination), sha256=_sha(Path(destination)))
+        with patch("guanheng_wt_runtime.service_control.prepare_transition", side_effect=prepare) as called:
+            self.assertEqual(controller.start()[0], 2)
+            self.assertEqual(len(native_calls), 2)
+            with self.assertRaises(ValueError):controller.start()
+            self.assertEqual(called.call_count, 1)
+        self.assertEqual(len(entries), 2)
+
+    def test_first_start_dependency_failure_preserves_unused_initial_input(self):
+        controller, entries, native_calls, ledger = self._dependency_failure_controller(fail_runs=(1,))
+        original = ledger.read_bytes()
+        self.assertEqual(controller.start()[0], 2)
+        with patch("guanheng_wt_runtime.service_control.prepare_transition") as prepare:
+            self.assertEqual(controller.start()[0], 0)
+            prepare.assert_not_called()
+        record = json.loads((self.generations / entries[-1][2]["control_id"] / "generation.json").read_bytes())
+        self.assertIsNone(record["transition_file"])
+        runtime = json.loads(Path(record["runtime_configuration"]).read_bytes())
+        descriptor = json.loads(Path(runtime["components"]["execution"]["descriptor"]).read_bytes())
+        self.assertEqual(descriptor["initial_inventory"], {"fixture":"original"})
+        self.assertEqual(len(native_calls), 1); self.assertEqual(ledger.read_bytes(), original)
+        self.assertEqual(controller.stop()[0], 0)
+
+    def test_bootstrap_prepared_transition_survives_first_dependency_failure(self):
+        controller, entries, native_calls, ledger = self._dependency_failure_controller(fail_runs=(1,))
+        transition = _write(self.root / "bootstrap-transition.json", {
+            "schema":"guanheng.execution-recovery-transition.v1", "predecessor_control_directory":"original-native"})
+        native = self.root / "pre-native.json"
+        _write(native,{"recovery":{"mode":"resume_reconciled","transition":{"file":str(transition),"sha256":_sha(transition)}}})
+        descriptor = self.root / "pre-execution.json"; value = json.loads(descriptor.read_bytes())
+        value["configuration_sha256"] = _sha(native); _write(descriptor,value)
+        value = json.loads(self.runtime.read_bytes()); value["components"]["execution"]["sha256"] = _sha(descriptor)
+        _write(self.runtime,value); value = json.loads(self.service_path.read_bytes())
+        value["bootstrap_configuration_sha256"] = _sha(self.runtime); _write(self.service_path,value)
+        controller.config = ServiceConfig.from_path(self.service_path)
+        raw = transition.read_bytes()
+        self.assertEqual(controller.start()[0], 2)
+        with patch("guanheng_wt_runtime.service_control.prepare_transition") as prepare:
+            self.assertEqual(controller.start()[0], 0); prepare.assert_not_called()
+        record = json.loads((self.generations / entries[-1][2]["control_id"] / "generation.json").read_bytes())
+        self.assertEqual(record["transition_file"], str(transition))
+        self.assertEqual(transition.read_bytes(), raw); self.assertEqual(len(native_calls), 1)
+        self.assertEqual(controller.stop()[0], 0)
+
+    def test_missing_execution_resource_proof_rejects_preexecution_reuse(self):
+        controller, entries, native_calls, ledger = self._dependency_failure_controller(fail_runs=(1,))
+        self.assertEqual(controller.start()[0], 2)
+        directory = entries[-1][0]; path = directory / "status.json"; status = json.loads(path.read_bytes())
+        status["components"]["execution"].pop("pending"); _write(path,status)
+        with self.assertRaises(ValueError):controller.start()
+        self.assertEqual(native_calls, [])
+
 
 class WindowsProcessIdentityTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Windows进程句柄生命周期")

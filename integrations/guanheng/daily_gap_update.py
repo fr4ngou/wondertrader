@@ -340,52 +340,75 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
     observations.mkdir(exist_ok=True)
     rows = []
     ordered = [tasks[i] for i in task_indices] if task_indices is not None else tasks[cursor:] + tasks[:cursor]
-    for task in ordered:
-        if len(rows) >= max_tasks or cancelled() or time.monotonic() + 30 >= deadline:
-            break
+    def eligible(task):
         observation = observations / ('%06d.json' % task['index'])
         if observation.exists():
             previous = strict_json(read_fixed(observation, maximum=1048576))
             if previous['plan_sha256'] != plan['sha256'] or previous['row']['index'] != task['index']:
                 raise ValueError('daily gap observation identity differs')
             if previous['row']['state'] == 'call_returned':
-                continue  # 已返回原任务保留单项凭据，后续只实读缓存，不再执行SDK准备。
+                return False  # 已返回原任务保留单项凭据，后续只实读缓存，不再执行SDK准备。
+        return True
+
+    def prepare_one(task):
+        nonlocal metadata,anchor,generations,scope
         slot = directory / 'preparation' / ('%06d.json' % task['index'])
-        try:
-            while True:
-                if cancelled():
-                    raise InterruptedError('daily gap advancement stopped')
-                selected_metadata = _gap_slot_metadata(slot, metadata, anchor, generations)
+        while True:
+            if cancelled():raise InterruptedError('daily gap advancement stopped')
+            selected_metadata = _gap_slot_metadata(slot, metadata, anchor, generations)
+            try:
+                return guarded_owner._prepare_items([(task['index'],task['symbol'],task['start_date'],task['end_date'],slot)],
+                    directory,selected_metadata,scope,deadline,None,len(tasks),minimum_new_request_seconds=30)[0]
+            except RetainedReadBindingChanged:
+                # 新槽在SDK准入前遇通信换代，可沿原D重认证；已有未知槽保持原身份。
+                if slot.exists()or time.monotonic()+30>=deadline:raise
+                if cancelled():raise InterruptedError('daily gap advancement stopped')
+                metadata,anchor,generations=_gap_hpr_metadata(preparation_owner,directory,deadline)
+                scope=metadata['profile']['operation_profiles'][OPERATION]['limits']
+
+    selected=iter(ordered);exhausted=False
+    while not exhausted and len(rows)<max_tasks and not cancelled()and time.monotonic()+30<deadline:
+        batch=[]  # 至多原SDK concurrency项在途；终端外通信并行，QMT原策略线程仍串行执行。
+        while (len(batch)<min(preparation_owner.concurrency,max_tasks-len(rows))
+                and not cancelled()and time.monotonic()+30<deadline):
+            task=next(selected,None)
+            if task is None:exhausted=True;break
+            if eligible(task):batch.append(task)
+        groups={}
+        for task in batch:
+            slot=directory/'preparation'/('%06d.json'%task['index'])
+            bound=_gap_slot_metadata(slot,metadata,anchor,generations)
+            key=hashlib.sha256(encode(bound)).hexdigest()
+            groups.setdefault(key,(bound,[]))[1].append(task)  # 已有不同通信代的原槽分别交其原metadata。
+        for bound,group in groups.values():
+            if cancelled():break
+            items=[(task['index'],task['symbol'],task['start_date'],task['end_date'],
+                    directory/'preparation'/('%06d.json'%task['index']))for task in group]
+            records={}
+            if len(group)>1:
                 try:
-                    records = guarded_owner._prepare_items([(task['index'], task['symbol'], task['start_date'], task['end_date'], slot)],
-                        directory, selected_metadata, scope, deadline, None, len(value['tasks']), minimum_new_request_seconds=30)
-                    break
-                except RetainedReadBindingChanged:
-                    # SDK在创建槽之前拒绝旧通信身份：尚无请求责任，可在原D内重新认证。
-                    # 已有槽保持原ID；来源权限变化仍由原anchor比较拒绝。
-                    if slot.exists() or time.monotonic() + 30 >= deadline:
-                        raise
-                    if cancelled():
-                        raise InterruptedError('daily gap advancement stopped')
-                    metadata, anchor, generations = _gap_hpr_metadata(preparation_owner, directory, deadline)
-                    scope = metadata['profile']['operation_profiles'][OPERATION]['limits']
-            row = dict(index=task['index'], state='call_returned', record=records[0], coverage='unknown')
-        except (RetainedReadPending, RetainedReadFailure) as error:
-            original = strict_json(read_fixed(slot, maximum=1048576)) if slot.exists() else None
-            row = dict(
-                index=task['index'],  # 原计划任务索引，续核不变。
-                state='pending' if isinstance(error, RetainedReadPending) else 'source_unavailable',  # 原客户分类。
-                reason_code=_reason_code(error),  # 原固定原因码，未知异常正文不输出。
-                slot=str(slot) if original is not None else None,  # 已有持久责任位置；未准入时None。
-                request_id=original['request']['request_id'] if original is not None else None,  # 保留原请求身份。
-                coverage='unknown')  # 只有后续真实批读才判断数据覆盖。
-        rows.append(row)
-        cursor = (task['index'] + 1) % max(1, len(tasks))
-        _save(observation, dict(plan_sha256=plan['sha256'], row=row))
-        _save(directory / 'PROGRESS.json', dict(schema='guanheng.daily-gap-progress.v1', plan_sha256=plan['sha256'],
-            state='observing', next_index=cursor, rows=rows, coverage='unconfirmed_until_readback'))
-        if on_progress is not None:
-            on_progress(row)
+                    completed=guarded_owner._prepare_items(items,directory,bound,scope,deadline,None,
+                        len(tasks),minimum_new_request_seconds=30)
+                    records={record['index']:record for record in completed}
+                except(RetainedReadPending,RetainedReadFailure):
+                    # 原executor已收束在途worker，原slot先于提交保存。逐项恢复同ID，完成项直接读取原回执。
+                    pass
+            for task in group:
+                slot=directory/'preparation'/('%06d.json'%task['index'])
+                try:
+                    record=records[task['index']]if task['index']in records else prepare_one(task)
+                    row=dict(index=task['index'],state='call_returned',record=record,coverage='unknown')
+                except(RetainedReadPending,RetainedReadFailure)as error:
+                    original=strict_json(read_fixed(slot,maximum=1048576))if slot.exists()else None
+                    row=dict(index=task['index'],  # 原计划索引；异常后仍续核同槽/原请求ID。
+                        state='pending'if isinstance(error,RetainedReadPending)else'source_unavailable',
+                        reason_code=_reason_code(error),slot=str(slot)if original is not None else None,
+                        request_id=original['request']['request_id']if original is not None else None,coverage='unknown')
+                rows.append(row);cursor=(task['index']+1)%max(1,len(tasks))
+                _save(observations/('%06d.json'%task['index']),dict(plan_sha256=plan['sha256'],row=row))
+                _save(directory/'PROGRESS.json',dict(schema='guanheng.daily-gap-progress.v1',plan_sha256=plan['sha256'],
+                    state='observing',next_index=cursor,rows=rows,coverage='unconfirmed_until_readback'))
+                if on_progress is not None:on_progress(row)
     result = dict(
         schema='guanheng.daily-gap-progress.v1',  # 本轮分项观察结果，与原源端执行状态分别保存。
         plan_sha256=plan['sha256'],  # 不可变计划身份，同目录恢复必须一致。

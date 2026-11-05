@@ -39,14 +39,15 @@ def _configuration(path, expected):
     _need(type(timeout) in (int, float) and .1 <= timeout <= 30 and math.isfinite(timeout))
     _need(type(value['token_env']) is str and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', value['token_env']))
     source_config = _json(_read(_path(source['path']), 1024 * 1024, source['sha256']))
-    _need(source_config.get('mode') in ('source-store', 'source-stores', 'source-catalog', 'source-preparing', 'source-recovered', 'source-collected', 'source-shm-quotes', 'source-daily-overlay', 'source-market-snapshot', 'source-market-current'))
+    _need(source_config.get('mode') in ('source-store', 'source-stores', 'source-catalog', 'source-preparing', 'source-recovered', 'source-collected', 'source-shm-quotes', 'source-daily-overlay', 'source-market-snapshot', 'source-market-current', 'source-current-day'))
     if 'daily_update'in value:
         from integrations.guanheng.daily_data_service import validate_configuration
         descriptor=value['daily_update'];_fields(descriptor,'path sha256')
         update=validate_configuration(_json(_read(_path(descriptor['path']),16777216,descriptor['sha256'])))
         # 分钟组合仅接管分钟请求；每日owner仍绑定原动态市场CURRENT，任务及发布身份保持。
-        current_source = (source_config.get('delegate', {})
-            if source_config.get('mode') == 'source-recovered' else source_config)
+        daily_source = source_config.get('base', {}) if source_config.get('mode') == 'source-current-day' else source_config
+        current_source = (daily_source.get('delegate', {})
+            if daily_source.get('mode') == 'source-recovered' else daily_source)
         _need(current_source.get('mode')=='source-market-current'
             and os.path.normcase(str(Path(current_source['current_file']).absolute()))==os.path.normcase(
                 str(Path(update['template']['publication_directory']).absolute()/'CURRENT.json')))

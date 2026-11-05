@@ -1,4 +1,5 @@
 """原更新事务中的全类别价格阶段；同一owner、同一写租约、同一CURRENT。"""
+from copy import deepcopy
 from pathlib import Path
 import time
 
@@ -12,6 +13,20 @@ from .source_market import create_native_source_market
 from .security_reference import SecurityReference,trade_day_state
 from ..guanheng_market_client import API_VERSION,strict_json
 from .market_generation import read_fixed
+
+
+def compact_price_base(base,retired):
+    """完整合并新档替换已知旧补充层；原文件、主Native及采集包装保持。"""
+    identities={(item['path'],item['sha256'])for item in retired}
+    value=deepcopy(base)
+    def visit(node):
+        archive=node.get('archive')
+        if (node.get('mode')=='source-daily-overlay'and node.get('snapshots')is None
+                and archive is not None and(archive['path'],archive['sha256'])in identities):
+            return visit(node['base'])
+        if isinstance(node.get('base'),dict):node['base']=visit(node['base'])
+        return node
+    return visit(value)
 
 
 def _coverage_count():
@@ -59,7 +74,13 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         if request.get('index_fallback')is not None:price_request['index_fallback']=request['index_fallback']
         inputs=prepare_price_inputs(price_request,root/'inputs',
             deadline=deadline,cancelled=cancelled,environ=environ)
-    imported=_load(native);base=compose_native_import(_load(base_configuration,1048576),imported)
+    base=_load(base_configuration,1048576)
+    if native is not None:
+        base=compose_native_import(base,_load(native))
+    elif base.get('mode')=='source-market-snapshot':
+        # 价格先行沿上一成功Reader链合并；日事实/指标池仍由原快照保留真实日期。
+        base=base['base']
+    base=compact_price_base(base,request.get('replaced_archives',()))
     reader=_catalog(base)['native_reader'];limit=request['maximum_history_rows'];archive=None
     if inputs is not None:
         market=create_native_source_market(base)

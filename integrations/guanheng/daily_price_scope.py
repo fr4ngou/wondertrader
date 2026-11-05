@@ -72,7 +72,8 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
                 members.update(dynamic['securities']);source_members=sorted(dynamic['securities'])
             groups=state.get('groups',groups)
         finally:transport.close()
-    check();pool=_load(stock_universe);primary={}
+    # 独立价格阶段没有本日指标池；全体已知/当前Source证券均进入价格维护，旧指标池不冒充本日成员。
+    check();pool=_load(stock_universe)if stock_universe is not None else dict(members=[]);primary={}
     for raw in pool['members']:
         symbol={'sh':'SSE','sz':'SZSE','bj':'BSE'}[raw[:2]]+'.'+raw[3:]
         identity=members.get(symbol,dict(symbol=symbol,name=None,market=symbol.split('.')[0],
@@ -83,7 +84,8 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
     if not 1<=len(all_members)<=20000:raise ValueError('daily price universe capacity')
     retained_sources=[baseline]
     if previous_reference is not None:retained_sources.append(previous_reference)
-    retained_sources.extend(previous_scopes);retained_sources.append(stock_universe)
+    retained_sources.extend(previous_scopes)
+    if stock_universe is not None:retained_sources.append(stock_universe)
     reference=prepare_retained_reference(reference,all_members,retained_sources,root/'reference.json')
     exclusions={symbol:role for symbol,identity in all_members.items()
                 if (role:=non_price_role(identity,day))is not None}

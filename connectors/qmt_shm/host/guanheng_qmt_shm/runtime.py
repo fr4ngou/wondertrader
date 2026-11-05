@@ -136,6 +136,12 @@ class HostReadRuntime:
     def _interrupt_control(self):
         self._control.interrupt_read()
 
+    @property
+    def read_rejection_diagnostic(self):
+        """本代最近合法控制拒绝的有界纯值；不读取Journal或扩展HTTP/wire。"""
+        control=self._control
+        return None if control is None else control.read_rejection_diagnostic
+
     def _finalize_control(self):
         """原I/O finally的本地交接钩子；只读默认行为保持为空。"""
         pass

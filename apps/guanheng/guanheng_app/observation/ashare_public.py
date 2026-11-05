@@ -44,13 +44,14 @@ class ObjectCapture:
 
 class Archive:
     """原runs记录尝试和成功原件锚；采集lease由原refresh或服务调用者持有。"""
-    def __init__(self,reader,fetch,source,*,retry_seconds=60,max_attempts=8,now=None,admitted_records=(),normalizer=None,published_inputs=True):
+    def __init__(self,reader,fetch,source,*,retry_seconds=60,max_attempts=8,now=None,admitted_records=(),normalizer=None,published_inputs=True,retry_window_seconds=None):
         self.normalizer=normalize if normalizer is None else normalizer  # 原默认指标准入或显式数据事实回调；在本采集线程执行。
         _need(callable(self.normalizer) and type(published_inputs) is bool)
         self.published_inputs=published_inputs  # 原观察角色可复用已发布PB原件；数据角色只读自己的原件/回执域。
         self.reader,self.fetch,self.source=reader,fetch,source
         self.now=now or datetime.now(timezone.utc)
         self.retry_seconds,self.max_attempts=retry_seconds,max_attempts
+        self.retry_window_seconds=retry_window_seconds  # 常驻数据owner的有限重试窗口；None保持既有单批次数规则。
         self.policy=digest(encode(source))
         self.admitted_records=admitted_records  # 同批先前成功Baostock来源的原件记录；保持原SHA及真实抓取时间。
 
@@ -106,6 +107,11 @@ class Archive:
     def attempt(self,operation,day):
         attempt_date=self.now.astimezone(ZONE).date().isoformat()
         attempts=self.receipts(operation,day,status='attempted',attempt_date=attempt_date)
+        if self.retry_window_seconds is not None:
+            _need(type(self.retry_window_seconds)in(int,float)and 1<=self.retry_window_seconds<=86400,
+                  'ashare_capture_retry_window')
+            # 原回执全部保留；窗口外失败不永久耗尽整日采集资格，仍受同一批次D和请求/字节预算约束。
+            attempts=[row for row in attempts if 0<=(self.now-_clock(row['started_at'])).total_seconds()<self.retry_window_seconds]
         _need(len(attempts)<self.max_attempts,'ashare_capture_retries_exhausted')
         if attempts:
             elapsed=(self.now-_clock(attempts[0]['started_at'])).total_seconds()

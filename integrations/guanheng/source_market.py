@@ -410,6 +410,9 @@ def main(argv=None):
 
 
 def create_native_source_market(config, *, max_response_bytes=8 * 1024 * 1024):
+    if type(config) is dict and config.get('mode') == 'source-current-day':
+        from .current_day import CurrentDayMarket
+        return CurrentDayMarket(config,max_response_bytes=max_response_bytes)
     """显式来源配置选择实现；已有导入模式保持原Reader和缓存行为。"""
     if type(config) is dict and config.get('mode') == 'source-recovered':
         from .recovered_history import RecoveredSourceMarket

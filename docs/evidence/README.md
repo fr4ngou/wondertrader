@@ -1,5 +1,13 @@
 # 验证证据
 
+- [执行前置启动失败的原账接续](2026-11-05-service-preexecution-recovery.md)：真实Controller/Runtime两次依赖失败后同入口成功，原transition/账本保持、未知执行拒绝复用、45模块普通wheel和14项安装回归；线上由Root采用。
+
+- [形成中日K、HPR及实际金融恢复](../releases/2026-11-05-current-day-and-hpr-live.md)：真实Writer/SDK/App、线上日周月及分钟、六角色、原账恢复和仍待修正的资金资格。
+
+- [HPR原Agent兼容闭包与正常安装](2026-11-05-hpr-compatible-closure.md)：实际旧Host63模块、原Agent60模块、可重复普通wheel、15包离线安装、原真实配对正文保持及11项安装类主链；线上采用由Root执行。
+
+- [HPR合法控制拒绝与同owner续接](2026-11-05-hpr-control-rejection.md)：合法RPC拒绝按原ID保留未知、后继请求成功、原ACK/截止、正常关闭与同根恢复；正式Host采用另验。
+
 - [文档生命周期与索引维护](2026-11-05-document-index-lifecycle.md)：新增、删除、移动及重命名的同步职责、上下层导航与同提交维护；补齐稀疏检出目标后静态检查通过。
 
 - [五服务启停、观衡111和当日日线](../releases/2026-11-05-independent-wt-control-and-observer111.md)：真实整组恢复、跨代快照和Windows修订路径根因、页面日期及未完成范围。

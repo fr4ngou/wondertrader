@@ -18,6 +18,14 @@ WT运行侧入口支持start、stop、status。内部受控配置固定安装解
 
 后继使用原Native实际配置、金融根、库存输入及原关闭/故障证据，沿既有prepare_transition及原Native接收流程生成本代配置和新控制目录。当前实例指针准确反映新一代，包括启动、等待来源、运行和失败；保留旧代原件。发生未解决金融责任时由原执行链报告，启动器不绕过或重写证明。
 
+### WSC-R1 执行组件之前的启动失败
+
+Runtime按固定依赖顺序逐项start，首个失败立即返回；组件工厂及未启动owner的close均不创建Native进程。前代最终status与failure收据绑定同一Runtime身份及PID，failure已记录原关闭结论，status保留早于execution的component_start_<角色>且该角色确在本代配置的execution之前，并且execution已closed、无PID/业务引用/待回收资源/错误或强杀时，Controller可确认本代没有调用execution.start。仅缺少PID或业务引用不构成此资格。
+
+该分支重用原execution descriptor、Native配置和已准备recovery transition原件及摘要，generation记录继续指向同一原transition；保留其最后实际Native前代身份、库存输入和原账。其它来源owner的关闭失败保留原责任，由其既有恢复协议处理。生成新Runtime控制代，不取未执行代的业务观察，不新做金融transition，不写clean或账本。首次启动尚无transition时同样保留原尚未使用的输入。transition及原Native配置摘要必须核实；Native仍沿原接收流程核原账、原责任及实际准入。
+
+实际execution已启动、启动尝试发生在execution本身、执行owner退出/关闭未确认、原件缺失或状态无法严格证明时，继续原实际Native恢复/核查路径。不得用此分支跳过未知执行责任。验收覆盖依赖启动失败→同一ServiceController.start后继成功、重复前置失败保持同一transition与账本，以及已启动/缺失证明拒绝复用；线上采用另验。
+
 ### 多角色同一操作入口
 
 安装后的服务组配置按依赖顺序列出独立WT服务，每项只保存角色名称、原service.json绝对路径及SHA256。服务组操作工具复用原ServiceController执行start/status/stop，启动按配置顺序、停止按逆序。各服务仍拥有自己的运行代、CURRENT、原环境和业务恢复；组工具不创建第二个组件owner，不解释持仓或重发委托。

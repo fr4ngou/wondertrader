@@ -68,7 +68,7 @@ def test_main_daily_single_sdk_preserves_source_date_and_units():
     assert source.timestamp_semantics == source.chart_minute_boundary == "source_date"
     assert source.source_minute_boundary == "unknown" and source.coverage == "Unknown"
     assert source.price_unit == source.volume_unit == source.amount_unit == "unknown"
-    assert factory.calls == [({"exchange": "SSE", "code": "510300", "from": 20040101, "to": 20261023, "limit": 2}, {"timeout": .125})]
+    assert factory.calls == [({"exchange": "SSE", "code": "510300", "from": 20040101, "to": 20261023, "limit": 2, "view":"current"}, {"timeout": .125})]
     assert MarketChartBundle.model_validate_json(value.model_dump_json()) == value
 
 
@@ -213,7 +213,7 @@ def test_daily_earlier_observed_date_and_deployment_budget_are_respected():
     result = build_native_chart(symbol="159919.sz", period="1d", limit=2,
         before=datetime(2027, 1, 1, tzinfo=timezone.utc), settings=settings(), now=NOW, client_factory=factory, timeout_seconds=30)
     assert result.data_available
-    assert factory.calls == [({"exchange": "SZSE", "code": "159919", "from": 20040101, "to": 20261028, "limit": 2}, {"timeout": .5})]
+    assert factory.calls == [({"exchange": "SZSE", "code": "159919", "from": 20040101, "to": 20261028, "limit": 2, "view":"current"}, {"timeout": .5})]
     # 日期上界只约束原标签，空missing_dates保持Unknown，不提升当天闭合资格。
     assert result.native_source.coverage == "Unknown" and result.native_source.timestamp_semantics == "source_date"
 

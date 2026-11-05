@@ -29,7 +29,8 @@ class RetainedReadBindingChanged(RetainedReadFailure):
 def _save(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + '.' + uuid4().hex + '.tmp')
+    # 同目录短UUID临时名保留128位唯一性；不重复长SHA目的名，避免有效目的路径的临时名越过Windows路径预算。
+    temporary = path.with_name('.' + uuid4().hex + '.tmp')
     raw = canonical(value)
     with temporary.open('xb') as stream:
         if stream.write(raw) != len(raw):

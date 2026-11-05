@@ -54,8 +54,7 @@ class BulkHostControlLoop(HostControlLoop):
             if payload['read_finish'] is not None:
                 pending=payload['read_finish']
                 try:
-                    self.runtime.journal.finish_bound(pending['request_id'],pending['result'],self.binding,
-                        deadline=min(payload['deadline'],pending['deadline']))
+                    self._persist_read_outcome(pending,min(payload['deadline'],pending['deadline']))
                 except Exception as error:
                     if first is None: first=error
             try:

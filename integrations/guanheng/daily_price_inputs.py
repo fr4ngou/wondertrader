@@ -142,7 +142,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
             batch=BoundHistorySource(request['connections']['batch'],environ=environ,reuse_connections=True)
             try:
                 owner=MarketDailyPreparation(lambda:BoundHistorySource(request['connections']['hpr'],environ=environ,
-                    reuse_connections=True),batch,concurrency=1)
+                    reuse_connections=True),batch,concurrency=4)  # 复用原SDK默认四worker上限，仅并行终端外HPR通信。
                 progress=advance_gap_plan(plan,root/'gap-work',owner,deadline=deadline,max_tasks=10000,cancelled=cancelled)
             finally:batch.close()
             if not readback_progress.exists():

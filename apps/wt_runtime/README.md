@@ -75,3 +75,5 @@ QMT终端内的策略正文和内存共享协议保持其原无文件/网络访�
 Root登记的当前运行角色为`service.8`，其[固定源码闭包](source_closures/0.1.0a12+integrated.2.market.35.3.service.8/README.md)从永久提交重建。最终产品候选`service.9`尚未部署，使用[最终永久源码闭包](source_closures/0.1.0a12+integrated.2.market.35.3.service.9/README.md)重建；[service.5](source_closures/0.1.0a12+integrated.2.market.35.3.service.5/README.md)及[service.7](source_closures/0.1.0a12+integrated.2.market.35.3.service.7/README.md)继续作为谱系前代。各闭包均按对应角色的43个Python模块摘要验收。
 
 验收入口为`tests/integration/wt_runtime/main_installed.py`，从普通无Web安装环境调用真实CLI，以原Host两代SDK替身、原Reader真实历史和采集协议替身验证运行装配。该范围不授真实券商交易、原Writer本轮运行或完整策略执行资格。最终组合验收需包含唯一1.1.2策略及原执行器。操作见[独立WT运行手册](../../docs/runbooks/wt-independent-runtime.md)。
+
+[执行前置启动失败续接发行](source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2.startrecovery.1/README.md)在固定cash.2的45模块上只修改ServiceController，沿原未执行descriptor和transition续接；原账、策略及交易SDK保持，现场采用另验。

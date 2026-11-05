@@ -836,8 +836,7 @@ class RetainedStrategy:
         if self.inputs.capital_baseline is not None:
             candidate['capital_baseline'] = self.inputs.capital_baseline
             if self.capital_observation is not None:
-                candidate['capital'] = dict(self.capital_observation,
-                    account_observation_qualified=False, spendable_cash_cny=None)
+                candidate['capital'] = self.capital_observation
         state, exits, vector = self.state,self.exits,()
         if status is None:
             request = replace(self.inputs.request,cycles=tuple(cycles),cycles_captured_at=received,
@@ -877,6 +876,11 @@ class RetainedStrategy:
                 status,reason='waiting_market_input','current_applied_quote_unavailable'
                 candidate.update(status=status,reason=reason)
             else:prices,price_stamp=current
+        if status is not None and self.capital_observation is not None:
+            # 行情/持仓等待不改变账户事实资格；沿原NAP身份和本轮D续核，保留原估值时点。
+            from .strategy_capital import refresh_account_constraint
+            self.capital_observation = refresh_account_constraint(self.capital_observation,self.capital_reader,deadline)
+            candidate['capital'] = self.capital_observation
         if status is None:
             if self.market_window is None:prices = {s:context.price(self.mapping[s]) for s in self.execution}
             _need(all(type(p) in (int,float) and math.isfinite(p) and p > 0 for p in prices.values()), 'native_price')
@@ -884,6 +888,10 @@ class RetainedStrategy:
             facts,raw,basis,observed = self._capture(context,prices,cutoff,result['input_sha256'],price_source=price_source,price_observed_at=price_stamp,deadline=deadline,broker=broker)
             if self.capital_observation is not None:
                 candidate['capital'] = self.capital_observation
+            elif candidate.get('capital') is not None:
+                # 本轮实际估值缺账户现金依据时，旧金额可留存，当前可用资格保持未知。
+                candidate['capital'] = dict(candidate['capital'],
+                    account_observation_qualified=False,spendable_cash_cny=None)
             candidate['native_cash_basis']=getattr(self,'native_cash_basis',None)
             basis,observed,execution = self._execution_capture(broker,basis,observed)
             if not self.execution_enabled:

@@ -25,6 +25,8 @@ OWNED = (
     'scripts/minute_collection.py',
     'integrations/guanheng/quote_collection.py',
     'integrations/guanheng/quote_collection_service.py',
+    'integrations/guanheng/current_day.py',
+    'integrations/guanheng/datakit.py',
     'integrations/guanheng/collected_history.py',
     'integrations/guanheng/source_history_reads.py',
     'integrations/guanheng/source_history_repository.py',
@@ -34,8 +36,11 @@ OWNED = (
     'integrations/guanheng/source_market.py',
     'integrations/guanheng/source_market_service.py',
     'integrations/guanheng_market_client/exchange_calendar.py',
+    'integrations/guanheng_market_client/__init__.py',
+    'integrations/guanheng_market_client/source_history.py',
     'connectors/qmt_shm/host/guanheng_qmt_shm/market_source.py',
     'connectors/qmt_shm/host/guanheng_qmt_shm/private_files.py',
+    'connectors/qmt_shm/host/guanheng_qmt_shm/read_retention_client.py',
 )
 
 

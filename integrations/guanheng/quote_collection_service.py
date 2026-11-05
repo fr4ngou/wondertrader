@@ -104,7 +104,8 @@ def _fields(value, names):
 
 def _configuration(path, expected):
     value = _json(_read(path, 65536, expected))
-    _need(type(value) is dict and set(value)-{'maintenance'} == set('schema connection native archive_session status_interval_seconds'.split()))
+    _need(type(value) is dict and set(value)-{'maintenance','publish_current_day'} == set('schema connection native archive_session status_interval_seconds'.split()))
+    _need(type(value.get('publish_current_day',False)) is bool)
     if 'maintenance' in value:
         _fields(value['maintenance'], 'path sha256')
         _read(_path(value['maintenance']['path']), 16777216, value['maintenance']['sha256'])
@@ -256,6 +257,10 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
             now = time.monotonic()
             if now >= next_status:
                 stage = 'status_publish'
+                if value.get('publish_current_day',False):
+                    from integrations.guanheng.current_day import publish_current_day_observation
+                    publish_current_day_observation(collection,data_root,control_directory,
+                        control_id=control_id,configuration_sha256=configuration_sha256)
                 publish('status.json', dict(schema='qmt.quote-collector-status.v1', control_id=control_id,
                         pid=os.getpid(), configuration_sha256=configuration_sha256,
                         observed_wall_time=time.time(), collection=snapshot), True)

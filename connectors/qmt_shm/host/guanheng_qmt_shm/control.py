@@ -39,6 +39,7 @@ class HostControlLoop:
         self._read_finish=None
         self._read_commit_payload=None  # 原finish全文和原持久截止；与Future一起保留到确认完成。
         self._abandoned_read_commit=None  # 关闭时核清的原只读任务；保留Future/原值，不补源ACK。
+        self._read_rejection=None  # 最近控制拒绝的不可变诊断值；只含固定枚举、状态及有界计数。
         self._read_wake=threading.Event();self._read_wake.set()
         self._wake=runtime._wake
         self.domain_failed=False
@@ -72,8 +73,7 @@ class HostControlLoop:
                 return _ReadClaim(active,queue_deadline,upper,error)
             return _ReadClaim(active,queue_deadline,upper)
         if operation=='read.finish':
-            self.runtime.journal.finish_bound(payload['request_id'],payload['result'],self.binding,
-                                             deadline=payload['deadline'])
+            self._persist_read_outcome(payload,payload['deadline'])
         elif operation=='read.interrupt':
             self.runtime.journal.interrupt_bound(payload['request_id'],payload['operation_id'])
         else:
@@ -98,6 +98,8 @@ class HostControlLoop:
                 raise claimed.wait_error
         if self._read_commit is not None and self._read_commit.done():
             self._domain_result(self._read_commit)
+            if self._read_commit_payload is not None and 'control_rejection' in self._read_commit_payload:
+                self._read_rejection=dict(self._read_rejection,persistence='committed')
             self._read_commit=None
             self._read_commit_payload=None
             # 先消除active再ACK；收据丢失不能用中断覆盖已提交成功。
@@ -108,7 +110,9 @@ class HostControlLoop:
 
     def _admit(self):
         self._progress_domain()
-        if self.read_future is not None and self.read_future.retired:
+        if (self.read_future is not None and self.read_future.retired and self.active is None
+                and self._read_commit is None and self._read_finish is None):
+            # queued过期可先退休运输Future；原请求的拒绝持久交接结束前仍持有它，禁止再发原ID。
             self.read_future=None
             self._read_wake.set()
         if self.read_future is None and self.peer.can_submit():
@@ -159,14 +163,66 @@ class HostControlLoop:
         slot=self._read_finish
         if not slot['ready']:
             reply=slot['reply']
-            if not reply['ok'] or slot['payload']['request_id'] is None:
+            if slot['payload']['request_id'] is None:
                 raise ProtocolError('control read lacks an original native terminal')
-            result=reply['payload']
-            if type(result) is not dict:
-                raise ProtocolError('control read lacks a complete native payload')
-            slot['payload']['result']=result
+            if reply['ok'] is False:
+                error=reply.get('error');delivery=reply.get('delivery')
+                if (reply.get('payload') is not None or type(error) is not dict
+                        or set(error)!={'code','message'} or type(error['code']) is not str
+                        or error['code'] not in self.peer.profile.contract.ERROR_CODES
+                        or type(error['message']) is not str
+                        or not 1<=len(error['message'].encode('utf8'))<=self.peer.profile.contract.CONSTANTS['max_error_text_bytes']
+                        or delivery not in ('replied','not_sent','unknown')):
+                    raise ProtocolError('control read failure lacks a validated delivery')
+                request=decode(self.active[1])
+                # 合法RPC拒绝不冒充SDK终态；同一原请求交原Journal中断规则，HPR保持未知。
+                rejected=dict(
+                    code=error['code'],  # 原grammar的拒绝枚举，不保留来源message或异常正文。
+                    delivery=delivery,  # 原ControlFuture的replied/not_sent/unknown交付事实，不升级SDK资格。
+                    operation_id=request['operation_id'],  # 原持久请求操作，用于核对同一个dispatch。
+                    request_sha256=hashlib.sha256(self.active[1]).hexdigest())  # 原完整请求字节SHA，不能由回复重建请求。
+                slot['payload']['control_rejection']=rejected
+                prior=getattr(self,'_read_rejection',None)
+                self._read_rejection=dict(
+                    code=error['code'],  # 最近一次合法控制拒绝码；没有原message或请求资料。
+                    delivery=delivery,  # 原交付状态，单独区别原生调用与通信结果。
+                    persistence='pending',  # pending等待原Journal；committed表示原持久状态已核实。
+                    count=min(9007199254740991,1 if prior is None else prior['count']+1))  # 本控制代拒绝累计次数，饱和于精确JSON整数上限。
+            elif reply['ok'] is True:
+                result=reply['payload']
+                if type(result) is not dict:
+                    raise ProtocolError('control read lacks a complete native payload')
+                slot['payload']['result']=result
+            else:
+                raise ProtocolError('control read lacks a literal outcome')
             slot['ready']=True
         return slot['payload']
+
+    @property
+    def read_rejection_diagnostic(self):
+        """跨线程只复制最近固定纯值；无I/O、业务锁或请求正文，不累积事件列表。"""
+        value=self._read_rejection
+        return None if value is None else dict(value)
+
+    def _persist_read_outcome(self,payload,deadline):
+        """唯一域线程保存原生结果或控制拒绝；原ID/正文/派发绑定分别核验。
+
+        拒绝没有SDK返回值，不能交finish_bound伪造原生证明。原事务已完成时只核
+        已有终态，不覆盖其实际结果；正常与关闭共用此入口，提交前后异常仍保留owner。
+        """
+        journal=self.runtime.journal
+        if 'control_rejection' not in payload:
+            return journal.finish_bound(payload['request_id'],payload['result'],self.binding,deadline=deadline)
+        rejected=payload['control_rejection'];rid=payload['request_id']
+        record=journal.get_bound(rid,deadline=deadline)
+        if (record is None or record['dispatch_binding']!=self.binding
+                or record['operation_id']!=rejected['operation_id']
+                or record['request_body_sha256']!=rejected['request_sha256']):
+            raise ProtocolError('control rejection differs from its original dispatch')
+        if record['state']=='executing':
+            journal.interrupt_bound(rid,rejected['operation_id'],deadline=deadline)
+        elif record['state']!='terminal':
+            raise ProtocolError('control rejection has no owned dispatch state')
 
     def _submit_read_finish(self):
         if self._read_finish is None or self._read_commit is not None:
@@ -279,11 +335,14 @@ class HostControlLoop:
                 or record['request_body_sha256']!=hashlib.sha256(active[1]).hexdigest()):
             return False
         if record['state']=='terminal':
-            expected=canonical(payload['result'])
-            if (record['result_binding']!=self.binding or record['result_body_b64'] is None
-                    or base64.b64decode(record['result_body_b64'],validate=True)!=expected):
-                return False
-            outcome='original_result_already_terminal'
+            if 'control_rejection' in payload:
+                outcome='original_rejection_already_terminal'
+            else:
+                expected=canonical(payload['result'])
+                if (record['result_binding']!=self.binding or record['result_body_b64'] is None
+                        or base64.b64decode(record['result_body_b64'],validate=True)!=expected):
+                    return False
+                outcome='original_result_already_terminal'
         elif record['state']=='executing':
             journal.interrupt_bound(rid,request['operation_id'],deadline=deadline)
             outcome='original_request_interrupted'
@@ -305,8 +364,7 @@ class HostControlLoop:
         records=[]
         if self._read_finish is not None:
             pending=self._read_finish_payload()
-            self.runtime.journal.finish_bound(pending['request_id'],pending['result'],self.binding,
-                                             deadline=min(deadline,pending['deadline']))
+            self._persist_read_outcome(pending,min(deadline,pending['deadline']))
             self._read_finish=None;self.active=None
         if self._read_commit is not None:
             try:self._domain_result(self._read_commit)

@@ -47,7 +47,7 @@ def observe_prior_plans(plans, owner, *, deadline, cancelled):
 
 
 def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda: False,
-                   environ=None, previous_requests=()):
+                   environ=None, previous_requests=(), prior_price_requests=()):
     """调用方持publication锁；同目录输入请求及原slot固定，恢复不改capture_id。
 
     configuration.template为单轮更新静态配置，inputs为公开事实/原批读的有限预算。
@@ -111,7 +111,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             template['additional_archives']=list(selected.values())
     protected = set(template['protected_slots'])
     plans = [];scope_history=[]
-    for request_path in previous_requests:
+    # 独立价格阶段属于同owner的原责任；不改已有INPUTS原意图，另从持久INDEX引用恢复保护。
+    for request_path in (*previous_requests,*prior_price_requests):
         request_path = Path(request_path)
         previous = strict_json(read_fixed(request_path, maximum=16777216))
         protected.update(previous['protected_slots'])
@@ -162,7 +163,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     fetch = Fetcher(BoundedContentStore(reader.objects, budget), public['allowed_hosts'],
         timeout=public['timeout_seconds'], budget=budget)
     try:
-        packet, facts = capture_day_facts(reader, fetch, public['source'], day)
+        packet, facts = capture_day_facts(reader, fetch, public['source'], day,
+            retry_window_seconds=min(86400,max(60,configuration['retry_seconds']*8)))
     finally:
         fetch.close()
     check()

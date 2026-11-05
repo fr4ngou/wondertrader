@@ -31,3 +31,10 @@
 已完成捕获可由price_cache_seed采用；变化价格正常写入，未变化DSB经原Helper逐字段验证后复用。已发布版本仍有相关目标价格未就绪和原待核责任时，原持续owner在同日独立修订中接续，INDEX保留全部原任务引用。旧账户、交易、行情及历史owner继续归各原实例拥有。本轮实际目录、216项准备与回读、两口径原生归档及正式发布已完成；已声明交易日之外的自然新日保持待验，具体运行身份与重启资格沿[发布记录](../releases/2026-11-04-unified-daily-full-scope-live.md)。
 
 本轮股票和额外价格计划共同决定同日接续，股票回读前的任务进度随已成功阶段固定。历史保留身份通过v3组合资料与同一快照发布，当前v1/v2叶原件保持其分组分母及资料优先级；公开资料SHA绑定整份组合。新资料页将整次捕获绑定传给原SDK准入，换代在新slot生成前拒绝。合法空补充原价持久化空entries归档，继续原股票读取。
+
+
+## 价格与辅助事实的独立推进
+
+已有成功版本时，daily_price_refresh在同一owner/原publication租约内先维护全类别价格，随后原任务再获取公共日事实。公共股票资料供应商超时保留旧事实及其原日期，价格批读/HPR、Native及CURRENT独立推进。INDEX分别保存price_request、price_state、price_result及price_history_requests；status.last_price_success表示实际价格目标日，auxiliary_observation_date表示最后真实指标池/事实日期。逐证券和逐组覆盖仍使用原daily-price-update结果，Source分母未知继续为None。
+
+旧定日快照日期在公共事实完成前保持；价格查询从新Reader层读取真实新日线，完整指标快照由原公共事实流程随后推进。原请求保护、read-retention责任发现、同日修订与CAS仍归原owner。对应合同见UDI-R55。

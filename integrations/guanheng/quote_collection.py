@@ -156,6 +156,16 @@ class QuoteCollection:
         if receiver is not None:
             receiver.request_close()
 
+    def current_days(self):
+        """管理owner读取实际订阅的原Writer副本；与status缓存及交易策略独立。"""
+        with self._guard:
+            if self._owner is not threading.current_thread() or self._operation is not None:
+                raise RuntimeError('quote_collection_management_owner_required')
+            native=self._native
+            if native is None or self._closed_complete:
+                raise RuntimeError('quote_collection_current_day_unavailable')
+        return native.current_days(self._settings['symbols'])
+
     def check_health(self):
         """管理线程检查原生错误闩锁；即使来源空闲也能停止已失败的Writer。"""
         with self._guard:

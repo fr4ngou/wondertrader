@@ -40,7 +40,7 @@ def normalize_day_facts(capture, manifest, start, end):
 
 
 def capture_day_facts(reader, fetch, source, day, *, now=None, retry_seconds=60, max_attempts=8,
-                      admitted_records=()):
+                      admitted_records=(),retry_window_seconds=None):
     """数据owner提供只存原件/回执的reader和有界fetch；网络/SDK沿原适配器。
 
     reader及fetch归调用线程，调用者持写锁并负责close。已有同日部件/原件复用，
@@ -49,5 +49,6 @@ def capture_day_facts(reader, fetch, source, day, *, now=None, retry_seconds=60,
     from guanheng_app.observation.ashare_public import Archive
     archive = Archive(reader, fetch, source, now=now or datetime.now(timezone.utc),
                       retry_seconds=retry_seconds, max_attempts=max_attempts,
-                      admitted_records=admitted_records, normalizer=normalize_day_facts, published_inputs=False)
+                      admitted_records=admitted_records, normalizer=normalize_day_facts, published_inputs=False,
+                      retry_window_seconds=retry_window_seconds)
     return archive.get(day)

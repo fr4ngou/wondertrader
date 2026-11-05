@@ -460,6 +460,59 @@ class ServiceController:
         self._configuration_for(current)
         return current
 
+    def _execution_start_not_reached(self, current: dict, status: dict, runtime: RuntimeConfig) -> bool:
+        """原串行启动在执行之前返回且执行owner已关闭，才证明本代未调用执行start。
+
+        PID/观察为空本身不证明未启动；固定顺序、原错误阶段、终态收据和完整关闭
+        同时成立才沿原输入继续。execution自身失败或未知资源继续原恢复核查。
+        """
+        names = tuple(name for name, unused in runtime.components)
+        failure = _terminal(current, "failure.json")
+        components = status.get("components")
+        if (failure is None or type(failure.get("components_closed")) is not bool
+                or failure.get("status") != "faulted" or failure.get("error_code") != "runtime_failure"
+                or type(failure.get("pid")) is not int or failure["pid"] <= 0
+                or failure["pid"] != status.get("pid")
+                or status.get("ready") is not False or status.get("state") not in ("closed", "faulted")
+                or type(components) is not dict or set(components) != set(names)):
+            return False
+        earlier = {"component_start_" + name for name in names[:names.index("execution")]}
+        execution = components["execution"]
+        required = {"state", "ready", "pid", "business_observation", "pending", "forced", "error_code"}
+        return (status.get("error_code") in earlier and type(execution) is dict
+                and required <= set(execution) and execution["state"] == "closed"
+                and execution["ready"] is False and execution["pid"] is None
+                and execution["business_observation"] is None and execution["pending"] is False
+                and execution["forced"] is False and execution["error_code"] is None
+                and execution.get("execution_ready", False) is False
+                and execution.get("source_wait_state", "waiting_source") == "waiting_source")
+
+    def _retained_execution_transition(self, current: dict, descriptor: dict) -> str | None:
+        """只核原配置/原交接字节，保持最后实际Native身份；不读取或重写账本。"""
+        native_raw, native = _json_file(_path(descriptor["configuration"], e_drive=True), 256 * 1024)
+        _require(hashlib.sha256(native_raw).hexdigest() == _sha(descriptor["configuration_sha256"]))
+        record = self._generation_record(current["wt_control_id"])
+        _require(record is not None)
+        transition_file = record["transition_file"]
+        recovery = native.get("recovery", {})
+        if recovery.get("mode") == "resume_reconciled":
+            transition = recovery.get("transition")
+            _require(type(transition) is dict and set(transition) == {"file", "sha256"})
+            path = _path(transition["file"], e_drive=True)
+            bootstrap = (record["predecessor_control_id"] is None
+                         and record["runtime_configuration"] == str(self.config.bootstrap_configuration)
+                         and record["runtime_configuration_sha256"] == self.config.bootstrap_configuration_sha256)
+            _require(transition_file == str(path) or transition_file is None and bootstrap)
+            # 首次纳管的bootstrap也可自带合法恢复材料；该代尚未执行，直接登记同一原引用。
+            transition_file = str(path)
+            raw, value = _json_file(path, 256 * 1024)
+            _require(hashlib.sha256(raw).hexdigest() == _sha(transition["sha256"])
+                     and value.get("schema") == "guanheng.execution-recovery-transition.v1")
+        else:
+            # 首次尚未启动的原库存/record_clean输入原样保留，由Native首次start正常准入。
+            _require(transition_file is None)
+        return transition_file
+
     def _new_generation(self, previous: dict | None, previous_status: dict | None) -> tuple[dict, Path]:
         control_id = str(uuid4())
         generation = self.config.generation_root / control_id
@@ -485,47 +538,53 @@ class ServiceController:
                 descriptor_path = _path(execution["descriptor"], e_drive=True)
                 descriptor_raw, descriptor = _json_file(descriptor_path, 256 * 1024)
                 _require(hashlib.sha256(descriptor_raw).hexdigest() == _sha(execution["sha256"]))
-                observation = previous_status["components"]["execution"]["business_observation"]
-                _require(type(observation) is dict and observation["schema"] == "guanheng.execution-observation-reference.v1")
-                predecessor_control = _path(observation["path"], e_drive=True).parent
-                _require(_path(observation["ready_path"], e_drive=True) == predecessor_control / "ready.json")
-                ready = read_status(predecessor_control / "ready.json", 4096)
-                previous_native = predecessor_control / "execution.json"
-                previous_native_raw, native = _json_file(previous_native, 256 * 1024)
-                previous_native_sha = hashlib.sha256(previous_native_raw).hexdigest()
-                _require(previous_native_sha == _sha(observation["config_sha256"])
-                         and ready.get("schema") == "guanheng.execution.ready.v1"
-                         and ready.get("control_id") == observation["control_id"]
-                         and ready.get("config_sha256") == previous_native_sha
-                         and ready.get("pid") == observation["pid"])
-                store = native.get("data", {}).get("store", {})
-                daily = store.get("daily", {})
-                if store.get("module") == "GuanhengRealtimeReader" and "publication" in daily:
-                    # 新代只选择私有派生位置；Reader独占创建叶，旧缓存及全部来源原件保持。
-                    cache_root = generation / "daily-cache"
-                    _require(not os.path.lexists(cache_root))
-                    daily["publication"]["cache_root"] = str(cache_root)
-                native_template = generation / "native-template.json"
-                _write_exclusive(native_template, native)
-                transition_path = generation / "transition.json"
-                transition = prepare_transition(
-                    native_template,
-                    previous_native,
-                    predecessor_control,
-                    transition_path,
-                    successor_python=self.config.pythonw,
-                )
-                native["recovery"] = {"mode": "resume_reconciled", "transition": transition}
-                native_path = generation / "native.json"
-                native_sha = _write_exclusive(native_path, native)
-                descriptor["configuration"] = str(native_path)
-                descriptor["configuration_sha256"] = native_sha
-                descriptor.pop("initial_inventory", None)
-                successor_descriptor = generation / "execution.json"
-                descriptor_sha = _write_exclusive(successor_descriptor, descriptor)
-                execution["descriptor"] = str(successor_descriptor)
-                execution["sha256"] = descriptor_sha
-                transition_file = str(transition_path)
+                if self._execution_start_not_reached(previous, previous_status, runtime):
+                    # 本代没有实际Native；原已准备descriptor/transition继续绑定最后实际执行代。
+                    transition_file = self._retained_execution_transition(previous, descriptor)
+                else:
+                    execution_status = previous_status.get("components", {}).get("execution")
+                    _require(type(execution_status) is dict)
+                    observation = execution_status.get("business_observation")
+                    _require(type(observation) is dict and observation.get("schema") == "guanheng.execution-observation-reference.v1")
+                    predecessor_control = _path(observation["path"], e_drive=True).parent
+                    _require(_path(observation["ready_path"], e_drive=True) == predecessor_control / "ready.json")
+                    ready = read_status(predecessor_control / "ready.json", 4096)
+                    previous_native = predecessor_control / "execution.json"
+                    previous_native_raw, native = _json_file(previous_native, 256 * 1024)
+                    previous_native_sha = hashlib.sha256(previous_native_raw).hexdigest()
+                    _require(previous_native_sha == _sha(observation["config_sha256"])
+                             and ready.get("schema") == "guanheng.execution.ready.v1"
+                             and ready.get("control_id") == observation["control_id"]
+                             and ready.get("config_sha256") == previous_native_sha
+                             and ready.get("pid") == observation["pid"])
+                    store = native.get("data", {}).get("store", {})
+                    daily = store.get("daily", {})
+                    if store.get("module") == "GuanhengRealtimeReader" and "publication" in daily:
+                        # 新代只选择私有派生位置；Reader独占创建叶，旧缓存及全部来源原件保持。
+                        cache_root = generation / "daily-cache"
+                        _require(not os.path.lexists(cache_root))
+                        daily["publication"]["cache_root"] = str(cache_root)
+                    native_template = generation / "native-template.json"
+                    _write_exclusive(native_template, native)
+                    transition_path = generation / "transition.json"
+                    transition = prepare_transition(
+                        native_template,
+                        previous_native,
+                        predecessor_control,
+                        transition_path,
+                        successor_python=self.config.pythonw,
+                    )
+                    native["recovery"] = {"mode": "resume_reconciled", "transition": transition}
+                    native_path = generation / "native.json"
+                    native_sha = _write_exclusive(native_path, native)
+                    descriptor["configuration"] = str(native_path)
+                    descriptor["configuration_sha256"] = native_sha
+                    descriptor.pop("initial_inventory", None)
+                    successor_descriptor = generation / "execution.json"
+                    descriptor_sha = _write_exclusive(successor_descriptor, descriptor)
+                    execution["descriptor"] = str(successor_descriptor)
+                    execution["sha256"] = descriptor_sha
+                    transition_file = str(transition_path)
             runtime_path = generation / "runtime.json"
             runtime_sha = _write_exclusive(runtime_path, runtime_value)
             runtime = RuntimeConfig.from_path(str(runtime_path), runtime_sha)

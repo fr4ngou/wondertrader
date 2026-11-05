@@ -179,7 +179,10 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                 # 09:00约束新日期首次建任务；已登记任务跨零点或重启后沿原身份立即续接。
                 scheduled = once or bool(entry) or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
                 continuation=entry.get('continuation_required',False)
-                if type(continuation)is not bool:raise ValueError('daily service continuation flag invalid')
+                price_continuation=entry.get('price_continuation_required',False)
+                if type(continuation)is not bool or type(price_continuation)is not bool:
+                    raise ValueError('daily service continuation flag invalid')
+                continuation=continuation or price_continuation
                 if scheduled and not input_recovery_failed and (entry.get('state') != 'published'or continuation) and time.monotonic() >= retry_at:
                     if day not in index and len(index) >= 366:
                         raise ValueError('daily service retained task capacity')
@@ -188,6 +191,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         if revision>366:raise ValueError('daily service continuation capacity')
                         history=[*entry.get('history_requests',[]),entry['request']]
                         entry=dict(
+                            **{key:value for key,value in entry.items()if key.startswith('price_')},  # 完整日任务换代保留独立价格修订及原槽责任。
                             request=str(root/day/('r%03d' % revision)/'REQUEST.json'),  # 单owner按日递增修订根；缩短Windows路径，原槽/内容摘要保持。
                             state='preparing',  # 先登记路径；崩溃后沿同路径和原输入槽恢复。
                             history_requests=history,  # 原同日修订引用，未丢弃旧请求或原HPR责任。
@@ -203,12 +207,43 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                     status.update(state='updating', active_date=day)
                     _save(directory / 'status.json', status)
                     try:
+                        transaction=work/'work'/'STATE.json'
+                        parent_fixed=(transaction.exists()and'parent'in strict_json(
+                            read_fixed(transaction,maximum=16777216))['stages'])  # 已提交完整事务拥有原父CURRENT，先沿原责任完成CAS。
+                        if config.get('price_scope')is not None and publisher.current_file.exists()and not parent_fixed:
+                            # 价格与公共辅助事实共用owner/租约，先更新所有已知证券价格；旧事实时间保持原值。
+                            from integrations.guanheng.daily_price_refresh import price_refresh
+                            price_entry=index[day]
+                            # 完整REQUEST已固定父CURRENT时先完成该事务；后继完整修订再推进独立价格，保持单一CAS链。
+                            if (not request_file.exists()and price_entry.get('price_state')=='published'
+                                    and price_entry.get('price_continuation_required',False)):
+                                price_entry['price_history_requests']=[*price_entry.get('price_history_requests',[]),price_entry['price_request']]
+                                price_entry['price_revision']=price_entry.get('price_revision',0)+1
+                                price_entry.pop('price_request')
+                            if 'price_request'not in price_entry:
+                                revision=price_entry.get('price_revision',0)
+                                price_entry['price_request']=str(root/day/'price-first'/('r%03d'%revision)/'REQUEST.json')
+                            price_entry['price_state']='preparing';_save(index_path,index)
+                            prior_prices=[p for d,row in index.items()for p in
+                                [*row.get('price_history_requests',[]),*([row['price_request']]if row.get('price_request')else[])]
+                                if p!=price_entry['price_request']and Path(p).is_file()]
+                            price_result=price_refresh(config,day,Path(price_entry['price_request']).parent,
+                                publisher=publisher,deadline=deadline,cancelled=stopped,
+                                previous_requests=[*registered,*prior_prices])
+                            price_entry.update(price_state='published',price_current_sha256=price_result['current_sha256'],
+                                price_result=price_result['price_result'],price_continuation_required=price_result['continuation_required'])
+                            status.update(last_price_success=day,price_state='published',
+                                          auxiliary_observation_date=price_result['auxiliary_observation_date'])
+                            _save(index_path,index);_save(directory/'status.json',status)
                         if not request_file.exists():
                             previous=list(config['inputs'].get('previous_requests',[]))
                             previous.extend(path for path in registered if Path(path)!=request_file)
                             previous=list(dict.fromkeys(previous))
                             prepared = prepare_update(config, day, work / 'inputs', deadline=deadline,
-                                cancelled=stopped, previous_requests=previous)
+                                cancelled=stopped, previous_requests=previous,
+                                prior_price_requests=[p for row in index.values()for p in
+                                    [*row.get('price_history_requests',[]),*([row['price_request']]if row.get('price_request')else[])]
+                                    if Path(p).is_file()])
                             request = _load(prepared)
                             _save(request_file, request)
                         index[day].update(state='updating')  # 保留原修订链，未声称原生或发布完成。
@@ -218,13 +253,13 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         index[day].update(
                             state='published',  # 已确认指针成功采用，而非仅接收任务。
                             current_sha256=result['current_sha256'],  # 本日实际采用的指针身份；后继版本独立保存。
-                            continuation_required=result.get('continuation_required',False))  # 价格原责任仍待核且目标缺失时，同日接续。
+                            continuation_required=result.get('continuation_required',False)or index[day].get('price_continuation_required',False))  # 股票/独立价格原责任共同决定接续。
                         if index[day]['continuation_required']:retry_at=time.monotonic()+config['retry_seconds']
                         status.update(state='waiting', active_date=None, last_success=day)
                     except InterruptedError:
                         status.update(state='stopping')
                     except Exception as failure:
-                        status.update(state='update_failed', error_type=type(failure).__name__)
+                        status.update(state='update_failed', error_type=type(failure).__name__,error_code=getattr(failure,'code',None))
                         index[day].update(
                             state='failed',  # 当前轮次失败，原CURRENT与已成功阶段保留。
                             error_type=type(failure).__name__)  # 固定异常类型，不持久化来源原文或秘密。

@@ -25,3 +25,7 @@
 ## 验证入口
 
 原装配回归位于`test_runtime.py`（外部历史/待归仓路径：`../../tests/integration/wt_runtime/test_runtime.py`），晚来源及等待中停止位于`test_execution_source_wait.py`（外部历史/待归仓路径：`../../tests/integration/wt_runtime/test_execution_source_wait.py`）。普通安装的同实例七组件、晚到来源、独立观衡、实际源端及交易资格分别通过对应运行证据确认；单项测试不代替完整运行资格。
+
+## 执行之前启动失败的续接
+
+ServiceController按[WSC-R1](../specs/wt-service-control.md#wsc-r1-执行组件之前的启动失败)核固定依赖顺序、同代failure/status身份及execution已关闭且资源为空，证明原执行start尚未到达。该代原descriptor、Native配置及已准备transition继续使用，保留最后实际Native身份与原账；Runtime生成新控制代。其它来源owner保留各自关闭结论与恢复责任。缺失证据或execution启动失败继续原实际Native恢复核查。固定源码与普通wheel入口见[本模块发行](../../apps/wt_runtime/source_closures/0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2.startrecovery.1/README.md)。

@@ -32,7 +32,22 @@ Host先持久 queued/dispatching 再发送；终端共享内存任务表跨本�
 
 成功终态 data 精确为 schema=`qmt.history-preparation-result.v1`、symbol/period/start_time/end_time、effect=`call_returned`、coverage=`unknown`。只声明原函数在D内返回，不采纳其返回正文，也不宣称下载成功、无缺口、最新尾部或策略可用。终态经原finalizer、Host持久化及原bound-results查询。中断/重启恢复沿原Journal，只将已派发的补齐解释为结果未知，禁止重派。
 
+### HPR3-R1 合法控制拒绝与原请求收束
+
+Host消费经原ControlPeer验签、顺序和全文校验的`agent.read`失败回复时，将原固定错误码与delivery作为本次控制交付事实；它不等同于原生SDK结果。Host不构造原生结果或未调用证明，沿原请求ID、正文SHA及dispatch binding调用原Journal中断规则。已派发HPR仍为`preparation_unknown`，已有完整原生终态或原未执行证明保持原值。未知请求不重新排队、不建立替代ID。只有同一原请求的持久状态已核实后才ACK该控制回复；同一Host owner继续处理后继独立请求。
+
+完整原生成功回复仍走原finish_bound。缺少错误字段、未知错误码、非法delivery、成功载荷损坏、认证/顺序/Session协议错误继续故障；不宽泛吞ProtocolError或重连。拒绝结果和持久截止在take后一次固定，域背压及关闭复用同一对象；中断/关闭不重复take或反复将合法拒绝解释为协议错误。持久化失败继续保留原owner及原截止，关闭后的核查只确认原Journal，不重发来源或补ACK。
+
+诊断仅保存最近一次控制拒绝的固定code、delivery、持久状态及有界计数；不含请求正文、证券、凭据或异常文本。该只读快照可进入原Host首故障诊断，ready/closed、公开HTTP/wire及QMT正文保持。验收先跑同一真实HostControlLoop、ControlPeer和SQLite Journal的“合法拒绝→原ID未知→后继原生成功→关闭”，再覆盖拒绝类型、背压、提交失败/恢复、重复交付及真正协议损坏。
+
 ## HPR4 验收与部署
+
+### HPR4-R1 固定来源兼容发行
+
+既有HPR采用旧Host及原Agent时，修正发行以实际原配对的Host源码全集为基线，保留已固定诊断overlay；仅接入HPR3-R1及其持久完成/关闭责任所需直接前置。精确依赖原Agent发行，原Agent源码、协议、QMT正文、原业务配置及Journal定位保持原值，主干交易SDK升级单独采用。兼容源码和普通Flit项目永久归仓，正常构建及安装通过成员SHA与精确依赖验证；历史安装路径只用于溯源。
+
+原配对绑定原Host安装路径，保持只读。新安装环境通过原create_product_pair/verify_product_pair生成并验证后继配对，原策略逐字节一致；原manifest不改写。验收使用正常安装模块跑同owner合法拒绝→后继成功→正常关闭，核全部Host/Agent成员、依赖和原材料保持。该工程资格不代表实际QMT来源/线上运行验收，实际采用由运行owner单独执行。
+
 
 专用配对生成冻结memory runtime，额外只注入全局download_history_data；保留原回调/线程/关闭机制。原配对工具默认行为保持。部署为新受管候选，不安装/启动QMT，不热切运行策略，不操作交易。
 

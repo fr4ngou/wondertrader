@@ -1,0 +1,11 @@
+{
+  "schema": "wt.runtime-preexecution-source.v1",
+  "version": "0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2.startrecovery.1",
+  "baseline_closure": "0.1.0a12+integrated.2.market.35.3.service.9.resonance122.fresh.1.cash.2",
+  "baseline_manifest_sha256": "3e529ab281c3c3e3cdcb57e8b689157f640400209c75456e0a0c5c5a12ab697d",
+  "overrides": {
+    "service_control.py": "cbf862f70f08a9e109bf7adeb32bd99913d6715ffff7012e5458ee08b94a788d"
+  },
+  "pyproject_sha256": "261cd4dd02c33fd08aa71478d81531c04a1afe4905a9efa210a29d7039692748",
+  "builder_sha256": "c9d7e05f790b4efc8cb9d1b306e976324d3a4b98c6e9ea236996875c1205b481"
+}

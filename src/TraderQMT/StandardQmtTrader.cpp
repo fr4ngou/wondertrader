@@ -2,6 +2,7 @@
 #include "EventDeliveryIndex.h"
 #include "GuanhengQmtBootstrap/QmtAccountIdentity.h"
 #include "StandardEventBudget.h"
+#include "StandardReadFailure.h"
 #include "GuanhengQmtBootstrap/JsonBoundary.h"
 #include "GuanhengCommon/QmtAccountFields.h"
 #include "GuanhengCommon/QmtHostCodec.h"
@@ -221,6 +222,7 @@ struct StandardQmtTrader::Impl {
   QmtAccountResult account;QmtTradeResult trade;
   bool resume_read=false; // 本完成值只核原读责任；终态不作为新的账户事实交付。
   bool read_not_dispatched=false; // 原Host已确定派发前终结；不含SDK调用责任，不作为账户事实交付。
+  bool read_interrupted=false; // 原Host已终结只读观察且无SDK终态；不作为账户事实，原委托责任保持。
   // operation恒为真实调用/本地操作结果；交付跨D仅写独立固定code，发布锁内不分配。
   Status delivery_status;bool late=false,local_failure=false,local_stopped=false;
   QmtBoundReceipt saved_receipt;QmtAccountReadControlResult control_result;
@@ -1393,12 +1395,22 @@ struct StandardQmtTrader::Impl {
   return value.status.code==ErrorCode::Unavailable
    &&value.status.reason=="qmt_read_ticket_ended_unretained";
  }
+ static bool interrupted_read(const Completion& value) {
+  if((value.kind!=Kind::Query&&value.kind!=Kind::EventQuery)||value.stage>3)return false;
+  const auto& bound=value.account.bound;
+  if(!bound.result.terminal||bound.result.remote_ok||bound.result.operation_id!="account.trade_detail"
+    ||bound.result.status.reason!="qmt_host_native_operation_failed")return false;
+  rapidjson::Document native,envelope;
+  if(!parse_bounded_qmt_json(bound.native_result_json,native,1048576,1048576)
+    ||!parse_bounded_qmt_json(bound.result.envelope_json,envelope,4194304,4194304))return false;
+  return standard_read_failure::interrupted_account_read(native,envelope);
+ }
  static bool settled_read(const Completion& value) {
-  return value.read_not_dispatched||ended_retained_read(value)||(value.account.bound.result.terminal
+  return value.read_not_dispatched||value.read_interrupted||ended_retained_read(value)||(value.account.bound.result.terminal
    &&value.account.bound.result.remote_ok&&value.status.ok());
  }
  static bool temporary_read(const Completion& value) {
-  if(value.read_not_dispatched||ended_retained_read(value))return true;
+  if(value.read_not_dispatched||value.read_interrupted||ended_retained_read(value))return true;
   if(value.status.ok())return Clock::now()>=value.deadline&&!value.event_page.gap;
   const auto& status=value.status;
   if(status.code==ErrorCode::Timeout||status.code==ErrorCode::SubmissionUnknown)return true;
@@ -1711,6 +1723,7 @@ struct StandardQmtTrader::Impl {
       if(write){if(!result.insert_failure_confirmed)fence_unknown();else {hard_fault=true;writes_blocked=true;}}}
     }
     result.read_not_dispatched=read_not_dispatched(result);
+    result.read_interrupted=query_first&&events_enabled&&interrupted_read(result);
     const bool held_query=task.kind==Kind::Query&&result.query_step>=QueryStep::SubmitEntered
       &&!result.account.bound.result.terminal&&temporary_read(result);
     const bool financial=task.kind==Kind::Insert||task.kind==Kind::Cancel||task.kind==Kind::AuditOriginal;

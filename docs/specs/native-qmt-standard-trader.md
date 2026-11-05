@@ -463,3 +463,13 @@ P33-C1：隔离反馈让真实Standard在PageReady与ReadRetryWait的原截止�
 默认 native、Cancel、未证实未进入 SDK 的失败、SubmissionUnknown、未发送的本地错误、协议/来源错误及真实 SPI 交付异常沿原分类和责任保持。此前已锁存的错误不在本次逐单通知中重置；恢复与来源修正仍使用原合法新进程和原责任证据。
 
 P34-C1：实际失败交付方法正文的定向验证覆盖及时与晚到的 query_first 确定拒单：逐单原错误保留、Identity 退休一次、first_error/硬错保持空，随后未知可沿原 awaiting_observation 等待；改变该拒绝分类应复现 unsafe 污染。P34-C2：默认 native 的相同拒绝、Cancel、真实未知及来源硬错分别保持原结果和围栏；已有硬错不会被后继确定拒单清除。函数级替身证据与实际插件 SPI/Host/Source 的主链证据分别登记，完整源码翻译单元及新 DLL 由集成 owner 同批构建验证。
+
+## STQ-P35 查询优先只读观察的Host中断恢复
+
+显式query_first且启用原事件消费时，普通Query和EventQuery的account.trade_detail原终态已经Common完成原UUID、来源绑定、正文及摘要验证，remote_ok=false、原原因为qmt_host_native_operation_failed；仅当原error_code精确为operation_interrupted、原派发绑定存在而结果绑定为空，分类为已结束的临时只读观察。它保留原失败原件，不形成成功账户数组或SPI账户事实，也不声明SDK查询是否执行。
+
+该分类共用于worker事件发布围栏、owner等待和已保留读取的终结判断：原读取责任按原票据归还，后继沿既有观察刷新重新查询完整账户事实。等待阶段继续原写入围栏，完整后继查询按既有规则解除等待；中断本身不锁存first_error、unsafe、hard_fault或worker_stop。原未决下撤单、收据、提交组、策略资金及持仓保持；新读取不授予重发金融命令的资格。
+
+默认native、Prepare/Login、金融写入/Audit、其他业务错误、来源/协议/身份错误，以及带实际SDK结果绑定的失败继续原路径。独立StandardReadFailure纯值函数只解释已准入的原Host终态；新增read_interrupted字段区别于read_not_dispatched，避免把已派发中断误说为SDK未进入。
+
+P35-C1：实际故障Journal中原ORDER查询的白名单投影确认此形状，独立C++探针接受该查询，拒绝其他错误、写操作、不同原ID、带SDK结果绑定、无派发绑定及成功数据。P35-C2：完整Standard翻译单元通过语法编译；集成owner同批构建后验原Host/插件后继读取恢复与正常关闭，未知金融原身份和账本保持。纯值/语法证据与完整插件运行证据分别登记。

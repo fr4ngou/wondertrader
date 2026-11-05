@@ -7,6 +7,21 @@ from pathlib import Path
 import threading
 import time
 
+
+class _CurrentDay(ctypes.Structure):
+    """与GHCurrentDay默认C布局一致；原Writer字段值不在绑定层换算。"""
+    _fields_ = [
+        ('trading_date', ctypes.c_uint32),  # 来源交易日YYYYMMDD，0表示未知。
+        ('action_date', ctypes.c_uint32),  # 来源自然日YYYYMMDD。
+        ('action_time', ctypes.c_uint32),  # 来源上海HHMMSSmmm。
+        ('open', ctypes.c_double),  # 当日开盘价，沿原profile单位。
+        ('high', ctypes.c_double),  # 当日最高价。
+        ('low', ctypes.c_double),  # 当日最低价。
+        ('close', ctypes.c_double),  # 当日最新价，持续变化。
+        ('volume', ctypes.c_double),  # 当日累计成交量，沿原profile单位。
+        ('amount', ctypes.c_double),  # 当日累计成交额，沿原profile单位。
+    ]
+
 class NativeDataKitSession:
     """创建/关闭归管理线程；push归唯一SHM接收线程，分钟和存储全部归原Writer。"""
     def __init__(self, configuration, native_directory):
@@ -74,6 +89,31 @@ class NativeDataKitSession:
             writer_processed=self._library.gh_datakit_count(self._session,2))
         self._check_writer_failure()
         return values
+
+    def current_days(self, symbols):
+        """管理线程按实际订阅读取原Writer；无数据证券不填0或猜测交易日。
+
+        仅显式启用盘中日线投影的部署调用新增导出，旧DLL及原默认采集保持原路径。
+        每次只持有一个证券副本，返回集合由调用方替换发布，不追加日志或历史。
+        """
+        if threading.get_ident()!=self._owner or self._closed:
+            raise RuntimeError('native_datakit_current_day_owner')
+        self._check_writer_failure()
+        read=self._library.gh_datakit_current_day
+        read.argtypes=[ctypes.c_void_p,ctypes.c_char_p,ctypes.c_char_p,ctypes.POINTER(_CurrentDay)]
+        read.restype=ctypes.c_int
+        result=[]
+        for symbol in symbols:
+            code,suffix=symbol.split('.')
+            exchange={'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[suffix]
+            row=_CurrentDay()
+            state=read(self._session,code.encode('ascii'),exchange.encode('ascii'),ctypes.byref(row))
+            if state<0:
+                raise RuntimeError('native_datakit_current_day_failed')
+            if state:
+                result.append(dict(symbol=exchange+'.'+code,
+                    **{key:getattr(row,key) for key,unused in _CurrentDay._fields_}))
+        return result
 
     def archive(self,session_id,deadline):
         """所有报价生产者先停止；原收盘任务完成与文件正确性分别确认。"""

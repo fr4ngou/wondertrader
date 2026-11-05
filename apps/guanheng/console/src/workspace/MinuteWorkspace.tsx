@@ -8,7 +8,7 @@ import { MarketCandlestickChart } from '../components/MarketCandlestickChart'
 import type { Capabilities } from './IndependentApp'
 import PersonalWatchlist, { useSecurityIdentity } from './PersonalWatchlist'
 import { usePersonalWatchlist } from './usePersonalWatchlist'
-import { sourceChartDate } from '../sourceChartPresentation'
+import { sourceChartDate, sourceCurrentDayNotice } from '../sourceChartPresentation'
 import type { MarketChartPeriod } from '../types'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import './market-workspace.css'
@@ -94,7 +94,8 @@ export default function MinuteWorkspace({ capability, capabilityPending = false,
           : chart.isError ? <div className="market-read-error" role="alert">{chart.error.message}{bundle ? ' · 当前保留上次结果' : ''}</div> : null}
         {symbol && (!chart.isError || bundle) ? <MarketCandlestickChart bundle={bundle} loading={chart.isFetching || capabilityPending} visibleCount="all" /> : null}
       </div>
-      <footer className="market-data-footer"><span role="status">{busy ? '正在更新…' : last ? `数据截至 ${intraday ? absoluteChinaTime(last.occurred_at) : sourceChartDate(last.occurred_at)} · ${bundle?.candles.length} 根` : '等待行情'}</span></footer>
+      <footer className="market-data-footer"><span role="status">{busy ? '正在更新…' : last ? `数据截至 ${intraday ? absoluteChinaTime(last.occurred_at) : sourceChartDate(last.occurred_at)} · ${bundle?.candles.length} 根` : '等待行情'}</span>
+        {last && sourceCurrentDayNotice(bundle?.native_source) ? <span>{sourceCurrentDayNotice(bundle?.native_source)}</span> : null}</footer>
       {bundle ? <SourceHistoryStatus bundle={bundle} /> : null}
     </article>
   </section>

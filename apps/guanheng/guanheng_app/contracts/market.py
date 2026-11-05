@@ -114,13 +114,22 @@ class MarketChartSourceLabelSource(MarketModel):
     amount_unit: Literal["CNY", "unknown"]
 
 
+class MarketChartCurrentDay(MarketModel):
+    """WT原Writer形成中的日线；日期标签与实际来源时刻分别显示/传递。"""
+    date: int = Field(strict=True, ge=10000101, le=99991231)  # 原交易日YYYYMMDD。
+    source_at: datetime  # 原tick发生时刻，包含时区。
+    observed_at: datetime  # WT读取原Writer副本的时刻，包含时区。
+    closed: Literal[False] = False  # 当前值不声明已收盘归档。
+
+
 class MarketChartSourceDateSource(MarketChartSourceLabelSource):
     """1.6日期标签保留来源日线；00:00标签不授闭合或知晓时间资格。"""
     # 日线原提供者或已核分段组合；分钟与快照仍沿各自原合同。
-    provider: Literal["Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI", "Mixed"]
-    source_minute_boundary: Literal["unknown"]
-    chart_minute_boundary: Literal["source_date"] = "source_date"
-    timestamp_semantics: Literal["source_date"] = "source_date"
+    provider: Literal["Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI", "Mixed"]  # 原提供者或实际分段组合。
+    source_minute_boundary: Literal["unknown"]  # 日线不推导分钟边界。
+    chart_minute_boundary: Literal["source_date"] = "source_date"  # 横轴使用上海交易日期。
+    timestamp_semantics: Literal["source_date"] = "source_date"  # 日期标签与实际源时刻分别保留。
+    current_day: MarketChartCurrentDay | None = None  # 末根来自原Writer时提供，已归档日线为None。
 
 
 class MarketChartSourceWindow(MarketModel):

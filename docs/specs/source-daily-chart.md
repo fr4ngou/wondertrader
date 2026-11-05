@@ -19,3 +19,15 @@
 行情页提供统一搜索、自选、主动刷新、日/周/月周期及交易日/公历年范围，交互沿[行情工作区](../modules/observer-market-workspace.md)。带时区截止查询继续由公开API支持。来源日期按Asia/Shanghai显示，浏览器其他时区保持同一交易日。单位与缺失提示沿[面向用户的行情说明](source-history-chart-observation.md#hco-r3-用户说明)，内部来源身份保留在接口。策略详情与资金事实沿独立策略投影读取。
 
 验收：正式HTTP/SDK参数与1.6/1.8投影、分钟兼容、空/错误/恢复、请求截止与关闭；实际目标证券分别读取60/5根日线，周/月逐字段对照同一批日线，另覆盖ETF或指数；年份窗口按末来源日计算。新App/SPA及锁、固定依赖来源分别登记，全部运行资源有界收束。
+
+## SDC-R1 盘中日K与闭合日线分离
+
+状态：in-progress。用户要求行情页当日K随实际行情可见，策略闭合日线与独立观衡的职责保持。
+
+原生依据：`WtDataWriter::getCurTick`在原缓存锁内创建tick值副本；原`closeKlineFile`以该tick的open/high/low/price/total_volume/total_turnover生成收盘日线。自有DataKit导出复用此接口和相同字段，原Writer继续拥有分钟算法、缓存、归档和数据根；不改WT框架。采集管理线程在原状态周期读取实际订阅证券，显式`publish_current_day=true`时将一份最多10000证券/8MiB的快照原子替换到Writer根`current-day.json`。默认关闭，旧采集部署/DLL保持原调用路径；临时文件在本次发布结束后回收，不累计快照或无限日志。
+
+WT读取侧显式配置`mode=source-current-day`，`base`为原统一读取配置，`current_day`声明快照path、原许可和价量额单位；未知单位保持unknown。`history.source-daily-query`新增显式`view=current`；缺省和`view=archive`透传，策略和固定snapshot_id查询保持原行为。current与snapshot_id互斥。仅原价接入形成中行；独立前复权参考不混入原价当前值。只选择原交易日等于实际上海今日、位于查询日期内且晚于已返回归档的行；原归档同日值优先，旧缓存不改日期，缺失保持缺失。
+
+成功返回仍为原日线协议，必要时按原provenance绑定历史及Writer来源。末根来自Writer时增加`current_day={date,source_at,observed_at,closed:false}`：date为原交易日；source_at为原tick上海时刻；observed_at为WT读取副本时刻；closed=false不代表已归档。内容身份绑定原快照，不把查询时间当价格时间。行情App只请求和投影数据；日/周/月沿已有图表聚合，native_source.current_day保留末根资格。现有页面布局保持，状态的可视表达沿后续设计验收。
+
+验收：实际原Writer已有缓存→值副本→WT快照→正式SDK current查询→App日/周/月图表；实际股票、ETF、指数逐值核对；默认与archive查询不含形成中行，归档同日优先，旧日/来源缺失不冒充今日；验证来源时刻、不同单位、原子替换失败保留旧文件并清理临时文件、原采集/归档/正常关闭不受影响。真实运行部署和隔离链分别取证。

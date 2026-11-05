@@ -52,7 +52,7 @@ class PriceReadbackRecoveryTests(unittest.TestCase):
         patches={
          'integrations.guanheng.daily_price_inputs.create_native_source_market':lambda *a:Market(),
          'guanheng_app.observation.calendars.official_calendar':lambda *a:([dict(date='2026-11-03',is_open=1)],{}),
-         'guanheng_qmt_shm.analysis_batch_source.BatchAnalysisSource':Batch,
+         'integrations.guanheng.daily_batch_source.DailyBatchAnalysisSource':Batch,
          'guanheng_qmt_shm.market_daily_preparation.MarketDailyPreparation':Closed,
          'integrations.guanheng.source_history_transport.BoundHistorySource':Closed,
          'integrations.guanheng.daily_price_inputs.prepare_gap_plan':plan,

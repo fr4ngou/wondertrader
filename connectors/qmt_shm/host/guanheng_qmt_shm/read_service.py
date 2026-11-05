@@ -29,6 +29,24 @@ def _diagnostic_enum(value, allowed):
     return None if value is None else value if type(value) is str and value in allowed else 'other'
 
 
+def _diagnostic_read_rejection(runtime):
+    """再次按固定字段和本代可信grammar准入；异常正文、请求身份及未知字段不外传。"""
+    try:
+        value=getattr(runtime,'read_rejection_diagnostic',None)
+        if value is None:
+            return None
+        if (type(value) is not dict or set(value)!={'code','delivery','persistence','count'}
+                or type(value['code']) is not str or value['code'] not in runtime.control_profile.contract.ERROR_CODES
+                or value['delivery'] not in ('replied','not_sent','unknown')
+                or value['persistence'] not in ('pending','committed')
+                or type(value['count']) is not int or not 1<=value['count']<=9007199254740991):
+            return None
+        return dict(value)
+    except Exception:
+        # 旁路诊断不可用不掩盖原runtime首因或阻止原关闭。
+        return None
+
+
 def _category(reason, stage):
     # runtime的failure只用于有限分类；任何未知字符串/异常正文都不进入诊断。
     if reason in _TRANSPORT:
@@ -191,7 +209,8 @@ class ReconnectingReadService:
                             _DIAGNOSTIC_CATEGORIES),  # 首故障当时的清理分类，与后续退休失败分开。
                         runtime_failure=_diagnostic_enum(getattr(runtime, 'failure', None), _DIAGNOSTIC_REASONS),  # 原单代首因。
                         runtime_cleanup=_diagnostic_enum(getattr(runtime, 'cleanup_failure', None), _DIAGNOSTIC_REASONS),  # 原资源清理类。
-                        runtime_interruption=_diagnostic_enum(getattr(runtime, 'interruption_failure', None), _DIAGNOSTIC_REASONS))  # 原派发交接类。
+                        runtime_interruption=_diagnostic_enum(getattr(runtime, 'interruption_failure', None), _DIAGNOSTIC_REASONS),  # 原派发交接类。
+                        read_rejection=_diagnostic_read_rejection(runtime))  # 最近合法拒绝的固定code/delivery/持久状态及计数，无请求正文。
                 except Exception:
                     pass  # 诊断构造失败仍推进原故障、停止与owner保留，禁止以诊断异常替换首因。
                 self._failure = category
@@ -208,8 +227,11 @@ class ReconnectingReadService:
         try:
             first = getattr(self, '_failure_diagnostic', None)
             retired = getattr(self, '_retirement_diagnostic', None)
+            copied=None if first is None else dict(first)
+            if copied is not None and copied.get('read_rejection') is not None:
+                copied['read_rejection']=dict(copied['read_rejection'])  # 嵌套纯值也复制，消费者不能改写原首因。
             return None if first is None else dict(
-                first_failure=dict(first),  # 不可变首次故障的副本；后续清理不能覆盖其字段。
+                first_failure=copied,  # 不可变首次故障的副本；后续清理不能覆盖其字段。
                 retirement=None if retired is None else dict(retired),  # 首次退休异常；未发生或未捕获为null。
                 cleanup_reason=_diagnostic_enum(self._cleanup_failure, _DIAGNOSTIC_CATEGORIES))  # 读取时的清理分类。
         finally:

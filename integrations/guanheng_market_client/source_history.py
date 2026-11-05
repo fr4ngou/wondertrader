@@ -5,7 +5,7 @@ import copy
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 from .daily_contract import SOURCE_DAILY_MARKETS, source_price_basis
 
@@ -154,7 +154,9 @@ def validate_source_daily_request(value):
         raise MarketProtocolError("source daily code is invalid")
     _enum(value.get('adjustment', 'none'), ('none', 'front_ratio'))
     if 'snapshot_id'in value:_sha(value['snapshot_id'])
-    if 'view'in value:_enum(value['view'],('archive',))
+    if 'view'in value:_enum(value['view'],('archive','current'))
+    if value.get('view') == 'current' and 'snapshot_id' in value:
+        raise MarketProtocolError('current day view cannot claim a frozen snapshot')
     if 'include_archive'in value:
         if type(value['include_archive'])is not bool or value['include_archive']and value.get('view')!='archive':
             raise MarketProtocolError('source daily archive details require an explicit archive view')
@@ -167,7 +169,7 @@ def validate_source_daily_request(value):
 def validate_source_daily_data(value, request):
     validate_source_daily_request(request)
     fields = ("metadata", "bars", "coverage", "missing_dates", "selection")
-    _object(value, fields + ("provenance", 'source_snapshot_id', 'archive'), required=fields)
+    _object(value, fields + ("provenance", 'source_snapshot_id', 'archive', 'current_day'), required=fields)
     composite = "provenance" in value
     validate_source_metadata(value["metadata"], period="1d", selection=composite)
     if value['metadata']['adjustment'] != request.get('adjustment', 'none'):
@@ -219,6 +221,21 @@ def validate_source_daily_data(value, request):
         if (not value["provenance"] or offset != len(value["bars"]) or
                 value["metadata"] != daily_selection_metadata(value["bars"], value["provenance"])):
             raise MarketProtocolError("daily source selection evidence differs")
+    if 'current_day' in value:
+        current=_object(value['current_day'],('date','source_at','observed_at','closed'))
+        if request.get('view') != 'current' or current['closed'] is not False or not value['bars']:
+            raise MarketProtocolError('current daily observation was not requested')
+        if _date(current['date']) != value['bars'][-1]['date']:
+            raise MarketProtocolError('current daily observation differs from selected bar')
+        try:
+            source=datetime.fromisoformat(current['source_at'])
+            observed=datetime.fromisoformat(current['observed_at'])
+            if source.utcoffset() is None or observed.utcoffset() is None or source > observed:
+                raise ValueError
+            if int(source.astimezone(timezone(timedelta(hours=8))).strftime('%Y%m%d')) != current['date']:
+                raise ValueError
+        except (TypeError,ValueError):
+            raise MarketProtocolError('current daily source clock invalid') from None
     return value
 
 

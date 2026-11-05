@@ -341,7 +341,8 @@ def refresh_account_constraint(value, reader, deadline):
             value.get('cash_anchor',{}).get('account_binding_sha256'))
     if account is not None and value['account_observed_at'] is not None:
         if datetime.fromisoformat(account.observed_at) < datetime.fromisoformat(value['account_observed_at']):
-            return value
+            # 较早帧不能证明较新已发布来源当前仍合格；保留较新原件，撤销当前可用资格。
+            return dict(value,account_observation_qualified=False,spendable_cash_cny=None)
     if value.get('cash_anchor') is not None:
         try:
             return observe_broker_capital(value['baseline'],value['cash_anchor'],

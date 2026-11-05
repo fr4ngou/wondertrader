@@ -29,6 +29,13 @@ test('新证券空查询不沿用上一只证券成功图',async()=>{
  mount();await screen.findByRole('img',{name:'510300.SH 1d'});fireEvent.click(screen.getByText('换证券'));await waitFor(()=>expect(screen.queryByRole('img')).toBeNull())
  expect(await screen.findByText('等待行情')).toBeVisible()
 })
+test('当前日K显示原始快照时间，保留既有图表和日期',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>String(input).includes('/chart/')?
+  Response.json({...daily,native_source:{...daily.native_source,current_day:{date:20261023,source_at:'2026-10-23T14:59:06+08:00',observed_at:'2026-10-23T07:05:00Z',closed:false}}}):new Response('',{status:503})))
+ mount();await screen.findByRole('img',{name:'510300.SH 1d'})
+ expect(screen.getByText('当日快照 14:59:06')).toBeVisible()
+ expect(screen.getByText(/数据截至 2026-10-23/)).toBeVisible()
+})
 test('canonical分钟来源以已声明周期启动，保留5分钟入口',async()=>{
  const urls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const u=String(input);urls.push(u)
   return u.includes('/chart/')?Response.json({...daily,period:new URL(u,'http://test').searchParams.get('period')}):new Response('',{status:503})}))

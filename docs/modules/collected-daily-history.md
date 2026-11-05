@@ -1,4 +1,4 @@
-# WT闭合日线读取
+# WT日线与形成中当日K线读取
 
 类型：模块接口正文。范围：WT数据侧读取原日线、收盘快照与既有历史；观衡继续只读消费。源码入口为`integrations/guanheng/daily_overlay.py`，图表接口沿[来源日线规格](../specs/source-daily-chart.md)。
 
@@ -24,4 +24,16 @@
 
 已核300308和588170：静态历史保持，11月2日快照经原Helper/DSB完整回读，原a89安装HTTP日/周/月消费通过；当前页面及日/分钟末价一致。完整部署、制品与范围沿[日线交付](../releases/2026-11-02-wt-collected-daily-tail.md)。
 
-先行快照读取仍有扫描窗口；现行Writer缺少原生日线文件的原因、原生日线持续落盘及长窗口完整性继续核实，不能据本次尾部成功宣称长期全量日线已完成。指数多年商店、公开来源和8表背景接收单独交付。
+上述2026-11-02先行快照读取保留其当时扫描窗口。持续收盘归档沿[原生日线采集手册](../runbooks/continuous-native-day.md)选择disableday=false后，由原StateMonitor/Writer生成day文件；长期全量覆盖依实际逐证券回读核实。指数多年商店、公开来源和背景指标接收分别登记。
+
+## 形成中日K的显式读取
+
+`integrations/guanheng/current_day.py`沿[SDC-R1](../specs/source-daily-chart.md#sdc-r1-盘中日k与闭合日线分离)组合当前值。采集侧DataKit自有导出调用原`DataManager::getCurTick`取得独立tick副本，读取原Writer当日OHLC及累计量额，立即释放副本；同步采集与关闭继续归原Session。启用worker的`publish_current_day=true`后，在原状态周期向唯一Writer数据根原子替换`current-day.json`。文件总量8MiB/10000证券，失败保留旧文件并回收本次临时文件，当前值和旁路诊断失败均不停止原采集。
+
+WT查询配置`mode=source-current-day`、`base=<原读取配置>`、`current_day={path,source_license,price_unit,volume_unit,amount_unit}`。创建线程拥有base及全部Reader；HTTP批次复用原base版本域并固定一次当前值快照，批次结束释放正文。SDK0.18的日线`view=current`显式读取当日形成中行，缺省/归档保持原路径；固定snapshot_id与current互斥。原归档同日值优先，快照旧日保持旧日，尚无该证券历史时可单独返回已实际收到的当前行。
+
+`current_day`响应字段分别保留原交易日、原tick发生时刻、WT读取时刻与closed=false；许可和价量额单位沿真实采集声明，unknown继续unknown。App请求和投影SDK结果，日/周/月沿既有图表聚合；来源时刻和未归档资格保留在native_source，策略默认闭合窗口保持原调用。
+
+已取得真实股票300308、ETF588170、上证000001的只读QMT快照，经隔离原Writer、SDK HTTP和App日/周/月逐字段回读；这是隔离整链证据，正式进程采用另行登记。原生依据为[能力目录WT-D08](../development/wondertrader-capabilities.md)及Writer公开当前tick/收盘日线接口，没有新增WT框架差异。
+
+正式采集、WT查询和独立观衡的形成中链现已采用，实际数据及原时刻见[线上增量记录](../releases/2026-11-05-current-day-and-hpr-live.md)。此资格与全范围闭合日线、完整收盘分钟分别核实。

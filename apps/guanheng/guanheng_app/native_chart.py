@@ -109,6 +109,8 @@ def _daily_projection(response, request, symbol, period, limit, years):
         "timestamp_semantics", "price_unit", "volume_unit", "amount_unit")}
     native_source.update(provider=metadata["source"]["provider"], coverage=data["coverage"],
         source_minute_boundary=metadata["minute_boundary"], chart_minute_boundary="source_date")
+    if 'current_day' in data:
+        native_source['current_day']=data['current_day']
     source_count = len(candles)
     if period in ("1w", "1mo"):
         candles, source_count = _calendar_projection(candles, period, limit)
@@ -234,6 +236,9 @@ def build_native_chart(
     }
     if not source_values:
         request["period_minutes"] = minutes
+    if daily:
+        # 行情图显式请求形成中日K；策略/回测的默认归档视图沿原SDK调用保持。
+        request['view']='current'
     try:
         response = (client.source_daily_history_query(request) if daily else
             client.source_history_query(request) if source_values else client.history_query(request))

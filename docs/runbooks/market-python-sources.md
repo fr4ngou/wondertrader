@@ -24,3 +24,19 @@ python -B tests/integration/market_python_sources/run.py --work <新验证目录
 ```
 
 入口组装三个切片、重复构建历史三包，核对输入及wheel一致性，执行纯导入和必要边界验证。它不连接QMT、打开共享内存、查询账户、操作行情库或启动服务。真实链复用范围见对应交付证据；原生组件的完整构建与安装另由所属组件验证。
+
+## HPR控制拒绝兼容发行
+
+[兼容闭包](../../compat/market-python/hpr-control-rejection001/README.md)内的两个普通Flit项目拥有完整固定源码，`SOURCE-IDENTITY.json`记录原wheel/现场overlay及最终成员SHA。构建入口先核固定源码，再离线调用缓存的Flit3.12.0；输出原Agent及兼容Host wheel，版本和直接依赖从所属pyproject唯一读取。
+
+```powershell
+python -B compat/market-python/hpr-control-rejection001/build.py --out-dir <新wheel目录>
+```
+
+用新固定Python环境、锁定依赖wheel及散列锁正常安装。Host必须精确配原marketdaily.4 Agent，交易SDK升级独立处理。完整离线安装实例、wheel SHA及命令见[验证记录](../evidence/2026-11-05-hpr-compatible-closure.md)。
+
+```powershell
+<新环境Python> -I -B compat/market-python/hpr-control-rejection001/verify.py --original-pair <只读原pair> --candidate-pair <独立新pair> --report <新验证报告>
+```
+
+verify核63个已安装Host模块及60个原Agent模块、原材料SHA和原业务配置，沿原产品create/verify生成或核验后继pair，要求QMT正文逐字节相同；再在同一安装环境运行原拒绝回归。该入口只准备和验证，不打开现场Journal、不运行来源Host或发送QMT请求。pair绑定生成时的新安装路径，搬迁或换环境后应通过该入口重新生成新pair。运行owner检查工程资格后沿原受管服务采用；原pair及运行服务在此准备阶段保持。
