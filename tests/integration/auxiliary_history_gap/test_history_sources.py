@@ -223,6 +223,7 @@ class HistorySourcesTests(unittest.TestCase):
         report=json.loads((self.root/'audit/REPORT.json').read_bytes())
         self.assertEqual(len(reads),1)
         self.assertEqual(report['window_sha256'],hashlib.sha256(raw).hexdigest())
+        self.assertEqual((self.root/'audit/MARKET-WINDOW.json').read_bytes(),raw)
 
 
 if __name__=='__main__':

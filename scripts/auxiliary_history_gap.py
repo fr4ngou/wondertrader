@@ -310,6 +310,8 @@ def audit(seed, window_path, output, *, legacy_manifest=None, yearbook=None, res
         historical_merge_basis='actually received; no historical first visibility assumption',
         seed_files=len(before),seed_unchanged=before=={str(p.relative_to(seed)):hashlib.sha256(p.read_bytes()).hexdigest()for p in seed.rglob('*')if p.is_file()},
         production_adopted=False,source_policy='official-only default; research candidates never silently enter official bundle')
+    # 保留计算时的唯一原文，运行窗口随后更新仍可按报告SHA重现本次输入。
+    (output/'MARKET-WINDOW.json').write_bytes(window_raw)
     write(output/'COVERAGE.json',coverage);write(output/'REPORT.json',report)
     write(output/'SEED-INVENTORY.json',before)
     write(output/'FACTS.json',[dict(asdict(f),statistic_date=str(f.statistic_date),received_at=f.received_at.isoformat(),origin_received_at=f.origin_received_at.isoformat()if f.origin_received_at else None)for f in facts.values()])
