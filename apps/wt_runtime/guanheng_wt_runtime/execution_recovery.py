@@ -388,17 +388,22 @@ def _normalized(binding):
     return result
 
 
-def _compatible_python(previous, current, *, role_handoff=False):
-    """最新进程前代及恢复原owner共用同一纯模型/解释器不变规则。"""
+def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrade=False):
+    """同业务发行允许策略实现升级；纯Core、NSQ及解释器仍须逐件相同。
+
+    strategy_upgrade仅由已核前后完整业务配置的transition路径传入。部署材料
+    绑定实际前后源码，既有金融状态仍由当前原加载器校验，不能以换包改变账户、
+    资本、输入、策略参数或输出根。角色替换继续另核真实正常关闭及零库存。
+    """
     before,after=_normalized(previous),_normalized(current)
     for key in before.keys()|after.keys():
         if before.get(key)!=after.get(key):
             _require(key.startswith('site/guanheng_wt_runtime/')
                 or key.startswith('site/guanheng_wt_runtime-')and key.endswith('.dist-info/METADATA')
                 or key=='venv/pyvenv.cfg'
-                or role_handoff and (key.startswith('site/guanheng_strategy_v1/')
-                    or key in ('site/guanheng_strategy_v1-0.1.0a9.dist-info/METADATA',
-                               'site/guanheng_strategy_v1-0.1.0a10.dist-info/METADATA')))
+                or (role_handoff or strategy_upgrade) and (
+                    key.startswith('site/guanheng_strategy_v1/')
+                    or key.startswith('site/guanheng_strategy_v1-') and key.endswith('.dist-info/METADATA')))
 
 
 def load_transition(native, identities=None, *, binding=None, deadline=float('inf')):
@@ -433,9 +438,11 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
     _require(old['schema'] == 'guanheng.cta-python-binding.v1')
     if identities is not None:
         _require(binding is not None and digest(identities) == value['successor_python_code_identity'])
-        _compatible_python(old,binding,role_handoff=role_handoff)
+        # 上文已核显式发行材料和完整业务配置；换实现属于发行，不要求改零持仓角色。
+        _compatible_python(old,binding,role_handoff=role_handoff,strategy_upgrade=True)
     restored=state_origin(value,deadline=deadline)
-    if restored is not None and identities is not None:_compatible_python(restored['binding'],binding)
+    if restored is not None and identities is not None:
+        _compatible_python(restored['binding'],binding,strategy_upgrade=True)
     return value, digest(dict((restored['binding']if restored else old)['files']))
 
 
