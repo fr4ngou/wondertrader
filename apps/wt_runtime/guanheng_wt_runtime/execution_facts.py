@@ -15,7 +15,8 @@ def buy_fee_basis(target, policy, basis, observation, mapping, fees, source, *, 
     """按本次目标和原WT费表装配买入费用，显式预留作为最低值。
 
     split_fills=True为实盘异步成交：逐份向上取分覆盖任意整数份拆分的舍入；
-    回放单次原撮合用整笔费率及最低费，再按原WT规则四舍五入到分。
+    回放单次原撮合保持原WT的double运算次序、最低费及分舍入；
+    费率转精确十进制后再舍入会改变半分临界结果，不能用于此分支。
     此函数只提供现金准入事实，目标权重/份数、NSQ阶段及实际记费保持原owner。
     """
     from guanheng_strategy_native import target_quantities
@@ -37,8 +38,14 @@ def buy_fee_basis(target, policy, basis, observation, mapping, fees, source, *, 
             cents = max(unit, minimum)*100
             amount = delta*Fraction((cents.numerator+cents.denominator-1)//cents.denominator, 100)
         else:
-            cents = max(unit*delta, minimum)*100
-            amount = Fraction((2*cents.numerator+cents.denominator)//(2*cents.denominator), 100)
+            raw_rate = float(fee['open'])
+            raw = raw_rate*float(delta) if fee['byvolume'] else raw_rate*(float(price.raw_cny_per_share)*float(delta))
+            if raw_rate > 0:
+                raw = max(raw, float(fee.get('minfee', 0)))
+            rounded = raw*100.0+0.5
+            if not math.isfinite(rounded) or not 0 <= rounded < 2147483648:
+                raise SessionError('native_fee_cent_range')
+            amount = Fraction(int(rounded), 100)
         total += amount
     floor = Fraction(basis.fee_reserve_cny) if basis.fee_reserve_cny is not None else Fraction(0)
     return replace(basis, fee_reserve_cny=_decimal(max(floor, total)),
