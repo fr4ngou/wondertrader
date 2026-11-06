@@ -1,6 +1,6 @@
 # 当前事实
 
-核实时间：2026-11-06北京时间09:05。类型：可更新的运行事实；历史身份沿文末快照及各次发布记录。整体目标active，当前市场尚未开盘。
+核实时间：2026-11-06北京时间09:15。类型：可更新的运行事实；历史身份沿文末快照及各次发布记录。整体目标active，当前市场尚未开盘。
 
 ## 唯一策略与交易
 
@@ -46,3 +46,5 @@ WT组配置group023，稳定入口wondertrader-data/wt-service/DEPLOYMENT.json�
 [分钟计数质量恢复发布](../releases/2026-11-06-minute-counter-quality-live.md)记录program021、六角色、独立Web重载及当前范围。
 
 [分析缓存职责分开发行](../releases/2026-11-06-analysis-cache-owner-live.md)记录实际阻断、原未知保留、配置采用及最新进程身份。
+
+[原663项分钟查询交接已收束](../evidence/2026-11-06-minute-retained-closure.md)：待消费0，643成功/20原失败未知保留；数据覆盖资格分别核实。
