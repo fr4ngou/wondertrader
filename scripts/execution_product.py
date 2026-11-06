@@ -26,6 +26,68 @@ _TOOLCHAIN_ENV = {'PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'TEMP', 
     'WINDOWSSDKDIR', 'WINDOWSSDKVERSION', 'UNIVERSALCRTSDKDIR', 'UCRTVERSION', 'VSLANG'}
 _LINK_TARGETS = {'GuanhengCtaHost', 'GuanhengCtaRuntime', 'GuanhengStandardTrader',
                  'GuanhengOriginalExecutionFactory', 'GuanhengManagedStrategy'}
+_EXTERNAL_BUILD_ROOT = Path('D:/wt-build')  # 显式D盘干净构建根；仅接收直属新叶，默认E盘ROOT/build保留。
+
+
+def validate_workspace(work, *, prepared=False):
+    """核本次工作根及所有现存父目录；拒C盘、上跳、重解析与重复新建。
+
+    prepared仅供原Job内阶段重读已准备根，不授任意已有目录构建资格；
+    阶段还需核PREPARED及源码快照身份。返回原绝对路径，不跟随链接改写根。
+    """
+    if (not work.is_absolute() or '..' in work.parts
+            or not ((work.drive.upper() == 'E:' and work.is_relative_to(ROOT / 'build'))
+                    or (work.drive.upper() == 'D:' and work.parent == _EXTERNAL_BUILD_ROOT))):
+        raise ValueError('execution workspace must be under ROOT/build on E or a direct D:/wt-build leaf')
+    if not prepared:
+        try:
+            work.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError('execution build requires a new workspace directory')
+    parent = work if prepared else work.parent
+    while True:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+            raise ValueError('execution workspace directory is missing or linked')
+        if parent == parent.parent:
+            break
+        parent = parent.parent
+    return work
+
+
+def prepared_identity(work, owned):
+    """绑定原入口、来源根及永久自有输入；上游镜像不改变原自有身份。"""
+    return dict(
+        schema='guanheng.execution-build-prepared.v1',  # 仅构建准备证明，不授安装或业务运行资格。
+        source_root=str(ROOT),  # 本次永久源码根，阶段必须从同一入口重读。
+        work_directory=str(work),  # 已核物理构建根，禁止复制凭证到另一工作目录。
+        entry_sha256=digest(regular(Path(__file__))),  # 实际构建入口原字节；中途改入口须重新构建。
+        recipe_sha256=digest(regular(ROOT / 'config/execution-product-build.json')),  # 原声明字节，与源码集合一起固定。
+        owned={name: row['sha256'] for name, row in sorted(owned.items())})  # 自有/覆盖原件SHA，不含后来镜像的WT头。
+
+
+def verify_prepared(work):
+    """阶段先核快照及当前永久来源；完整复用原快照校验，不调用构建工具。"""
+    validate_workspace(work, prepared=True)
+    path = work / 'PREPARED.json'
+    if path.lstat().st_size > 4 * 1024 * 1024:
+        raise ValueError('execution prepared receipt size')
+    value = json.loads(regular(path))
+    recipe = json.loads(regular(ROOT / 'config/execution-product-build.json'))
+    owned = source_files(recipe)
+    for row in recipe['overlays']:
+        normal_path(row['path'])
+        raw = regular(ROOT / row['path'])
+        if digest(raw) != row['sha256']:
+            raise ValueError('execution prepared overlay source changed')
+        owned[row['path']] = dict(sha256=digest(raw))
+    if value != prepared_identity(work, owned):
+        raise ValueError('execution prepared source identity changed')
+    snapshot = verify_snapshot(work / 'inputs/owned')
+    if any(snapshot['files'].get(name, {}).get('sha256') != row['sha256'] for name, row in owned.items()):
+        raise ValueError('execution prepared snapshot identity changed')
 
 
 def digest(raw):
@@ -146,13 +208,11 @@ def toolchain_inputs(env):
 
 def phase(name, work):
     """不具业务能力的构建阶段；外层入口的Job拥有本阶段全部探测/解压后代。"""
-    if (not work.is_absolute() or work.drive.upper() != 'E:'
-            or not work.resolve().is_relative_to(ROOT / 'build')
-            or not (work / 'inputs/owned/config/execution-product-build.json').is_file()):
-        raise ValueError('execution phase requires its prepared E workspace')
+    verify_prepared(work)
     if name == '_toolchain':
         env, tools = native.environment(work)
         env = {k.upper(): v for k, v in env.items() if k.upper() in _TOOLCHAIN_ENV}
+        env.update(TEMP=str(work / 'temp'), TMP=str(work / 'temp'))
         save(work / 'TOOLCHAIN.json', dict(environment=env, tools=tools))
     elif name == '_git':
         recipe = json.loads(regular(work / 'inputs/owned/config/execution-product-build.json'))
@@ -167,7 +227,8 @@ def phase(name, work):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--work', type=Path, required=True)
+    parser.add_argument('--work', type=Path, required=True,
+                        help='new ROOT/build directory on E, or explicit D:/wt-build/<new-leaf>')
     parser.add_argument('--archives', type=Path, required=True)
     parser.add_argument('--seconds', type=float, required=True)
     parser.add_argument('--jobs', type=int, default=2)
@@ -175,17 +236,7 @@ def main():
     if not math.isfinite(args.seconds) or not 1 <= args.seconds <= 3600 or not 1 <= args.jobs <= 8:
         raise ValueError('invalid execution build budget')
     deadline = time.monotonic() + args.seconds
-    work = args.work
-    if (not work.is_absolute() or '..' in work.parts or work.drive.upper() != 'E:'
-            or not work.resolve().is_relative_to(ROOT / 'build') or work.exists()):
-        raise ValueError('execution build requires a new E workspace directory')
-    parent = work.parent
-    while True:
-        if not parent.is_dir() or parent.lstat().st_file_attributes & 0x400:
-            raise ValueError('execution build parent is missing or linked')
-        if parent == parent.parent:
-            break
-        parent = parent.parent
+    work = validate_workspace(args.work)
     work.mkdir()
     (work / 'temp').mkdir()
     env = {k: v for k, v in os.environ.items() if k.upper() in
@@ -237,6 +288,7 @@ def main():
     if overlay_paths != set(recipe['patched_files']):
         raise ValueError('execution overlay identity set mismatch')
     write_snapshot(work / 'inputs/owned', owned)
+    save(work / 'PREPARED.json', prepared_identity(work, owned))
     remaining()
     entry = [sys.executable, '-I', '-B', Path(__file__).resolve()]
     run([*entry, '_toolchain', work], 'toolchain')

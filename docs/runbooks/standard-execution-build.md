@@ -25,8 +25,10 @@
 
 ## 执行
 
-在仓库根执行以下入口，`--work`必须为全新E盘目录且父目录已存在。所有临时、依赖
-源码、对象、库、安装结果和日志均位于本次根。已有C盘解释器和MSVC仅供执行。
+在仓库根执行以下入口，`--work`默认沿用E盘本仓库`build/`下的全新目录；也可明确
+选择`D:/wt-build/<全新直属目录>`，用于短路径及独立构建存储。父目录必须已经存在，
+入口逐级拒绝重解析目录，拒绝C盘、相对路径、`..`及重复使用已有构建根。所有临时、
+依赖源码、对象、库、安装结果和日志均位于本次根。已有解释器和MSVC仅供执行。
 
 ```powershell
 C:/Python314/python.exe -I -B scripts/execution_product.py `
@@ -34,6 +36,12 @@ C:/Python314/python.exe -I -B scripts/execution_product.py `
   --archives E:/workspace/wondertrader/build/native/downloads `
   --seconds 1800 --jobs 2
 ```
+
+显式D盘示例：将上例的`--work`改为`D:/wt-build/execution-clean-001`，其余参数及
+原总截止/Job树保持。首次准备生成`PREPARED.json`，绑定实际入口、永久源码根和自有/
+覆盖原件SHA。内部各阶段先核该证明、实际输入快照与当前永久来源，不能把一个仅含
+recipe文件的已有D盘目录当作已准备构建。上游头镜像沿原快照校验，不改变自有来源身份。
+失败根保留，后继使用新叶；已有旧程序生成且缺该准备证明的目录不作为新程序阶段入口。
 
 正式自动批次按[隐藏Job手册](build.md#后台构建的窗口与日志)置于有界进程所有者内；
 不要从观察超时推定构建结束。`--seconds`为本次构建操作预算，外层Job保留其明确
