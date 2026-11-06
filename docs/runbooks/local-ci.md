@@ -7,7 +7,7 @@
 1. 在独立开发分支完成修改，将最新本地master合入候选，解决冲突。
 2. 运行本地CI或直接使用自动检查的合入命令。
 3. 检查结果对应最终代码；开发者按明确文件清单提交，再快进合入本地master。
-4. 合入成功后切回主工作区，按[Worktree收尾](../development/workflow.md#worktree收尾)删除本任务临时工作树，并核对目录和Git登记。
+4. 合入成功后，开发者切回主工作区，按[Worktree收尾](../development/workflow.md#worktree收尾)手动清理本任务临时工作树，并核对目录和Git登记；此项作为工作约定执行。
 5. 发布按独立发布流程执行。
 
 使用Python3.12+的开发测试环境。先安装本仓锁定依赖及`config/local-ci-test-requirements.txt`中的测试依赖；运行服务的解释器保持原样。配置及所需测试入口见[规格](../specs/local-continuous-integration.md)。
@@ -58,7 +58,7 @@ python -B scripts/local_ci.py integrate --master-worktree <本地master工作区
 
 ## 本地Git行为
 
-入口先验证结果、内容及master基线，再用Git正常快进。master已推进时更新候选并重验，冲突由Git保留。CI命令成功返回后，开发者从主工作区完成临时worktree清理；运行进程不依赖待删工作树是清理前的核对项。CI保持常驻服务、运行版本和真实账户原样。
+入口先验证结果、内容及master基线，再用Git正常快进。master已推进时更新候选并重验，冲突由Git保留。命令成功返回即完成CI的检查与合入职责，开发者随后从主工作区手动完成临时worktree清理；运行进程不依赖待删工作树是清理前的核对项。CI保持常驻服务、运行版本和真实账户原样。
 
 暂存区和工作文件不同时，CI记录实际运行的工作文件；合入时再核对提交树。执行器覆盖源码和对应构建输入也触发执行检查；覆盖文件、源码与构建配方先核一致，外部C++测试帮助文件冻结副本的摘要进入执行结果。
 
