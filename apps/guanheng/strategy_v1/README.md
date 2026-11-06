@@ -54,3 +54,17 @@ WT回放在报告末日保存一次完整诊断，逐日保存 `guanheng.strateg
 专属回归：在匹配普通安装候选的Python中执行 `-I -B -m unittest discover -s tests/integration/strategy_diagnostics -v`。覆盖完整纯核双入口、角色缺口、零值、预热与输入拒绝、目标/执行状态、研究默认关闭与标记/摘要约束。真实归档及原DLL回测另在独立QA根验证，路径与固定SHA由最终HANDOFF登记。
 
 Root组合开发者1的 `auxiliary.py` 与本模块源码后重建V1、WT报告业务接缝及观衡只读闭包，核固定安装SHA，再沿同账采用。单独复制运行环境源码不属于采用步骤。回退恢复原包/只读闭包及原服务描述符，保留所有新旧回测根、原件和金融状态；研究会话按其固定安装读取。当前现场启停、自动交易和页面验收由Root处理。
+
+## SDO当前辅助决策
+
+0.1.0a13精确依赖Shared Core 0.1.0a8和tzdata 2026.3；原信号、特征和分配数学源码保持。`CurrentAuxiliaryValue`声明实际证券/字段/数值、统计日、真实known_by及完整依赖日期/来源；`CurrentAuxiliaryView`绑定实际行情basis_date、原派生版本和稳定SHA，轮询时间不进入此数据修订身份。`build_current_auxiliary(publications, market_dates)`复用原唯一派生，不读取网络或生成行情行。
+
+`RetainedInput.current_auxiliary`为可选当前视图，缺省None在规范JSON省略，旧输入行为和身份保持。`CurrentAuxiliaryView.to_dict/from_dict`严格校验同一协议及摘要；当前求值要求真实basis相等、所有依赖统计日属于本次实际行情日历、所有known_by不晚于decision_cutoff。普通历史模型拒绝当前视图。
+
+历史完整重放及输入bar保持原样。当前末端投影从末帧之前的原信号机状态开始，只运行同一末帧一次；当前只读观察代理引用原真实bar及已准入当前事实，不向历史DailyObservation写值，不新增当日/未来价格行。实际周期退出继续使用全历史索引及原boundary_override，年龄、参考峰值、cycle_id和baseline保持原owner事实。
+
+结果的独立`current_auxiliary`记录真实decision_at、market_basis_date、data_revision、available_fields及按原角色依赖交付的consumed_fields；7个真正依赖字段与16个可用派生字段分别记录。`historical_model_state`保留原历史model_states/model_decisions/allocation_state，原diagnostics-v1继续报告历史逐帧覆盖；当前结果的model/targets采用当前末端决定。缺字段保持原灰灯或缺失分支。同一行情/辅助事实在不同轮询截止下产生同样经济目标、模型状态和周期退出身份，input_sha仍沿旧合同包含本次求值截止。
+
+该能力不提高数据、账户或执行资格，不改变100万元含持仓基准，不产生委托或账户副作用。生产安装和真实自然计算由Root按本次完整组件交付验收。
+
+当前投影保持原首次生效资格：已在早于当前basis的真实历史收盘生效的统计值只保留在历史，不能forward-fill到新的末bar；首次生效恰在basis或尚无实际历史收盘承载的真实已知值可以进入当前决定。消费结果以historical_effective_fields单独记录已归历史的字段，来源未更新不冒充新的统计日。此资格复用auxiliary._effective，不新增时间或公式常量。

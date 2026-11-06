@@ -4,12 +4,12 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-native-analysis-core"
-version = "0.1.0a2+mdphttp.1.resonance122.diagnostics.1"
+version = "0.1.0a3+currentaux.1"
 description = "Fixed original QNA and native daily import dependencies"
 readme = "README.md"
 requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]
-dependencies = ["guanheng-market-client==0.15.0", "guanheng-strategy-v1==0.1.0a12"]
+dependencies = ["guanheng-market-client==0.15.0", "guanheng-strategy-v1==0.1.0a13"]
 
 [tool.flit.module]
 name = "integrations"

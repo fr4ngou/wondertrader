@@ -22,7 +22,7 @@ _FIELDS = {'schema', 'analysis_ready', 'analysis', 'history', 'current_view', 'u
 def bind_market_window(wire, publication):
     """沿现有行情边界绑定三项市场事实；周期、配置和资本继续归调用者。"""
     from guanheng_strategy_v1 import RetainedInput, SYMBOLS
-    _need(type(publication) is dict and set(publication) == _FIELDS
+    _need(type(publication) is dict and _FIELDS <= set(publication) <= _FIELDS | {'current_auxiliary'}
           and publication['schema'] == 'guanheng.qmt-native-analysis-window.v1'
           and publication['analysis_ready'] is True
           and publication['units'] == {'price': 'CNY', 'volume': 'lot', 'amount': 'unknown'},
@@ -35,6 +35,10 @@ def bind_market_window(wire, publication):
           'market_window_roles')
     updated = dict(wire)
     updated.update({key: publication[key] for key in ('history', 'analysis', 'current_view')})
+    # 当前辅助由唯一纯核验证；旧发布明确移除旧请求里的可选视图，避免跨发布残留。
+    updated.pop('current_auxiliary', None)
+    if 'current_auxiliary' in publication:
+        updated['current_auxiliary'] = publication['current_auxiliary']
     request = RetainedInput.from_dict(updated)
     _need({row.symbol for row in request.history.observations} == expected
           and {row.observation.symbol for row in request.analysis.bars} == expected,
@@ -109,6 +113,8 @@ class MarketWindowFile:
             source_revision=updated.history.source_revision, factor_revision=updated.history.factor_revision,
             basis_date=updated.analysis.basis_date.isoformat(), known_at=updated.analysis.known_at.isoformat(),
             received_at=updated.current_view.received_at.isoformat(), units=value['units'])
+        if updated.current_auxiliary is not None:
+            publication['current_auxiliary_sha256'] = updated.current_auxiliary.sha256
         _need(updated.current_view.received_at <= request.decision_cutoff
               and updated.analysis.known_at <= updated.current_view.received_at, 'market_window_future')
         _need(time.monotonic() < deadline, 'evaluation_deadline')

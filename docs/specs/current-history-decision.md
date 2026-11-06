@@ -32,3 +32,9 @@ source profile、view/input/config/code/policy身份纳入原state_identity，�
 
 回归覆盖实收前决策、未闭合/未来行、unknown冒充CNY、typed突变/原引用、身份变化、旧严格/HEM保持、未来辅助、目标日期保持；修改amount保留算法目标，来源/完整输入摘要改变。实际普通安装和加载归属、原native有界关闭、独立双轴审查、精确SHA交付。真实交易、生产切换和WT核心行为保持既有授权边界。
 
+
+## CHD-current 独立当前辅助视图
+
+当前视图沿[SDO-R3-current](strategy-data-and-observability.md#sdo-r3-current-当前决策辅助视图)实现：RetainedInput的可选current_auxiliary与FrozenHistory分开，省略时规范输入及原求值保持。AWP只交付冻结事实；唯一V1核核验实际行情basis、依赖日期及known_by<=真实decision_cutoff，历史模型与命名研究模型继续隔离。历史完整逐bar验证保留，当前终端投影复用原信号机的state/start_index接缝，原价格、公式、阈值、实际周期、年龄和退出规则保持。
+
+当前结果独立报告实际消费值、来源身份、行情基准及真实decision_at；原diagnostics-v1继续表达历史帧覆盖，当前消费不冒充已富集历史。完整结果沿Runtime既有core_result公开，读取层不重算。相同事实和真实行情的后继轮询不构成新业务数据修订，Runtime继续由原NSQ目标投影维持同权重的经济代际。

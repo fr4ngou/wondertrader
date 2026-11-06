@@ -15,7 +15,8 @@ from guanheng_strategy_core.features import build_daily_features
 from guanheng_strategy_core.models import DailyObservation, observation_close_at, validate_observations
 from guanheng_strategy_core.signals import ROLE_SIGNAL_MACHINES
 from .historical import RetainedHistoricalModel, AUXILIARY_RESEARCH_MARKER
-from .diagnostics import describe_evaluation, failure_diagnostics
+from .current_auxiliary import CurrentAuxiliaryView, project_current_features
+from .diagnostics import describe_evaluation, failure_diagnostics, BRANCH_FIELDS
 
 from .role_profile import KC_SYMBOL, ROLE_SYMBOLS, STRATEGY_ID, STRATEGY_VERSION, SYMBOLS
 ZONE = ZoneInfo('Asia/Shanghai')
@@ -147,16 +148,18 @@ class CycleExit:
 
 @dataclass(frozen=True, slots=True)
 class RetainedInput:
-    configuration: RetainedConfig
-    history: FrozenHistory
-    analysis: AnalysisWindow
-    current_view: CurrentHistoryView
-    cycles: tuple[PositionCycle, ...]
-    cycles_captured_at: datetime
-    cycles_valid_until: datetime
-    decision_cutoff: datetime
-    previous_exits: tuple[CycleExit, ...] = ()
-    schema: str = 'guanheng.retained-resonance-input.v1'
+    configuration: RetainedConfig  # 正式六参数与预算配置；本视图不改变策略参数。
+    history: FrozenHistory  # 原完整历史；每行保持当时可知的历史辅助事实。
+    analysis: AnalysisWindow  # 同一基准的原生前复权价；不由当前辅助视图生成行情。
+    current_view: CurrentHistoryView  # 历史批次实际接收身份；与当前辅助实收分别表达。
+    cycles: tuple[PositionCycle, ...]  # 原生owner提供的八证券实际周期，不由模型重新开周期。
+    cycles_captured_at: datetime  # 本轮真实周期捕获时刻，带时区。
+    cycles_valid_until: datetime  # 本轮周期事实的原有效截止，带时区。
+    decision_cutoff: datetime  # 实际当前决策时刻，带时区；区别于最近真实行情基准日。
+    previous_exits: tuple[CycleExit, ...] = ()  # 原周期退出记忆；同周期及行情日期准入保持。
+    schema: str = 'guanheng.retained-resonance-input.v1'  # 原输入协议版本；缺少当前视图继续旧行为。
+    current_auxiliary: CurrentAuxiliaryView | None = field(default=None, metadata={'omit_none': True})  # 独立当前事实；历史输入缺省保持原规范字节。
+
 
     @classmethod
     def from_dict(cls, value):
@@ -164,6 +167,8 @@ class RetainedInput:
         _require(cls is RetainedInput, 'invalid_input', '需要本版固定输入模型')
         try:
             data = _wire(value, RetainedInput)
+            if data.get('current_auxiliary') is not None:
+                data['current_auxiliary'] = CurrentAuxiliaryView.from_dict(data['current_auxiliary'])
             data['configuration'] = RetainedConfig(**_wire(data['configuration'], RetainedConfig))
             history = data['history'] = FrozenHistory.from_dict(data['history'])
             analysis = _wire(data['analysis'], AnalysisWindow)
@@ -444,6 +449,14 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
                 'invalid_exit', '初始库存只接受新运行基准之后同周期的退出状态')
         records[record.symbol] = record
     previous_exits = tuple(records[s] for s in sorted(records))
+    current_auxiliary = request.current_auxiliary
+    if current_auxiliary is not None:
+        _require(historical_model is None, 'current_auxiliary_forbidden', '历史模型保持逐帧因果，拒绝当前辅助视图')
+        _require(type(current_auxiliary) is CurrentAuxiliaryView, 'invalid_current_auxiliary', '当前辅助视图类型无效')
+        try:
+            current_auxiliary.qualify(analysis.basis_date, request.decision_cutoff, days)
+        except (ValueError, TypeError, OverflowError):
+            raise RetainedValidationError('invalid_current_auxiliary', '当前辅助事实尚不可知或与实际行情基准不一致') from None
     normalized = replace(request, configuration=config, history=replace(history, observations=tuple(raw)),
         analysis=replace(analysis, bars=tuple(copied_bars)), current_view=view,
         cycles=tuple(cycles[s] for s in SYMBOLS), previous_exits=previous_exits)
@@ -461,6 +474,26 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
     allocation = {}
     build_allocation_events(features_by_symbol=series, decisions_by_symbol=decisions,
         universe=SYMBOLS, state_out=allocation, check=clock)
+    historical_decisions, historical_states, historical_allocation = decisions, model_states, allocation
+    current_features, current_series = features, series
+    if current_auxiliary is not None:
+        current_features = project_current_features(features, current_auxiliary)
+        current_series = {symbol: [f for f in current_features[symbol] if f.observation.trade_date >= first]
+                          for symbol in SYMBOLS}
+        decisions, model_states = {}, {}
+        # 每次从历史末帧之前的确定状态投影一次；同一bar不累计年龄或再次加仓。
+        for role, symbol in ROLE_SYMBOLS.items():
+            values = series[symbol]
+            prefix_state = {}
+            prefix = ROLE_SIGNAL_MACHINES[role](values[:-1], symbol=symbol, state_out=prefix_state, check=clock)
+            state = {}
+            terminal = ROLE_SIGNAL_MACHINES[role](current_series[symbol], symbol=symbol,
+                state=prefix_state, start_index=len(values)-1, state_out=state, check=clock)
+            decisions[symbol] = prefix + terminal
+            model_states[symbol] = state
+        allocation = {}
+        build_allocation_events(features_by_symbol=current_series, decisions_by_symbol=decisions,
+            universe=SYMBOLS, state_out=allocation, check=clock)
     exits, ages, peaks = {}, {}, {}
     for role, symbol in ROLE_SYMBOLS.items():
         clock()
@@ -488,7 +521,7 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
                     if observation_close_at(f.observation.trade_date) >= cycle.opened_at), None)
             ages[symbol] = max(0, len(values)-opening-1)
             if first_price is not None:
-                actual = ROLE_SIGNAL_MACHINES[role](values, symbol=symbol, start_index=first_price,
+                actual = ROLE_SIGNAL_MACHINES[role](current_features[symbol] if current_auxiliary is not None else values, symbol=symbol, start_index=first_price,
                     boundary_override=(opening, first_price), check=clock)
                 peaks[symbol] = max(f.observation.close for f in values[first_price:])
                 actual_exit = next((d for d in reversed(actual) if d.action == 'SELL' and d.trade_date == days[-1]), None)
@@ -532,7 +565,21 @@ def _evaluate_current_view(request: RetainedInput, *, budget, historical_model=N
         source_qualified=False, execution_qualified=False)
     value['diagnostics'] = describe_evaluation(tuple(raw),
         evaluation_dates=tuple(f.observation.trade_date for f in series['510300.SH']),
-        decisions=decisions, calculation_state='completed', targets=weights, check=clock)
+        decisions=historical_decisions, calculation_state='completed', targets=weights, check=clock)
+    if current_auxiliary is not None:
+        projected_values = current_auxiliary.projected_values(days)
+        value['current_auxiliary'] = dict(current_auxiliary.to_dict(),
+            decision_at=request.decision_cutoff, market_basis_date=analysis.basis_date,
+            data_revision=current_auxiliary.sha256, historical_rows_unchanged=True,
+            available_fields={symbol: {v.field: v.to_dict() for v in current_auxiliary.values if v.symbol == symbol}
+                              for symbol in SYMBOLS},
+            consumed_fields={symbol: {v.field: v.to_dict() for v in projected_values
+                if v.symbol == symbol and any(v.field in fields for fields in BRANCH_FIELDS[role].values())}
+                for role, symbol in ROLE_SYMBOLS.items()},
+            historical_effective_fields={symbol: {v.field: v.to_dict() for v in current_auxiliary.values
+                if v.symbol == symbol and v not in projected_values} for symbol in SYMBOLS})
+        value['historical_model_state'] = dict(model_states=historical_states,
+            model_decisions=historical_decisions, allocation_state=historical_allocation)
     if historical_model is not None:
         value['historical_model'] = historical
     encoded = clock.encode(value)

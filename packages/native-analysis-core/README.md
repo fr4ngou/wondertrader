@@ -11,3 +11,7 @@
 
 使用 `python -B scripts/source_packages.py build --work <新目录>` 构建三个来源包。
 完整说明见 [源码构建手册](../../docs/runbooks/source-packages.md)。
+
+当前辅助组合使用a3+currentaux.1，仅调整发行依赖为V1 a13；固定QNA算法、Source HTTP运输和公开replay导出保持原字节。与AWP auxiliary.4.current.1和Runtime currentaux.1精确组合安装，不能把新V1混入旧a2精确依赖环境。
+
+该组合的source-packages固定映射明确选择既有qmt-data-v2-hpr3中四个基础模型/读导入依赖，与原a2活动闭包逐字节一致；其余QNA/运输/导出成员沿既有永久源码。此声明消除当前开发模板与已采用闭包之间的来源歧义，不从运行安装取构建源码。

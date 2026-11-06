@@ -68,3 +68,11 @@ HPR 原日期/SDK绝对D与分片保持，先准备后原v7回读；成功调用
 每次组件关闭分别保留正常、pending 与失败证明。实际 HTTP 超过更短关闭预算时返回未确认；关闭预算、请求/SDK预算和线程强制终止策略均保持。自定义同步 client/provider 继续原接口，若实现 request_close(deadline=...) 则参与停止通知，其自身有界返回责任保持。
 
 验收先在普通安装、固定解释器与正式 SDK/WinSHM 链中完成一轮原分析发布与策略消费，在活动分析读取期间请求停止，核停止后不再准入后续 slot、当前已准入首次 POST 原责任及 slot 保留及分析/采集/Host 正常收尾；再核原读取失回执、关闭期间等待、首次截止不延长、默认省略准备及已有回归。原 full034 错误原件保持，WT 上游新增修改零。
+
+## 当前辅助视图发布
+
+沿[SDO-R3-current](strategy-data-and-observability.md#sdo-r3-current-当前决策辅助视图)，启用辅助的AWP使用唯一派生函数，在原窗口上增加可选current_auxiliary。视图包含实际行情basis_date、派生版本、最多32个证券/字段值；每值保存统计日、全部依赖日期、真实known_by与来源摘要，sha256只由数据和行情基准形成。历史observations、分析价、逐bar辅助生效和原接收时刻保持原值。当前视图与历史富集报告分别输出，enriched_rows=0仍可拥有完整当前辅助值。
+
+默认省略辅助配置时原窗口保持旧形状；Runtime新消费者接受旧窗口并清除请求中残留的当前视图。新生产者须和支持当前视图的V1/Runtime精确组合发布，旧消费者的严格窗口字段检查保持原拒绝行为，采用/回退沿Root统一角色恢复。
+
+本发行普通包依赖精确固定guanheng-wt-runtime==0.1.0a15+currentaux.1、guanheng-strategy-v1==0.1.0a13及guanheng-native-analysis-core==0.1.0a3+currentaux.1，依赖解析不得保留旧严格窗口消费者。

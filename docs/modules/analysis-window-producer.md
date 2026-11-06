@@ -76,3 +76,7 @@ flowchart LR
 本接缝固定证据位于`E:/workspace/wondertrader-qa/auxiliary-history-adoption-20261105-001`，实现提交`ac66257c6146c6e6ef8d9659ca39c50f3789cbb9`。AWP `0.1.0a13+auxiliary.3`单wheel的SHA256为`09530cf6c7c251e1e5ff069a280ef610a2855f6f33d628b63b0df3e1bd5cb5ec`，只读复用原固定V1/SDK，没有重复构建V1。`BUILD-FINAL001.json`及`FINAL-AUDIT001.json`核定14项源码、12项安装成员和wheel RECORD；两轴delta审查无遗留P1/P2，9项新回归及16项原回归通过。
 
 `MAINLINE-ROOT001.json`及`MAINLINE-ROOT-RESTART002.json`实际读取Root快照`aeeb9f0f91a13a3b6aa5cd956c6ac9b0e4c78955cd8fbcd6dab59a58ce139ab3`，经原Native→AWP→MarketWindowFile两次读回6056行、发布0→1及恢复1→2；6736适用事实中当前6285、导入451，热度738/融资668点，当前来源错误8项保持，历史实际生效0。`RECOVERY-BASE001/FAULT002/RESTORED003.json`以隔离快照副本验证核定后字节损坏：当前Owner失败并正常关闭，原发布SHA保持；恢复原SHA后新Owner沿原capture恢复，1→2发布、错误为空。五个Native Job均exit0、tree_zero/双EOF/join/resources_closed。仅使用冻结真实行情和固定官方事实，未调用QMT/账户或生成未来行情；现场采用及真实后继收盘仍由Root核验。
+
+## 当前决策辅助事实
+
+原enrich_window同时维护两个独立结果：历史merge_auxiliary遵循原收盘因果，current_auxiliary由原完整前缀唯一派生供当前decision_cutoff使用。当前视图不改行情日期、价格或历史字段，不生成新bar；值、实际知晓时间、依赖和基准日参与稳定sha256，刷新墙钟不参与该业务修订身份。协议与组合发布边界见[AWP当前视图](../specs/qmt-analysis-window-producer.md#当前辅助视图发布)；算法语义由V1当前求值合同负责。

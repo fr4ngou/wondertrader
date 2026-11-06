@@ -1,0 +1,198 @@
+{
+  "schema": "wt.runtime-source-closure.v2",
+  "source_commit": "a4ee2a4ed16ec181d25d1394e41d7d9caa2a543d",
+  "version": "0.1.0a15+currentaux.1",
+  "backend_sha256": "e7a0304069ea895172e3c7bb703292e992c5d1555dd1233ab7b5621b5b69e62c",
+  "pyproject_sha256": "360ba7646eff093d9195d18665aa5597a6bf9182dcc0a27dbb6203049faaaf1e",
+  "modules": {
+    "__init__.py": {
+      "source": "overlay",
+      "sha256": "47101e64b27a95209db7f9cf939088bbf7e5da67b1c06ad71ae6d58f14661684",
+      "reason": "Current auxiliary optional publication consumption; other adopted Runtime19 members preserved"
+    },
+    "__main__.py": {
+      "source": "git",
+      "sha256": "61aaba66131c6b634eceef829e08872ecb048315f8521ea9ca0269178b89c31d"
+    },
+    "account_observation_process.py": {
+      "source": "overlay",
+      "sha256": "40242654c5a6b4b27d10915ceff6c573c6094d63b84cc2bddaa06e0e3812c618",
+      "reason": "Keep actual Runtime13 recovery implementation; development template differs and is not part of this release delta"
+    },
+    "account_protocol.py": {
+      "source": "git",
+      "sha256": "4eaffd1d5839dbe9c76f22c2b926f74f5ca3728a74bfd3d0cf407546779b1b17"
+    },
+    "account_scan_config.py": {
+      "source": "git",
+      "sha256": "541c4efc6f711c593c97c4c5725a30500dfa18d8a70519c4fae01380a9d7cdf7"
+    },
+    "account_scan_runtime.py": {
+      "source": "git",
+      "sha256": "4f5f08dfbeeb91a29c2ca20495cd8fb424f0306de2d4e68ec17d7d1eef9df598"
+    },
+    "analysis_window_process.py": {
+      "source": "git",
+      "sha256": "ea27042148212a350b104f7f8d29101350e0cd4a185209c94ea84017983a4d25"
+    },
+    "backtest_cli.py": {
+      "source": "git",
+      "sha256": "521f713e09f9dea74a3b3d1487a13d321e49dac59c9f3112634b5a58b75a78ea"
+    },
+    "backtest_completion.py": {
+      "source": "git",
+      "sha256": "0cd3c93703e29549948772d07a8e823b95e7c88c78bd2bd21f844f3951182110"
+    },
+    "backtest_installation.py": {
+      "source": "git",
+      "sha256": "1f2dd9df6a17f47c43c862619258a600f62316b186c0bb44f918e9b91cab3bb9"
+    },
+    "backtest_reports.py": {
+      "source": "git",
+      "sha256": "f8a6ae61b8f756066c3ce55888ce10109a19eb86071e5d0dcdb3900e602b4083"
+    },
+    "collection_observation.py": {
+      "source": "git",
+      "sha256": "5b3e3feccb074a0541197cf5ab63a78a7a1d26a5d56ba948d068786edf11386c"
+    },
+    "execution_configured.py": {
+      "source": "git",
+      "sha256": "b14dd16cc7b206db12befa56df34eab8908d66bfa8d5585e1df0f7553f83af77"
+    },
+    "execution_cycle_source.py": {
+      "source": "git",
+      "sha256": "a729e5022d2163b8258d7272f6ff8b7b584d7bb8a5d83eb79c80607a04e76866"
+    },
+    "execution_facts.py": {
+      "source": "git",
+      "sha256": "1bf7107d18a428bd0d2b7d20f4733be767b4b6c35e580b8779dda671ea1e3ad5"
+    },
+    "execution_market_window.py": {
+      "source": "overlay",
+      "sha256": "7b7f8726ce416bccb914d5a650d3eb82751b491aa03dea2e2859afb0375f5030",
+      "reason": "Current auxiliary optional publication consumption; other adopted Runtime19 members preserved"
+    },
+    "execution_process.py": {
+      "source": "git",
+      "sha256": "56e3c2fbebc2b131c0acdafefb16bd5ecbb49e18e28816b673e59d60f8177dcc"
+    },
+    "execution_recovery.py": {
+      "source": "overlay",
+      "sha256": "effa8cf26931321e1017a13c381b794b6ce80ca78f001201801ac324d8c0000e"
+    },
+    "execution_role_replacement.py": {
+      "source": "git",
+      "sha256": "a7067447ed1658c30187d769d1e6b54fbc99886acee75205718e4f86272a4bd1"
+    },
+    "execution_source_wait.py": {
+      "source": "git",
+      "sha256": "327b3381cc7950f78313b0be90a24f39482cb1cc5a4029239776373b5f616ad0"
+    },
+    "execution_strategy.py": {
+      "source": "git",
+      "sha256": "e47a0ea9cbe3226f26a28fa5084e181505a03ac52c16f70ab41bec28d27947a0"
+    },
+    "group_control.py": {
+      "source": "git",
+      "sha256": "c0fcc268881b2ea7fe0d5fb66a21dd5ef15c2043b979c27d1fbaf460cdcf4356"
+    },
+    "history_preparation_process.py": {
+      "source": "git",
+      "sha256": "6bdbaa88d85b73f54d20dc8e2fa257a55db74b659cfdebab63e099269ad325eb"
+    },
+    "initial_inventory.py": {
+      "source": "overlay",
+      "sha256": "08ec62e98371e0196e62b05c54378e68733842587c299b0351f8af92e4edf1ef",
+      "reason": "Keep actual Runtime13 recovery implementation; development template differs and is not part of this release delta"
+    },
+    "initial_inventory_execution.py": {
+      "source": "git",
+      "sha256": "bf547e08d3bd1b821d9614dd70309a7ad9ac59c3ea2cad3b64cddaf2a4e9dab8"
+    },
+    "managed_local_process.py": {
+      "source": "git",
+      "sha256": "5eabc37ba5c3359846473c93ae97334e4f34c432126c3e22f1fc18aa9fc591bf"
+    },
+    "qmt_host_process.py": {
+      "source": "git",
+      "sha256": "c55cb235b312939525c077ade804896c435ca626c420b70b26204b68594c79b5"
+    },
+    "quote_collection_process.py": {
+      "source": "git",
+      "sha256": "b2a03ce2900e83d3ba409e6b7ba1f78fa7782985955bdd275b4a9c7c9beb59b6"
+    },
+    "report_values.py": {
+      "source": "git",
+      "sha256": "6ed30e2f6dfee6ede78961e406519672ffc6f6a8f893250ed779ff3acdb5f2f5"
+    },
+    "retained_evaluation.py": {
+      "source": "git",
+      "sha256": "6dae8c9f1a779d5f928986ac58479a658df11764a2cafd4a61e10ba539d8b349"
+    },
+    "retained_per_date_replay.py": {
+      "source": "git",
+      "sha256": "68389ee4bdf2c45c011740f1cb5d7bb14a3a3c191bd477171c58e715c9c3bb36"
+    },
+    "retained_replay.py": {
+      "source": "git",
+      "sha256": "f18800795ac1606499018720101e75088ded7d3d7f99489f8aca3576e6bf1ca4"
+    },
+    "retained_report.py": {
+      "source": "git",
+      "sha256": "aa0c6015afb894444f1550acbf9e2bf9e190c03bb6512e3d5c533b556bb8335f"
+    },
+    "runtime.py": {
+      "source": "overlay",
+      "sha256": "98205a90071c447160122a8defc32057175cfff0a099ffe07b5522ad1108242f",
+      "reason": "Keep actual Runtime13 recovery implementation; development template differs and is not part of this release delta"
+    },
+    "runtime_diagnostics.py": {
+      "source": "git",
+      "sha256": "94acd99ead7c7ffb8e873859ffb065d35cdea4bec05c64142ee51186f89a73ad"
+    },
+    "service_control.py": {
+      "source": "git",
+      "sha256": "cbf862f70f08a9e109bf7adeb32bd99913d6715ffff7012e5458ee08b94a788d"
+    },
+    "snapshot_publisher.py": {
+      "source": "git",
+      "sha256": "9e8b7ed80728b18901f4541bbc7fb052c2b961d77e209642bcab64d559338340"
+    },
+    "source_market_process.py": {
+      "source": "git",
+      "sha256": "0a594d469679a5cae69e8c1cd735e78c46a26de5cc1d17b5733c3e800c1cfd9e"
+    },
+    "strategy_capital.py": {
+      "source": "git",
+      "sha256": "151683f331fd8d894e0a0bf5a9c6a0ca93bfd18946b97d17d070ab6ede667cea"
+    },
+    "strategy_host.py": {
+      "source": "git",
+      "sha256": "5bf29b509c58f20173143ab24246f2b55d7353a9cbde4df69391f1f88732b0fc"
+    },
+    "strategy_job.py": {
+      "source": "git",
+      "sha256": "91cc52596b09d9042d298c8a3c8ed2134fe8fe0c8354b34366fc90fc1689c133"
+    },
+    "strategy_porter.py": {
+      "source": "git",
+      "sha256": "d6a4c4c52fdd61a82de811188269b5d854942d458f327563e541a2f1326c028c"
+    },
+    "strategy_replay_facts.py": {
+      "source": "git",
+      "sha256": "8357c47789c9b252f96d742f5216e7eb847d8cb5d63dcecc2a8141c6113e7e60"
+    },
+    "strategy_runner.py": {
+      "source": "git",
+      "sha256": "7a910fe8c957cb4d0496c3365e34bd3212d80f6fa91911d429c9d7be927a3e9f"
+    },
+    "thread_owner.py": {
+      "source": "git",
+      "sha256": "c04d7653add7f55c20eb6db122c10c296b0f6adce08cc26ec54aa3f5514af0d7"
+    },
+    "trade_host_process.py": {
+      "source": "git",
+      "sha256": "50a7f9080b3bd1f1a3e160ff3ac77de958de69546339a0c3146953dc1e186488"
+    }
+  }
+}
