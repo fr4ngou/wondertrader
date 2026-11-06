@@ -143,3 +143,5 @@
 
 - [独立观衡117诊断与有界日志](2026-11-06-observer117-runtime-live.md)。
 - [分钟原查询责任恢复正式采用](2026-11-06-minute-retained-resume-live.md)。
+
+- [日线r003正式发布与接续收束](2026-11-06-daily21-r003-settled.md)。
