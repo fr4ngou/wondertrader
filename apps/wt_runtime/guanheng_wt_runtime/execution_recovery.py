@@ -117,6 +117,11 @@ def _same_business(left, right):
                 if type(rule) is dict and rule.get('name') in (
                         'WtExeFact.WtStockMinImpactExeUnit','WtExeFact.WtStockMinImpactBorrowedExeUnit'):
                     # 原生执行参数可随显式发行调整，不改变资金/持仓模型；原配置SHA仍完整绑定。
+                    # 分单数量属于执行参数；仅归一化比较副本，原配置和委托身份继续核验。
+                    if 'lots' in rule:
+                        lots = rule['lots']
+                        _require(type(lots) in (int, float) and 0 < lots <= 1.7976931348623157e308)
+                        rule.pop('lots')
                     if 'expire' in rule:
                         _require(type(rule['expire']) is int and 0<=rule['expire']<=4294967295)
                         rule.pop('expire')

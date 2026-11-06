@@ -95,3 +95,8 @@ EFR-21：同账权限交接显式提供execution_permission_origin={schema:"guan
 
 
 同账后继使用已经核对的前代实际配置，直接交原ManagedPythonExecutionProcess；其中takeover及输入文件摘要沿原库存基准保持。首次initial_inventory准备器仅负责尚未物化库存引用的准备配置，同账后继descriptor省略initial_inventory，继续保留原金融根、基准根及Native恢复核查。避免重复准备既有持仓或创建新基准。现场状态见[模拟自动执行启用](../releases/2026-11-04-wt-simulation-enabled.md)。
+
+
+## 股票执行器分单数量换代
+
+用户显式调整原股票执行器的 `lots` 时，Python与Native在同账恢复比较副本中统一校验其为有限正数并归一化该字段。适用工厂为 `WtExeFact.WtStockMinImpactExeUnit` 和 `WtExeFact.WtStockMinImpactBorrowedExeUnit`。原完整配置及SHA、账户、策略模型、目标、金融状态根、倍率、byrate和min_order继续逐项核验。该参数同时用于买卖；实际发单继续受目标余量、整手、可卖和资金约束。正常关闭后沿原transition启用新配置，旧挂单及未知命令保留原身份。

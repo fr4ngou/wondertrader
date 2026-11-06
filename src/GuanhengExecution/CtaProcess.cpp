@@ -322,6 +322,11 @@ bool same_business(const rj::Value& left,const rj::Value& right){
                     const std::string name=rule["name"].GetString();
                     if(name!="WtExeFact.WtStockMinImpactExeUnit"&&name!="WtExeFact.WtStockMinImpactBorrowedExeUnit")continue;
                     // 显式发行中的原生撤单参数；只移除比较副本，原件完整SHA继续校验。
+                    // 分单数量随显式配置换代；原配置SHA和原委托身份保持。
+                    if(rule.HasMember("lots")){
+                        need(rule["lots"].IsNumber());const double lots=rule["lots"].GetDouble();
+                        need(std::isfinite(lots)&&lots>0);rule.RemoveMember("lots");
+                    }
                     if(rule.HasMember("expire")){need(rule["expire"].IsUint());rule.RemoveMember("expire");}
                     if(rule.HasMember("is_cancel_unmanaged_order")){
                         need(rule["is_cancel_unmanaged_order"].IsBool());rule.RemoveMember("is_cancel_unmanaged_order");

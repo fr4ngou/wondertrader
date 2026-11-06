@@ -250,5 +250,37 @@ class ExecutionConfigurationSnapshotTests(unittest.TestCase):
                 process._command()
 
 
+
+
+class StockOrderLotsRecoveryTests(unittest.TestCase):
+    def fixture(self):
+        return dict(budget=dict(run_ms=0), trader=dict(account='SYNTHETIC'),
+            output_directory='E:/synthetic/financial', executer=dict(scale=1,policy=dict(default=dict(
+                name='WtExeFact.WtStockMinImpactBorrowedExeUnit',byrate=False,lots=1000,min_order=100))))
+
+    def test_explicit_lots_change_preserves_originals(self):
+        old=self.fixture();new=deepcopy(old);new['executer']['policy']['default']['lots']=10000
+        self.assertTrue(_same_business(old,new));self.assertTrue(_same_business(new,old))
+        self.assertEqual(old['executer']['policy']['default']['lots'],1000)
+        self.assertEqual(new['executer']['policy']['default']['lots'],10000)
+
+    def test_invalid_lots_rejected(self):
+        for invalid in (0,-1,True,'10000',float('inf'),float('nan'),10**400):
+            with self.subTest(value=str(invalid)):
+                new=self.fixture();new['executer']['policy']['default']['lots']=invalid
+                with self.assertRaises(ValueError):_same_business(self.fixture(),new)
+
+    def test_business_constraints_remain_strict(self):
+        for field,value in [('byrate',True),('min_order',1000),('name','OtherExecutor')]:
+            new=self.fixture();new['executer']['policy']['default'].update(lots=10000)
+            new['executer']['policy']['default'][field]=value
+            self.assertFalse(_same_business(self.fixture(),new))
+        for field,value in [('scale',10)]:
+            new=self.fixture();new['executer'][field]=value
+            self.assertFalse(_same_business(self.fixture(),new))
+        new=self.fixture();new['trader']['account']='OTHER'
+        self.assertFalse(_same_business(self.fixture(),new))
+
+
 if __name__ == "__main__":
     unittest.main()
