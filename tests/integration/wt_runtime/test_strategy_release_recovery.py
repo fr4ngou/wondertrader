@@ -65,7 +65,7 @@ class StrategyReleaseRecoveryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _compatible_python(previous, current)
             _compatible_python(previous, current, strategy_upgrade=True)
-            for index in (2, 3, 4):
+            for index in (2, 4):
                 with self.subTest(member=current['files'][index][0]):
                     changed = dict(current, files=list(current['files']))
                     name, unused = changed['files'][index]

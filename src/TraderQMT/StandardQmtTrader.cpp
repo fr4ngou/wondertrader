@@ -2972,6 +2972,17 @@ int StandardQmtTrader::pause_inserts(bool paused)
  if(!x.query_first||!x.active()||!x.logged_in||x.submissions_closed||x.submission.open)return StandardQmtUnavailable;
  x.inserts_paused=paused;x.cv.notify_all();return 0;
 }
+int StandardQmtTrader::known_working_children(std::uint32_t& out)const
+{
+ if(!owner())return StandardQmtWrongOwner;
+ auto& x=*impl_;std::lock_guard<std::mutex> lock(x.mutex);out=0;
+ // 已报可以跨进程继续管理；SDK未知、终态待P及尚未交回的调用均不计入。
+ for(const auto& pair:x.identities){const auto& value=pair.second;
+  if(value.group_id&&value.observation==SubmissionObservation::ObservedActive&&!value.broker.empty()
+     &&!value.retained_receipt.command_body.empty()&&x.pending.find(value.command_id)==x.pending.end())++out;
+ }
+ return 0;
+}
 int StandardQmtTrader::recovery(StandardQmtRecoveryV1& out)const
 {
  if(!owner())return StandardQmtWrongOwner;

@@ -81,6 +81,12 @@ class _BrokerPosition(_Packed):
     _fields_ = [('symbol', C.c_char * 64), ('quantity', C.c_double), ('sellable', C.c_double), ('is_long', C.c_uint32)]
 
 
+class _PendingOrder(_Packed):
+    _fields_ = [('symbol',C.c_char*64),  # 原WT标准证券代码；调用方值副本。
+                ('remaining',C.c_double),  # 原表未成交股/份；不用于累加持仓。
+                ('is_buy',C.c_uint32)]  # 1买、0卖，沿原委托方向。
+
+
 class _BrokerTradeFacts(_Packed):
     _fields_ = [(key,C.c_uint32) for key in ('size','version','known','error')] + [
         (key,C.c_uint64) for key in ('revision','received_ms','query_revision','query_received_ms',
@@ -220,6 +226,14 @@ class BrokerPositionValue:
     is_long: bool
     quantity: float
     sellable: float
+
+
+@dataclass(frozen=True)
+class PendingOrderValue:
+    """原WT订单表中的已核自有活动单；身份和可变余量继续归Adapter。"""
+    symbol: str  # WT标准代码，来自原订单合约。
+    remaining: float  # 本次原表的未成交股/份，正有限值。
+    is_buy: bool  # 原委托方向；只作未决责任观察。
 
 
 @dataclass(frozen=True)
@@ -380,6 +394,11 @@ class CallbackContext:
         self._access()
         return self._owner.broker_observation()
 
+    def pending_orders(self):
+        """复制原WT自有活动订单；禁止策略另建委托状态机。"""
+        self._access()
+        return self._owner.pending_orders()
+
     def broker_trades(self):
         """复制原成交事实；旧运行库缺少可选能力时为None，不发起来源查询。"""
         self._access()
@@ -424,6 +443,13 @@ class CtaRuntime:
         self._controller = self._thread()
         _need(time.monotonic() < deadline, 'startup_deadline')
         self._runtime = C.CDLL(str(root / 'GuanhengCtaRuntime.dll'))
+        self._pending_read=getattr(self._runtime,'gh_cta_pending_orders_read',None)
+        if self._pending_read is not None:
+            layout=self._runtime.gh_cta_pending_order_layout
+            layout.argtypes=[];layout.restype=C.c_uint64
+            _need(layout()==C.sizeof(_PendingOrder),'pending_orders_layout')
+            self._pending_read.argtypes=[C.POINTER(_PendingOrder),C.c_uint32,C.POINTER(C.c_uint32)]
+            self._pending_read.restype=C.c_int32
         extension = getattr(self._runtime, 'gh_cta_broker_abi_version', None)
         self._broker_abi = 0
         if extension is not None:
@@ -559,6 +585,20 @@ class CtaRuntime:
             facts.account_revision, facts.account_received_ms if facts.account_known else None,
             facts.published_epoch_ms, facts.balance if facts.account_known else None,
             facts.available if facts.account_known else None, tuple(positions))
+
+    def pending_orders(self):
+        """沿原同次账户发布复制活动单；旧DLL能力缺失保持明确。"""
+        _need(self._pending_read is not None,'pending_orders_capability')
+        rows=(_PendingOrder*4096)();written=C.c_uint32()
+        result=self._pending_read(rows,len(rows),C.byref(written))
+        _need(result==0 and written.value<=len(rows),'pending_orders_read')
+        values=[]
+        for row in rows[:written.value]:
+            code=bytes(row.symbol).decode('ascii')
+            _need(0<len(code)<64 and all(32<ord(c)<127 for c in code)
+                  and row.is_buy in (0,1) and math.isfinite(row.remaining) and row.remaining>0,'pending_order_value')
+            values.append(PendingOrderValue(code,row.remaining,bool(row.is_buy)))
+        return tuple(values)
 
     def broker_trades(self):
         if not self._broker_trades_abi:return None

@@ -126,6 +126,8 @@ public:
     StandardQmtDiagnostics last_plugin;
     StandardQmtRecoveryV1 last_recovery;
     bool recovery_observed=false;
+    std::uint32_t last_working_children=0; // 最后同owner原插件计数，供实际销毁后的关闭证明。
+    bool working_children_observed=false; // 尚未读取与已核零挂单分别表达。
     Impl(const char* channel_id, const char* executer_id, wtp::IBaseDataMgr& b,
         wtp::ActionPolicyMgr& p, wtp::WtExecuterFactory& f, wtp::IExecuterStub& s, wtp::IDataManager* d)
         : channel(identity(channel_id)), name(identity(executer_id)), base(b), policy(p), factory(f), stub(s), data(d) {}
@@ -255,6 +257,16 @@ bool StandardExecutionHost::begin_recovery() {
         ||!x.functions.close_submissions||!x.functions.recovery)return false;
     x.stop_bridge();return x.functions.close_submissions(x.api)==0;
 }
+int StandardExecutionHost::known_working_children(std::uint32_t& out) const {
+    auto& x=*impl_;if(!x.on_owner())return StandardQmtWrongOwner;
+    if(!x.functions.working_children)return StandardQmtUnavailable;
+    if(x.api){
+        const auto code=x.functions.working_children(x.api,&x.last_working_children);
+        if(code!=0)return code;x.working_children_observed=true;
+    }
+    if(!x.working_children_observed)return StandardQmtUnavailable;
+    out=x.last_working_children;return 0;
+}
 int StandardExecutionHost::recovery(StandardQmtRecoveryV1& out) const {
     auto& x=*impl_;if(!x.on_owner())return StandardQmtWrongOwner;
     if(out.version!=1||out.size!=sizeof(out)||!x.functions.recovery)return StandardQmtInvalid;
@@ -323,6 +335,8 @@ int StandardExecutionHost::close() noexcept {
             const auto& state=x.last_plugin;
             if(state.phase!=static_cast<unsigned>(StandardQmtPhase::Closed)||!state.joined||!state.drained||state.worker_live)return 1;
             if(x.functions.recovery){StandardQmtRecoveryV1 value;if(recovery(value)!=0){x.fail(ExecutionHostFault::Close);return StandardQmtFailure;}}
+            if(x.functions.working_children){std::uint32_t working=0;
+                if(known_working_children(working)!=0){x.fail(ExecutionHostFault::Close);return StandardQmtFailure;}}
             x.functions.destroy(x.api);if(x.api)return 1;
         }
         // 插件已撤销SPI并确认所有回调退出；在依赖仍存活时完成原执行单元析构。

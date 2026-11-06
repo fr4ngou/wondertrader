@@ -18,6 +18,7 @@ struct StandardPluginFunctions {
     SubmissionFunctions submission;
     decltype(&closeStandardQmtSubmissions) close_submissions=nullptr;
     decltype(&inspectStandardQmtRecovery) recovery=nullptr;
+    decltype(&inspectStandardQmtWorkingChildren) working_children=nullptr; // 原插件已知活动子单只读计数。
     decltype(&inspectStandardQmtAwaitingObservation) awaiting_observation=nullptr;
     decltype(&pauseStandardQmtInserts) pause_inserts=nullptr;
 };
@@ -74,6 +75,7 @@ public:
     bool begin_recovery();
     // API删除后返回关闭前最后一次真实观察；版本/size须匹配。
     int recovery(StandardQmtRecoveryV1&) const;
+    int known_working_children(std::uint32_t&) const; // 与recovery在同一owner连续读取，无I/O或回调。
     // 读取原Adapter最近一次有效券商观察；未ready抛异常，不把旧观察宣称为当前查询结果。
     double position(const char* standard_code, bool available_only = false) const;
     std::vector<BrokerPositionObservation> positions() const;

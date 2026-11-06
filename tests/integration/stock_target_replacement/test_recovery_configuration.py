@@ -36,6 +36,16 @@ class RecoveryConfigurationTests(unittest.TestCase):
         after['executer']['policy']['default'].update(name='WtExeFact.WtMinImpactExeUnit',replace_equal_position_target=True)
         with self.assertRaises(ValueError):_same_business(before,after)
 
+    def test_native_timeout_and_restart_cancellation_keep_original_financial_identity(self):
+        before=self.fixture();before['executer']['policy']['default'].update(expire=0,is_cancel_unmanaged_order=False)
+        after=deepcopy(before);after['executer']['policy']['default'].update(expire=60,is_cancel_unmanaged_order=True)
+        originals=deepcopy((before,after))
+        self.assertTrue(_same_business(before,after))
+        self.assertEqual((before,after),originals)
+        for value in (True,-1,1.5,'60'):
+            invalid=deepcopy(after);invalid['executer']['policy']['default']['expire']=value
+            with self.subTest(value=value),self.assertRaises(ValueError):_same_business(before,invalid)
+
     def test_other_financial_and_execution_fields_stay_strict(self):
         mutations=[lambda x:x['trader'].update(account='OTHER'),lambda x:x['trader'].update(writes_enabled=False),
             lambda x:x.update(output_directory='other-ledger'),lambda x:x['capital_baseline'].update(total_cny='2000000'),

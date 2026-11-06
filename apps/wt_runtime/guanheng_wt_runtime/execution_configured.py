@@ -404,8 +404,8 @@ class RetainedStrategy:
         rows = self._broker_rows(broker)
         if self.recovery in ('resume_clean','resume_reconciled'):
             self._load_state(context.load_quantity_state())
-            # 原单已由运行owner撤清并重查P/A；保留周期/止损和退出记忆，重新规划执行。
-            if self.execution_enabled:self.state = None
+            # 同策略恢复保留原冻结阶段；原WT活动订单参与后续pending观察。
+            # 角色首次换代的旧计划由_load_state在核原配置后明确退役。
         else:
             _need(context.facts().fund_pnl == 0, 'takeover_mark_required')
             text = context.load_quantity_state()
@@ -752,7 +752,7 @@ class RetainedStrategy:
             prices[symbol]=quote.price_cny;stamps.append(stamp)
         return prices,min(stamps).isoformat()
 
-    def _execution_capture(self, broker, basis, theoretical):
+    def _execution_capture(self, broker, basis, theoretical, pending_orders=()):
         """唯一策略的实际数量沿本轮P；原理论账本只承担财务basis与pending信号。
 
         调用方先核P的新鲜度；同一来源摘要绑定两份观察，避免把理论目标到位
@@ -761,8 +761,12 @@ class RetainedStrategy:
         from guanheng_strategy_native import NativePosition, Observation
         _need(broker.positions_known, 'broker_unknown')
         rows = self._broker_rows(broker)
-        identity = _digest((theoretical.native_observation_id,asdict(broker)))
-        positions = tuple(NativePosition(p.symbol,*rows.get(self.mapping[p.symbol],(0,0)),p.pending_target)
+        identity = _digest((theoretical.native_observation_id,asdict(broker),
+                            tuple(asdict(row) for row in pending_orders)))
+        pending={row.symbol for row in pending_orders}
+        positions = tuple(NativePosition(p.symbol,*rows.get(self.mapping[p.symbol],(0,0)),
+                          (p.pending_target if p.pending_target is not None else p.actual)
+                          if self.mapping[p.symbol] in pending else p.pending_target)
                           for p in theoretical.positions)
         return (replace(basis,native_observation_id=identity),
                 replace(theoretical,native_observation_id=identity),
@@ -878,7 +882,9 @@ class RetainedStrategy:
                 candidate['capital'] = dict(candidate['capital'],
                     account_observation_qualified=False,spendable_cash_cny=None)
             candidate['native_cash_basis']=getattr(self,'native_cash_basis',None)
-            basis,observed,execution = self._execution_capture(broker,basis,observed)
+            # 活动单只读自原WT表；即使P已到目标，原单尚未终态也不结清/交接阶段。
+            pending=context.pending_orders() if self.execution_enabled else ()
+            basis,observed,execution = self._execution_capture(broker,basis,observed,pending)
             if not self.execution_enabled:
                 outcome,previous_status=None,None
             elif self.inputs.capital_baseline is not None and not basis.native_nav_verified:

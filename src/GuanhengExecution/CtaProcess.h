@@ -45,6 +45,12 @@ typedef struct GhCtaBrokerTradeV2 {
     GhCtaBrokerTrade trade;
     uint64_t submission_revision;
 } GhCtaBrokerTradeV2;
+// 原WT订单表的活动委托值副本；原命令及券商ID仍由Adapter/journal维护。
+typedef struct GhCtaPendingOrder {
+    char symbol[64]; // WT标准证券代码，ASCII终止串；副本归调用者。
+    double remaining; // 券商查询/回报的未成交股/份，正有限值。
+    uint32_t is_buy; // 原委托方向，1买、0卖；不据此计算持仓。
+} GhCtaPendingOrder;
 #pragma pack(pop)
 GH_CTA_RUNTIME_API uint32_t __cdecl gh_cta_runtime_abi_version(void);
 // 每进程只运行一次。argv为原9项宽字符CLI，0=完整成功；失败仍沿原收据/Job核资源。
@@ -67,6 +73,10 @@ GH_CTA_RUNTIME_API int32_t __cdecl gh_cta_broker_trades_read(GhCtaBrokerTradeFac
 // 可选V2读入口；layout(3)=FactsV2、layout(4)=TradeV2。内嵌facts.size=sizeof(V2)、version=2。
 // 与ABI1同次原子发布、同返回码；原ABI1函数及布局保持。
 GH_CTA_RUNTIME_API int32_t __cdecl gh_cta_broker_trades_v2_read(GhCtaBrokerTradeFactsV2*,GhCtaBrokerTradeV2*,uint32_t capacity,uint32_t* written);
+// 可选只读活动单扩展：layout=sizeof(GhCtaPendingOrder)，旧P/A/D ABI保持。
+GH_CTA_RUNTIME_API uint64_t __cdecl gh_cta_pending_order_layout(void);
+// 0成功、-1参数、-2尚无完整订单观察、-5容量不足；空表是已核零活动单。
+GH_CTA_RUNTIME_API int32_t __cdecl gh_cta_pending_orders_read(GhCtaPendingOrder*,uint32_t capacity,uint32_t* written);
 
 #ifdef __cplusplus
 }

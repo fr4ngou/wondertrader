@@ -30,6 +30,8 @@ EXPORT_FLAG int pauseStandardQmtInserts(wtp::ITraderApi* api,std::uint32_t pause
 {try{auto p=StandardQmtTrader::lookup(api);return p&&paused<=1?p->pause_inserts(paused!=0):guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
 EXPORT_FLAG int inspectStandardQmtRecovery(wtp::ITraderApi* api,guanheng::StandardQmtRecoveryV1* out)
 {try{auto p=StandardQmtTrader::lookup(api);return p&&out?p->recovery(*out):guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
+EXPORT_FLAG int inspectStandardQmtWorkingChildren(wtp::ITraderApi* api,std::uint32_t* out)
+{try{auto p=StandardQmtTrader::lookup(api);return p&&out?p->known_working_children(*out):guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
 EXPORT_FLAG int inspectStandardQmtAwaitingObservation(wtp::ITraderApi* api)
 {try{auto p=StandardQmtTrader::lookup(api);return p?p->awaiting_observation():guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
 EXPORT_FLAG int beginStandardQmtSubmission(wtp::ITraderApi* api,const guanheng::SubmissionKeyV1* key,

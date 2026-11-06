@@ -95,6 +95,8 @@ public:
  int pump(std::uint32_t max_events);
  int wait(std::uint32_t flags,std::uint32_t timeout_ms);
  int stop();int diagnostics(StandardQmtDiagnostics&) const;
+ // 已核券商活动状态且原SDK收据已移交的子单数；不解除原提交组责任。
+ int known_working_children(std::uint32_t&) const;
  int event_chain_diagnostics(EventChainDiagnosticsV1&) const; // 同owner可选纯值旁证，不改变原Status/金融ABI。
  // 同owner单向关闭新增insert/cancel；保持既有收据、查询和事件处理，0=已关闭。
  int close_submissions();int recovery(StandardQmtRecoveryV1&) const;
@@ -135,6 +137,8 @@ GH_QMT_STANDARD_EXPORT int inspectStandardQmtEventChain(wtp::ITraderApi*,guanhen
 GH_QMT_STANDARD_EXPORT int closeStandardQmtSubmissions(wtp::ITraderApi*);
 GH_QMT_STANDARD_EXPORT int pauseStandardQmtInserts(wtp::ITraderApi*,std::uint32_t paused);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtRecovery(wtp::ITraderApi*,guanheng::StandardQmtRecoveryV1*);
+// 可选纯值扩展；V1布局保持，调用者据此区分已知挂单与尚待核实的子调用。
+GH_QMT_STANDARD_EXPORT int inspectStandardQmtWorkingChildren(wtp::ITraderApi*,std::uint32_t*);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtAwaitingObservation(wtp::ITraderApi*);
 // 同owner同步许可；无STL跨DLL、无解除责任接口；异常只返回固定Fault。
 GH_QMT_STANDARD_EXPORT int beginStandardQmtSubmission(wtp::ITraderApi*,const guanheng::SubmissionKeyV1*,guanheng::SubmissionTokenV1*,guanheng::SubmissionViewV1*) noexcept;

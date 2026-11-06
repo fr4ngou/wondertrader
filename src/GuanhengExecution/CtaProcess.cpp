@@ -15,6 +15,7 @@
 #include "Includes/CtaStrategyDefs.h"
 #include "Includes/WTSVariant.hpp"
 #include "Includes/WTSTradeDef.hpp"
+#include "Includes/WTSContractInfo.hpp"
 #include "GuanhengRealtime/ManagedStrategyBridge.h"
 #include "Share/CodeHelper.hpp"
 #include <rapidjson/document.h>
@@ -47,6 +48,7 @@ struct PublishedBroker {
     std::vector<GhCtaBrokerTrade> trades;
     GhCtaBrokerTradeFactsV2 trade_facts_v2{};
     std::vector<GhCtaBrokerTradeV2> trades_v2;
+    std::vector<GhCtaPendingOrder> pending_orders; // 原订单表复制；不形成另一份可变订单状态。
     std::uint32_t completed_queries=0;
 };
 std::shared_ptr<const PublishedBroker> broker_current;
@@ -58,7 +60,28 @@ void publish_broker(guanheng::StandardExecutionHost& execution,guanheng::Executi
     const auto status=execution.status();
     if(!status.account_ready||status.fault!=guanheng::ExecutionHostFault::None){std::atomic_store(&broker_current,std::shared_ptr<const PublishedBroker>{});return;}
     const auto prior=std::atomic_load(&broker_current);
-    if(prior&&prior->completed_queries==status.plugin.queries&&prior->trade_facts.revision==status.broker_trade_revision)return;
+    std::vector<GhCtaPendingOrder> pending_orders;
+    auto* orders=execution.orders("");need(orders!=nullptr);
+    struct OrdersCopyOwner{wtp::OrderMap* value;~OrdersCopyOwner(){value->release();}} owned{orders};
+    need(orders->size()<=4096);
+    for(auto it=orders->begin();it!=orders->end();++it){
+        const auto* order=static_cast<wtp::WTSOrderInfo*>(it->second);
+        if(!order->isAlive()||order->getVolLeft()==0)continue;
+        need(order->getContractInfo()!=nullptr);
+        const auto code=std::string(order->getExchg())+"."+order->getContractInfo()->getProduct()+"."+order->getCode();
+        need(it->first&&order->getEntrustID()[0]&&order->getUserTag()[0]&&code.size()<64);
+        GhCtaPendingOrder row{};std::memcpy(row.symbol,code.c_str(),code.size()+1);
+        row.remaining=order->getVolLeft();
+        row.is_buy=(order->getDirection()==wtp::WDT_LONG)==(order->getOffsetType()==wtp::WOT_OPEN);
+        need(std::isfinite(row.remaining)&&row.remaining>0);pending_orders.push_back(row);
+    }
+    // 原订单回报可独立于P/D查询改变余量；值相同才复用旧发布，不另造revision或订单表。
+    const bool same_pending=prior&&prior->pending_orders.size()==pending_orders.size()
+        &&std::equal(pending_orders.begin(),pending_orders.end(),prior->pending_orders.begin(),
+            [](const auto& a,const auto& b){return std::strcmp(a.symbol,b.symbol)==0
+                &&a.remaining==b.remaining&&a.is_buy==b.is_buy;});
+    if(prior&&same_pending&&prior->completed_queries==status.plugin.queries
+        &&prior->trade_facts.revision==status.broker_trade_revision)return;
     const auto trades=execution.broker_trades();
     auto source=execution.broker_observation();auto value=std::make_shared<PublishedBroker>();auto& facts=value->facts;
     value->completed_queries=status.plugin.queries;
@@ -91,6 +114,7 @@ void publish_broker(guanheng::StandardExecutionHost& execution,guanheng::Executi
         row.quantity=trade.quantity;row.price=trade.price;row.amount=trade.amount;value->trades.push_back(row);
         value->trades_v2.push_back({row,trades.origins_known?trade.submission_revision:0});
     }
+    value->pending_orders=std::move(pending_orders);
     std::atomic_store(&broker_current,std::shared_ptr<const PublishedBroker>(std::move(value)));
 }
 struct Handle {HANDLE value=INVALID_HANDLE_VALUE;~Handle(){if(value&&value!=INVALID_HANDLE_VALUE)CloseHandle(value);}};
@@ -244,9 +268,13 @@ rj::Document state_identity(const fs::path& output,const rj::Value& strategies){
     for(const auto& item:files)result.AddMember(rj::Value(item.first.c_str(),a),rj::Value(item.second.c_str(),a),a);
     return result;
 }
-bool settled(const guanheng::StandardQmtRecoveryV1& value){
-    return value.query_first&&value.submissions_closed&&!value.open_group&&!value.unresolved_children
-        &&!value.pending_commands&&!value.unsafe;
+bool known_orders_recoverable(guanheng::StandardExecutionHost& execution,const guanheng::StandardQmtRecoveryV1& value){
+    std::uint32_t working=0;
+    return execution.known_working_children(working)==0&&value.query_first&&!value.open_group
+        &&value.unresolved_children==working&&!value.pending_commands&&!value.unsafe;
+}
+bool settled(guanheng::StandardExecutionHost& execution,const guanheng::StandardQmtRecoveryV1& value){
+    return value.submissions_closed&&known_orders_recoverable(execution,value);
 }
 // 自有持续Reader的缓存为派生位置；严格验证对象后，只从比较投影移除此定位。
 void normalize_publication_cache(rj::Value& value){
@@ -286,6 +314,20 @@ bool same_business(const rj::Value& left,const rj::Value& right){
         (*value)["budget"].RemoveMember("run_ms");
         normalize_publication_cache(*value);
         normalize_target_replacement(*value);
+        if(value->HasMember("executer")&&(*value)["executer"].IsObject()){
+            auto& executer=(*value)["executer"];
+            if(executer.HasMember("policy")&&executer["policy"].IsObject())
+                for(auto it=executer["policy"].MemberBegin();it!=executer["policy"].MemberEnd();++it){
+                    auto& rule=it->value;if(!rule.IsObject()||!rule.HasMember("name")||!rule["name"].IsString())continue;
+                    const std::string name=rule["name"].GetString();
+                    if(name!="WtExeFact.WtStockMinImpactExeUnit"&&name!="WtExeFact.WtStockMinImpactBorrowedExeUnit")continue;
+                    // 显式发行中的原生撤单参数；只移除比较副本，原件完整SHA继续校验。
+                    if(rule.HasMember("expire")){need(rule["expire"].IsUint());rule.RemoveMember("expire");}
+                    if(rule.HasMember("is_cancel_unmanaged_order")){
+                        need(rule["is_cancel_unmanaged_order"].IsBool());rule.RemoveMember("is_cancel_unmanaged_order");
+                    }
+                }
+        }
         if(!value->HasMember("strategies")||!(*value)["strategies"].IsArray())continue;
         for(auto& strategy:(*value)["strategies"].GetArray()){
             if(!strategy.IsObject()||!strategy.HasMember("parameters")||!strategy["parameters"].IsObject())continue;
@@ -651,11 +693,10 @@ bool own_orders_empty(guanheng::StandardExecutionHost& execution){
     auto* rows=execution.orders("");need(rows!=nullptr);const bool empty=rows->size()==0;rows->release();return empty;
 }
 // 原query_first表只包含Host已核身份及本Adapter本地ID的活动单；人工单不进入该表。
-// 先退休每个原单，再读取后继P/A；只持有本次调用的取消ID，不保存新的恢复状态。
+// 完整O后读取后继P/A。已知挂单保留原ID，撤单交原WT执行器；未知调用继续原核查。
 template<class Check,class Advance>void reconcile_own_orders(guanheng::StandardExecutionHost& execution,Check check,Advance advance){
     check();guanheng::StandardQmtRecoveryV1 state;need(execution.recovery(state)==0);
     auto refresh=[&]{check();advance();check();need(execution.recovery(state)==0);};
-    std::set<std::uint32_t> cancelled;
     for(;;){
         auto barrier=state.next_task;check();need(execution.query_orders()==0);check();
         while(state.last_order_query<=barrier)refresh();
@@ -664,11 +705,10 @@ template<class Check,class Advance>void reconcile_own_orders(guanheng::StandardE
         for(auto it=rows->begin();it!=rows->end();++it){
             auto* row=static_cast<wtp::WTSOrderInfo*>(it->second);
             need(it->first&&row->isAlive()&&row->getEntrustID()[0]&&row->getUserTag()[0]);
-            if(cancelled.insert(it->first).second){check();need(cancelled.size()<=4096&&execution.cancel(it->first));check();}
         }
         barrier=state.next_task;check();need(execution.query_positions()==0);check();
         while(state.last_position_query<=barrier)refresh();
-        if(own_orders_empty(execution)&&!state.open_group&&!state.unresolved_children&&!state.pending_commands&&!state.unsafe)break;
+        if(known_orders_recoverable(execution,state))break;
         refresh();
     }
     const auto barrier=state.next_task;check();need(execution.query_account()==0);check();
@@ -863,7 +903,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             };
             recovery_hooks.closed=[&]{
                 if(!recovery_armed)return true;
-                guanheng::StandardQmtRecoveryV1 state;need(execution->recovery(state)==0&&settled(state));
+                guanheng::StandardQmtRecoveryV1 state;need(execution->recovery(state)==0&&settled(*execution,state));
                 need(execution->status().fault==guanheng::ExecutionHostFault::None&&execution->status().plugin.error==0);
                 need(!health||health(health_user)==0);
                 auto proof=receipt("guanheng.cta-clean.v2",id,recovery_config,true);auto& a=proof.GetAllocator();
@@ -923,6 +963,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         if(recovery_enabled){
             functions.close_submissions=plugin.get<decltype(functions.close_submissions)>("closeStandardQmtSubmissions");
             functions.recovery=plugin.get<decltype(functions.recovery)>("inspectStandardQmtRecovery");
+            functions.working_children=plugin.get<decltype(functions.working_children)>("inspectStandardQmtWorkingChildren");
             functions.pause_inserts=plugin.get<decltype(functions.pause_inserts)>("pauseStandardQmtInserts");
         }
         need(factory.loadFactories((root/"executers").string().c_str()));
@@ -946,7 +987,15 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             // 同owner读取已完成的真实P/O；退役证券零持仓、两证券无活动委托，原订单恢复已完成。
             const auto observed=execution->broker_observation();need(observed.positions_known);
             need(execution->position("SSE.ETF.589680")==0);
-            for(const char* code:{"SSE.ETF.589680","SSE.ETF.588030"})need(execution->undone(code)==0);
+            need(execution->undone("SSE.ETF.589680")==0);
+            // 历史标记沿用时，新基金可带自有挂单；首次角色换代仍要求新角色没有旧委托。
+            const auto& recovery=member(cfg,"recovery");
+            if(text(recovery,"mode")=="resume_reconciled"){
+                const auto& selected=member(recovery,"transition");
+                const auto transition=parse(read(absolute(text(selected,"file")),1024*1024));
+                const auto predecessor=parse(read(absolute(text(transition,"predecessor_configuration")),256*1024));
+                if(!predecessor.HasMember("role_replacement"))need(execution->undone("SSE.ETF.588030")==0);
+            }else need(execution->undone("SSE.ETF.588030")==0);
             // 新基金可有本轮WT验证成交；Python以原基准和完整D核真实开启，P保持券商查询原值。
         }
         stage="strategies";const auto& strategies=member(cfg,"strategies");need(strategies.IsArray()&&strategies.Size()>0&&strategies.Size()<=64);
@@ -1067,7 +1116,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             reconcile_own_orders(*execution,[&]{need(Clock::now()<close_until&&(!health||health(health_user)==0));},
                 [&]{need(execution->pump(64,16)>=0&&execution->status().fault==guanheng::ExecutionHostFault::None);Sleep(1);});
             need(execution->begin_recovery());
-            guanheng::StandardQmtRecoveryV1 state;need(execution->recovery(state)==0&&settled(state));
+            guanheng::StandardQmtRecoveryV1 state;need(execution->recovery(state)==0&&settled(*execution,state));
             recovery_armed=true;
         }
         success=true;
@@ -1207,6 +1256,14 @@ int32_t __cdecl gh_cta_broker_read(GhCtaBrokerFacts* facts,GhCtaBrokerPosition* 
     *written=static_cast<uint32_t>(current->positions.size());return 0;
 }
 uint32_t __cdecl gh_cta_broker_trades_abi_version(void){return 1;}
+uint64_t __cdecl gh_cta_pending_order_layout(void){return sizeof(GhCtaPendingOrder);}
+int32_t __cdecl gh_cta_pending_orders_read(GhCtaPendingOrder* rows,uint32_t capacity,uint32_t* written){
+    if(!rows||!written||!capacity||capacity>4096)return -1;
+    *written=0;const auto current=std::atomic_load(&broker_current);if(!current)return -2;
+    if(current->pending_orders.size()>capacity){*written=static_cast<uint32_t>(current->pending_orders.size());return -5;}
+    std::copy(current->pending_orders.begin(),current->pending_orders.end(),rows);
+    *written=static_cast<uint32_t>(current->pending_orders.size());return 0;
+}
 uint64_t __cdecl gh_cta_broker_trades_layout(uint32_t id){
     return id==1?sizeof(GhCtaBrokerTradeFacts):id==2?sizeof(GhCtaBrokerTrade):
         id==3?sizeof(GhCtaBrokerTradeFactsV2):id==4?sizeof(GhCtaBrokerTradeV2):0;

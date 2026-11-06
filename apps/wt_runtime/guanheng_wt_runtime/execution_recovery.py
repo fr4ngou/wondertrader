@@ -114,6 +114,15 @@ def _same_business(left, right):
         policies = executer.get('policy') if type(executer) is dict else None
         if type(policies) is dict:
             for rule in policies.values():
+                if type(rule) is dict and rule.get('name') in (
+                        'WtExeFact.WtStockMinImpactExeUnit','WtExeFact.WtStockMinImpactBorrowedExeUnit'):
+                    # 原生执行参数可随显式发行调整，不改变资金/持仓模型；原配置SHA仍完整绑定。
+                    if 'expire' in rule:
+                        _require(type(rule['expire']) is int and 0<=rule['expire']<=4294967295)
+                        rule.pop('expire')
+                    if 'is_cancel_unmanaged_order' in rule:
+                        _require(type(rule['is_cancel_unmanaged_order']) is bool)
+                        rule.pop('is_cancel_unmanaged_order')
                 if type(rule) is dict and 'replace_equal_position_target' in rule:
                     _require(type(rule['replace_equal_position_target']) is bool
                         and rule.get('name') in ('WtExeFact.WtStockMinImpactExeUnit',
