@@ -2,14 +2,13 @@
 from hashlib import sha256
 from dataclasses import replace
 import json
-from pathlib import Path
-import sys
 from time import monotonic
 
 import pytest
 
 from guanheng_app.backtest_day_view import build_day_view
 from guanheng_app.backtest_archive import BacktestArchive,ArchiveError
+from backtest_archive_fixture import example,publish
 
 
 def view(*,trades=None,positions=None,report=None,receipt=None,receipt_sha='a'*64,proof=()):
@@ -45,8 +44,6 @@ def test_ledger_is_independent_copy_and_original_order_pagination():
 def archived_cache(tmp_path):
     # 原归档合成原件完成准入；单独注入派生索引来验证热读完整性边界。
     # 冷加载/真实WT金融值已由1415日HTTP/原件主链另验。
-    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'backtest_workspace'))
-    from test_archive import example,publish
     root,run,fact,config,report=example(tmp_path);archive=BacktestArchive(root)
     receipt_sha=publish(archive,fact,config,report)
     receipt=json.loads((run/'completed-archive.json').read_bytes())
