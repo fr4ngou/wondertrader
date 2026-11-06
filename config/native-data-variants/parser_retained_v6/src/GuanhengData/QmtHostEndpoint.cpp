@@ -128,7 +128,7 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
         held_status_=held_->result.status;
         if(held_status_.ok()) {
             if(!same_session(source_,client_->session())){original_error_=fail(ErrorCode::StaleSession,"qmt_host_source_changed");return original_error_;}
-            try{held_snapshots_=qmt_mapping::map_ticks(held_codes_,held_->result.data_json,profile_,source_);}
+            try{held_snapshots_=qmt_mapping::map_ticks(held_codes_,held_->result.data_json,profile_,source_,true);}
             catch(const std::invalid_argument&){held_status_=fail(ErrorCode::InvalidInput,"qmt_host_snapshot_invalid");}
         }
         mapped_=true;

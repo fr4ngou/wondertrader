@@ -23,6 +23,15 @@ namespace
 {
 using Clock = std::chrono::steady_clock;
 Status failure(ErrorCode code, const char* reason) { return {code, reason}; }
+// 仅首次prepare：尚无已准入绑定/SDK请求，GET的超时及运输失败可以等待。
+// 结构/认证/身份错误与任何业务未知均不取得重试资格。
+bool retryable_prepare(const Status& status)
+{
+    if(status.code==ErrorCode::Timeout)
+        return status.reason=="qmt_host_source_reconnect_deadline" || status.reason=="qmt_http_deadline"
+            || status.reason=="qmt_host_deadline" || status.reason=="qmt_http_exchange_failed";
+    return status.code==ErrorCode::IoError && status.reason=="qmt_http_exchange_failed";
+}
 bool text(const std::string& value, std::size_t maximum)
 {
     return !value.empty() && value.size() <= maximum
@@ -255,7 +264,17 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                 else { http=std::make_shared<QmtHttpClient>(config.http); auto native=std::make_shared<QmtHttpEndpoint>(http,config.profile);
                     final=native->prepare(config.http.timeout_ms); endpoint=native; }
             }
+            // prepare只有只读绑定GET；固定来源未就绪耗尽本次预算后，沿原轮询等待。
+            // 尚无pin/请求/行情，允许下一次prepare；运行期换代和未知结果仍硬失败。
+            while(factory && retryable_prepare(final)) {
+                set_status(final);
+                std::unique_lock<std::timed_mutex> lock(mutex);
+                if(changed.wait_for(lock,std::chrono::milliseconds(config.interval),[&]{return stopping;}))break;
+                lock.unlock();endpoint.reset();final={};
+                endpoint=factory(config.http,config.profile,final);
+            }
             if (final.ok() && !endpoint) final=failure(ErrorCode::Unavailable,"QMT polling endpoint unavailable");
+            if (final.ok()) set_status({});
             if (final.ok()) {
                 auto decorated=std::make_shared<PollingEndpoint>(endpoint,[this](const std::string& key){return admit(key);},config.limit);
                 Spi proxy(*this); MarketParser parser(ProviderKind::Qmt,decorated,config.limit,1); parser.registerSpi(&proxy);
@@ -308,9 +327,21 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
         }
         { std::lock_guard<std::timed_mutex> lock(mutex); connected=false; stopping=true;
             if(callback_failed)final=failure(ErrorCode::SubmissionUnknown,"QMT polling callback outcome unknown");
-            // endpoint/注入实现的异常原因不越过插件边界，仅保留状态代码。
+            // 原因白名单只输出自有固定类别；任意endpoint文本不越过插件边界。
             if(!final.ok())status=failure(final.code,callback_failed?"QMT polling callback outcome unknown":"QMT polling source stopped"); }
-        try { if(!final.ok())callback([](wtp::IParserSpi* observer){observer->handleParserLog(wtp::LL_ERROR,"QMT polling stopped; inspect managed status");},true); }catch(...){}
+        try { if(!final.ok()) {
+            const char* reason="QMT polling stopped; inspect managed status";
+            if(final.reason=="qmt_host_snapshot_invalid")reason="QMT polling stopped: qmt_host_snapshot_invalid";
+            else if(final.reason=="qmt_host_binding_invalid")reason="QMT polling stopped: qmt_host_binding_invalid";
+            else if(final.reason=="qmt_host_profile_invalid")reason="QMT polling stopped: qmt_host_profile_invalid";
+            else if(final.reason=="qmt_host_limits_invalid")reason="QMT polling stopped: qmt_host_limits_invalid";
+            else if(final.reason=="qmt_host_native_operation_failed")reason="QMT polling stopped: qmt_host_native_operation_failed";
+            else if(final.reason=="qmt_host_source_reconnect_deadline")reason="QMT polling stopped: qmt_host_source_reconnect_deadline";
+            else if(final.code==ErrorCode::StaleSession)reason="QMT polling stopped: source_session_changed";
+            else if(final.code==ErrorCode::Conflict)reason="QMT polling stopped: input_conflict";
+            else if(final.code==ErrorCode::SubmissionUnknown)reason="QMT polling stopped: downstream_outcome_unknown";
+            callback([&](wtp::IParserSpi* observer){observer->handleParserLog(wtp::LL_ERROR,reason);},true);
+        } }catch(...){}
         try { event(wtp::WPE_Close,final.ok()?dependency_close_code:1); }catch(...){}
         { std::lock_guard<std::timed_mutex> lock(mutex); done=true; changed.notify_all(); }
     }

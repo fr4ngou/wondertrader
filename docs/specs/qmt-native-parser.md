@@ -37,3 +37,11 @@ release在有界停止成功后清理SPI；停止尚未确认时保持对象和S
 验证真实回环HTTP协议→默认ParserQMT工厂→原ParserAdapter→原CTA宿主，包含配置正常/缺失/错误认证、同快照轮询、新时间、同时间冲突、倒序、源身份变化、源超时、容量、并发订阅、回调停止、外部stop等待与多次释放。原完整WtRunner加载及ticker分钟事件单独验证，结果同时记录来源、历史就绪、on_bar与on_schedule；缺历史时不得推定原ticker已暂停策略计算。运行器核心不足以完成预期时提供原样复现、具体影响与替代方案，再按用户边界申请最小修改，批准前不改核心。
 
 所有终端/账户保持原状态；隔离测试可启动独立子进程。新增编译目标、配置说明、模块/操作文档、独立full审查及搬迁包需要交付。生产常驻、正式来源资格、交易恢复与真实业务入口按总验收地图继续，不能用本插件测试替代。
+
+## Retained v6 开盘前轮询与准备等待
+
+显式 ParserQMTHostRetainedV6 在已有 worker 内保持两类安全等待。prepare 尚未取得绑定时，仅原只读 read-binding 的固定超时类别（`qmt_host_source_reconnect_deadline`、`qmt_http_deadline`、`qmt_host_deadline`、`qmt_http_exchange_failed`）以及 `IoError/qmt_http_exchange_failed` 沿 poll_interval_ms 重试准备；每次沿原 timeout_ms，停止可中断轮询等待。准备不派发 SDK，不迁移已准入会话；其它准备错误原样终止。
+
+完整原快照在来源北京时间09:30前、open=0、volume/amount=0、lastPrice>0、high=low=lastClose>0，表示当日 OHLC 尚未形成。完整证券范围、必需字段、数值有限性和时间仍须校验；该行保持原始字段且本轮不交付WT tick，其它已形成行正常投递。原结果完整持有及消费ACK保持，后继按原轮询请求读取有效行情。其它非法OHLC、缺字段、负量额、非零成交配零open均硬失败。
+
+InvalidInput、Conflict、StaleSession、下游SubmissionUnknown及未登记Timeout保持终止，运行期换代仍由原身份校验拒绝。终止日志保留固定安全类别；源报文、凭据、账户和任意异常文本保持隔离。验收使用冻结真实开盘前/有效快照经过原C++映射、原HostEndpoint和原PollingParser，SDK客户端为无网络替身，验证本代先0后8行情、消费责任及有界停止。

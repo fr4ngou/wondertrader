@@ -115,7 +115,7 @@ Status check_profile(const QmtHttpProfile& profile)
 
 }
 std::vector<MarketSnapshot> map_ticks(const std::vector<std::string>& codes,const std::string& data_json,
-    const QmtHttpProfile& profile,const SourceSession& source)
+    const QmtHttpProfile& profile,const SourceSession& source,bool omit_unformed)
 {
     if(codes.empty()||codes.size()>200)throw std::invalid_argument("快照证券数量非法");
     auto data=parse(data_json);
@@ -133,8 +133,14 @@ std::vector<MarketSnapshot> map_ticks(const std::vector<std::string>& codes,cons
         tick.action_date=tick.trading_date=date_of(time);tick.action_time=(time.wHour*10000+time.wMinute*100+time.wSecond)*1000+time.wMilliseconds;
         tick.price=number(row,"lastPrice");tick.open=number(row,"open");tick.high=number(row,"high");tick.low=number(row,"low");tick.pre_close=number(row,"lastClose");
         tick.total_volume=number(row,"volume")*profile.volume_to_shares;tick.total_turnover=number(row,"amount")*profile.amount_to_yuan;
-        validate_prices(tick.open,tick.high,tick.low,tick.price,tick.total_volume,tick.total_turnover);
         if(tick.pre_close<=0)throw std::invalid_argument("昨收价非法");
+        // 沪深开盘前完整原快照可能只有昨收区间和竞价参考价，尚无当日OHLC。
+        // 仅此精确形状跳过投递；保留原结果消费责任，不生成/修补WT tick。
+        if(omit_unformed && time.wHour<10 && (time.wHour<9 || time.wMinute<30)
+            && tick.open==0 && tick.total_volume==0 && tick.total_turnover==0
+            && tick.price>0 && tick.high==tick.pre_close && tick.low==tick.pre_close)
+            continue;
+        validate_prices(tick.open,tick.high,tick.low,tick.price,tick.total_volume,tick.total_turnover);
         snapshots.push_back(std::move(snapshot));
     }
     return snapshots;

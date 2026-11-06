@@ -28,8 +28,9 @@ rapidjson::Document parse(const std::string& text);
 Status check_profile(const QmtHttpProfile& profile);
 // 一次解析并完整校验最多 200 证券；任何缺失/重复/额外证券或非法值均失败，
 // 返回前不交付部分结果，顺序与请求 codes 一致。
+// omit_unformed仅供持续轮询：开盘前未形成OHLC的完整零成交原值不投递。
 std::vector<MarketSnapshot> map_ticks(const std::vector<std::string>& codes,const std::string& data_json,
-    const QmtHttpProfile& profile,const SourceSession& source);
+    const QmtHttpProfile& profile,const SourceSession& source,bool omit_unformed=false);
 MarketSnapshot map_tick(const std::string& code,const std::string& data_json,
     const QmtHttpProfile& profile,const SourceSession& source);
 }
