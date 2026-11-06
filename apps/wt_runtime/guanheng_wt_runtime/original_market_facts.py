@@ -43,13 +43,17 @@ def _price_unit(value, code):
 
 def collect_current_facts(client, *, observation_date, history_from='2019-01-01', codes=None,
                           feature_stage='recalc', turnover_kind='official', seconds=120.,
-                          clock=time.monotonic, utcnow=lambda: datetime.now(timezone.utc)):
+                          clock=time.monotonic, utcnow=lambda: datetime.now(timezone.utc), unit_evidence=None):
     """只调用MarketClient已发布查询；固定快照分段读全历史，不触发HPR或Source采集。
 
     客户端自行承担每次HTTP截止，本函数以单次总截止核对各调用前后。每段最多2000
     自然日，因此2000行协议上限能够覆盖全部日期，无首尾裁剪。源单位unknown原样传递。
     """
     from guanheng_strategy_original.reference import DEFAULT_CODES
+    if unit_evidence is not None:
+        from guanheng_market_client.source_units import UnitEvidence, resolve_source_price_units
+        if not isinstance(unit_evidence, UnitEvidence):
+            raise ValueError('原版单位证据类型不匹配')
     codes = DEFAULT_CODES if codes is None else codes
     start_day, end_day = date.fromisoformat(_iso(history_from)), date.fromisoformat(_iso(observation_date))
     if start_day > end_day or feature_stage not in ('seed', 'recalc') or turnover_kind not in ('official', 'proxy'):
@@ -79,6 +83,8 @@ def collect_current_facts(client, *, observation_date, history_from='2019-01-01'
     packets = {'analysis': {}, 'raw': {}}
     diagnostics = dict(snapshot_id=identity, snapshot_provenance=snapshot.get('provenance'),
                        history={}, supplement={}, query_count=1, source_operations=0)
+    if unit_evidence is not None:
+        diagnostics['unit_evidence_sha256'] = unit_evidence.sha256
     for group, adjustment in (('analysis', 'front_ratio'), ('raw', 'none')):
         cursor = start_day
         while cursor <= end_day:
@@ -102,9 +108,18 @@ def collect_current_facts(client, *, observation_date, history_from='2019-01-01'
                 # 空窗口没有价格事实；其旧兼容metadata不能确定后继非空窗口的复权基准。
                 if not item.get('bars'):
                     continue
+                units = dict(price_unit=_price_unit(metadata.get('price_unit', 'unknown'), code),
+                             volume_unit=metadata.get('volume_unit', 'unknown'))
+                if unit_evidence is not None:
+                    qualified = resolve_source_price_units(unit_evidence, result['symbol'], item)
+                    if qualified.semantic_price_unit != 'unknown':
+                        units = dict(price_unit=('CNY/share' if qualified.semantic_price_unit == 'CNY'
+                                                else qualified.semantic_price_unit), volume_unit=qualified.volume_unit)
+                        entry.setdefault('unit_evidence_windows', []).append(dict(
+                            response_sha256=entry['canonical_response_sha256'][-1], evidence_sha256=unit_evidence.sha256,
+                            semantic_price_unit=qualified.semantic_price_unit))
                 known_units = entry.setdefault('known_units', dict(price_unit=[], volume_unit=[]))
-                for key, value in dict(price_unit=_price_unit(metadata.get('price_unit', 'unknown'), code),
-                                       volume_unit=metadata.get('volume_unit', 'unknown')).items():
+                for key, value in units.items():
                     if value == 'unknown':
                         continue
                     # 未声明的中间段只降低资格，不能遗忘更早已知单位。
@@ -113,10 +128,9 @@ def collect_current_facts(client, *, observation_date, history_from='2019-01-01'
                     if value not in known_units[key]:
                         known_units[key].append(value)
                 packet = packets[group].setdefault(code, dict(source_sha256='', received_at=received, available_at=None,
-                    price_unit=_price_unit(metadata.get('price_unit', 'unknown'), code), volume_unit=metadata.get('volume_unit', 'unknown'),
+                    **units,
                     price_basis=adjustment, factor_version=metadata.get('factor_version', ''), bars=[]))
-                incoming = dict(price_unit=_price_unit(metadata.get('price_unit', 'unknown'), code),
-                                volume_unit=metadata.get('volume_unit', 'unknown'), factor_version=metadata.get('factor_version', ''))
+                incoming = dict(**units, factor_version=metadata.get('factor_version', ''))
                 different = {k: (packet[k], v) for k, v in incoming.items() if packet[k] != v}
                 if 'factor_version' in different or any('unknown' not in pair for k, pair in different.items() if k != 'factor_version'):
                     raise OriginalFactsUnavailable('history_basis_changed', dict(group=group, code=code, differences=different))

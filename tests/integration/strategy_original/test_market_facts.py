@@ -136,3 +136,39 @@ def test_single_total_deadline_applies_after_request():
     ticks = iter((0., 0., 2.))
     with pytest.raises(TimeoutError, match='deadline'):
         collect(Published(), seconds=1., clock=lambda: next(ticks))
+
+
+def test_explicit_unit_evidence_qualifies_only_actual_matching_provenance():
+    import json
+    from guanheng_market_client.source_units import DOCUMENTS, PROFILE_ID, SOURCE_API, VENDOR_SHA256, parse_unit_evidence
+    evidence = parse_unit_evidence(json.dumps(dict(schema='qmt.source-unit-evidence.v1',
+        profile_id=PROFILE_ID,source_business_sha256='7'*64,reference_capture_sha256='8'*64,source_api=SOURCE_API,
+        vendor_wrapper=dict(name='vendor_wrapper',uri=SOURCE_API,path='E:/fixture/vendor.py',sha256=VENDOR_SHA256),
+        documents=[dict(name=name,uri=uri,path='E:/fixture/'+name,sha256=digest) for name,uri,digest in DOCUMENTS])).encode())
+
+    class QualifiedPublished(Published):
+        def source_daily_history_batch_query(self, request):
+            reply = super().source_daily_history_batch_query(request)
+            for row in reply['data']['results']:
+                packet=row['data'];index=row['symbol']=='SSE.000300'
+                # 公开合并元数据无法代替逐段来源；旧index raw保持旧unknown。
+                packet['metadata'].update(price_unit='unknown',volume_unit='unknown')
+                source=dict(packet['metadata'],dataset_version='qmt.batch-native-day.v2:'+PROFILE_ID+':'+evidence.sha256,
+                    source=dict(provider='Qmt'),price_unit='unknown' if index else 'CNY',volume_unit='lot',amount_unit='unknown')
+                if index and request['adjustment']=='none':
+                    source.update(dataset_version='qmt-local-dat-layout.v2',volume_unit='unknown')
+                packet['provenance']=[dict(offset=0,count=len(packet['bars']),metadata=source)] if packet['bars'] else []
+            return reply
+
+    result=collect(QualifiedPublished(),unit_evidence=evidence)
+    assert result.facts['analysis']['000300']['price_unit']=='index-point'
+    assert result.facts['raw']['000300']['price_unit']=='unknown'
+    assert result.facts['analysis']['510300']['price_unit']=='CNY/share'
+    assert result.facts['raw']['510300']['volume_unit']=='lot'
+    assert result.diagnostics['unit_evidence_sha256']==evidence.sha256
+    assert result.diagnostics['history']['analysis:000300']['unit_evidence_windows']
+    assert 'unit_evidence_windows' not in result.diagnostics['history']['raw:000300']
+    # 配置中有同一证券的单位知识也不会提升没有匹配来源段的旧档。
+    default=collect(QualifiedPublished())
+    assert default.facts['analysis']['000300']['price_unit']=='unknown'
+    assert default.facts['analysis']['510300']['price_unit']=='unknown'
