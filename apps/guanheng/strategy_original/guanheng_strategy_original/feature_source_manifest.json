@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/OrangesHuang/Resonance",
+  "commit": "351f9d58152e10efd2447c997b8ee4db66b5ac6a",
+  "license": "not-declared-upstream",
+  "hash_normalization": "CRLF-to-LF",
+  "files": {
+    "backend/base/analysis/shares_adjust.py": "df6a7a0e3a3c061081a9d7bda79b2faa963a3415564dc0c289d33df314a42af3",
+    "backend/base/scheduler/recalc.py": "84668dfc84504093f248a85113c8fc556c00676a2be25eb4b56fd755dcca7697"
+  }
+}

@@ -53,3 +53,26 @@ WT信号计算所需的固定上游参考算法、原冻结输入、内部 `refe
 ## 导航
 
 运行入口和数据格式见[独立包说明](../../apps/guanheng/strategy_original/README.md)，研究记录沿[研究指引](../research/resonance-research-guide.md)，适用[验证规范](../development/verification.md)。具体来源摘录、冻结输入和诊断结果保存在Git忽略的 `research/resonance-20261105/`。
+
+## ORR-07 当前日事实与原信号
+
+`build_current_signal(source, facts, *, work_directory, timeout_seconds=120)` 是纯事实计算接缝：不请求行情、不发布数据、不接账户、不产生订单。原包旧入口保持兼容。上游源码仍由用户显式提供，固定351f9d5；现有manifest保持原身份，新增feature_source_manifest仅登记shares_adjust/recalc纯函数来源。执行在独立子进程，全部临时输入/源码/输出归显式D/E绝对work_directory，退出回收，禁止使用默认TEMP。
+
+输入schema `guanheng.original-current-facts.v1`：
+
+|字段|定义|
+|---|---|
+|profile|`causal-current`为当前日；`historical-final-oracle`仅作历史最终版差分，资格始终未提升|
+|decision_date / decision_at|交易日YYYY-MM-DD；决策截止为含时区UTC时刻。未来日期及截止后收到/发布的事实排除|
+|feature_stage|seed/recalc明确采用原方向口径，必填|
+|snapshot_id / description|发布快照64hex及来源中文/英文描述，原事实身份由调用者沿WT reader核验|
+|codes / calendar|原九ETF的显式子集；升序唯一交易日历，跨证券引用需实际输入|
+|analysis / raw|六位code→行情包；包内bars(date/open/high/low/close/volume)、source_sha256、received_at、available_at(null允许)、price_unit（ETF为CNY/share，指数为index-point；unknown保留未知）、volume_unit、price_basis、factor_version。analysis为同reference前复权，raw为原价；缺失保留诊断|
+|shares|行date/code/value/unit/share、source_sha256/received_at/available_at；value份数，null是未知；转换亿份|
+|turnover / margin|行date/value/unit(CNY或unknown)/source_sha256/received_at/available_at；成交额另有kind=official/proxy，整次输入保持单一kind；融资仅供应商原报表语义，转换亿元。未知单位仅诊断，不混用official/proxy|
+
+所有日期及行顺序校验在过滤前执行；缺失值保留，有限非负数才准入，行情OHLC为正且高低包络正确。来源摘要必须64hex；它绑定调用者提供的原件，当前接缝不重新读取外部ContentStore。输入沿原32MiB/60000行容量，有界子进程超时回收。输出schema `guanheng.original-current-signal.v1`，绑定完整facts_sha256、prepared_sha256和manifest摘要；`prepared_snapshot`为原DAILY_FIELDS，`reference_report`复用固定原路由；`signals_today`只取decision_date原信号，`model_state`记录最后BUY/SELL形成的模型仓位，实际账户持仓另属执行owner。模型持仓不是每日BUY。
+
+特征复用原analyze_single_etf，基准固定000300并按ETF日期精确对齐；前19条行情保留供量价及份额预热。份额按日历相邻日求变动，缺失不前填。当前日折算仅查事件日和前交易日raw/front因子；两侧ETF价格均须已声明CNY/share，同维度才允许相除并调用原find_factor_jump/detect_share_adjust。原价未知或错误维度保持诊断，候选不确认折算、暂缺份额评分，signal_qualified=false。历史对照profile可复现研究重建±30自然日窗口，并可沿原研究显式保留未知单位数值假设；factor_pair.historical_unit_assumption与事件basis=historical-unit-assumption逐项标识，source.split_unit_assumptions列出证券，事件不作为已核官方折算，信号资格始终false。未来事件窗口保持future-relative-event性质。recalc仅提取固定原源码_t5_return/_idx_t5_return两纯函数，复用原DP/CP/level，不导入scheduler/store。
+
+输出`diagnostics`披露排除事实、缺基准/份额/原价、窗口和折算事件；`signal_qualified`要求来源单位/同复权reference/当前数据齐备、真实收到时刻与所需辅助事实齐备，仍独立于执行资格。任何候选结果始终`execution_qualified=false/point_in_time_qualified=false`。上游最短长度guard及历史修订可能改变旧信号；本接口按本次已知前缀计算并绑定输入，不把历史最终报告信号直接作为未来实时信号，也不设统一270日交易门槛。调度/部署策略是否接受缺辅助事实由后继owner显式决定。
