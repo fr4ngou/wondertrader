@@ -9,12 +9,15 @@ import fixture from './backtest-performance.fixture.json'
 // jsdom核交互与数据归属；ECharts布局、光标和标记另由真实浏览器验收。
 vi.mock('./BacktestVisualChart', async original => ({ ...await original<typeof import('./BacktestVisualChart')>(), default: () => <div role="img" aria-label="测试曲线" /> }))
 vi.mock('./backtestPerformanceApi', async original => ({ ...await original<typeof api>(), fetchBacktestPerformance: vi.fn(), fetchBacktestComparison: vi.fn() }))
-vi.mock('./backtestVisualApi', () => ({ fetchVisuals: vi.fn(), fetchLedger: vi.fn() }))
+vi.mock('./backtestVisualApi', () => ({ fetchVisuals: vi.fn(), fetchLedger: vi.fn(), fetchDaySummaries: vi.fn() }))
 const clients: QueryClient[] = []
 beforeEach(() => {
   vi.mocked(api.fetchBacktestPerformance).mockResolvedValue(fixture.left as api.BacktestPerformance)
   vi.mocked(api.fetchBacktestComparison).mockResolvedValue(fixture.comparison as api.BacktestComparison)
   vi.mocked(visuals.fetchVisuals).mockResolvedValue({ points: [], trades_available: false } as unknown as visuals.Visuals)
+  vi.mocked(visuals.fetchDaySummaries).mockImplementation(async entry => ({ schema: 'nbw-day-summaries-v1', run_id: entry.run_id,
+    receipt_sha256: entry.receipt_sha256, report_sha256: entry.report_sha256,
+    points: (entry.run_id === fixture.left_entry.run_id ? fixture.left.points : fixture.right.points).map(([day]) => [Number(day), [], [], [], 0]) }))
   vi.mocked(visuals.fetchLedger).mockImplementation(async (entry, day, offset) => ({ schema: 'nbw-ledger-v1', run_id: entry.run_id,
     receipt_sha256: entry.receipt_sha256, report_sha256: entry.report_sha256, date: day, offset, total: 0,
     trades_available: true, positions_available: true, positions: [{ date: day!, symbol: 'SSE.ETF.510500', quantity: '100', floating_cny: '-123.45', realized_cny: '678.90' }], trades: [] }))
@@ -34,6 +37,27 @@ test('日期明细显示原持仓浮盈亏，无成交仍保留持仓入口', as
   fireEvent.click(screen.getByRole('button', { name: '全部交易记录' }))
   expect(await screen.findByText('本报告没有成交。')).toBeVisible()
   expect(visuals.fetchLedger).toHaveBeenLastCalledWith(fixture.left_entry, null, 0, expect.any(AbortSignal))
+})
+
+test('切日保持详情页签并复用同报告已读日期，摘要只获取一次', async () => {
+  mount(); await screen.findByText('-123.45')
+  const last = fixture.left.points.at(-1)![0]; const earlier = fixture.left.points[0][0]
+  fireEvent.click(screen.getByRole('tab', { name: '当日交易' }))
+  fireEvent.change(screen.getByLabelText('查看交易日'), { target: { value: String(earlier) } })
+  await waitFor(() => expect(visuals.fetchLedger).toHaveBeenLastCalledWith(fixture.left_entry, earlier, 0, expect.any(AbortSignal)))
+  await screen.findByText('当日没有成交。持仓可在另一页签查看。')
+  const requests = vi.mocked(visuals.fetchLedger).mock.calls.length
+  fireEvent.change(screen.getByLabelText('查看交易日'), { target: { value: String(last) } })
+  await screen.findByText('当日没有成交。持仓可在另一页签查看。')
+  expect(visuals.fetchLedger).toHaveBeenCalledTimes(requests)
+  expect(visuals.fetchDaySummaries).toHaveBeenCalledOnce()
+})
+
+test('摘要读取失败仍能独立点日查看，私有异常不进入页面', async () => {
+  vi.mocked(visuals.fetchDaySummaries).mockRejectedValueOnce(new Error('private summary error'))
+  mount(); await screen.findByText('-123.45')
+  expect(screen.getByText(/悬停摘要暂不可用/)).toBeVisible()
+  expect(document.body).not.toHaveTextContent('private summary error')
 })
 
 test('选择标签使用已核本金，不将报告名称里的金额当作金融事实', () => {

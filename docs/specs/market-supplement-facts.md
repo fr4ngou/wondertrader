@@ -56,6 +56,12 @@ QMT双指数代理按实际缺失日期及现行profile的行数/自然日上限
 
 snapshot配置增加可选supplement_facts descriptor={path,sha256}；摘要进入provenance.supplement_facts_sha256并参与snapshot_id。源目录、目录内容、snapshot身份同时准入，未配置不改变旧身份。创建线程拥有store及关闭，不增加HTTP写入口。
 
+快照查询采用显式投影协商：`market.source-snapshot-query` 的 request 为 `{date, include_supplement?: boolean}`。省略或 false 返回旧 v1 可见投影，只从 provenance 移除 `supplement_facts_sha256`，按该投影完整正文重新计算自己的合法 snapshot_id；磁盘完整快照与原完整 ID 保持。true 返回完整原快照，SDK 0.20 的 source_market_snapshot_query 默认发送 true。旧无补充快照两种请求原样返回原身份，未知字段及非 boolean 明确拒绝。
+
+原日线、批读、定日事实和证券查询同时准入本代完整 ID 与旧投影 ID，响应 source_snapshot_id 精确回显请求 ID。原 generation 加载核验显式请求完整投影。独立补充查询只接受完整 ID；旧投影 ID 返回 Unavailable，外来 ID 返回 Conflict。同一旧投影在补充目录变动后可保持身份，它不指认任何补充事实；完整 ID 继续绑定补充目录，跨完整快照禁止混读。原服务默认 wire 对旧严格 SDK 保持兼容，无 token/消费者身份特判。
+
+采用顺序为先发布支持投影协商的数据生产者，再采用默认显式完整投影的 SDK 0.20 消费者；旧数据服务的严格请求合同不认识新增字段。数据原件、生产者采用、SDK普通安装、真实消费链分别验收。
+
 HTTP action=`market.source-supplement-query`，路径`/api/market/v1/source-supplement/query`。request固定`{snapshot_id,metric,symbols,from,to,offset,limit}`，symbols为1..64唯一升序，日期ISO、offset为0..60000、limit为1..2000。响应data包含`schema=guanheng.market-supplement-query.v1/source_snapshot_id/source_sha256/rows/gaps/selection/qmt_evidence`。selection为`{offset,limit,total,next_offset}`，total统计匹配rows+gaps，统一按date/metric/symbol分页，next_offset末页null。空匹配返回Ok空；未装配NotSupported、snapshot不符Conflict、原件损坏IoError。SDK与HTTP共用唯一validator。
 
 ## MSF-04 源口径与验证

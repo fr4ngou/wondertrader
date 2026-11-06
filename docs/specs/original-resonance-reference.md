@@ -36,23 +36,17 @@
 
 完整回放保持原组合初始现金及持仓推进；2026年或6—11月结果从同次全程净值按前一日权益截取，不重新启动模型/组合。评价起点前若已有原模型持仓而组合从现金开始，报告明确其数量及原API语义。结果沿原次日收盘、零费用模型，继续保持研究诊断及逐时点未合格。
 
-## ORR-06 观衡只读目录与报告导入
+<a id="orr-06-观衡只读目录与报告导入"></a>
 
-用户2026-11-06授权将独立原版策略及已冻结报告接入观衡，并指定正式回测使用WT框架。目录保留master现有WT公开结果动态身份及版本（未知保持None），随后新增 `resonance-original-wt-351f9d5-stable@0.1.0a1`（共振原版·WT回测）和 `resonance-original-351f9d5-stable@0.1.0a1`（共振原版·原组合对照）；当前已核WT发布版本为1.2.2，App不硬编码该版本。两者保留独立身份、报告族和模型；账户、运行状态、配置保存及交易权限继续归现有执行链。
+## ORR-06 观衡公开范围（非WT对照已撤回）
 
-正式WT回测使用 `guanheng.original-native-replay-input.v1 / guanheng.original-native-replay-report.v1`，信号算法仍绑定固定原stable，模型采用原日线OHLC、D日信号后下一交易日首tick、100万元和100份整手。具体执行与数量/费用按[WT模型独立规格](original-native-backtest.md)及每份原件声明，原版组合的次日收盘浮点结果继续作为ORR对照。WT原版validator由 `guanheng_wt_runtime.original_native_contracts` 唯一拥有，App薄适配并复用既有nsh父回收证明、nbw完成归档与CNY绩效/CSV投影；现有retained各族准入及诊断保持。configuration详情仅新族新增original_native元数据（信号算法、来源摘要、执行与历史模型、三项资格），既有native响应保持原合同。WT报告展示继续保留来源、PIT与执行未合格标记，实盘权限单列。
+用户2026-11-06后继指令撤回非WT“原组合对照”的策略和回测展示，观衡仅公开 `resonance-original-wt-351f9d5-stable@0.1.0a1` 原版WT条目及原有WT正式策略。App动态目录继续采用WT发布的身份和版本，未知保持None；撤回的 `resonance-original-351f9d5-stable` 不作为公开策略重新登记。该字符串仍可作为WT内部 `signal_algorithm_id`，不能据算法字段生成第二个策略。
 
-维护CLI `python -m guanheng_app.original_report_import --manifest <manifest> --archive-root <existing-root>` 显式导入，HTTP只读。manifest schema为 `guanheng.original-report-import.v1`，固定字段 `schema,run_id,label,report_path,input_path,source_manifest_path,report_sha256,input_file_sha256,source_manifest_file_sha256`；三个路径均为绝对普通文件。报告/input/算法清单原字节分别核摘要，报告内部input和source_manifest摘要按原canonical JSON核对；固定算法清单语义SHA为 `5c85a8ee3838d3cbcc83158986b223ed3943640cb0b62cb250faded78ca8ad11`。导入复制原件到同一归档owner的独立32位hex运行目录，以 `completed-archive.json` 最后发布，完成证明schema为 `orr-completed-archive-v1`。既有run拒绝覆盖；失败目录保留为未完成，不作为有效报告列入。该完成证明证明已导入原件一致性，不伪造进程、WT安装或原生撮合凭据。
+App移除ORR完成证明的读取、summary、绩效/曲线/成交/信号分页与比较投影，移除ORR导入CLI和专属页面/客户端合同。正式归档若仍含 `orr-completed-archive-v1`，两个目录接口均略过它，直接详情请求返回410（该非WT报告族已退出），不返回其原件或金融投影。原仅供ORR的 `/archive/{run_id}/signals` 路由退出，未知内容沿404。WT原版及既有WT报告的nsh/nbw完成证明、CNY模型、原生CSV和严格读取保持。
 
-既有 `/v1/ui/backtest/archive` 及 `/archive-summaries` 返回原版条目 `report_family=resonance-original`，通用字段 `run_id,record_count,report_sha256,configuration,scope,receipt_sha256`；原版没有Host命令的owner_id/request_id。configuration沿通用 `label,name,start,end,session_sha256,max_seconds`（原输入摘要、日期窗口首日00:00至尾日23:59、读取上限30秒），不表示可发起回测的配置。原版summary为 `strategy:{id,version},initial_equity:1,unit:normalized-equity,report_family:resonance-original`。
+WT信号计算所需的固定上游参考算法、原冻结输入、内部 `reference_report` 和摘要绑定保持；原组合结果仅作Git忽略研究目录中的内部核对材料，不进入App角色或公开目录。此前ORR-06公开导入/展示合同已由本要求替代，已发行阶段证据保留当时身份，不改写旧验收结论。
 
-同一run既有configuration/performance/visuals/ledger/records路由按完成证明的原生family分流，原版投影分别使用 `orr-archive-configuration-v1 / orr-performance-v1 / orr-visuals-v1 / orr-ledger-v1 / orr-records-v1 / orr-day-v1`，native既有schema与严格准入保持。每次详情读取复核完成证明、三份原件及内容绑定；读取额度、路径防链接、截止及分页沿归档owner合同。归一化权益不标记人民币，价格单位声明沿原输入并明确来源资格，浮点份额来源为原trade_log的amount/price；TRIM在卖出侧统计且保留action。原trade_log缺逐日完整持仓快照，ledger明确 `positions_available=false,positions=[]`。不从原信号trades_by_code伪造成交。
-
-performance包含固定strategy/algorithm、input与source_manifest摘要、unit、model、data_kind及false资格，metrics为 `initial_equity,last_equity,total_return_pct,observed_max_drawdown_pct,fees`；points为 `[YYYYMMDD,equity]`。收益和回撤按原报告舍入后的每日equity派生，指标含义为观测序列值，原报告汇总继续保存在原件。visuals沿六元 `[date,daily_return_pct,negative_drawdown_pct,buy_count,sell_count,unknown_count]`。ledger按原trade_log顺序，单页至多50，date筛选与offset支持分页；交易字段为 `index,date,signal_date,symbol,side,action,price,quantity,amount,weight_pct,fee,reason`，reason缺失返回空字符串。records按history日期分页，单日返回equity/invested/position_pct及对应原模型交易。原版与native比较返回422，原版同族比较仅按原版归一化合同。
-
-`/archive/{run_id}/signals` 提供独立 `orr-signals-v1`，参数同ledger的 `receipt_sha256,day,offset,limit`。响应字段 `run_id,receipt_sha256,report_sha256,schema,date,total,offset,signals,scope`；signals每项为 `index,date,symbol,action,price,reason`，action仅原BUY/SELL，价格为信号价。按日期、原六位代码、同证券原序号排序后赋全局index；单页50。单日records响应的signals为同schema分页对象，不能以当天组合REFILL/TRIM替代原信号。未知报告族读取该入口返回422。
-
-公开source仅投影描述、对齐、成交额模型、复权基础、historical_available_at与units_qualified，不公开本地source_path或原始输入文件内容；配置详情投影有界数据诊断摘要，完整诊断继续保留原件。报告展示资格不等同完整历史、PIT或执行资格。验证使用已有真实来源冻结报告完成CLI→目录→HTTP→详情/曲线/交易分页主链，再覆盖摘要冲突、损坏、错误family、原件路径及native回归。
+正式WT模型和原生边界沿[ONB](original-native-backtest.md)。移除回归需证明：目录及直接HTTP不枚举/响应ORR金融数据，已撤导入模块不存在，WT内部参考仍可加载，旧7份WT报告与新WT原版的目录、绩效、曲线及原生成交保持。
 
 ## 导航
 

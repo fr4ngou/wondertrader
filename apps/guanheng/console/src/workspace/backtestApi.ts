@@ -2,7 +2,7 @@ import { fetchReadJson as fetchBoundedJson } from '../api'
 import { boundedBacktestTree, V2_REPORT_SCHEMA, validateV2Summary, type V2Summary } from './backtestV2'
 import { HISTORICAL_REPORT_SCHEMA, validateHistoricalSummary } from './backtestHistorical'
 import { PER_DATE_REPORT_SCHEMA, RETAINED_REPORT_SCHEMA, isRetainedReport, retainedSymbols, validatePerDateWindow, validateRetainedSummary } from './backtestRetained'
-import { ORIGINAL_STRATEGY, validateOriginalEntry, type OriginalArchiveEntry } from './originalBacktestApi'
+import { ORIGINAL_SIGNAL_ALGORITHM } from './originalNativeIdentity'
 
 /** 报告排队、原件核验及比较共用后端30秒，另留1秒HTTP余量。 */
 export function fetchBacktestReadJson<T>(input: RequestInfo | URL, context: string, signal?: AbortSignal): Promise<T> {
@@ -247,8 +247,7 @@ export type ArchiveEntry = {
     /** 原运行截止预算，单位秒。 */ max_seconds: number
   }
 }
-export type AnyArchiveEntry = ArchiveEntry | OriginalArchiveEntry
-export type ArchiveIndex = { schema: 'nbw-archive-index-v1'; runs: AnyArchiveEntry[]; invalid_receipts: number; unarchived_runs: number; scope: string }
+export type ArchiveIndex = { schema: 'nbw-archive-index-v1'; runs: ArchiveEntry[]; invalid_receipts: number; unarchived_runs: number; scope: string }
 export type ArchiveSummaryIndex = Omit<ArchiveIndex, 'schema'> & {
   /** 轻量归属目录的固定协议版本，区别于旧完成证明目录。 */ schema: 'nbw-archive-summary-index-v1'
 }
@@ -305,12 +304,6 @@ function archiveIndex(value: unknown, summaries: boolean): ArchiveIndex | Archiv
   const ids = new Set<string>()
   for (const entry of value.runs) {
     if (!object(entry)) return invalid()
-    if (entry.report_family === 'resonance-original') {
-      const original = validateOriginalEntry(entry, summaries)
-      if (ids.has(original.run_id)) return invalid()
-      ids.add(original.run_id)
-      continue
-    }
     exactKeys(entry, ['run_id', 'owner_id', 'request_id', 'record_count', 'report_sha256', 'receipt_sha256', 'configuration', 'scope', ...(summaries ? ['summary'] : [])])
     if (!validId(entry.run_id) || !validId(entry.owner_id) || !validId(entry.request_id) || ids.has(entry.run_id)
       || !validDigest(entry.report_sha256) || !validDigest(entry.receipt_sha256) || !archiveConfiguration(entry.configuration)
@@ -341,7 +334,7 @@ export async function fetchArchiveConfiguration(entry: ArchiveEntry, signal?: Ab
   if (value.business_diagnostics !== undefined && value.business_diagnostics !== null && !object(value.business_diagnostics)) return invalid()
   if (value.original_native !== undefined) {
     const m = value.original_native
-    if (!object(m) || m.signal_algorithm_id !== ORIGINAL_STRATEGY || !validDigest(m.reference_report_sha256) || !validDigest(m.source_snapshot_sha256)
+    if (!object(m) || m.signal_algorithm_id !== ORIGINAL_SIGNAL_ALGORITHM || !validDigest(m.reference_report_sha256) || !validDigest(m.source_snapshot_sha256)
       || m.execution_model !== 'signal-close-to-next-WT-native-tick' || !object(m.historical_model) || m.historical_model.execution !== m.execution_model
       || !object(m.evaluation_window) || ['warmup_date', 'from', 'to'].some(k => typeof m.evaluation_window !== 'object' || !object(m.evaluation_window)
         || typeof m.evaluation_window[k] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(String(m.evaluation_window[k])) || !tradingDate(Number(String(m.evaluation_window[k]).replaceAll('-', ''))))

@@ -1,41 +1,47 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { ArchiveEntry } from './backtestApi'
 import { fetchLedger, type Trade } from './backtestVisualApi'
 import { backtestMoney } from './backtestMoney'
 import { reportDate } from './BacktestVisualChart'
+import { reportSymbol } from './backtestSymbols'
+export { reportSymbol } from './backtestSymbols'
 
-const names: Record<string, string> = { '510500': '中证500ETF', '510050': '上证50ETF', '510300': '沪深300ETF', '512100': '中证1000ETF', '588000': '科创50ETF', '589000': '科创综指ETF', '515080': '红利ETF', '159780': '双创50ETF' }
-export const reportSymbol = (code: string) => { const number = code.match(/\d{6}/)?.[0]; return number && names[number] ? `${names[number]} · ${number}` : code }
 const gainClass = (value: string) => Number(value) > 0 ? 'bt-gain' : Number(value) < 0 ? 'bt-loss' : ''
 const side = (trade: Trade) => trade.side === 'buy' ? '买入' : trade.side === 'sell' ? '卖出' : `${trade.direction}/${trade.action}`
 
 /** 日期与完整成交共用原件投影；同条件刷新失败保留原值和读取时间。 */
-export default function BacktestDateDetail({ entry, day, dates, onDay }: {
+export default function BacktestDateDetail({ entry, day, dates, onDay, ready = true }: {
   /** 当前明细归属的报告身份。 */ entry: ArchiveEntry
   /** 所选真实交易日。 */ day: number | null
   /** 该报告存在的日期，不推定其他报告日期。 */ dates: number[]
   /** 选择日期回传。 */ onDay: (day: number) => void
+  /** 图表/摘要已结束初次读取后再发详情，合并同报告原件冷加载。 */ ready?: boolean
 }) {
   const [tab, setTab] = useState<'positions' | 'trades'>('positions')
   const [all, setAll] = useState(false)
-  const [page, setPage] = useState(0)
+  const [paging, setPaging] = useState({ day, page: 0 })
+  const page = paging.day === day ? paging.page : 0
+  const setPage = (value: number) => setPaging({ day, page: value })
   const validDay = day !== null && dates.includes(day)
+  const dateOptions = useMemo(() => dates.map(d => <option key={d} value={d}>{reportDate(d)}</option>), [dates])
+  useEffect(() => { setAll(false) }, [day])
   const query = useQuery({ queryKey: ['backtest-ledger', entry.run_id, entry.receipt_sha256, entry.report_sha256, all ? null : day, page],
-    queryFn: ({ signal }) => fetchLedger(entry, all ? null : day, page * 50, signal), enabled: all || validDay, retry: false,
+    queryFn: ({ signal }) => fetchLedger(entry, all ? null : day, page * 50, signal), enabled: ready && (all || validDay), retry: false, staleTime: Infinity,
     refetchOnWindowFocus: false, refetchOnReconnect: false })
   const value = query.data
-  return <aside className={`bt-date-detail${all ? ' bt-all-records' : ''}`} aria-label="所选日期持仓与盈亏">
+  return <aside className={`bt-date-detail${all ? ' bt-all-records' : ''}`} aria-label="所选日期持仓与盈亏" id="bt-day-details">
+    <div className="bt-detail-heading"><strong>日期详情</strong><span>已固定 · 点选曲线切换</span></div>
     <label className="bt-date-picker">{all ? '完整交易记录' : '查看交易日'}<select aria-label="查看交易日" value={validDay ? day : ''} onChange={e => { onDay(Number(e.target.value)); setPage(0); setAll(false) }}>
       {!validDay ? <option value="">请选择报告内日期</option> : null}
-      {dates.map(d => <option key={d} value={d}>{reportDate(d)}</option>)}
+      {dateOptions}
     </select></label>
     <div className="bt-segments" role="tablist" aria-label="日期明细">
       <button role="tab" aria-selected={!all && tab === 'positions'} onClick={() => { setTab('positions'); setAll(false); setPage(0) }}>持仓与盈亏</button>
       <button role="tab" aria-selected={!all && tab === 'trades'} onClick={() => { setTab('trades'); setAll(false); setPage(0) }}>当日交易</button>
     </div>
     {!validDay && !all ? <p role="status">该报告没有所选日期，请选择报告内交易日。</p> : <>
-      {query.isFetching ? <p role="status">正在读取{value ? '，保留上次结果' : '日期明细'}…</p> : null}
+      {!ready || query.isFetching ? <p role="status">正在读取{value ? '，保留上次结果' : '日期明细'}…</p> : null}
       {query.isError ? <p role="alert">日期明细读取失败。{value ? '保留上次结果及原时间。' : ''}<button onClick={() => void query.refetch()}>重读明细</button></p> : null}
       {value ? <>
         {tab === 'positions' && !all ? <>

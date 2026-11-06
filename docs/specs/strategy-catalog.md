@@ -4,13 +4,15 @@
 
 ## 职责与入口
 
-`/strategies`默认显示只读策略目录，每条包含中文名称、简短用途和算法版本。2026-10-29用户明确只保留唯一共振策略的最新正式在用版本；沿[已核实来源](../evidence/2026-10-29-retained-resonance-latest.md)仅登记resonance-regime-v1@1.1.2，historical_versions为空。其他策略、候选和旧版本退出本次目录及运行/发行范围。名称和简介参考旧QMT的StrategyPage、strategyPresentation和策略definition。登记资料与宿主实际运行事实分别拥有，登记本身不授予运行资格。
+`/strategies`默认显示只读策略目录，每条包含中文名称、简短用途和版本。正式WT条目的身份和版本来自其公开运行结果，未知版本保持None；已保存历史版本来自回测摘要，不从App安装包或固定清单猜测。名称和简介参考旧QMT的StrategyPage、strategyPresentation和策略definition。2026-10-29的[原1.1.2登记证据](../evidence/2026-10-29-retained-resonance-latest.md)保留历史语义。当前原版研究条目沿下述授权独立登记，historical_versions为空。登记资料与宿主实际运行事实分别拥有，登记本身不授予运行资格。
 
 2026-11-03按用户要求改为显式“选择策略”下拉框；选项取实际登记名称和版本，默认选择目录首项，未知URL身份提示重新选择。页面显示所选策略的“运行与持仓 / 策略说明”，并提供“查看该策略回测”。`strategy=id@version`在页面链接及浏览器历史中保留选择。旧`?tab=configuration`落入策略页，`?tab=backtests`转向`/backtests`并保留策略及报告参数。
 
 选择器读取`GET /v1/ui/strategy-catalog`。固定schema为`guanheng.strategy-catalog.v1`、read_only=true、scope=registered-definitions；响应仅包含strategy_id、strategy_version、display_name、description、historical_versions。额外query/body拒绝，响应no-store。读取失败支持手动重读，空目录显示空态。运行详情继续沿原`GET /v1/ui/strategy-details`，缓存按所选策略身份隔离；返回策略ID及版本须相符，身份不符显示该策略数据尚未取得，防止把唯一运行实例的账户事实展示到其他策略。
 
 参数编辑、证券映射、预算窗口、配置校验与保存从策略页入口移出。既有[SCW](strategy-configuration-workspace.md)后端配置校验、保存和恢复语义仍由配置owner拥有；后续配置操作入口另按用户授权确定。旧参数表单及验收原件保留为历史记录。
+
+2026-11-06后继指令只保留原版WT回测，撤回非WT“原组合对照”条目。WT身份和版本沿公开结果动态投影，未知保持None；目录追加 `resonance-original-wt-351f9d5-stable@0.1.0a1`，其内部原信号算法ID不构成可选策略。已撤ORR身份不从旧发布值重新列入目录。原有WT账户与报告事实保持各自身份，具体范围沿[ORR-06](original-resonance-reference.md#orr-06-观衡公开范围非wt对照已撤回)。
 
 ## 验证
 

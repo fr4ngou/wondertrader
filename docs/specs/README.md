@@ -238,3 +238,5 @@
 - [共振原版独立还原与只读导入](original-resonance-reference.md)
 
 - [原版信号的WT框架回测](original-native-backtest.md)
+
+- [线上策略实际发布观察](live-strategy-performance.md)

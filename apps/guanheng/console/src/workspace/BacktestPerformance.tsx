@@ -1,15 +1,15 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { RefreshCw, Triangle, Circle } from 'lucide-react'
 import type { ArchiveEntry } from './backtestApi'
 import { differenceNames, fetchBacktestComparison, fetchBacktestPerformance, type BacktestPerformance as Performance } from './backtestPerformanceApi'
-import { fetchVisuals } from './backtestVisualApi'
+import { fetchVisuals, fetchDaySummaries } from './backtestVisualApi'
 import { backtestMoney } from './backtestMoney'
 import BacktestVisualChart, { reportDate, reportPct } from './BacktestVisualChart'
 import BacktestDateDetail from './BacktestDateDetail'
 import './backtest-performance.css'
 import { performanceKey } from './useBacktestReports'
-import { ORIGINAL_NATIVE_REPORT_SCHEMA } from './originalBacktestApi'
+import { ORIGINAL_NATIVE_REPORT_SCHEMA } from './originalNativeIdentity'
 import OriginalNativeModel from './OriginalNativeModel'
 
 export const reportKey = (e: ArchiveEntry) => e.run_id + e.receipt_sha256
@@ -55,11 +55,17 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
   const rightValue = right ? comparison.data?.right : undefined
   useEffect(() => { if (leftValue) onReport?.(leftValue); if (rightValue) onReport?.(rightValue) }, [leftValue, rightValue, onReport])
   const visual = useQuery({ queryKey: ['backtest-visuals', entry.run_id, entry.receipt_sha256, entry.report_sha256], queryFn: ({ signal }) => fetchVisuals(entry, signal),
-    enabled: ready && !!leftValue, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
+    enabled: ready && !!leftValue, staleTime: Infinity, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const rightVisual = useQuery({ queryKey: ['backtest-visuals', right?.run_id, right?.receipt_sha256, right?.report_sha256], queryFn: ({ signal }) => fetchVisuals(right!, signal),
-    enabled: ready && !!right && !!rightValue, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
+    enabled: ready && !!right && !!rightValue, staleTime: Infinity, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const detailEntry = detailSide === 'right' && right && rightValue ? right : entry
   const detailValue = detailSide === 'right' && rightValue ? rightValue : leftValue
+  const detailDates = useMemo(() => detailValue?.points.map(point => point[0]) ?? [], [detailValue])
+  const detailVisual = detailSide === 'right' && right && rightValue ? rightVisual : visual
+  const summaries = useQuery({ queryKey: ['backtest-day-summaries', detailEntry.run_id, detailEntry.receipt_sha256, detailEntry.report_sha256],
+    queryFn: ({ signal }) => fetchDaySummaries(detailEntry, signal), enabled: ready && !!detailVisual.data,
+    staleTime: Infinity, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
+  const summaryMap = useMemo(() => new Map(summaries.data?.points.map(point => [point[0], point])), [summaries.data])
   const selectedDay = day ?? detailValue?.points.at(-1)?.[0] ?? null
   const metrics = leftValue?.metrics
   const metricItems = metrics ? [['总收益', reportPct(metrics.total_return_pct)], ['日末最大回撤', reportPct(metrics.observed_max_drawdown_pct)],
@@ -86,11 +92,14 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
           {visual.isFetching ? <p className="bt-muted" role="status">正在读取日收益、回撤和成交日…</p> : null}
           {visual.data && !visual.data.trades_available ? <p className="bt-muted" role="status">主报告的成交原件暂未适配，买卖标记未知。</p> : null}
           {right && rightVisual.data && !rightVisual.data.trades_available ? <p className="bt-muted" role="status">对比报告的成交原件暂未适配，买卖标记未知。</p> : null}
-          <BacktestVisualChart left={leftValue} right={rightValue} visual={visual.data} rightVisual={rightVisual.data} mode={mode} markers={markers} onDay={setDay} />
-          <p className="bt-muted bt-chart-caption">点选日期查看持仓与交易，滚轮可缩放。</p>
+          <BacktestVisualChart left={leftValue} right={rightValue} visual={visual.data} rightVisual={rightVisual.data} mode={mode} markers={markers}
+            onDay={setDay} selectedDay={selectedDay} summaries={summaryMap} summaryLabel={detailSide === 'right' ? '对比报告' : '主报告'} />
+          <p className="bt-muted bt-chart-caption">悬停查看当日持仓与买卖，点击固定日期详情；滚轮缩放，左右键切日。</p>
+          {summaries.isFetching ? <p className="bt-muted" role="status">正在准备持仓与买卖摘要…</p> : summaries.isError ? <p className="bt-muted">悬停摘要暂不可用，仍可点击读取日期详情。<button onClick={() => void summaries.refetch()}>重读摘要</button></p> : null}
         </section>
         <div className="bt-inspector-wrap">{right && rightValue ? <label className="bt-detail-source">日期明细所属报告<select aria-label="日期明细所属报告" value={detailSide} onChange={e => setDetailSide(e.target.value)}><option value="left">主报告</option><option value="right">对比报告</option></select></label> : null}
-          <BacktestDateDetail key={detailEntry.run_id + detailEntry.receipt_sha256 + selectedDay} entry={detailEntry} day={selectedDay} dates={detailValue?.points.map(p => p[0]) ?? []} onDay={setDay} />
+          <BacktestDateDetail key={detailEntry.run_id + detailEntry.receipt_sha256 + detailEntry.report_sha256} entry={detailEntry} day={selectedDay}
+            dates={detailDates} onDay={setDay} ready={detailVisual.isError || !!detailVisual.data && !summaries.isPending} />
         </div>
       </div>}
       <div className="bt-exact-values">

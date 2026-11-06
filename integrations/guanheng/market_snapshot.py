@@ -5,7 +5,7 @@ from pathlib import Path
 import threading
 
 from ..guanheng_market_client import API_VERSION,MarketUnavailable,strict_json,encode_json,validate_request,validate_response
-from ..guanheng_market_client.market_snapshot import validate_market_snapshot
+from ..guanheng_market_client.market_snapshot import validate_market_snapshot,project_market_snapshot
 
 
 class SnapshotSourceMarket:
@@ -66,7 +66,10 @@ class SnapshotSourceMarket:
             if self._reference is not None:self._reference.close()
             if self._supplement is not None:self._supplement.close()
             raise
-        self._snapshot=snapshot;self._owner=threading.get_ident();self._closed=False
+        self._snapshot=snapshot  # 磁盘完整原件身份，绑定补充目录。
+        self._legacy_snapshot=project_market_snapshot(snapshot)  # 默认v1可见投影，身份由投影自身正文生成。
+        self._snapshot_ids={snapshot['snapshot_id'],self._legacy_snapshot['snapshot_id']}  # 本代允许的两个明确读身份。
+        self._owner=threading.get_ident();self._closed=False
 
     def _check_owner(self):
         if self._closed or threading.get_ident()!=self._owner:
@@ -81,11 +84,11 @@ class SnapshotSourceMarket:
             return self._supplement_query(request)
         if request['action']=='market.source-day-facts-query':
             query=request['request'];data={};code='Unavailable';reason='requested daily facts are not published'
-            if query['snapshot_id']!=self._snapshot['snapshot_id']:
+            if query['snapshot_id']not in self._snapshot_ids:
                 code='Conflict';reason='market snapshot changed'
             elif self._facts is not None and query['date']<=self._snapshot['observation_date']:
                 try:
-                    data=self._facts.query(query['date'],self._snapshot['snapshot_id'])
+                    data=self._facts.query(query['date'],query['snapshot_id'])
                     if data is not None:code='Ok';reason=''
                     else:data={}
                 except (OSError,ValueError,KeyError,TypeError):
@@ -95,14 +98,15 @@ class SnapshotSourceMarket:
             if request['request']['date']!=self._snapshot['observation_date']:
                 response=dict(api_version=API_VERSION,status=dict(code='Unavailable',reason='requested market snapshot is not published'),data={})
             else:
-                response=dict(api_version=API_VERSION,status=dict(code='Ok',reason=''),data=deepcopy(self._snapshot))
+                snapshot=(self._snapshot if request['request'].get('include_supplement',False)else self._legacy_snapshot)
+                response=dict(api_version=API_VERSION,status=dict(code='Ok',reason=''),data=deepcopy(snapshot))
             return validate_response(response,request)
         if request['action']=='history.source-daily-query'and 'snapshot_id'in request['request']:
-            if request['request']['snapshot_id']!=self._snapshot['snapshot_id']:
+            if request['request']['snapshot_id']not in self._snapshot_ids:
                 return dict(api_version=API_VERSION,status=dict(code='Conflict',reason='market snapshot changed'),data={})
             internal=deepcopy(request);internal['request'].pop('snapshot_id');internal['request']['view']='archive'
             response=self._base.call(internal)
-            if response['status']['code']=='Ok':response['data']['source_snapshot_id']=self._snapshot['snapshot_id']
+            if response['status']['code']=='Ok':response['data']['source_snapshot_id']=request['request']['snapshot_id']
             return validate_response(response,request)
         return self._base.call(request)
 
@@ -110,7 +114,9 @@ class SnapshotSourceMarket:
         """原件查询不采集；缺装配、快照冲突和源损坏保持不同业务状态。"""
         query=request['request'];data={};code='Ok';reason=''
         if query['snapshot_id']!=self._snapshot['snapshot_id']:
-            code='Conflict';reason='market snapshot changed'
+            if query['snapshot_id']==self._legacy_snapshot['snapshot_id']:
+                code='Unavailable';reason='supplement facts require the complete market snapshot identity'
+            else:code='Conflict';reason='market snapshot changed'
         elif self._supplement is None:
             code='NotSupported';reason='market supplement facts are not configured'
         else:
@@ -123,7 +129,7 @@ class SnapshotSourceMarket:
     def _security(self,request):
         """资料和实际日期沿同一版本；真实价格错误保持原错误类别。"""
         query=request['request'];code='Ok';reason='';data={}
-        if query['snapshot_id']!=self._snapshot['snapshot_id']:
+        if query['snapshot_id']not in self._snapshot_ids:
             code='Conflict';reason='market snapshot changed'
         else:
             try:
@@ -141,7 +147,7 @@ class SnapshotSourceMarket:
                         dates=[bar['date']for bar in prices['data'].get('bars',[])]
                         data=dict(
                             security=security,  # 原证券资料，名称/日期缺项独立于价格可用性。
-                            source_snapshot_id=self._snapshot['snapshot_id'],  # 同一价格/资料/日事实版本身份。
+                            source_snapshot_id=query['snapshot_id'],  # 精确回显本次选择的完整或旧可见投影身份。
                             adjustment=query['adjustment'],  # 请求的明确价格口径。
                             history_status=prices['status'],  # 原日线Ok或Unavailable，价格读取错误直接传播。
                             archive=prices['data'].get('archive'),  # 实际全档首尾及记录数，来源未知时None。

@@ -19,7 +19,6 @@ from .backtest_reports import (validate_report_dict, project_session_record,
                                project_input_business_diagnostics, ORIGINAL_REPORT_SCHEMA, ORIGINAL_INPUT_SCHEMA,
                                verify_original_native_input)
 from .backtest_performance import build_performance, build_comparison, MAX_RESPONSE, _fraction, _money
-from . import original_reports as original
 
 SCHEMA = "nbw-completed-archive-v1"
 SCOPE = "isolated-raw-BT; real-source/RT/broker/production-unqualified"
@@ -165,6 +164,7 @@ class BacktestArchive:
         self.root = Path(root)
         self._lock = Lock()
         self._admitted_report = None
+        self._day_view = None  # 唯一轻量按日投影；每次复用前仍重新核完整原件SHA。
 
     def _run(self, read, run_id):
         _require(_id(run_id), "历史运行身份无效", 422)
@@ -174,10 +174,9 @@ class BacktestArchive:
     def _load(self, read, run_id, receipt_sha=None):
         directory = self._run(read, run_id)
         value, raw = read.value(directory / RECEIPT, MAX_RECEIPT)
-        if type(value) is dict and value.get('schema') == original.RECEIPT_SCHEMA:
-            original.validate_receipt(value, run_id)
-        else:
-            _receipt(value, run_id)
+        _require(not (type(value) is dict and value.get('schema') == 'orr-completed-archive-v1'),
+                 '该非WT报告族已移出观衡，请读取WT回测报告', 410)
+        _receipt(value, run_id)
         if receipt_sha is not None:
             _require(_digest(receipt_sha) and _sha(raw) == receipt_sha, "归档身份已改变，请重新读取历史目录", 409)
         return directory, value, _sha(raw)
@@ -209,7 +208,7 @@ class BacktestArchive:
                     try:
                         _, value, receipt_sha = self._load(read, path.name)
                         self._capacity(read, path)
-                        keys = ("run_id", "record_count", "report_sha256", "configuration", "scope", "report_family") if value['schema'] == original.RECEIPT_SCHEMA else ("run_id", "owner_id", "request_id", "record_count", "report_sha256", "configuration", "scope")
+                        keys = ("run_id", "owner_id", "request_id", "record_count", "report_sha256", "configuration", "scope")
                         item = {**{k: value[k] for k in keys},
                                 "receipt_sha256": receipt_sha}
                         if summaries:
@@ -221,6 +220,9 @@ class BacktestArchive:
                                                                    path.name, type(error).__name__)
                                 item['summary'] = None
                         runs.append(item)
+                    except ArchiveError as error:
+                        if error.code != 410:
+                            invalid += 1
                     except (Exception, SystemExit):
                         invalid += 1
             read.check()
@@ -244,9 +246,6 @@ class BacktestArchive:
         完整来源、领域、原生输出和绩效仍在用户选择该报告时由_originals核验。
         列表不重建全部报告、不缓存第二份完整金融报告，也不从名称推断版本。
         """
-        if receipt['schema'] == original.RECEIPT_SCHEMA:
-            original.load(read, directory, receipt)
-            return original.summary()
         _require(read.raw(directory / 'request.json', 16 * 1024 * 1024, checksum=True) == receipt['request_sha256'])
         result, raw = read.value(directory / 'result.json', 32 * 1024 * 1024)
         _require(_sha(raw) == receipt['result_sha256'])
@@ -313,7 +312,8 @@ class BacktestArchive:
             admitted = validate_report_dict(report, check=read.check)
         _require(admitted.record_count == value["record_count"] and report["schema"] == result["report_schema"])
         if report['schema'] == ORIGINAL_REPORT_SCHEMA:
-            verify_original_native_input(report,session,check=read.check)
+            if cached is None or cached[0] != report_key:
+                verify_original_native_input(report,session,check=read.check)
             for name,identity in report['native_outputs']:
                 read.check()
                 _require(result['native_outputs'].get(f"outputs/{c['name']}/{name}")==identity)
@@ -455,16 +455,6 @@ class BacktestArchive:
         try:
             _require(_digest(receipt_sha), "历史读取需要固定归档摘要", 422)
             directory, value, digest = self._load(read, run_id, receipt_sha)
-            if value.get('schema') == original.RECEIPT_SCHEMA:
-                self._capacity(read, directory)
-                report = original.load(read, directory, value)
-                if index is not None:
-                    _require(type(index) is int and 0 <= index < value['record_count'], '记录索引越界', 404)
-                response = original.project(value, digest, report, config=configuration, perf=performance,
-                    offset=offset, limit=limit, index=index, check=read.check)
-                _require(len(_wire(response)) <= MAX_RESPONSE)
-                read.check()
-                return response
             request, admitted, report, session = self._originals(read, directory, value)
             if performance:
                 _require(configuration is False and index is None, "绩效读取参数无效", 422)
@@ -523,48 +513,59 @@ class BacktestArchive:
         finally:
             self._lock.release()
 
-    def visual(self, run_id, receipt_sha, deadline, *, ledger=False, signals=False, day=None, offset=0, limit=50):
+    def _verify_day_view(self, read, directory, view):
+        """重复日期仍核全部原字节及输出集合；省去已绑定原件的大JSON/CSV重解析。"""
+        self._capacity(read,directory)
+        expected={path for path,_,_ in view.proof if path.startswith('outputs/')}
+        actual=set();pending=[read.directory(directory/'outputs')]
+        while pending:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    read.check();path=_path(Path(entry.path));info=path.lstat()
+                    if stat.S_ISDIR(info.st_mode):pending.append(read.directory(path))
+                    else:
+                        _require(stat.S_ISREG(info.st_mode) and info.st_nlink==1)
+                        actual.add(path.relative_to(directory).as_posix())
+        _require(actual==expected)
+        for relative,expected_sha,maximum in view.proof:
+            _require(read.raw(directory/relative,maximum,checksum=True)==expected_sha)
+
+    def visual(self, run_id, receipt_sha, deadline, *, ledger=False, summaries=False, day=None, offset=0, limit=50):
         """曲线辅助与日期明细复用完整原件校验、同一锁/预算；不写归档。"""
         from .backtest_visuals import native_tables, build_visuals
+        from .backtest_day_view import build_day_view
         read = _Read(deadline)
         _require(self._lock.acquire(blocking=False), '归档正在读取，请稍后重试', 429)
         try:
             directory, value, digest = self._load(read, run_id, receipt_sha)
-            if value.get('schema') == original.RECEIPT_SCHEMA:
-                self._capacity(read, directory)
-                report = original.load(read, directory, value)
-                dates = {original.day(r['date']) for r in report['portfolio']['history']}
-                _require(day is None or day in dates, '该报告没有所选日期', 404)
-                _require(type(offset) is int and 0 <= offset <= original.MAX_TRADES
-                         and type(limit) is int and 1 <= limit <= 50, '分页参数无效', 422)
-                if signals:
-                    response = original.signals(value, digest, report, day_filter=day, offset=offset, limit=limit, check=read.check)
-                else:
-                    response = (original.ledger(value, digest, report, day_filter=day, offset=offset, limit=limit,
-                        check=read.check) if ledger else original.visuals(value, digest, report, read.check))
-                _require(len(_wire(response)) <= MAX_RESPONSE)
-                read.check()
-                return response
-            _require(not signals, '该报告族没有原版信号分页', 422)
-            result_raw = read.raw(directory / 'result.json', 32 * 1024 * 1024)
-            request, admitted, report, session = self._originals(read, directory, value, result_raw=result_raw)
-            result = _json(result_raw, 32 * 1024 * 1024, deadline)
-            trades, positions = native_tables(read, directory, value, result)
-            if ledger:
-                dates = {row['trading_date'] for row in report['records']}
-                _require(day is None or day in dates, '该报告没有所选日期', 404)
-                filtered = [row for row in trades or [] if day is None or row['date'] == day]
-                capture = next((row.get('capture') for row in report['records'] if row['trading_date'] == day), None)
-                response = {'schema': 'nbw-ledger-v1', 'run_id': run_id, 'receipt_sha256': digest,
-                    'report_sha256': value['report_sha256'], 'date': day,
-                    'positions_available': positions is not None and capture is not None,
-                    'positions': [row for row in positions or [] if row['date'] == day],
-                    'trades_available': trades is not None, 'total': len(filtered), 'offset': offset,
-                    'trades': filtered[offset:offset + limit]}
+            identity=(run_id,digest,value['report_sha256']);view=self._day_view
+            if view is not None and view.identity==identity:
+                self._verify_day_view(read,directory,view)
             else:
+                result_raw = read.raw(directory / 'result.json', 32 * 1024 * 1024)
+                request, admitted, report, session = self._originals(read, directory, value, result_raw=result_raw)
+                result = _json(result_raw, 32 * 1024 * 1024, deadline)
+                trades, positions = native_tables(read, directory, value, result)
                 performance = build_performance(receipt=value, receipt_sha256=digest, request=request, session=session,
                     report=report, admitted=admitted, check=read.check)
-                response = build_visuals(performance, trades, check=read.check)
+                visuals=build_visuals(performance,trades,check=read.check)
+                proof=[('request.json',value['request_sha256'],16*1024*1024),
+                    ('result.json',value['result_sha256'],32*1024*1024),
+                    ('installation.json',value['installation_sha256'],2*1024*1024)]
+                installation,installation_raw=read.value(directory/'installation.json',2*1024*1024)
+                _require(_sha(installation_raw)==value['installation_sha256'])
+                proof.extend((folder+'/'+name+'.json',installation['basefiles'][name]['sha256'],1024*1024)
+                    for name in ('sessions','commodities','contracts','holidays','fees') for folder in ('basefiles','session-basefiles'))
+                proof.extend((relative,expected,MAX_NATIVE) for relative,expected in result['native_outputs'].items())
+                view=build_day_view(receipt=value,receipt_sha=digest,report=report,trades=trades,positions=positions,
+                    proof=proof,visuals=visuals,check=read.check)
+                self._day_view=view
+            _require(type(offset) is int and 0<=offset<=65536 and type(limit) is int and 1<=limit<=50,'分页参数无效',422)
+            if ledger:
+                _require(day is None or day in view.dates,'该报告没有所选日期',404)
+                response=view.ledger(day,offset,limit)
+            else:
+                response=json.loads(view.summary_json if summaries else view.visuals_json)
             _require(len(_wire(response)) <= MAX_RESPONSE, '日期明细超出响应容量')
             read.check()
             return response
@@ -586,15 +587,6 @@ class BacktestArchive:
             read.check()
             right = self._read(read, right_run_id, right_receipt_sha, performance=True)
             read.check()
-            if left['schema'] == 'orr-performance-v1' or right['schema'] == 'orr-performance-v1':
-                _require(left['schema'] == right['schema'], '原版归一化模型与WT人民币模型请分别阅读', 422)
-                differences = [key for key in ('configuration', 'input_sha256', 'model', 'data_kind', 'source')
-                               if left[key] != right[key]]
-                response = dict(schema='orr-comparison-v1', left=left, right=right,
-                                differences=differences, scope=original.SCOPE)
-                _require(len(_wire(response)) <= MAX_RESPONSE)
-                read.check()
-                return response
             response = build_comparison(left, right, SCOPE)
             _require(len(_wire(response)) <= MAX_RESPONSE, "比较页面超过响应容量")
             read.check()

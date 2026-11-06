@@ -19,8 +19,8 @@ from integrations.guanheng.market_service import MarketHTTPServer
 from integrations.guanheng.market_snapshot import SnapshotSourceMarket
 from integrations.guanheng.market_snapshot_prepare import prepare_market_snapshot
 from integrations.guanheng.market_supplement_store import MarketSupplementStore
-from integrations.guanheng_market_client import API_VERSION, MarketClient, MarketProtocolError, MarketUnavailable
-from integrations.guanheng_market_client.market_snapshot import snapshot_identity, validate_market_snapshot
+from integrations.guanheng_market_client import API_VERSION, MarketClient, MarketProtocolError, MarketUnavailable,validate_request,validate_response
+from integrations.guanheng_market_client.market_snapshot import snapshot_identity, validate_market_snapshot,project_market_snapshot
 from integrations.guanheng_market_client.supplement_facts import (
     MAX_CATALOG_BYTES, validate_supplement_catalog, validate_supplement_request, validate_supplement_data,
 )
@@ -166,6 +166,58 @@ class SupplementTests(unittest.TestCase):
             thread.join(timeout=5)
         self.assertFalse(thread.is_alive())
         self.assertEqual(failures, [])
+
+    def test_snapshot_projection_preserves_complete_source_and_legacy_identity(self):
+        full,config=self.config();raw=Path(config['snapshot']['path']).read_bytes();market=self.market(config)
+        try:
+            wire=dict(api_version=API_VERSION,action='market.source-snapshot-query',request=dict(date=full['observation_date']))
+            legacy=market.call(wire)['data'];validate_market_snapshot(legacy)
+            self.assertNotIn('supplement_facts_sha256',legacy['provenance'])
+            self.assertNotEqual(legacy['snapshot_id'],full['snapshot_id'])
+            for flag in (True,False):
+                selected=market.call(dict(wire,request=dict(wire['request'],include_supplement=flag)))['data']
+                self.assertEqual(selected,full if flag else legacy)
+            self.assertEqual(Path(config['snapshot']['path']).read_bytes(),raw)
+            self.assertEqual(self.call(market,request(legacy['snapshot_id']))['status']['code'],'Unavailable')
+            self.assertEqual(self.call(market,request('9'*64))['status']['code'],'Conflict')
+            self.assertEqual(self.call(market,request(full['snapshot_id']))['status']['code'],'Ok')
+            # 旧响应严格匹配date-only投影；服务意外泄出完整目录时新validator同样拒绝。
+            with self.assertRaises(MarketProtocolError):
+                validate_response(dict(api_version=API_VERSION,status=dict(code='Ok',reason=''),data=full),wire)
+        finally:market.close()
+
+    def test_unconfigured_snapshot_identity_unchanged_and_supplement_revision_is_separate(self):
+        old,config=self.config(False);market=self.market(config)
+        try:
+            for fields in ({},{'include_supplement':True},{'include_supplement':False}):
+                reply=market.call(dict(api_version=API_VERSION,action='market.source-snapshot-query',
+                    request=dict(date=old['observation_date'],**fields)))
+                self.assertEqual(reply['data'],old)
+        finally:market.close()
+        full,_=self.config();changed=deepcopy(full)
+        changed['provenance']['supplement_facts_sha256']='1'*64
+        changed['snapshot_id']=snapshot_identity(changed)
+        self.assertNotEqual(full['snapshot_id'],changed['snapshot_id'])
+        self.assertEqual(project_market_snapshot(full),project_market_snapshot(changed))
+
+    def test_snapshot_projection_request_is_explicit_boolean_and_sdk_defaults_complete(self):
+        for bad in (None,0,1,'true',[],{}):
+            with self.subTest(bad=bad),self.assertRaises(MarketProtocolError):
+                validate_request(dict(api_version=API_VERSION,action='market.source-snapshot-query',
+                    request=dict(date='2020-01-03',include_supplement=bad)))
+        client=MarketClient('http://127.0.0.1:1','isolated-msf-test-token')
+        with patch.object(client,'call',side_effect=lambda value:value):
+            self.assertIs(client.source_market_snapshot_query('2020-01-03')['request']['include_supplement'],True)
+            self.assertIs(client.source_market_snapshot_query('2020-01-03',include_supplement=False)['request']['include_supplement'],False)
+
+    def test_generation_loader_requests_complete_identity(self):
+        from integrations.guanheng.market_generation import load_generation
+        full,config=self.config();generation=dict(configuration=write(self.root/'configuration.json',config),
+            observation_date=full['observation_date'],snapshot_id=full['snapshot_id'])
+        market=self.market(config)
+        with patch('integrations.guanheng.market_snapshot.SnapshotSourceMarket',return_value=market):
+            loaded=load_generation(generation,max_response_bytes=8*1024*1024)
+        self.assertIs(loaded,market);loaded.close()
 
     def test_missing_corrupt_empty_and_conflict_are_distinct(self):
         old, config = self.config(False)

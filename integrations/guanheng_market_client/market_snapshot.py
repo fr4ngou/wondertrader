@@ -1,5 +1,6 @@
 """WT已落盘行情快照及证券资料合同；原件归数据侧，消费者只读。"""
 from datetime import date,datetime,timezone
+from copy import deepcopy
 import hashlib,json,re
 from . import MarketProtocolError,_object,_text,_number,_list
 
@@ -30,8 +31,20 @@ def snapshot_identity(value):
 
 
 def validate_snapshot_request(value):
-    """date为需要的已闭合观察日YYYY-MM-DD；来源缺日保持Unavailable。"""
-    _object(value,('date',));_day(value['date']);return value
+    """date为已闭合日；显式include_supplement布尔值选择完整目录绑定投影。"""
+    _object(value,('date','include_supplement'),('date',));_day(value['date'])
+    if 'include_supplement'in value and type(value['include_supplement'])is not bool:
+        raise MarketProtocolError('market snapshot projection invalid')
+    return value
+
+
+def project_market_snapshot(value,*,include_supplement=False):
+    """完整原件不变；旧可见投影按自身完整正文计算身份，禁止删字段后沿用完整ID。"""
+    result=deepcopy(value)
+    if not include_supplement and 'supplement_facts_sha256'in result['provenance']:
+        result['provenance'].pop('supplement_facts_sha256')
+        result['snapshot_id']=snapshot_identity(result)
+    return result
 
 
 def validate_market_snapshot(value):

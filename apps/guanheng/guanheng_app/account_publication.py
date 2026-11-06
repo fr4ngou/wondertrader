@@ -144,7 +144,7 @@ def _reference(runtime):
     return reference
 
 
-def _observe_published_account(configuration,deadline):
+def _observe_published_account(configuration,deadline,*,binding_observer=None):
     if configuration is None:
         base=unavailable_account('尚未配置WT账户发布读取连接',schema_version='2.0').model_dump()
         return AccountOverviewV4.model_validate(base|dict(schema_version='4.0',publication=AccountPublication(
@@ -169,10 +169,14 @@ def _observe_published_account(configuration,deadline):
         configuration.configuration_sha256,control,digest,pid],separators=(',',':')).encode('utf8')).hexdigest()
     after=read_runtime_snapshot(configuration,deadline).value
     require(after['pid']==before['pid'] and _reference(after)==reference)
-    result.publication.runtime_state=after['state'];check(deadline);return result
+    result.publication.runtime_state=after['state'];check(deadline)
+    # 内部只读消费者可取得已核原帧账户身份，用于计算稳定摘要；公开DTO与默认调用保持。
+    # 回调只在原ready/正文/前后Runtime核验完整后触发，明文仍停留本进程私有内存。
+    if binding_observer is not None:binding_observer(ProjectionBinding.from_value(value['binding']))
+    return result
 
 
-def observe_published_account(configuration,deadline):
+def observe_published_account(configuration,deadline,*,binding_observer=None):
     """原读池线程只读同根文件；原子替换的pending沿本次2秒D等待。
 
     只有短暂未见和Windows共享冲突可以重读，协议/身份错误立即失败。
@@ -182,7 +186,7 @@ def observe_published_account(configuration,deadline):
     while True:
         check(deadline)
         try:
-            return _observe_published_account(configuration,deadline)
+            return _observe_published_account(configuration,deadline,binding_observer=binding_observer)
         except (FileNotFoundError,CollectionStatusPending):
             pass
         except OSError as error:

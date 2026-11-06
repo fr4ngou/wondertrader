@@ -2,7 +2,7 @@ import { archiveConfiguration, fetchBacktestReadJson, tradingDate, validDigest, 
 import { boundedBacktestTree, invalidBacktest, isObject } from './backtestV2'
 import { HISTORICAL_REPORT_SCHEMA, HISTORICAL_SCOPE } from './backtestHistorical'
 import { PER_DATE_REPORT_SCHEMA, PER_DATE_SCOPE, RETAINED_REPORT_SCHEMA, RETAINED_SCOPE } from './backtestRetained'
-import { ORIGINAL_NATIVE_REPORT_SCHEMA, ORIGINAL_STRATEGY, ORIGINAL_WT_STRATEGY } from './originalBacktestApi'
+import { ORIGINAL_NATIVE_REPORT_SCHEMA, ORIGINAL_SIGNAL_ALGORITHM, ORIGINAL_WT_STRATEGY } from './originalNativeIdentity'
 
 export const differenceNames = {
   window: '回放时间窗口', initial_capital: '初始本金', input: '历史或来源输入', strategy: '策略与版本',
@@ -51,7 +51,7 @@ export function validatePerformance(value: unknown, entry: ArchiveEntry): Backte
   keys(value.strategy, 'id version algorithm_id')
   if (!text(value.strategy.id, 256) || !text(value.strategy.version, 256) || value.strategy.algorithm_id !== null && !text(value.strategy.algorithm_id, 512)) invalidBacktest()
   if (value.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA && (value.strategy.id !== ORIGINAL_WT_STRATEGY
-    || value.strategy.version !== '0.1.0a1' || value.strategy.algorithm_id !== ORIGINAL_STRATEGY)) invalidBacktest()
+    || value.strategy.version !== '0.1.0a1' || value.strategy.algorithm_id !== ORIGINAL_SIGNAL_ALGORITHM)) invalidBacktest()
   keys(value.input, 'history_sha256 market_manifest_source capital_source fee_reserve_cny fee_source policy_sha256 configuration_sha256')
   const input = value.input
   if (['history_sha256', 'policy_sha256', 'configuration_sha256'].some(k => !validDigest(input[k]))

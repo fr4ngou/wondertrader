@@ -28,8 +28,11 @@ from .observation.runtime import build_prepared_reader as observation_reader
 from .observation.routes import make_router as observation_router, observation_error, REQUEST_SECONDS as OBSERVATION_REQUEST_SECONDS
 from .security_catalog import SecurityCatalog
 from .security_routes import router as security_router
+from .live_strategy_performance import LiveStrategyPerformanceOwner
+from .live_strategy_routes import router as live_strategy_router
 
 UNMIGRATED_REASON = "该观衡只读功能正在接入WonderTrader公开结果"
+LIVE_OBSERVATION_SECONDS = 30  # App本地观察节拍；不触发交易或来源查询。
 
 
 async def _initialize_document(reader, owner):
@@ -48,6 +51,32 @@ async def _initialize_document(reader, owner):
             future.cancel()
 
 
+async def _live_observation_call(application, operation, seconds):
+    """线上观察复用原读池及绝对截止；取消后在途IO仍由该读池负责回收。"""
+    deadline = monotonic() + seconds
+    future = None
+    try:
+        future = application.state.reader.submit(lambda _remaining: operation(deadline), deadline)
+        wrapped = asyncio.wrap_future(future)
+        wrapped.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+        await asyncio.wait_for(asyncio.shield(wrapped), max(0, deadline-monotonic()))
+    except Exception as error:
+        # 单轮观察失败保留原副本；HTTP读取继续表达真实可用性，不阻断其它页面。
+        application.state.live_observation_error = type(error).__name__
+    else:
+        application.state.live_observation_error = None
+    finally:
+        if future is not None:
+            future.cancel()
+
+
+async def _capture_live_observations(application):
+    """App在线时每30秒观察原发布；不依赖浏览器页面，也不创建交易或来源角色。"""
+    while True:
+        await asyncio.sleep(LIVE_OBSERVATION_SECONDS)
+        await _live_observation_call(application, application.state.live_strategy_performance.capture_current, 2)
+
+
 def create_app(settings=None, market_client_factory=None, static_directory=None, watchlist_owner_factory=None):
     """构造只读消费者；生命周期只拥有Web读池、个人自选和独立观察读取。"""
     configured = settings if settings is not None else ConsoleSettings.from_environment()
@@ -62,6 +91,9 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         application.state.watchlist_owner = None
         application.state.observation_owner = None
         application.state.observation_error = None
+        application.state.live_strategy_performance = LiveStrategyPerformanceOwner(configured, history_root=configured.watchlist_root)
+        application.state.live_observation_task = None
+        application.state.live_observation_error = None
         application.state.shutdown_complete = False
         application.state.shutdown_errors = ()
         lifecycle_error = None
@@ -76,15 +108,30 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
             application.state.watchlist_owner = (watchlist_owner_factory or WatchlistOwner)(configured.watchlist_root)
             if configured.watchlist_root:
                 await _initialize_document(application.state.reader, application.state.watchlist_owner)
+            business = bool(configured.wt_current_file) or all((configured.wt_status_file, configured.wt_control_id,
+                configured.wt_instance_id, configured.wt_configuration_sha256))
+            if configured.watchlist_root and business:
+                await _live_observation_call(application, application.state.live_strategy_performance.initialize, 10)
+                application.state.live_observation_task = asyncio.create_task(_capture_live_observations(application))
             yield
         except BaseException as error:
             lifecycle_error = error
             raise
         finally:
+            task_error = None
+            task = application.state.live_observation_task
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except BaseException as error:
+                    task_error = error
             # 取消HTTP不会终止已运行worker；关闭预算覆盖观察、报告及行情的原D。
             deadline = monotonic() + max(configured.wondertrader_market_timeout_seconds,
                                          OBSERVATION_REQUEST_SECONDS, BACKTEST_REQUEST_SECONDS) + .25
-            errors = []
+            errors = [task_error] if task_error is not None else []
             def close(owner, timeout):
                 if owner is None:
                     return True
@@ -96,6 +143,12 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
             close(application.state.watchlist_owner, 0)
             results = [close(owner, max(0,deadline-monotonic())) for owner in
                 (application.state.reader, application.state.backtest_reader, application.state.watchlist_owner)]
+            # 原读池退出后才关闭观察租约，保留任何未回收worker的责任。
+            if results[0]:
+                try:
+                    application.state.live_strategy_performance.close()
+                except BaseException as error:
+                    errors.append(error)
             application.state.shutdown_errors = tuple(errors)
             application.state.shutdown_complete = all(results) and not errors
             if errors:
@@ -116,6 +169,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
     application.add_exception_handler(ObservationError,observation_error)
     application.include_router(observation_router())
     application.include_router(security_router(securities))
+    application.include_router(live_strategy_router())
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(_request,_exception):

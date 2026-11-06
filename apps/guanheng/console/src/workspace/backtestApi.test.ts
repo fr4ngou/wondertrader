@@ -103,3 +103,13 @@ it('显式归档重试只POST原owner/request的archive入口', async () => {
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(fetch.mock.calls[0][0]).toBe(`/v1/ui/backtest/runs/${run.request_id}/archive`)
 })
+
+it('公开归档消费者拒绝已撤回的非WT原组合family', async () => {
+  const reference = { report_family: 'resonance-original', run_id: 'd'.repeat(32), record_count: 3,
+    report_sha256: 'e'.repeat(64), receipt_sha256: 'f'.repeat(64), scope: 'retired-normalized-reference',
+    configuration: archiveEntry.configuration,
+    summary: { report_family: 'resonance-original', strategy: { id: 'resonance-original-351f9d5-stable', version: '0.1.0a1' },
+      initial_equity: 1, unit: 'normalized-equity' } }
+  vi.mocked(fetchReadJson).mockResolvedValue({ ...archiveIndex, schema: 'nbw-archive-summary-index-v1', runs: [reference] })
+  await expect(fetchBacktestArchiveSummaries()).rejects.toThrow('格式或身份无效')
+})

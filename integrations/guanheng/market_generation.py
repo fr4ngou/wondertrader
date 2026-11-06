@@ -148,7 +148,7 @@ def load_generation(value, *, max_response_bytes):
     try:
         from ..guanheng_market_client import API_VERSION
         reply = market.call(dict(api_version=API_VERSION, action='market.source-snapshot-query',
-                                 request=dict(date=value['observation_date'])))
+                                 request=dict(date=value['observation_date'],include_supplement=True)))
         if reply['status']['code'] != 'Ok' or reply['data']['snapshot_id'] != value['snapshot_id']:
             raise ValueError('market generation snapshot differs')
     except BaseException:

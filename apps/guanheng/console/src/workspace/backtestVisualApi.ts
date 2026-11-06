@@ -41,6 +41,15 @@ export type Ledger = {
   /** 当前页起始序号。 */ offset: number
   /** 最多50笔原始成交。 */ trades: Trade[]
 }
+export type DaySummary = [number, [string, string][] | null, [string, string][] | null, [string, string][] | null, number | null]
+/** 同报告全部真实日期的紧凑悬停摘要；null为未知，空集合为已知无持仓/成交。 */
+export type DaySummaries = {
+  /** 固定只读摘要协议。 */ schema: 'nbw-day-summaries-v1'
+  /** 原WT运行身份。 */ run_id: string
+  /** 完成收据原字节摘要。 */ receipt_sha256: string
+  /** 原报告摘要。 */ report_sha256: string
+  /** 日期、持仓、买入合计、卖出合计、其它成交笔数。 */ points: DaySummary[]
+}
 const decimal = (v: unknown): v is string => typeof v === 'string' && v.length <= 512 && /^-?\d+(?:\.\d+)?$/.test(v)
 const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 512 && !/[\u0000-\u001f]/.test(v)
 const nullableNumber = (v: unknown) => v === null || typeof v === 'number' && Number.isFinite(v)
@@ -52,6 +61,29 @@ function keys(v: Record<string, unknown>, expected: string) {
 function identity(v: unknown, e: ArchiveEntry) {
   if (!isObject(v) || v.run_id !== e.run_id || v.receipt_sha256 !== e.receipt_sha256 || v.report_sha256 !== e.report_sha256) invalidBacktest()
   return v
+}
+/** 每个固定报告只读取一次；光标移动完全使用本地已核摘要。 */
+export async function fetchDaySummaries(entry: ArchiveEntry, signal?: AbortSignal): Promise<DaySummaries> {
+  const value = identity(await fetchBacktestReadJson<unknown>(`/v1/ui/backtest/archive/${entry.run_id}/day-summaries?receipt_sha256=${entry.receipt_sha256}`, '日期摘要', signal), entry)
+  boundedBacktestTree(value)
+  keys(value, 'schema run_id receipt_sha256 report_sha256 points')
+  if (value.schema !== 'nbw-day-summaries-v1' || !Array.isArray(value.points) || value.points.length !== entry.record_count) invalidBacktest()
+  let previous = 0
+  for (const row of value.points) {
+    if (!Array.isArray(row) || row.length !== 5 || !tradingDate(row[0]) || row[0] <= previous || row[4] !== null && !count(row[4])) invalidBacktest()
+    previous = row[0]
+    for (const values of row.slice(1, 4)) {
+      if (values === null) continue
+      if (!Array.isArray(values) || values.length > 4096) invalidBacktest()
+      const symbols = new Set<string>()
+      for (const pair of values) {
+        if (!Array.isArray(pair) || pair.length !== 2 || !text(pair[0]) || !decimal(pair[1]) || symbols.has(pair[0])) invalidBacktest()
+        symbols.add(pair[0])
+      }
+    }
+    if ((row[2] === null) !== (row[3] === null) || (row[2] === null) !== (row[4] === null)) invalidBacktest()
+  }
+  return value as DaySummaries
 }
 /** 使用既有31秒HTTP预算；响应绑定完成收据，不触发回测或交易。 */
 export async function fetchVisuals(entry: ArchiveEntry, signal?: AbortSignal): Promise<Visuals> {

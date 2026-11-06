@@ -967,3 +967,5 @@
 - [市场补充事实与每日接入](2026-11-06-market-supplement-facts.md)
 
 - [原版策略与WT报告只读接入](2026-11-06-original-strategy-readonly.md)
+
+- [撤回非WT原组合公开入口](2026-11-06-orr-public-withdrawal.md)

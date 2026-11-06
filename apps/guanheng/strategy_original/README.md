@@ -41,17 +41,11 @@ python -B apps/guanheng/strategy_original/run.py run --source "research/resonanc
 - `data_audit`：输入覆盖、缺失、日历缺口和可复算派生字段比较；不匹配保留实际计数。
 - `model`：原成交时点、分配、零费用、浮点份额、历史最终行和逐时点限制。
 
-原组合在**下一交易日收盘**成交；首个买点可用全仓，新BUY按全部权益等权分配，SELL释放现金且其余仓位保持。费用、滑点、100份整手、涨跌停、流动性和券商约束需要后续独立模型验证。当前报告用于原组合对照，`execution_qualified`和`point_in_time_qualified`始终为false。观衡通过独立ORR只读报告族展示，正式WT回测采用独立original-native身份与人民币模型，分别比较。
+原组合在**下一交易日收盘**成交；首个买点可用全仓，新BUY按全部权益等权分配，SELL释放现金且其余仓位保持。费用、滑点、100份整手、涨跌停、流动性和券商约束需要后续独立模型验证。当前报告用于原组合对照，`execution_qualified`和`point_in_time_qualified`始终为false。当前观衡仅公开WT原版的original-native身份与人民币模型；该非WT原组合结果只保留在Git忽略研究目录，作为内部核对。
 
-## 只读报告导入
+## 内部参考与公开范围
 
-App维护入口接受显式manifest和现有归档根目录：
-
-```powershell
-python -B -m guanheng_app.original_report_import --manifest "<绝对路径import.json>" --archive-root "<已配置归档根绝对路径>"
-```
-
-manifest字段、原件摘要、分页和单位合同沿[ORR-06](../../../docs/specs/original-resonance-reference.md#orr-06-观衡只读目录与报告导入)。导入保留报告、输入、算法清单原件，完成证明最后发布；同run身份拒绝覆盖。该命令不重新运行算法，不改变已有报告或运行策略。
+WT回测继续通过固定原版算法冻结BUY/SELL信号和 `reference_report`，核同完整输入及报告摘要。观衡公开入口仅保留原版WT策略；非WT原组合的App导入CLI、报告API及专属页面已退出。原组合研究文件和已发行阶段原件留在Git忽略研究目录，不作为线上策略、账户或收益记录。
 
 ## 验证边界
 

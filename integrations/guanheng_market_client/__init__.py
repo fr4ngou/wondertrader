@@ -16,7 +16,7 @@ import time
 from urllib.parse import urlsplit
 
 
-__version__ = "0.19.0"
+__version__ = "0.20.0"
 API_VERSION = "guanheng.market.v1"
 MAX_REQUEST_BYTES = 262144
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -370,6 +370,9 @@ def validate_response(value, request):
         validate_market_snapshot(data)
         if data['observation_date'] != request['request']['date']:
             raise MarketProtocolError('market snapshot date differs from request')
+        if (not request['request'].get('include_supplement',False)
+                and 'supplement_facts_sha256'in data['provenance']):
+            raise MarketProtocolError('market snapshot projection differs from request')
     elif action in ("history.query", "history.read"):
         r = request["request"]
         selected = "period_minutes" in r or "limit" in r
@@ -713,9 +716,10 @@ class MarketClient(_JSONTransport):
         """同一WT入口批读最多64证券；逐项保留原来源、价格口径、缺失及覆盖状态。"""
         return self.call(dict(api_version=API_VERSION,action='history.source-daily-batch-query',request=request))
 
-    def source_market_snapshot_query(self, day):
-        """读取定日股票池、资料和落盘版本；供后续批次固定同一snapshot_id。"""
-        return self.call(dict(api_version=API_VERSION,action='market.source-snapshot-query',request=dict(date=day)))
+    def source_market_snapshot_query(self, day, *, include_supplement=True):
+        """默认读取完整落盘身份；显式False取得兼容旧消费者的独立合法投影。"""
+        return self.call(dict(api_version=API_VERSION,action='market.source-snapshot-query',
+            request=dict(date=day,include_supplement=include_supplement)))
 
     def source_security_query(self, request):
         """同版本读取证券资料、实际首尾和窗口内日期缺口；最多366自然日。"""
