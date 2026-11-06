@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-strategy-native"
-version = "0.1.0a1+read2"
+version = "0.1.0a2+read1"
 description = "Pure generation-frozen native strategy quantity stages"
 readme = "README.md"
 requires-python = ">=3.12"

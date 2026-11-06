@@ -19,7 +19,7 @@ from guanheng_strategy_v1 import (
     describe_evaluation, summarize_diagnostics, contextualize_diagnostics,
     RetainedValidationError, SYMBOLS, STRATEGY_ID, STRATEGY_VERSION,
 )
-from .retained_evaluation import evaluate_retained, advance_retained
+from .retained_evaluation import evaluate_retained, advance_retained, QUANTITY_MODEL
 from .strategy_porter import BacktestConfig, BacktestPorter, Callbacks, Target
 from .strategy_replay_facts import (
     SessionError, _digest, _json, admit_native_files, capture_native,
@@ -233,7 +233,7 @@ class RetainedBacktestSession:
                 capture = replace(capture, basis=replace(capture.basis, input_sha256=result['input_sha256']))
                 from .execution_facts import buy_fee_basis
                 def fee_basis(target, current_basis, observation):
-                    # 与实时共用费用装配；旧代交接与新代分别使用实际消费目标，不改原NSQ。
+                    # 与实时共用费用装配；仅为实际消费的最新目标装配一次费用basis。
                     nonlocal capture
                     basis = buy_fee_basis(target, self._inputs.policy, current_basis, observation,
                         self._mapping, self._native_fees, self._native_fee_source, split_fills=False)
@@ -320,6 +320,7 @@ class RetainedBacktestSession:
                 raise SessionError('原生完成输出缺失或超过有界容量')
             native_outputs.append((name, sha256(path.read_bytes()).hexdigest()))
         report = dict(schema=REPORT_SCHEMA, session_id=self._session_id, input_sha256=self._input_id,
+            quantity_model=QUANTITY_MODEL,
             scope=REPORT_SCOPE, policy=self._inputs.policy,
             configuration_sha256=sha256(canonical_bytes(self._inputs.request.configuration)).hexdigest(),
             strategy_id=STRATEGY_ID, strategy_version=STRATEGY_VERSION, historical_model=self._inputs.model,

@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-app"
-version = "0.1.0a118+current.auxiliary.1"
+version = "0.1.0a119+targethandoff.1"
 description = "Independently managed Guanheng business application on WonderTrader"
 requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]
@@ -16,9 +16,9 @@ dependencies = [
   "pyarrow==26.0.0",
   "guanheng-market-client==0.18.0",
   "guanheng-strategy-core==0.1.0a8",
-  "guanheng-strategy-native==0.1.0a1+read2",
+  "guanheng-strategy-native==0.1.0a2+read1",
   "guanheng-strategy-v1==0.1.0a13",
-  "guanheng-wt-runtime==0.1.0a11+read10.diagnostics.1",
+  "guanheng-wt-runtime==0.1.0a11+read11.targethandoff.1",
 ]
 
 [project.scripts]

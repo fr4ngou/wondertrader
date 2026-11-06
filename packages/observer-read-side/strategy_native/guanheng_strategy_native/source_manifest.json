@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "package": "guanheng-strategy-native",
-  "version": "0.1.0a1+read2",
+  "version": "0.1.0a2+read1",
   "runtime": "Python >=3.12 standard library",
   "runtime_dependencies": [],
   "specifications": [
-    "NSQ-R1..R5",
+    "NSQ-R1..R6",
     "NSK-R1..R7"
   ],
   "implementation": "original bounded pure value module; old DB/legs/matching not copied",
@@ -27,5 +27,6 @@
     "portfolio_target_projection.py": "stable complete vector/generation/source allocation; daily observation separate"
   },
   "source_rights": "private development provenance only; redistribution permission not assessed",
-  "native_boundary": "fixed WT 08b230dd05facf6d650d949bfe51054115a2ecb1; no binding in this package"
+  "native_boundary": "fixed WT 08b230dd05facf6d650d949bfe51054115a2ecb1; no binding in this package",
+  "quantity_model": "latest-settled-target-v2"
 }

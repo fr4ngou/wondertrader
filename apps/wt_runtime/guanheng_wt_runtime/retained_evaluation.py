@@ -70,23 +70,38 @@ def _target_for_identity(value, policy, identity, previous_target):
     return target
 
 
-def advance_retained(target, policy, observation, basis, state, *, limits=Limits(), basis_for_target=None):
+QUANTITY_MODEL = 'latest-settled-target-v2'
+LEGACY_QUANTITY_MODEL = 'frozen-generation-stages-v1'
+
+
+def advance_retained(target, policy, observation, basis, state, *, limits=Limits(), basis_for_target=None,
+                     quantity_model=QUANTITY_MODEL):
     """前代交接与原NSQ推进；可选纯装配器按实际消费目标提供费用basis。
 
     basis_for_target(target,basis,observation)只装配原来源值，不执行金融操作；
-    默认直接复用原basis，已有回放/读取调用保持原行为。旧代与新代各调用一次，
-    份数、阶段、现金判定和冻结状态继续完全由原NSQ拥有。
+    新目标可在原冻结阶段actual全部达到、pending全部结清后接续；未决保持原身份。
+    quantity_model只为原报告复现选择旧数学，运行默认采用最新目标接续。
     """
     def current_basis(current):
         return basis if basis_for_target is None else basis_for_target(current,basis,observation)
-    previous_status, outcome = None, None
-    if state is not None and generation_id(target, policy) != state.generation_id:
-        prior = advance(state.target, policy, observation, current_basis(state.target), state, limits=limits)
-        previous_status = prior.status
-        if prior.status == 'converged':
-            state = prior.state
-        else:
-            outcome = prior
-    if outcome is None:
-        outcome = advance(target, policy, observation, current_basis(target), state, limits=limits)
+    if quantity_model == LEGACY_QUANTITY_MODEL:
+        from guanheng_strategy_native.legacy_planner import advance_legacy
+        previous_status, outcome = None, None
+        if state is not None and generation_id(target, policy) != state.generation_id:
+            prior = advance_legacy(state.target, policy, observation, current_basis(state.target), state, limits=limits)
+            previous_status = prior.status
+            if prior.status == 'converged':
+                state = prior.state
+            else:
+                outcome = prior
+        if outcome is None:
+            outcome = advance_legacy(target, policy, observation, current_basis(target), state, limits=limits)
+        return outcome, previous_status
+    if quantity_model != QUANTITY_MODEL:
+        raise ValueError('unsupported quantity execution model')
+    # 交接由数量owner一次判定；运行与报告只消费同一最新目标费用basis。
+    # 记录原冻结阶段，避免为了一个诊断状态先计算已经过期的买入计划。
+    previous_status = (state.phase if state is not None
+        and generation_id(target, policy) != state.generation_id else None)
+    outcome = advance(target, policy, observation, current_basis(target), state, limits=limits)
     return outcome, previous_status

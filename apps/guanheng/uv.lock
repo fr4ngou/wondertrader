@@ -98,7 +98,7 @@ wheels = [
 
 [[package]]
 name = "guanheng-app"
-version = "0.1.0a118+current.auxiliary.1"
+version = "0.1.0a119+targethandoff.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -188,7 +188,7 @@ requires-dist = [{ name = "tzdata", marker = "sys_platform == 'win32'", specifie
 
 [[package]]
 name = "guanheng-strategy-native"
-version = "0.1.0a1+read2"
+version = "0.1.0a2+read1"
 source = { directory = "../../packages/observer-read-side/strategy_native" }
 
 [[package]]
@@ -208,7 +208,7 @@ requires-dist = [
 
 [[package]]
 name = "guanheng-wt-runtime"
-version = "0.1.0a11+read10.diagnostics.1"
+version = "0.1.0a11+read11.targethandoff.1"
 source = { directory = "../../packages/observer-read-side/wt_runtime" }
 dependencies = [
     { name = "guanheng-market-client" },

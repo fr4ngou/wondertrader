@@ -24,3 +24,5 @@ npm缓存须包含本次package-lock声明的依赖；机器默认缓存可能�
 接收ZIP、解压、核manifest并普通离线安装沿[原观衡安装手册](observer-runtime.md)。运行时外部行情/账户发布、观察数据、报告和个人目录分别配置；构建与安装不启动业务进程，不修改WT或QMT。实际来源继承、新安装验证、完整系统和生产资格沿每次交付记录分别核对。
 
 App118当前辅助读取采用冻结V1a13永久快照及其Corea8公共精确依赖，读取侧Core `a8+read2`与Runtime `a11+read10.diagnostics.1`保持原安装身份；不安装Runtime execution extra，不改变生产V1或交易Runtime。原状态行分别表达当前必需消费与历史逐行覆盖，两个公开策略入口共用可选当前消费投影。构建后须普通离线安装、pip check，并沿实际归档核旧/新报告兼容；完整约束见[SDO-R4-current](../specs/strategy-data-and-observability.md#sdo-r4-current-当前辅助消费公开读取)。
+
+最新目标接续候选读取侧为NSQ `0.1.0a2+read1`及Runtime `0.1.0a11+read11.targethandoff.1`，按报告数量模型分别复核旧/新数学，原标量缓存保持。完整归档读取验证见[接续证据](../evidence/2026-11-06-quantity-target-handoff.md)。统一发布时分配新App版本并按本手册重新构建、安装及18143验真；候选同版本App wheel仅作隔离验证。

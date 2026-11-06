@@ -12,7 +12,7 @@ from guanheng_strategy_v1 import RetainedHistoricalModel, SYMBOLS, STRATEGY_ID, 
 from guanheng_strategy_v1 import validate_diagnostics, contextualize_diagnostics, failure_diagnostics, describe_evaluation
 from guanheng_strategy_v1.role_profile import ROLE_SYMBOLS, READABLE_STRATEGY_VERSIONS
 from .retained_replay import REPORT_SCHEMA, REPORT_SCOPE
-from .retained_evaluation import target_for_report_result, advance_retained
+from .retained_evaluation import target_for_report_result, advance_retained, QUANTITY_MODEL, LEGACY_QUANTITY_MODEL
 from .strategy_replay_facts import SessionError, _MODEL, _digest, _json, _quantity
 from .report_values import _snapshot_json, _freeze_json, _thaw_json, _run_report_checked
 
@@ -53,6 +53,9 @@ def keys(value, names):
     optional = {'diagnostics'} if type(value) is dict and value.get('schema') in (
         'guanheng.retained-replay-report.v1', 'guanheng.retained-per-date-replay-report.v1',
         'guanheng.retained-replay-decision.v1') else set()
+    if type(value) is dict and value.get('schema') in (
+        'guanheng.retained-replay-report.v1', 'guanheng.retained-per-date-replay-report.v1'):
+        optional = optional | {'quantity_model'}
     need(type(value) is dict and expected <= set(value) <= expected | optional)
     return dict(value)
 
@@ -287,6 +290,8 @@ def _admit(value, check, *, per_date=False):
     try:
         value = _snapshot_json(value, maximum=8388608, check=check)
         profile = report_identity(value)
+        quantity_model = value.get('quantity_model', LEGACY_QUANTITY_MODEL)
+        need(quantity_model in (QUANTITY_MODEL, LEGACY_QUANTITY_MODEL))
         natives = profile.natives
         keys(value, 'schema session_id input_sha256 configuration_sha256 policy scope strategy_id strategy_version '
             'historical_model status native_files native_outputs callback_counts records source_qualified execution_qualified'
@@ -353,7 +358,8 @@ def _admit(value, check, *, per_date=False):
             target = target_for_report_result(record['result'], policy,
                 strategy_id=profile.strategy_id, strategy_version=profile.strategy_version, algorithm_id=profile.algorithm_id,
                 previous_target=prior_state.target if prior_state is not None else None)
-            expected, previous_status = advance_retained(target, policy, observation, b, prior_state)
+            expected, previous_status = advance_retained(target, policy, observation, b, prior_state,
+                                                       quantity_model=quantity_model)
             need(out == expected and record['previous_status'] == previous_status)
             prior_state = out.state
             if out.state is not None:

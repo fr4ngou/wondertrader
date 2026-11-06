@@ -92,14 +92,14 @@ class StageState:
     相同state可重复推进；本模块不对原生写入、成交或pending撤销作确认。
     """
 
-    target: EconomicTarget
-    policy: QuantityPolicy
-    basis: Basis
-    phase: str
-    sequence: int
-    starts: tuple[Quantity, ...]
-    targets: tuple[Quantity, ...]
-    version: int = 1
+    target: EconomicTarget  # 当前冻结阶段对应的完整经济目标。
+    policy: QuantityPolicy  # 数量单位、整手与明确本金的计算规则。
+    basis: Basis  # 冻结时的价格、资金和原生观察身份。
+    phase: str  # 等待买入、卖出、买入或已完成的业务阶段。
+    sequence: int  # 当前计划的诊断阶段序号；不限制可执行次数。
+    starts: tuple[Quantity, ...]  # 冻结时实际数量，界定允许的阶段进展。
+    targets: tuple[Quantity, ...]  # 本阶段完整冻结目标，保留零数量证券。
+    version: int = 1  # 冻结值结构版本，恢复时完整核验。
 
     def __post_init__(self):
         if type(self.version) is not int or self.version != 1:
@@ -108,7 +108,8 @@ class StageState:
             "awaiting_buy", "selling", "buying", "converged"
         ):
             raise QuantityError("state: invalid phase")
-        integer(self.sequence, "stage sequence", 64)
+        if type(self.sequence) is not int or self.sequence < 0:
+            raise QuantityError("state: nonnegative diagnostic sequence required")
         if (self.phase == "awaiting_buy" and self.sequence != 0) or (
             self.phase != "awaiting_buy" and self.sequence < 1
         ):
@@ -276,21 +277,22 @@ def advance(
     _observe(target, policy, observation, basis)
     _text_budget((target, policy, observation, basis, state), limits)
     if state is not None:
-        if state.sequence > limits.max_stages:
-            return Outcome("blocked", "stage_budget_exhausted", state)
         if datetime.fromisoformat(observation.observed_at) < datetime.fromisoformat(
             state.basis.observed_at
         ):
             return Outcome("blocked", "observation_precedes_frozen_basis", state)
         if generation_id(target, policy) != state.generation_id:
-            if state.phase != "converged":
-                return Outcome("supersession_required", "prior_generation_unresolved", state)
             if target.universe != state.target.universe:
                 return Outcome("supersession_required", "universe_handoff_required", state)
             check = _current_stage(state, observation)
-            if check.status != "converged":
+            if check is not None and check.status != "converged":
                 return check
-            # 新代际从当前原生观察开始，绝不暗示撤销旧pending。
+            if state.phase == "selling" and (
+                basis.native_observation_id == state.basis.native_observation_id
+            ):
+                return Outcome("waiting_basis", "fresh_post_sell_basis_required", state)
+            # actual已到旧冻结阶段目标、pending为空，直接按本次最新经济目标接续。
+            # 旧卖出阶段结束不等于旧整轮买入完成；无需计算或保留旧买入费用。
             state = None
         else:
             current = _current_stage(state, observation)
@@ -310,8 +312,6 @@ def advance(
     computed = target_quantities(target, policy, basis)
     starts = tuple(Quantity(row.symbol, row.actual) for row in observation.positions)
     sequence = 1 if state is None else state.sequence + 1
-    if sequence > limits.max_stages:
-        return Outcome("blocked", "stage_budget_exhausted", state)
     if any(start.shares > row.shares for start, row in zip(
         starts, computed, strict=True
     )):

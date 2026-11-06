@@ -244,13 +244,11 @@ class Observation:
 
 @dataclass(frozen=True, slots=True)
 class Limits:
-    """部署可收紧的硬预算：最多8证券、64阶段、65536输入字符串字符。"""
+    """单次输入的文本资源预算；业务阶段数不参与交易准入。"""
 
-    max_stages: int = 16
-    max_text_chars: int = 16384
+    max_text_chars: int = 16384  # 单次公开值输入的文本字符预算，限制内存占用。
 
     def __post_init__(self):
-        integer(self.max_stages, "max_stages", 64)
         integer(self.max_text_chars, "max_text_chars", 65536)
-        if self.max_stages < 1 or self.max_text_chars < 1:
+        if self.max_text_chars < 1:
             raise QuantityError("limits: invalid deployment budget")

@@ -1,6 +1,6 @@
 # 观衡原生策略数量阶段
 
-`guanheng-strategy-native` 是独立 Python 3.12 标准库包，版本 `0.1.0a1`。唯一推进入口为 `advance`；`generation_id` 与 `target_quantities` 提供可单独核验的身份及精确数量计算。依据 NSQ-R1–R5 与 NSK，当前范围为纯计算、冻结阶段及恢复值验证。
+`guanheng-strategy-native` 是独立 Python 3.12 标准库包，版本 `0.1.0a2`。唯一推进入口为 `advance`；`generation_id` 与 `target_quantities` 提供可单独核验的身份及精确数量计算。依据 NSQ-R1–R6 与 NSK，当前范围为纯计算、冻结阶段及恢复值验证。
 
 ## 事实所有者与原生接缝
 
@@ -34,7 +34,7 @@ WT-S01、WT-S05、WT-B01/B02 对应固定 WT `08b230dd05facf6d650d949bfe51054115
 4. 没有残余卖出时，全组新增买入名义额加显式费用预留须小于等于同 basis 现金。未知费用返回 `waiting_fee`；不足返回 `waiting_cash`；均保留原 state。整组一次冻结，不缩权重，不分证券抢余额。
 5. 买入向量冻结后返回 `buying`，在允许范围内的部分 actual 保持冻结量；全部 actual 到达且 pending 为空后 `converged`。此后每日新输入/价格/NAV/现金变化均复用同代际冻结量。当前现金、原生费用及实际写入资格仍由宿主执行边界核对。
 6. pending 等于冻结目标返回 `waiting_pending`，即使 actual 回显与目标相等也不确认成交；pending 冲突返回 `blocked/native_pending_conflict`。actual 超出阶段冻结范围返回 `blocked/actual_outside_frozen_stage`。
-7. 新代际遇旧阶段未解决返回 `supersession_required`，保留旧状态。仅旧 `converged` 且当前 actual/pending 再次核实后，才为同 execution universe 启动新代际；universe 改变需要显式交接。模块不假装取消 pending，不授覆盖原生目标资格。
+7. 新代际由同一 `advance` 核对旧冻结阶段。actual全部到达且pending为空时，已结清卖出或尚未提交买入的等待阶段可接纳最新目标；卖出结清须使用新的原生capture。旧阶段尚有未决或实际未到目标时，继续该阶段；universe改变返回显式交接要求。运行和报告均只使用本次消费目标的费用basis，原冻结阶段另存诊断，不计算过期买入。
 
 `Outcome.submit_targets` 非空仅表示本次纯阶段判定允许宿主考虑整向量；它不表示已经提交或成交。同一 state/观察重复调用输出一致，宿主须在每次推进前刷新 actual/pending；不能将重复纯输出解释为新命令身份。
 
@@ -42,7 +42,7 @@ WT-S01、WT-S05、WT-B01/B02 对应固定 WT `08b230dd05facf6d650d949bfe51054115
 
 `StageState` 绑定版本1、target、policy、冻结 basis、sequence、starts 与 targets。`starts` 是冻结时点数量快照，用于该阶段允许范围和可重现决策，不累计成交或更新持仓。恢复应从完整冻结输入构造同一组不可变值；构造器重新计算并核卖出向量、买入向量及冻结现金资格。`state_id` 绑定全部内容，`generation_id` 继续只绑定经济值。受管宿主须在启动 native 前校验来源/配置/版本/状态身份；本包未定义新的持久化 owner 或 JSON 文件格式。
 
-部署预算 `Limits` 默认16阶段、16384输入字符串字符，可收紧；硬上限64阶段、65536字符。每个文本字段至多256字符，时间40、证券64；每个数值表示至多256字符、64有效系数位、十进制指数绝对值64，Decimal 对象占用至多1024字节；int 表示另限256 bit。每种行 tuple 至多8项且唯一。预算计当前输入与保留 state 的全部字符串，输出为其中有界值及固定原因。新阶段超预算返回 `blocked/stage_budget_exhausted`，保留原冻结状态。计算复杂度由8行和有界精确数值限制；不创建重试、后台循环或历史状态链。
+资源预算 `Limits` 只限制输入文本量（默认16384字符，最多65536），数值和证券行沿原有边界准入。阶段序号只用于诊断，16次、64次及跨日继续均沿同一业务逻辑推进。每次调用只处理当前观察及一个不可变状态，保持最多8行的纯计算，不积累历史状态链。运行接缝在已结清旧阶段收到新经济目标时，从本次实际观察建立新计划；未决委托及实际数量未到冻结目标时保留原计划。旧报告单独按其原模型只读复核，新回测显式记录数量模型身份。
 
 ## 安装与验证
 
@@ -52,6 +52,6 @@ WT-S01、WT-S05、WT-B01/B02 对应固定 WT `08b230dd05facf6d650d949bfe51054115
 python -B -m unittest discover -s tests/integration/strategy_quantities -v
 ```
 
-应在隔离 wheel 安装环境运行，并从包外目录启动；开发源路径不进入 Python 搜索路径。验证覆盖 NSQ-R1–R5、200个独立整数参考向量、同代际漂移、A→B→A、dated/initial zero、费用跨整手残余卖出、现金/费用等待恢复、T+1、pending/actual 区分、冻结状态重建、不可变性和数值/容量拒绝。实际命令与结果保存在本次构建证据目录。
+应在隔离 wheel 安装环境运行，并从包外目录启动；开发源路径不进入 Python 搜索路径。验证覆盖 NSQ-R1–R6、200个独立整数参考向量、同代际漂移、A→B→A、dated/initial zero、费用跨整手残余卖出、现金/费用等待恢复、T+1、pending/actual 区分、冻结状态重建、不可变性和数值/容量拒绝。实际命令与结果保存在本次构建证据目录。
 
 当前纯转换通过不授实际 BT/CTA 成交、原生提交/恢复、HTTP/页面、真实行情、账户或生产资格。固定原生 `get_all_position/get_position` 的 pending 覆盖、void setter 和撤销限制由另行原生实验核实；本包没有猜测这些接口能力。
