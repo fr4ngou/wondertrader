@@ -172,7 +172,12 @@ class BacktestArchive:
         return read.directory(root / run_id)
 
     def _load(self, read, run_id, receipt_sha=None):
-        directory = self._run(read, run_id)
+        try:
+            directory = self._run(read, run_id)
+        except FileNotFoundError:
+            # 仅run查找缺失属于404；根目录/总D仍须可用，原件缺失继续沿完整性错误。
+            read.directory(self.root)
+            raise ArchiveError('历史报告不存在或已移出当前归档，请重新读取报告目录', 404) from None
         value, raw = read.value(directory / RECEIPT, MAX_RECEIPT)
         _require(not (type(value) is dict and value.get('schema') == 'orr-completed-archive-v1'),
                  '该非WT报告族已移出观衡，请读取WT回测报告', 410)

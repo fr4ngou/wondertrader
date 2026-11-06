@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 from time import monotonic
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -76,3 +77,54 @@ def test_original_native_unknown_versions_never_fall_through_legacy():
     from guanheng_app.strategy_replay_facts import SessionError
     with pytest.raises(SessionError):dispatch.report_schema_for_input(dict(schema='guanheng.original-native-replay-input.v2'))
     with pytest.raises(SessionError):dispatch.validate_report_dict(dict(schema='guanheng.original-native-replay-report.v2'))
+
+
+def native_receipt(root):
+    from guanheng_app.backtest_archive import SCHEMA,SCOPE
+    run=root/('a'*32);run.mkdir()
+    value=dict(schema=SCHEMA,run_id=run.name,owner_id='b'*32,request_id='c'*32,
+        request_sha256='d'*64,installation_sha256='e'*64,result_sha256='f'*64,report_sha256='1'*64,
+        record_count=0,pid=1234,exit_code=0,forced=False,pid_reaped=True,pipes_joined=True,
+        elapsed_ms=1,scope=SCOPE,configuration=dict(label='isolated receipt',name='fixture',
+            start=202601050930,end=202601051500,session_sha256='2'*64,max_seconds=30))
+    raw=json.dumps(value).encode();(run/'completed-archive.json').write_bytes(raw)
+    return run.name,sha256(raw).hexdigest()
+
+
+def test_missing_run_all_readonly_http_projections_are_404(tmp_path):
+    root=tmp_path/'archive';root.mkdir();run='d'*32
+    with TestClient(create_app(ConsoleSettings(backtest_archive_root=str(root)))) as client:
+        for suffix in ('','/performance','/records','/records/0','/visuals','/day-summaries','/ledger'):
+            response=client.get(f'/v1/ui/backtest/archive/{run}{suffix}',params={'receipt_sha256':'a'*64})
+            assert response.status_code==404,response.text
+        compared=client.get('/v1/ui/backtest/comparison',params=dict(left_run_id=run,
+            left_receipt_sha256='a'*64,right_run_id='e'*32,right_receipt_sha256='b'*64))
+        assert compared.status_code==404,compared.text
+        assert client.get('/v1/ui/backtest/archive').json()['runs']==[]
+
+
+@pytest.mark.parametrize('case',('missing-root','missing-receipt','unknown-receipt','malformed-receipt','missing-native-originals','receipt-conflict'))
+def test_archive_source_and_integrity_failures_keep_their_status(tmp_path,case):
+    root=tmp_path/'archive';run='d'*32;digest='a'*64
+    if case!='missing-root':root.mkdir()
+    if case in ('missing-receipt','unknown-receipt','malformed-receipt'):
+        directory=root/run;directory.mkdir()
+        if case=='unknown-receipt':(directory/'completed-archive.json').write_text('{"schema":"unknown-native.v99"}')
+        if case=='malformed-receipt':(directory/'completed-archive.json').write_text('{')
+    if case in ('missing-native-originals','receipt-conflict'):
+        run,digest=native_receipt(root)
+        if case=='receipt-conflict':digest='0'*64
+    with pytest.raises(ArchiveError)as failure:
+        BacktestArchive(root).read(run,digest,monotonic()+5,configuration=True)
+    assert failure.value.code==(409 if case=='receipt-conflict'else 503)
+
+
+def test_archive_root_loss_during_run_lookup_remains_503(tmp_path):
+    import guanheng_app.backtest_archive as archive
+    root=tmp_path/'archive';root.mkdir();run='d'*32;original=archive._Read.directory
+    def lose_root(read,path):
+        if Path(path)==root/run:root.rmdir()
+        return original(read,path)
+    with patch.object(archive._Read,'directory',lose_root),pytest.raises(ArchiveError)as failure:
+        BacktestArchive(root).read(run,'a'*64,monotonic()+5,configuration=True)
+    assert failure.value.code==503
