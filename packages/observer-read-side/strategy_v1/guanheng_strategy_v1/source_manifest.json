@@ -74,16 +74,19 @@
     "Continued actual exits keep original economic event date; resolution creates current decision event",
     "Explicit initial inventory inception; no imported old opening, trades or cycle state; restart retains inception",
     "1.2.1 binds signal/execution to the same role ETF and preserves 1.1.2 actual-cycle, initial inventory and front-ratio mathematics.",
-    "1.2.2 binds the KC role to 588030.SH own market/factor/cycle facts; normal same-ledger role handoff retires only the old zero-inventory NSQ plan."
+    "1.2.2 binds the KC role to 588030.SH own market/factor/cycle facts; normal same-ledger role handoff retires only the old zero-inventory NSQ plan.",
+    "Optional independent current auxiliary view is projected only at the terminal current decision; historical observations and original signal mathematics remain unchanged."
   ],
   "owned_sources": {
-    "__init__.py": "51a416785c6887ed6da91a1426ca1f6dfa2c8cc0c01d0207b7a35ee81c354ebf",
+    "__init__.py": "9140adf7d8ffc3d6f1483befc16730daf6cc76c4786eaceba3abd07f0c58bbcc",
     "historical.py": "d584dabe277ef889b31f73ac3167367204af7541033adf28e17747bc40be34d6",
-    "latest.py": "d54218abb31fa674490279e4faf03da8468fb185c3ae5312d04fd622d28ad16c",
+    "latest.py": "f892ab80da4f988bb227e4f50f90a030c7ea1d4974fc60d4225a2225a8ecc2c9",
     "role_profile.py": "18c4f9271ff9d3e018a8aeee8d8fd366fb9c1e25e7a0435baa1533a7c821ef53",
-    "diagnostics.py": "ef5f1d1659da2dab0521a4535ad72aaad6075c166e5c435c4695f6486875ceb8"
+    "diagnostics.py": "ef5f1d1659da2dab0521a4535ad72aaad6075c166e5c435c4695f6486875ceb8",
+    "auxiliary.py": "903e4fb53a3c9ee775b8f47c0776b0553d2c214550ff23b51f706d64c58e9fb0",
+    "current_auxiliary.py": "f8830b381e01f7f1d6ad2de68b165b6aa058fab725eb00ab44c6ea2e8b344bc9"
   },
-  "package_version": "0.1.0a7+resonance122.diagnostics.1",
+  "package_version": "0.1.0a13",
   "dependencies": {
     "guanheng-strategy-core": "0.1.0a8",
     "tzdata": "2026.3"
@@ -98,5 +101,6 @@
     "signals.py": "79135acf55ea9258b6bf122a5d038a78640eaf07c7b87ca6d6500d4ee9aeb238"
   },
   "business_diagnostics_schema": "guanheng.strategy-business-diagnostics.v1",
-  "auxiliary_research_model": "research-next-common-session-0925-v1"
+  "auxiliary_research_model": "research-next-common-session-0925-v1",
+  "current_auxiliary_schema": "guanheng.current-auxiliary-view.v1"
 }

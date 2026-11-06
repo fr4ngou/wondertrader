@@ -196,6 +196,8 @@ def project_strategy(value, *, runtime_state='ready'):
     capital = project_capital(report.get('capital'), capital_origin, runtime_state=runtime_state)
     if result is not None:
         diagnostics, diagnostics_state, diagnostics_reason = _diagnostics(result, symbols, outcome)
+    from .strategy_current_auxiliary_projection import project_current_auxiliary
+    current, current_state, current_reason = project_current_auxiliary(result, symbols)
     return dict(strategy_id=identity,  # 同轮WT发布的策略身份；不从App当前依赖反推。
                 display_name=definition['display_name'],
                 strategy_version=definition['strategy_version'],  # WT实际版本，未发布时None；不生成缺失版本。
@@ -205,5 +207,8 @@ def project_strategy(value, *, runtime_state='ready'):
                 capital_baseline=capital_origin, capital=capital,
                 diagnostics=diagnostics,  # 本轮V1统一业务诊断；未计算、未记录或无效时为None。
                 diagnostics_state=diagnostics_state,  # 附加信息的可用性，独立于原策略和账户状态。
-                diagnostics_reason=diagnostics_reason)  # 稳定原因码；可用时None，不回显原始诊断。
+                diagnostics_reason=diagnostics_reason,  # 稳定原因码；可用时None，不回显原始诊断。
+                current_auxiliary=current,  # 当前决策消费原值；与历史逐行diagnostics分别表达。
+                current_auxiliary_state=current_state,  # 当前附加信息独立可用性，不影响资金与持仓。
+                current_auxiliary_reason=current_reason)  # 当前未记录/无效的稳定原因；可用时None。
 

@@ -11,6 +11,29 @@ def render(root):
     owner = root / 'apps/guanheng/strategy_v1/guanheng_strategy_v1'
     source = owner / 'diagnostics.py'
     profile = owner / 'role_profile.py'
+    current = owner / 'current_auxiliary.py'
+    auxiliary = owner / 'auxiliary.py'
+    def constant(path, name):
+        return next(ast.literal_eval(node.value) for node in ast.parse(path.read_text(encoding='utf-8-sig')).body
+                    if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets))
+    # 日期数量由冻结原值验证器拥有；只解释其常量条件树，不执行V1或复制一份阈值。
+    current_tree = ast.parse(current.read_text(encoding='utf-8-sig'))
+    value_class = next(node for node in current_tree.body if isinstance(node, ast.ClassDef) and node.name == 'CurrentAuxiliaryValue')
+    limits = next(node.value for node in ast.walk(value_class) if isinstance(node, ast.Assign)
+                  and len(node.targets) == 1 and isinstance(node.targets[0], ast.Tuple)
+                  and [v.id for v in node.targets[0].elts if isinstance(v, ast.Name)] == ['minimum', 'maximum'])
+    def literal(node, field):
+        if isinstance(node, ast.IfExp):
+            return literal(node.body if literal(node.test, field) else node.orelse, field)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == 'self' and node.attr == 'field':
+            return field
+        if isinstance(node, ast.Compare) and len(node.ops) == len(node.comparators) == 1:
+            left, right = literal(node.left, field), literal(node.comparators[0], field)
+            if isinstance(node.ops[0], ast.In):return left in right
+            if isinstance(node.ops[0], ast.Eq):return left == right
+            raise ValueError('V1当前日期数量条件变化，请核实生成接缝')
+        return ast.literal_eval(node)
+    current_ranges = {field: literal(limits, field) for field in constant(current, 'FIELDS')}
     tree = ast.parse(source.read_text(encoding='utf-8-sig'))
     declarations = {}
     for node in tree.body:
@@ -36,6 +59,10 @@ def render(root):
         ('common_roles', {symbol: role for role, symbol in roles.items() if role != remaining_role}, '固定证券到角色的原映射；历史可替换角色按原验证器处理。'),
         ('remaining_role', remaining_role, '本轮其余一个证券归属的角色，兼容已归档物理证券。'),
         ('branches', declarations['BRANCH_FIELDS'], '每角色必需分支及字段顺序，直接取V1声明；无信号阈值或计算。'),
+        ('current_owner_sha256', hashlib.sha256(current.read_bytes()).hexdigest(), '当前原值验证器源码身份；不复制求值实现。'),
+        ('current_fields', constant(current, 'FIELDS'), '当前原值字段集合，直接取V1当前视图声明。'),
+        ('current_dependency_ranges', current_ranges, '每字段依赖日期数量上下界，直接解释冻结V1验证器的原常量条件。'),
+        ('current_derivation_version', constant(auxiliary, 'DERIVATION_VERSION'), '当前原派生版本，直接取V1声明。'),
     ]
     lines = ['// 此文件由 scripts/generate-strategy-diagnostic-wire.py 生成；修改V1声明后重新生成并以--check核对。',
              'export const diagnosticWire = {']

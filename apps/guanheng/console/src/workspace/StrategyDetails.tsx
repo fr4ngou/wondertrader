@@ -9,6 +9,7 @@ import { StatusBadge } from './StatusBadge'
 import { Link } from 'react-router-dom'
 import { StrategyCapitalSummary } from './StrategyCapitalSummary'
 import { strategyKey } from './StrategyPicker'
+import { currentAuxiliaryPresentation } from './currentAuxiliary'
 import type { StrategyDefinition } from './strategyCatalogApi'
 
 type DetailsReadView = { current: Details; account: AccountReadView | undefined }
@@ -83,7 +84,7 @@ export default function StrategyDetails({ strategy }: {
       </div> : <p>本次完整持仓查询返回为空。</p> : <p role="status">{positionGroup?.reason??'当前持仓尚未取得。'}</p>}
 
       {data.calculation_reason ? <p role="status">{data.calculation_reason}</p> : null}
-      {data.calculation ? <p>策略最近计算：{data.calculation.status_label}；决策时间：{clock(data.calculation.decision_at)}</p> : null}
+      {data.calculation ? <p title={currentAuxiliaryPresentation(data.calculation).title}>策略最近计算：{data.calculation.status_label}；决策时间：{clock(data.calculation.decision_at)}；{currentAuxiliaryPresentation(data.calculation).label}</p> : null}
 
     </> : null}
   </section>

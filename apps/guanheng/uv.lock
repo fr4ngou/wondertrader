@@ -98,7 +98,7 @@ wheels = [
 
 [[package]]
 name = "guanheng-app"
-version = "0.1.0a117+runtime.logs.1"
+version = "0.1.0a118+current.auxiliary.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -193,7 +193,7 @@ source = { directory = "../../packages/observer-read-side/strategy_native" }
 
 [[package]]
 name = "guanheng-strategy-v1"
-version = "0.1.0a7+resonance122.diagnostics.1"
+version = "0.1.0a13"
 source = { directory = "../../packages/observer-read-side/strategy_v1" }
 dependencies = [
     { name = "guanheng-strategy-core" },

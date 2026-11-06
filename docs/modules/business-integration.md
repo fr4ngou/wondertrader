@@ -6,6 +6,8 @@
 
 ## 职责与调用链
 
+App118在两个原策略入口共享[当前辅助消费读取](../specs/strategy-data-and-observability.md#sdo-r4-current-当前辅助消费公开读取)：冻结V1a13验证原消费，历史覆盖保持；原状态行显示必需7/7，可用派生总数16仅进入title。生产V1、Runtime和金融状态保持，独立构建/安装及真实归档、浏览器资格见[验收记录](../evidence/2026-11-06-current-auxiliary-public-read.md)。
+
 运行边界遵循[ADR-0016](../architecture/adr/0016-independent-wt-runtime-and-observer.md)：WT独立拥有QMT通信、数据采集/历史、策略及交易生命周期，观衡独立发布且只读消费。下文历史App托管接线的源码位置和既有证据保留；对应owner正按[WRI](../specs/independent-wt-runtime.md)迁至独立WT运行包，历史通过结果不代表最终部署边界已完成。
 
 独立观衡发行沿[ORP](../specs/observer-runtime-package.md)提供App/SPA离线包，显式连接外部WT及已有归档，安装和版本切换保持职责分离；[安装手册](../runbooks/observer-runtime.md)与[六组件开发证据](../evidence/2026-10-30-observer-six-component-package.md)分别登记操作和适用资格。

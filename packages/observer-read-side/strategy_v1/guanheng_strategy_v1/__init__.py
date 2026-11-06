@@ -19,3 +19,6 @@ __all__ = ['ALGORITHM_ID', 'ROLE_SYMBOLS', 'AnalysisBar', 'AnalysisWindow', 'Cur
     'evaluate_historical_model', 'RetainedHistoricalModel', 'validate_retained_configuration',
     'describe_evaluation', 'summarize_diagnostics', 'contextualize_diagnostics',
     'validate_diagnostics', 'failure_diagnostics']
+
+from .current_auxiliary import CurrentAuxiliaryValue, CurrentAuxiliaryView, build_current_auxiliary
+__all__ += ['CurrentAuxiliaryValue', 'CurrentAuxiliaryView', 'build_current_auxiliary']

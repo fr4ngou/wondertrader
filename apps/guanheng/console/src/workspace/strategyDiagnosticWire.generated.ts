@@ -14,4 +14,12 @@ export const diagnosticWire = {
   remaining_role: "kc_composite",
   /** 每角色必需分支及字段顺序，直接取V1声明；无信号阈值或计算。 */
   branches: {"csi300":{"resonance_lamps":["share_probability","turnover_percentile","margin_percentile"]},"sh50":{"entries":["shares_delta_yi"],"sh50_large_redemption":["shares_delta_yi"]},"kc50":{"entries":["shares_delta_yi"],"large_subscription_exemption":["shares_delta_yi"]},"kc_composite":{"kc_cluster_reversal":["shares_delta_yi"],"kc_distribution_cluster":["shares_delta_yi"]},"zz500":{"zz500_cluster_reversal":["shares_delta_yi"],"zz500_distribution_cluster":["shares_delta_yi"]},"zz1000":{},"sc50":{},"dividend":{}},
+  /** 当前原值验证器源码身份；不复制求值实现。 */
+  current_owner_sha256: "f8830b381e01f7f1d6ad2de68b165b6aa058fab725eb00ab44c6ea2e8b344bc9",
+  /** 当前原值字段集合，直接取V1当前视图声明。 */
+  current_fields: ["shares_delta_yi","share_probability","turnover_percentile","margin_percentile"],
+  /** 每字段依赖日期数量上下界，直接解释冻结V1验证器的原常量条件。 */
+  current_dependency_ranges: {"shares_delta_yi":[2,2],"share_probability":[2,2],"turnover_percentile":[20,64],"margin_percentile":[20,60]},
+  /** 当前原派生版本，直接取V1声明。 */
+  current_derivation_version: "resonance-auxiliary-causal-v3",
 } as const

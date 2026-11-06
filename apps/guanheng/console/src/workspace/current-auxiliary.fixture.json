@@ -1,0 +1,2181 @@
+{
+  "schema_version": "guanheng.strategy-runtime.v1",
+  "read_only": true,
+  "observed_at": "2026-11-06T05:13:28.683844+00:00",
+  "state": "available",
+  "strategy": {
+    "strategy_id": "resonance-regime-v1",
+    "display_name": "共振市场状态 ETF 策略",
+    "strategy_version": "1.2.2",
+    "status": "observing",
+    "status_label": "分析运行中",
+    "decision_at": "2026-11-06T03:53:03.966654+00:00",
+    "broker_observed_at": "2026-10-29T11:38:12.578000+00:00",
+    "broker_position_qualified": false,
+    "execution_position_qualified": false,
+    "positions": [
+      {
+        "symbol": "159780.SZ",
+        "target_weight": 0.16646520692477532,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": null,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "510050.SH",
+        "target_weight": 0.0,
+        "theoretical_quantity": 200,
+        "theoretical_sellable": 200,
+        "pending_target": null,
+        "stage_target": null,
+        "broker_quantity": 200,
+        "broker_sellable": 200
+      },
+      {
+        "symbol": "510300.SH",
+        "target_weight": 0.0,
+        "theoretical_quantity": 200,
+        "theoretical_sellable": 200,
+        "pending_target": null,
+        "stage_target": null,
+        "broker_quantity": 200,
+        "broker_sellable": 200
+      },
+      {
+        "symbol": "510500.SH",
+        "target_weight": 0.09912533023258888,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": null,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "512100.SH",
+        "target_weight": 0.20507366297628757,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": null,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "515080.SH",
+        "target_weight": 0.21324837874961775,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": null,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "588000.SH",
+        "target_weight": 0.1667553677690326,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": null,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      },
+      {
+        "symbol": "588030.SH",
+        "target_weight": 0.10204900782432759,
+        "theoretical_quantity": 0,
+        "theoretical_sellable": 0,
+        "pending_target": null,
+        "stage_target": null,
+        "broker_quantity": 0,
+        "broker_sellable": 0
+      }
+    ],
+    "capital_baseline": null,
+    "capital": null,
+    "diagnostics": {
+      "auxiliary_availability_model": "actually-received",
+      "calculation_state": "completed",
+      "error_code": null,
+      "evaluation_range": {
+        "expected_dates": 658,
+        "first_date": "2024-02-20",
+        "last_date": "2026-11-05"
+      },
+      "execution_state": "not_requested",
+      "input_range": {
+        "expected_dates": 757,
+        "first_date": "2023-09-15",
+        "last_date": "2026-11-05"
+      },
+      "roles": {
+        "159780.SZ": {
+          "auxiliary_fields": [],
+          "branches": {},
+          "field_coverage": {
+            "amount": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "close": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "high": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "low": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "open": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "volume": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            }
+          },
+          "input_state": "ready",
+          "last_fully_informed_date": "2026-11-05",
+          "last_successful_calculation_date": "2026-11-05",
+          "latest_action": "HOLD",
+          "latest_missing_fields": [],
+          "role": "sc50",
+          "signal_counts": {
+            "BUY": 7,
+            "SELL": 6
+          },
+          "signal_state": "conditions_not_met"
+        },
+        "510050.SH": {
+          "auxiliary_fields": [
+            "shares_delta_yi"
+          ],
+          "branches": {
+            "entries": {
+              "missing_fields": [
+                "shares_delta_yi"
+              ],
+              "required_fields": [
+                "shares_delta_yi"
+              ],
+              "state": "unavailable"
+            },
+            "sh50_large_redemption": {
+              "missing_fields": [
+                "shares_delta_yi"
+              ],
+              "required_fields": [
+                "shares_delta_yi"
+              ],
+              "state": "unavailable"
+            }
+          },
+          "field_coverage": {
+            "amount": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "close": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "high": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "low": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "open": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "shares_delta_yi": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 658
+                },
+                "non_null_count": 0
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 757
+                },
+                "non_null_count": 0
+              }
+            },
+            "volume": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            }
+          },
+          "input_state": "input_missing",
+          "last_fully_informed_date": null,
+          "last_successful_calculation_date": "2026-11-05",
+          "latest_action": "HOLD",
+          "latest_missing_fields": [
+            "shares_delta_yi"
+          ],
+          "role": "sh50",
+          "signal_counts": {
+            "BUY": 0,
+            "SELL": 0
+          },
+          "signal_state": "input_missing"
+        },
+        "510300.SH": {
+          "auxiliary_fields": [
+            "share_probability",
+            "turnover_percentile",
+            "margin_percentile"
+          ],
+          "branches": {
+            "resonance_lamps": {
+              "missing_fields": [
+                "share_probability",
+                "turnover_percentile",
+                "margin_percentile"
+              ],
+              "required_fields": [
+                "share_probability",
+                "turnover_percentile",
+                "margin_percentile"
+              ],
+              "state": "unavailable"
+            }
+          },
+          "field_coverage": {
+            "amount": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "close": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "high": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "low": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "margin_percentile": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 658
+                },
+                "non_null_count": 0
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 757
+                },
+                "non_null_count": 0
+              }
+            },
+            "open": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "share_probability": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 658
+                },
+                "non_null_count": 0
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 757
+                },
+                "non_null_count": 0
+              }
+            },
+            "turnover_percentile": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 658
+                },
+                "non_null_count": 0
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 757
+                },
+                "non_null_count": 0
+              }
+            },
+            "volume": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            }
+          },
+          "input_state": "input_missing",
+          "last_fully_informed_date": null,
+          "last_successful_calculation_date": "2026-11-05",
+          "latest_action": "HOLD",
+          "latest_missing_fields": [
+            "share_probability",
+            "turnover_percentile",
+            "margin_percentile"
+          ],
+          "role": "csi300",
+          "signal_counts": {
+            "BUY": 0,
+            "SELL": 0
+          },
+          "signal_state": "input_missing"
+        },
+        "510500.SH": {
+          "auxiliary_fields": [
+            "shares_delta_yi"
+          ],
+          "branches": {
+            "zz500_cluster_reversal": {
+              "missing_fields": [
+                "shares_delta_yi"
+              ],
+              "required_fields": [
+                "shares_delta_yi"
+              ],
+              "state": "unavailable"
+            },
+            "zz500_distribution_cluster": {
+              "missing_fields": [
+                "shares_delta_yi"
+              ],
+              "required_fields": [
+                "shares_delta_yi"
+              ],
+              "state": "unavailable"
+            }
+          },
+          "field_coverage": {
+            "amount": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "close": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "high": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "low": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "open": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "shares_delta_yi": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 658
+                },
+                "non_null_count": 0
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 757
+                },
+                "non_null_count": 0
+              }
+            },
+            "volume": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            }
+          },
+          "input_state": "input_missing",
+          "last_fully_informed_date": null,
+          "last_successful_calculation_date": "2026-11-05",
+          "latest_action": "HOLD",
+          "latest_missing_fields": [
+            "shares_delta_yi"
+          ],
+          "role": "zz500",
+          "signal_counts": {
+            "BUY": 2,
+            "SELL": 1
+          },
+          "signal_state": "input_missing"
+        },
+        "512100.SH": {
+          "auxiliary_fields": [],
+          "branches": {},
+          "field_coverage": {
+            "amount": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "close": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "high": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "low": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "open": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "volume": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            }
+          },
+          "input_state": "ready",
+          "last_fully_informed_date": "2026-11-05",
+          "last_successful_calculation_date": "2026-11-05",
+          "latest_action": "HOLD",
+          "latest_missing_fields": [],
+          "role": "zz1000",
+          "signal_counts": {
+            "BUY": 3,
+            "SELL": 2
+          },
+          "signal_state": "conditions_not_met"
+        },
+        "515080.SH": {
+          "auxiliary_fields": [],
+          "branches": {},
+          "field_coverage": {
+            "amount": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "close": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "high": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "low": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "open": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "volume": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            }
+          },
+          "input_state": "ready",
+          "last_fully_informed_date": "2026-11-05",
+          "last_successful_calculation_date": "2026-11-05",
+          "latest_action": "HOLD",
+          "latest_missing_fields": [],
+          "role": "dividend",
+          "signal_counts": {
+            "BUY": 2,
+            "SELL": 1
+          },
+          "signal_state": "conditions_not_met"
+        },
+        "588000.SH": {
+          "auxiliary_fields": [
+            "shares_delta_yi"
+          ],
+          "branches": {
+            "entries": {
+              "missing_fields": [
+                "shares_delta_yi"
+              ],
+              "required_fields": [
+                "shares_delta_yi"
+              ],
+              "state": "unavailable"
+            },
+            "large_subscription_exemption": {
+              "missing_fields": [
+                "shares_delta_yi"
+              ],
+              "required_fields": [
+                "shares_delta_yi"
+              ],
+              "state": "unavailable"
+            }
+          },
+          "field_coverage": {
+            "amount": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "close": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "high": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "low": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "open": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "shares_delta_yi": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 658
+                },
+                "non_null_count": 0
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 757
+                },
+                "non_null_count": 0
+              }
+            },
+            "volume": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            }
+          },
+          "input_state": "input_missing",
+          "last_fully_informed_date": null,
+          "last_successful_calculation_date": "2026-11-05",
+          "latest_action": "HOLD",
+          "latest_missing_fields": [
+            "shares_delta_yi"
+          ],
+          "role": "kc50",
+          "signal_counts": {
+            "BUY": 0,
+            "SELL": 0
+          },
+          "signal_state": "input_missing"
+        },
+        "588030.SH": {
+          "auxiliary_fields": [
+            "shares_delta_yi"
+          ],
+          "branches": {
+            "kc_cluster_reversal": {
+              "missing_fields": [
+                "shares_delta_yi"
+              ],
+              "required_fields": [
+                "shares_delta_yi"
+              ],
+              "state": "unavailable"
+            },
+            "kc_distribution_cluster": {
+              "missing_fields": [
+                "shares_delta_yi"
+              ],
+              "required_fields": [
+                "shares_delta_yi"
+              ],
+              "state": "unavailable"
+            }
+          },
+          "field_coverage": {
+            "amount": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "close": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "high": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "low": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "open": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            },
+            "shares_delta_yi": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 658
+                },
+                "non_null_count": 0
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": null,
+                "last_non_null_date": null,
+                "missing_reasons": {
+                  "not_supplied_in_observation": 757
+                },
+                "non_null_count": 0
+              }
+            },
+            "volume": {
+              "evaluation": {
+                "expected_count": 658,
+                "first_non_null_date": "2024-02-20",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 658
+              },
+              "input": {
+                "expected_count": 757,
+                "first_non_null_date": "2023-09-15",
+                "last_non_null_date": "2026-11-05",
+                "missing_reasons": {},
+                "non_null_count": 757
+              }
+            }
+          },
+          "input_state": "input_missing",
+          "last_fully_informed_date": null,
+          "last_successful_calculation_date": "2026-11-05",
+          "latest_action": "HOLD",
+          "latest_missing_fields": [
+            "shares_delta_yi"
+          ],
+          "role": "kc_composite",
+          "signal_counts": {
+            "BUY": 1,
+            "SELL": 0
+          },
+          "signal_state": "input_missing"
+        }
+      },
+      "schema": "guanheng.strategy-business-diagnostics.v1",
+      "target_state": "produced"
+    },
+    "diagnostics_state": "available",
+    "diagnostics_reason": null,
+    "current_auxiliary": {
+      "schema": "guanheng.current-auxiliary-consumption.v1",
+      "decision_at": "2026-11-06T03:53:03.966654Z",
+      "market_basis_date": "2026-11-05",
+      "data_revision": "79a23c530acc3d0c8c694ce2684123005c4b0c12317a5ced59fb53b137832251",
+      "derivation_version": "resonance-auxiliary-causal-v3",
+      "historical_rows_unchanged": true,
+      "required_fields": {
+        "510300.SH": [
+          "share_probability",
+          "turnover_percentile",
+          "margin_percentile"
+        ],
+        "510050.SH": [
+          "shares_delta_yi"
+        ],
+        "510500.SH": [
+          "shares_delta_yi"
+        ],
+        "512100.SH": [],
+        "588000.SH": [
+          "shares_delta_yi"
+        ],
+        "588030.SH": [
+          "shares_delta_yi"
+        ],
+        "159780.SZ": [],
+        "515080.SH": []
+      },
+      "available_fields": {
+        "159780.SZ": {},
+        "510050.SH": {
+          "share_probability": {
+            "symbol": "510050.SH",
+            "field": "share_probability",
+            "value": 16.858592479767253,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          },
+          "shares_delta_yi": {
+            "symbol": "510050.SH",
+            "field": "shares_delta_yi",
+            "value": -1.431,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          }
+        },
+        "510300.SH": {
+          "margin_percentile": {
+            "symbol": "510300.SH",
+            "field": "margin_percentile",
+            "value": 2.5,
+            "statistic_date": "2026-11-04",
+            "known_by": "2026-11-05T11:37:13.520313+00:00",
+            "source_dates": [
+              "2026-08-05",
+              "2026-08-06",
+              "2026-08-07",
+              "2026-08-10",
+              "2026-08-11",
+              "2026-08-12",
+              "2026-08-13",
+              "2026-08-14",
+              "2026-08-17",
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26",
+              "2026-08-27",
+              "2026-08-28",
+              "2026-08-31",
+              "2026-09-01",
+              "2026-09-02",
+              "2026-09-03",
+              "2026-09-04",
+              "2026-09-07",
+              "2026-09-08",
+              "2026-09-09",
+              "2026-09-10",
+              "2026-09-11",
+              "2026-09-14",
+              "2026-09-15",
+              "2026-09-16",
+              "2026-09-17",
+              "2026-09-18",
+              "2026-09-21",
+              "2026-09-22",
+              "2026-09-23",
+              "2026-09-24",
+              "2026-09-28",
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-08",
+              "2026-10-09",
+              "2026-10-12",
+              "2026-10-13",
+              "2026-10-14",
+              "2026-10-15",
+              "2026-10-16",
+              "2026-10-19",
+              "2026-10-20",
+              "2026-10-21",
+              "2026-10-22",
+              "2026-10-23",
+              "2026-10-26",
+              "2026-10-27",
+              "2026-10-28",
+              "2026-10-29",
+              "2026-10-30",
+              "2026-11-02",
+              "2026-11-03",
+              "2026-11-04"
+            ],
+            "sources": [
+              "036c58dcabe3ddf9648abdbff472192b9f36c77a9a638545d94f9d960dc1cb0b",
+              "0989957ca9952ea040c7da2f32370b3957d40dafc438f10fdc4d16fea1b3a1a2",
+              "10e940bc7c4912c757f21656c99847a99d888981efdf62d08bce8dec36c002b9",
+              "14fda9054ec4656984d465929b43324aaf96fe24ba0706c80dd56b2b80d87ebf",
+              "15993bc4804060c5102e7e94f1ceac60d416a8ec5ecf08918866265b5582ad5c",
+              "1ce61879f2a569cbd7c313939a0f57705704d6c98c64750490232fe82d2d6aad",
+              "2455fa41e60fe1fb1c947e5d660f759ee933f4cf1c1b406c70f26e07f46e7cc3",
+              "29ab027653816fef530673d9db588b6ed6fd8aec3881a02acd4ca7d96a6c8108",
+              "2b0c8d96fb876d1e9245c0ba78c51f4a7894c156bb0749753472ba7352501d01",
+              "2fdf8f031f477a0c6ea32d9498ee0225679cca6a7569cbb66572e32dca8ee043",
+              "31c3a12dae83231bd4fa0f80175bd80228cbb004ca571c914a43cfaaaabf7dc6",
+              "31e1ee31def76fcca26daed801ed82cec568992de4a1a654ed17b2d523027a60",
+              "333b7abd1773b968f9692d25851404579016bf1e0c616edde7b27e1991c86730",
+              "37494bec2d058e086fa58234d5798706a2ddf4291259bb8f55e7c85663742644",
+              "37d28ae727ca4ad9d78bf3c438e680badf312741c7f5f8bf52ca35169c266aca",
+              "3c3bc6493592bd754316ca162f33fae6d2a3e04362273a18a2fe52bf15cc2f59",
+              "3f5dc21ee60ab17eedb6e67620b0f93bd4b730be9fca7239317fc64c307c2b16",
+              "4071bf35b6307d5be201bf83bf5bde7a93c8b832270777161a75b4df8f9bbb33",
+              "45bd21aba5aecca3e8ab67d6ff32212cfd0de03da9989178a1bd115faad8e74c",
+              "4941a523aa71c118711a540ae75a06c44ecccc7e8287b3a833ddbfa03c618961",
+              "4d3e0861fb8f51c12a112d551f4721fab3bc8cb1117928ce0ebb1d9c7cbd9e50",
+              "527d8bd616d632b3629736b87d8744f462b67021a920142e7f4f45d6c331ac23",
+              "54596756005c958700fe3eb1f145e33192c4c5cf0478343eb70b704e7e7a3417",
+              "558529868881cd7c58b8044b4cd1a6aa76b29d6cd254eaa88a77f0f2e34bd0da",
+              "561663f3977ee7c27f6d26e15905cf2c45fd66cac1e97cb2126588c7fa4771cc",
+              "56eec80cd9463ec2bd0e554d1e90565ca4e2c31a37aa1e704ea0e33b4f5d4997",
+              "5ad345ebdbaae7f0393ca6cab492e1cddab5a55aff9f51ec17ebf6e2a0a39e77",
+              "68d9b395343c7d5776c6345f05b6f6921789883fa15d8b23f5aa2bf5bd06f7ac",
+              "6bb17633ee2be9509cabbcb54360ad599e67b6fa78d1af1d05e1d5fc10ae3682",
+              "6f5c0df0891fd4e1404acee5e8d5d34d091891231c8891424238d235c8f2eadd",
+              "707478242ce2c7059e7559d30af789b43e042ac27fce82ba9fc5aae70595ff4d",
+              "76aae00484fce48721e50a9c45a3bceb740e13004ac82c0b2c84c59f95ea84ed",
+              "86e03833e5b6a0aab9e88ee301805e5046ab0d74ba55555beaf0742a2126b6a9",
+              "876d947da85bdf35e2f54ca5ebcf1ef36f2a5a2d54784aecb4961146f20ac070",
+              "8f47e7fa1c29798940e3f04fa1d1fad8f686225420190dcdb28ca8f17623bff5",
+              "92b53fbeb03bf3f7f9e8dad6604d9fc28629a02acdd6c6586598d1bcf2e9234a",
+              "945b9de8741145d18a0954527bfb17caef75b67139a1e82d4511f6033b433d79",
+              "98e256aa626aaac45b64fc689525aaec7b77c26e0a48d2f2970c357c7fef8d22",
+              "9c22f5db35b95552e82e9d9e1ae9ab8b6fb6cca679d8a4dd6b213a913f8fa4f4",
+              "9dca5fdb0ef1328cfeaba597bebebd7659461dfb4f79c2023967d13d2c9fb546",
+              "a2030efdb945ea563c2ba628cbbba049706e453d1134e815eb1e587dac9b57f5",
+              "a965a9fb47ab5d89ae552719f45718af6dca40bc9c8117712b91d4ccd6a1961e",
+              "b113202726b916c890385f4469c719cf89e97d16c7c4dae746d16d01af4a77f8",
+              "b1b364606a169234466b32876a02d8b2d6eaaafb7e2a5296754a0903d1339d91",
+              "b2b1c6a7c3bf531f09fcf959613cfdb68bc3c63fc88788e6994d9859963ecdf3",
+              "b7ce945dcaac8181660ef969e5b2be728feaeccadf8b19a1254819e73b5c496c",
+              "ca43a360e1f758bd699f2fe5c913866f6b1184c07d0496fc09c4d2f0619448de",
+              "ce3f8e13c6fa6ee514af3232de668b0e449f17c8caca5bd0dfd1ee32fd943831",
+              "d4ed428a1df8867fe3a19551e2e9136c78e0e9b2bfa95cc1c8acfebf71755118",
+              "d69b8651f6c9f0f7d7d9997cb6b8af6b96d800aadc260b1548a5769fc75cb7d3",
+              "d765d0d911c43208888c97792273cec88a68662c9f323a0281f7d3d1fcb29d59",
+              "de2cf852aed86f61bc56fd7c8b43345a4c2e55a40cf36f37bb8a3a974a29077b",
+              "e01839e8d053296fd3509ac4970599aae6bc43c4ebd92c4dd08bb5b882749741",
+              "e1fdc39bab50e787ca1cc16755ad1d8c47bdef1bc498438d8608b2eebc10b31b",
+              "e53d5087137de6727f293e0b32e534fb667648a465b08488a6f47363208f3ff4",
+              "eef94f5233722411d1fc0d528c86cd3f2d367c28c91ffa5ef75884d058de6b6d",
+              "f5c68a6f0cb154285018dc6770f8bde778442c3dce504dee984673105c1a4a75",
+              "f66474252a35cd81f4bfa01a33c709907f27bada3f7bb5c0972ee952275c29dc",
+              "fa1d0045deba3e577fdb5ebaaa6dcc39fe44ec7705954e3a9ffa24226d72edd8",
+              "fc77a9f3ba9c887d706a475dca344caf096d8ead3dc71bd666bc6b4de30abbcd"
+            ]
+          },
+          "share_probability": {
+            "symbol": "510300.SH",
+            "field": "share_probability",
+            "value": 34.163872804355954,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          },
+          "shares_delta_yi": {
+            "symbol": "510300.SH",
+            "field": "shares_delta_yi",
+            "value": 1.287,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          },
+          "turnover_percentile": {
+            "symbol": "510300.SH",
+            "field": "turnover_percentile",
+            "value": 47.5,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T11:37:13.805136+00:00",
+            "source_dates": [
+              "2026-07-31",
+              "2026-08-03",
+              "2026-08-04",
+              "2026-08-05",
+              "2026-08-06",
+              "2026-08-07",
+              "2026-08-10",
+              "2026-08-11",
+              "2026-08-12",
+              "2026-08-13",
+              "2026-08-14",
+              "2026-08-17",
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26",
+              "2026-08-27",
+              "2026-08-28",
+              "2026-08-31",
+              "2026-09-01",
+              "2026-09-02",
+              "2026-09-03",
+              "2026-09-04",
+              "2026-09-07",
+              "2026-09-08",
+              "2026-09-09",
+              "2026-09-10",
+              "2026-09-11",
+              "2026-09-14",
+              "2026-09-15",
+              "2026-09-16",
+              "2026-09-17",
+              "2026-09-18",
+              "2026-09-21",
+              "2026-09-22",
+              "2026-09-23",
+              "2026-09-24",
+              "2026-09-28",
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-08",
+              "2026-10-09",
+              "2026-10-12",
+              "2026-10-13",
+              "2026-10-14",
+              "2026-10-15",
+              "2026-10-16",
+              "2026-10-19",
+              "2026-10-20",
+              "2026-10-21",
+              "2026-10-22",
+              "2026-10-23",
+              "2026-10-26",
+              "2026-10-27",
+              "2026-10-28",
+              "2026-10-29",
+              "2026-10-30",
+              "2026-11-02",
+              "2026-11-03",
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "0406b9dcba0f8e40e2877b85d5948cf03273c12cfa4f166f3f0d0ba06ced5dcd",
+              "05b3302a87a0d59892b60aaca400b4130a28ffdff83461ddb4358e856361d998",
+              "05d6d6af79e83ad53bcadf31205b48cac18c2ac0245a1d3b5427789e500906eb",
+              "0be2f2bed2d0b09f5bd3a624a1eb2fd2000207cc7d5f5f0858011a3fd72f09c5",
+              "0fb3b625b7d8f6b806c8bccbea235a56c35ddd25c152e2083e98490ab0aaf9ea",
+              "16d8b0e3a55aaf690e15ce1fd3525552a49faf6cfce6d983412024a4f5ea40f1",
+              "19b07fc84115dac5b85961a4aee82a699748758014c39a6394d8c833a799bc32",
+              "1ac17e3b40f3ec60af141bf19848a9b089477e58a32944d2be690bab93f1a2b5",
+              "1d5329ea028bee0205388a668cc79b140aac105a80d1e36e758563303be26e5a",
+              "1eafa20d39798dfdb0ff1ca1b0843f37be26d18356126abe6473799122eea4e7",
+              "244a1ddfbcb6df46ec29e71678f4df85abd5bda4942c1cf651afab48965daf47",
+              "342e5f92d0f53a3067edadeb27e657513781ac91d0d3f4a060fd6abd15ba73ad",
+              "38089e1c7c54a83e74c530b4bc7e9bbce15b1f801089c6d2ad8bab46b182d3d4",
+              "40dee5ef43682fdeeb134fe25c7f1a3d3e08d3b58265a41fc536e7138d8a26c0",
+              "45a30285f81427dd1b4ff65ae777d9a50714661d4360d2edbe96b9dde06d75ae",
+              "4819799b4c303b65fa5e046a3d62c80907bd8fca6aaff686776a2fc4f3a85813",
+              "493649ad7cf474f3a6c366d2247f99f30510e1034e1d502fd00eac3823b86005",
+              "4a1248bbe1dd0a95b36a2f9ca93291743acf04f25b890eef871e2e945e4b1212",
+              "4a1bde719e17907423e647c75391ffe40f82ca465c397b63a9bba939027e7d8f",
+              "4b0e1b194407315de00537ef41a90a4d52fc868330023f48b829bf57daa983df",
+              "4f52232e09324506225a9d832aa34e9c6df9138cc2f0296340792f7f9704833d",
+              "50eabe7a935037d418361f2f54e733fd40108d6d864e5aa7632da9afa36ac69f",
+              "5605f2010780b6ffdc6ab0a73eb694943390efa6e826daafc3755afa07a0c1bc",
+              "578bc84058d220856ddb6b5715e90f71b9ddb1db68c36809e8189377a7a9b8fc",
+              "581ea5f219f22659ca7e27f252eb25c57039ace25d7957419ff5f6f38316c496",
+              "5ac495e86c1ce194168f789320dbaa347fd1ea8d22141af8be4f486b95ca4996",
+              "61b124912990c97c15bde9cb72fe15bde627db5f945c02dc445c67d2f4695b86",
+              "653567f923897048150edef38b4ba96db0a011a9f57bde958e484640e75a3c87",
+              "66845dc6a14a09da2e0e60d0f840014217016b071695361fdf6ff4d2889b2c10",
+              "683d11be3bcff3bef3b599e945049c6301f79bc59921ee59c248d751113d0fa9",
+              "69ce451bd6eb7f425055a4b079a972e03fe6609648741d667e0b68ad5d61e218",
+              "6c480fa4d1127f7e5ba0e4f7b023bc55738545bb2f1cfb900f90c4708b589fd0",
+              "74dc50be9484efb4f256c1f5242c93934cb7950f62d01a20f063185054ec3d12",
+              "770b493ec858f5ef48b0271251e4ef3eac3147df11a50f185e4d333d059da17a",
+              "771f245d38d34c76ab7661cf5556ed537fc80a59271e59baf1d08c226b39f3fb",
+              "77b24e193cf4f38765640a05f696cd0878abc9d41e6fc3e3b365abb5fc877c38",
+              "7c68812539fc3b65cece6e8c2fe8a6d547fa202cfa31a0cc49a28a0c19840959",
+              "87960ba2b3f4a23918d7904e6fb9ab88924915ed66dd9434bc7f1e29a06cb118",
+              "88d53623a4cbad21a3ee90b2cc023e09993213a33584d0a7ab3f1bf416fae5df",
+              "8de4f006e5fafc2127486a59035d3cb17232fc00c91a321fac3817fdaad69ace",
+              "8df5a8f57745a7579faad4da895e9e8657798e0c7e8aea294a69a5edc9af3c2d",
+              "9a538cc637bb1780b08228bb79693b4ef7de5777758a246cc3fc9baf2a55725c",
+              "a4e669645a5934c983b0451cfb5a19fd4e7e108893160bebd5ccee9f29c7c3ac",
+              "a80ad388cbf7f08077bbbc5586854c495e317ac2e60227f2966015ac59089a82",
+              "a9a0b42efa711ab8ce265fb0cc18dbde48d8624e78fc70a67222fe60c6090a2f",
+              "ae1bea439c05d7608f9b0d5fa4037d936cea3420750e1b5bfddcbfd2b7287c8b",
+              "af76e48a0e2e8ab61c1e4de2f3af97d306ecdc80e254a0084980875097e82a2a",
+              "b303ced56ba3f03008ce5312c9c50bbed831bb520ac74e46c495f33272f87561",
+              "b3fc77756c6b07955b706065ba6f2a2829820c1a8cc153afabd4eb3ef937aa7d",
+              "bceabdc673d7b6604cccdc84083397086405959ad2a689192d56e2952f4d5b0f",
+              "c04c76df79ada571af8ac0177e3f593e6710eeaca2044d77c598fce706fd42e0",
+              "c1c8a12394b371e6ce124b343e0340bbe13c19554743fe048e9e43c210eb707c",
+              "c53ecd8d10e164728fe04636cb83f6b314867b194b923985bdc4195971acd5c8",
+              "c702d7dc5b736c7a6025ea5bf5865263196351ed09ed835df9b2ab28b6312982",
+              "c9f6e0a35eda950867e4c2e81b75ff36d308329b832150975123cfcb6774eea2",
+              "cb1cc053143c691bd6138acb53ecd7a1e02acbaa29f0b3c7fe515ef55f9d83a6",
+              "cb881cbf492e506fc46176698b5f08bf823bed07b1c01a070e828cae7ef4d210",
+              "d05a268d7fc6d8ba8c6800711e0f1d417379a96c077ed10d81bb5d04993bedaf",
+              "d743f5b7852a8a7097564bc5a12501cf865d157fa95fe6d64da117faf0d6451d",
+              "d83538949b9462ae1ce31f4bf736144b4b89ab98f0b87ba1c065545bff23fddd",
+              "d84358b1e52b9abab9b4740fa2567490672236534e4e80620b0e2985de3f7186",
+              "dc1106f8f333179c86eb35782de26cec715de5b3114a02f73fb6b9442687d90a",
+              "dd48253f975af1f2d2d566a624f4e28507d8721e754f67efbaf5e88d63e06376",
+              "fc3fa99c4dc1f9f1de96ba945f3abe997444adc14ee7b5c98bcd6928dd214e39"
+            ]
+          }
+        },
+        "510500.SH": {
+          "share_probability": {
+            "symbol": "510500.SH",
+            "field": "share_probability",
+            "value": 19.762498599118373,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          },
+          "shares_delta_yi": {
+            "symbol": "510500.SH",
+            "field": "shares_delta_yi",
+            "value": -0.68,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          }
+        },
+        "512100.SH": {
+          "share_probability": {
+            "symbol": "512100.SH",
+            "field": "share_probability",
+            "value": 13.350038110820744,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          },
+          "shares_delta_yi": {
+            "symbol": "512100.SH",
+            "field": "shares_delta_yi",
+            "value": -3.28,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          }
+        },
+        "515080.SH": {
+          "share_probability": {
+            "symbol": "515080.SH",
+            "field": "share_probability",
+            "value": 17.298985449898183,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          },
+          "shares_delta_yi": {
+            "symbol": "515080.SH",
+            "field": "shares_delta_yi",
+            "value": -0.61,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          }
+        },
+        "588000.SH": {
+          "share_probability": {
+            "symbol": "588000.SH",
+            "field": "share_probability",
+            "value": 47.12040141403489,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          },
+          "shares_delta_yi": {
+            "symbol": "588000.SH",
+            "field": "shares_delta_yi",
+            "value": 12.99,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          }
+        },
+        "588030.SH": {
+          "share_probability": {
+            "symbol": "588030.SH",
+            "field": "share_probability",
+            "value": 37.84369058540557,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          },
+          "shares_delta_yi": {
+            "symbol": "588030.SH",
+            "field": "shares_delta_yi",
+            "value": 0.12,
+            "statistic_date": "2026-11-05",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ]
+          }
+        }
+      },
+      "consumed_fields": {
+        "159780.SZ": {},
+        "510050.SH": {
+          "shares_delta_yi": {
+            "field": "shares_delta_yi",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ],
+            "statistic_date": "2026-11-05",
+            "symbol": "510050.SH",
+            "value": -1.431
+          }
+        },
+        "510300.SH": {
+          "margin_percentile": {
+            "field": "margin_percentile",
+            "known_by": "2026-11-05T11:37:13.520313+00:00",
+            "source_dates": [
+              "2026-08-05",
+              "2026-08-06",
+              "2026-08-07",
+              "2026-08-10",
+              "2026-08-11",
+              "2026-08-12",
+              "2026-08-13",
+              "2026-08-14",
+              "2026-08-17",
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26",
+              "2026-08-27",
+              "2026-08-28",
+              "2026-08-31",
+              "2026-09-01",
+              "2026-09-02",
+              "2026-09-03",
+              "2026-09-04",
+              "2026-09-07",
+              "2026-09-08",
+              "2026-09-09",
+              "2026-09-10",
+              "2026-09-11",
+              "2026-09-14",
+              "2026-09-15",
+              "2026-09-16",
+              "2026-09-17",
+              "2026-09-18",
+              "2026-09-21",
+              "2026-09-22",
+              "2026-09-23",
+              "2026-09-24",
+              "2026-09-28",
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-08",
+              "2026-10-09",
+              "2026-10-12",
+              "2026-10-13",
+              "2026-10-14",
+              "2026-10-15",
+              "2026-10-16",
+              "2026-10-19",
+              "2026-10-20",
+              "2026-10-21",
+              "2026-10-22",
+              "2026-10-23",
+              "2026-10-26",
+              "2026-10-27",
+              "2026-10-28",
+              "2026-10-29",
+              "2026-10-30",
+              "2026-11-02",
+              "2026-11-03",
+              "2026-11-04"
+            ],
+            "sources": [
+              "036c58dcabe3ddf9648abdbff472192b9f36c77a9a638545d94f9d960dc1cb0b",
+              "0989957ca9952ea040c7da2f32370b3957d40dafc438f10fdc4d16fea1b3a1a2",
+              "10e940bc7c4912c757f21656c99847a99d888981efdf62d08bce8dec36c002b9",
+              "14fda9054ec4656984d465929b43324aaf96fe24ba0706c80dd56b2b80d87ebf",
+              "15993bc4804060c5102e7e94f1ceac60d416a8ec5ecf08918866265b5582ad5c",
+              "1ce61879f2a569cbd7c313939a0f57705704d6c98c64750490232fe82d2d6aad",
+              "2455fa41e60fe1fb1c947e5d660f759ee933f4cf1c1b406c70f26e07f46e7cc3",
+              "29ab027653816fef530673d9db588b6ed6fd8aec3881a02acd4ca7d96a6c8108",
+              "2b0c8d96fb876d1e9245c0ba78c51f4a7894c156bb0749753472ba7352501d01",
+              "2fdf8f031f477a0c6ea32d9498ee0225679cca6a7569cbb66572e32dca8ee043",
+              "31c3a12dae83231bd4fa0f80175bd80228cbb004ca571c914a43cfaaaabf7dc6",
+              "31e1ee31def76fcca26daed801ed82cec568992de4a1a654ed17b2d523027a60",
+              "333b7abd1773b968f9692d25851404579016bf1e0c616edde7b27e1991c86730",
+              "37494bec2d058e086fa58234d5798706a2ddf4291259bb8f55e7c85663742644",
+              "37d28ae727ca4ad9d78bf3c438e680badf312741c7f5f8bf52ca35169c266aca",
+              "3c3bc6493592bd754316ca162f33fae6d2a3e04362273a18a2fe52bf15cc2f59",
+              "3f5dc21ee60ab17eedb6e67620b0f93bd4b730be9fca7239317fc64c307c2b16",
+              "4071bf35b6307d5be201bf83bf5bde7a93c8b832270777161a75b4df8f9bbb33",
+              "45bd21aba5aecca3e8ab67d6ff32212cfd0de03da9989178a1bd115faad8e74c",
+              "4941a523aa71c118711a540ae75a06c44ecccc7e8287b3a833ddbfa03c618961",
+              "4d3e0861fb8f51c12a112d551f4721fab3bc8cb1117928ce0ebb1d9c7cbd9e50",
+              "527d8bd616d632b3629736b87d8744f462b67021a920142e7f4f45d6c331ac23",
+              "54596756005c958700fe3eb1f145e33192c4c5cf0478343eb70b704e7e7a3417",
+              "558529868881cd7c58b8044b4cd1a6aa76b29d6cd254eaa88a77f0f2e34bd0da",
+              "561663f3977ee7c27f6d26e15905cf2c45fd66cac1e97cb2126588c7fa4771cc",
+              "56eec80cd9463ec2bd0e554d1e90565ca4e2c31a37aa1e704ea0e33b4f5d4997",
+              "5ad345ebdbaae7f0393ca6cab492e1cddab5a55aff9f51ec17ebf6e2a0a39e77",
+              "68d9b395343c7d5776c6345f05b6f6921789883fa15d8b23f5aa2bf5bd06f7ac",
+              "6bb17633ee2be9509cabbcb54360ad599e67b6fa78d1af1d05e1d5fc10ae3682",
+              "6f5c0df0891fd4e1404acee5e8d5d34d091891231c8891424238d235c8f2eadd",
+              "707478242ce2c7059e7559d30af789b43e042ac27fce82ba9fc5aae70595ff4d",
+              "76aae00484fce48721e50a9c45a3bceb740e13004ac82c0b2c84c59f95ea84ed",
+              "86e03833e5b6a0aab9e88ee301805e5046ab0d74ba55555beaf0742a2126b6a9",
+              "876d947da85bdf35e2f54ca5ebcf1ef36f2a5a2d54784aecb4961146f20ac070",
+              "8f47e7fa1c29798940e3f04fa1d1fad8f686225420190dcdb28ca8f17623bff5",
+              "92b53fbeb03bf3f7f9e8dad6604d9fc28629a02acdd6c6586598d1bcf2e9234a",
+              "945b9de8741145d18a0954527bfb17caef75b67139a1e82d4511f6033b433d79",
+              "98e256aa626aaac45b64fc689525aaec7b77c26e0a48d2f2970c357c7fef8d22",
+              "9c22f5db35b95552e82e9d9e1ae9ab8b6fb6cca679d8a4dd6b213a913f8fa4f4",
+              "9dca5fdb0ef1328cfeaba597bebebd7659461dfb4f79c2023967d13d2c9fb546",
+              "a2030efdb945ea563c2ba628cbbba049706e453d1134e815eb1e587dac9b57f5",
+              "a965a9fb47ab5d89ae552719f45718af6dca40bc9c8117712b91d4ccd6a1961e",
+              "b113202726b916c890385f4469c719cf89e97d16c7c4dae746d16d01af4a77f8",
+              "b1b364606a169234466b32876a02d8b2d6eaaafb7e2a5296754a0903d1339d91",
+              "b2b1c6a7c3bf531f09fcf959613cfdb68bc3c63fc88788e6994d9859963ecdf3",
+              "b7ce945dcaac8181660ef969e5b2be728feaeccadf8b19a1254819e73b5c496c",
+              "ca43a360e1f758bd699f2fe5c913866f6b1184c07d0496fc09c4d2f0619448de",
+              "ce3f8e13c6fa6ee514af3232de668b0e449f17c8caca5bd0dfd1ee32fd943831",
+              "d4ed428a1df8867fe3a19551e2e9136c78e0e9b2bfa95cc1c8acfebf71755118",
+              "d69b8651f6c9f0f7d7d9997cb6b8af6b96d800aadc260b1548a5769fc75cb7d3",
+              "d765d0d911c43208888c97792273cec88a68662c9f323a0281f7d3d1fcb29d59",
+              "de2cf852aed86f61bc56fd7c8b43345a4c2e55a40cf36f37bb8a3a974a29077b",
+              "e01839e8d053296fd3509ac4970599aae6bc43c4ebd92c4dd08bb5b882749741",
+              "e1fdc39bab50e787ca1cc16755ad1d8c47bdef1bc498438d8608b2eebc10b31b",
+              "e53d5087137de6727f293e0b32e534fb667648a465b08488a6f47363208f3ff4",
+              "eef94f5233722411d1fc0d528c86cd3f2d367c28c91ffa5ef75884d058de6b6d",
+              "f5c68a6f0cb154285018dc6770f8bde778442c3dce504dee984673105c1a4a75",
+              "f66474252a35cd81f4bfa01a33c709907f27bada3f7bb5c0972ee952275c29dc",
+              "fa1d0045deba3e577fdb5ebaaa6dcc39fe44ec7705954e3a9ffa24226d72edd8",
+              "fc77a9f3ba9c887d706a475dca344caf096d8ead3dc71bd666bc6b4de30abbcd"
+            ],
+            "statistic_date": "2026-11-04",
+            "symbol": "510300.SH",
+            "value": 2.5
+          },
+          "share_probability": {
+            "field": "share_probability",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ],
+            "statistic_date": "2026-11-05",
+            "symbol": "510300.SH",
+            "value": 34.163872804355954
+          },
+          "turnover_percentile": {
+            "field": "turnover_percentile",
+            "known_by": "2026-11-05T11:37:13.805136+00:00",
+            "source_dates": [
+              "2026-07-31",
+              "2026-08-03",
+              "2026-08-04",
+              "2026-08-05",
+              "2026-08-06",
+              "2026-08-07",
+              "2026-08-10",
+              "2026-08-11",
+              "2026-08-12",
+              "2026-08-13",
+              "2026-08-14",
+              "2026-08-17",
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26",
+              "2026-08-27",
+              "2026-08-28",
+              "2026-08-31",
+              "2026-09-01",
+              "2026-09-02",
+              "2026-09-03",
+              "2026-09-04",
+              "2026-09-07",
+              "2026-09-08",
+              "2026-09-09",
+              "2026-09-10",
+              "2026-09-11",
+              "2026-09-14",
+              "2026-09-15",
+              "2026-09-16",
+              "2026-09-17",
+              "2026-09-18",
+              "2026-09-21",
+              "2026-09-22",
+              "2026-09-23",
+              "2026-09-24",
+              "2026-09-28",
+              "2026-09-29",
+              "2026-09-30",
+              "2026-10-08",
+              "2026-10-09",
+              "2026-10-12",
+              "2026-10-13",
+              "2026-10-14",
+              "2026-10-15",
+              "2026-10-16",
+              "2026-10-19",
+              "2026-10-20",
+              "2026-10-21",
+              "2026-10-22",
+              "2026-10-23",
+              "2026-10-26",
+              "2026-10-27",
+              "2026-10-28",
+              "2026-10-29",
+              "2026-10-30",
+              "2026-11-02",
+              "2026-11-03",
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "0406b9dcba0f8e40e2877b85d5948cf03273c12cfa4f166f3f0d0ba06ced5dcd",
+              "05b3302a87a0d59892b60aaca400b4130a28ffdff83461ddb4358e856361d998",
+              "05d6d6af79e83ad53bcadf31205b48cac18c2ac0245a1d3b5427789e500906eb",
+              "0be2f2bed2d0b09f5bd3a624a1eb2fd2000207cc7d5f5f0858011a3fd72f09c5",
+              "0fb3b625b7d8f6b806c8bccbea235a56c35ddd25c152e2083e98490ab0aaf9ea",
+              "16d8b0e3a55aaf690e15ce1fd3525552a49faf6cfce6d983412024a4f5ea40f1",
+              "19b07fc84115dac5b85961a4aee82a699748758014c39a6394d8c833a799bc32",
+              "1ac17e3b40f3ec60af141bf19848a9b089477e58a32944d2be690bab93f1a2b5",
+              "1d5329ea028bee0205388a668cc79b140aac105a80d1e36e758563303be26e5a",
+              "1eafa20d39798dfdb0ff1ca1b0843f37be26d18356126abe6473799122eea4e7",
+              "244a1ddfbcb6df46ec29e71678f4df85abd5bda4942c1cf651afab48965daf47",
+              "342e5f92d0f53a3067edadeb27e657513781ac91d0d3f4a060fd6abd15ba73ad",
+              "38089e1c7c54a83e74c530b4bc7e9bbce15b1f801089c6d2ad8bab46b182d3d4",
+              "40dee5ef43682fdeeb134fe25c7f1a3d3e08d3b58265a41fc536e7138d8a26c0",
+              "45a30285f81427dd1b4ff65ae777d9a50714661d4360d2edbe96b9dde06d75ae",
+              "4819799b4c303b65fa5e046a3d62c80907bd8fca6aaff686776a2fc4f3a85813",
+              "493649ad7cf474f3a6c366d2247f99f30510e1034e1d502fd00eac3823b86005",
+              "4a1248bbe1dd0a95b36a2f9ca93291743acf04f25b890eef871e2e945e4b1212",
+              "4a1bde719e17907423e647c75391ffe40f82ca465c397b63a9bba939027e7d8f",
+              "4b0e1b194407315de00537ef41a90a4d52fc868330023f48b829bf57daa983df",
+              "4f52232e09324506225a9d832aa34e9c6df9138cc2f0296340792f7f9704833d",
+              "50eabe7a935037d418361f2f54e733fd40108d6d864e5aa7632da9afa36ac69f",
+              "5605f2010780b6ffdc6ab0a73eb694943390efa6e826daafc3755afa07a0c1bc",
+              "578bc84058d220856ddb6b5715e90f71b9ddb1db68c36809e8189377a7a9b8fc",
+              "581ea5f219f22659ca7e27f252eb25c57039ace25d7957419ff5f6f38316c496",
+              "5ac495e86c1ce194168f789320dbaa347fd1ea8d22141af8be4f486b95ca4996",
+              "61b124912990c97c15bde9cb72fe15bde627db5f945c02dc445c67d2f4695b86",
+              "653567f923897048150edef38b4ba96db0a011a9f57bde958e484640e75a3c87",
+              "66845dc6a14a09da2e0e60d0f840014217016b071695361fdf6ff4d2889b2c10",
+              "683d11be3bcff3bef3b599e945049c6301f79bc59921ee59c248d751113d0fa9",
+              "69ce451bd6eb7f425055a4b079a972e03fe6609648741d667e0b68ad5d61e218",
+              "6c480fa4d1127f7e5ba0e4f7b023bc55738545bb2f1cfb900f90c4708b589fd0",
+              "74dc50be9484efb4f256c1f5242c93934cb7950f62d01a20f063185054ec3d12",
+              "770b493ec858f5ef48b0271251e4ef3eac3147df11a50f185e4d333d059da17a",
+              "771f245d38d34c76ab7661cf5556ed537fc80a59271e59baf1d08c226b39f3fb",
+              "77b24e193cf4f38765640a05f696cd0878abc9d41e6fc3e3b365abb5fc877c38",
+              "7c68812539fc3b65cece6e8c2fe8a6d547fa202cfa31a0cc49a28a0c19840959",
+              "87960ba2b3f4a23918d7904e6fb9ab88924915ed66dd9434bc7f1e29a06cb118",
+              "88d53623a4cbad21a3ee90b2cc023e09993213a33584d0a7ab3f1bf416fae5df",
+              "8de4f006e5fafc2127486a59035d3cb17232fc00c91a321fac3817fdaad69ace",
+              "8df5a8f57745a7579faad4da895e9e8657798e0c7e8aea294a69a5edc9af3c2d",
+              "9a538cc637bb1780b08228bb79693b4ef7de5777758a246cc3fc9baf2a55725c",
+              "a4e669645a5934c983b0451cfb5a19fd4e7e108893160bebd5ccee9f29c7c3ac",
+              "a80ad388cbf7f08077bbbc5586854c495e317ac2e60227f2966015ac59089a82",
+              "a9a0b42efa711ab8ce265fb0cc18dbde48d8624e78fc70a67222fe60c6090a2f",
+              "ae1bea439c05d7608f9b0d5fa4037d936cea3420750e1b5bfddcbfd2b7287c8b",
+              "af76e48a0e2e8ab61c1e4de2f3af97d306ecdc80e254a0084980875097e82a2a",
+              "b303ced56ba3f03008ce5312c9c50bbed831bb520ac74e46c495f33272f87561",
+              "b3fc77756c6b07955b706065ba6f2a2829820c1a8cc153afabd4eb3ef937aa7d",
+              "bceabdc673d7b6604cccdc84083397086405959ad2a689192d56e2952f4d5b0f",
+              "c04c76df79ada571af8ac0177e3f593e6710eeaca2044d77c598fce706fd42e0",
+              "c1c8a12394b371e6ce124b343e0340bbe13c19554743fe048e9e43c210eb707c",
+              "c53ecd8d10e164728fe04636cb83f6b314867b194b923985bdc4195971acd5c8",
+              "c702d7dc5b736c7a6025ea5bf5865263196351ed09ed835df9b2ab28b6312982",
+              "c9f6e0a35eda950867e4c2e81b75ff36d308329b832150975123cfcb6774eea2",
+              "cb1cc053143c691bd6138acb53ecd7a1e02acbaa29f0b3c7fe515ef55f9d83a6",
+              "cb881cbf492e506fc46176698b5f08bf823bed07b1c01a070e828cae7ef4d210",
+              "d05a268d7fc6d8ba8c6800711e0f1d417379a96c077ed10d81bb5d04993bedaf",
+              "d743f5b7852a8a7097564bc5a12501cf865d157fa95fe6d64da117faf0d6451d",
+              "d83538949b9462ae1ce31f4bf736144b4b89ab98f0b87ba1c065545bff23fddd",
+              "d84358b1e52b9abab9b4740fa2567490672236534e4e80620b0e2985de3f7186",
+              "dc1106f8f333179c86eb35782de26cec715de5b3114a02f73fb6b9442687d90a",
+              "dd48253f975af1f2d2d566a624f4e28507d8721e754f67efbaf5e88d63e06376",
+              "fc3fa99c4dc1f9f1de96ba945f3abe997444adc14ee7b5c98bcd6928dd214e39"
+            ],
+            "statistic_date": "2026-11-05",
+            "symbol": "510300.SH",
+            "value": 47.5
+          }
+        },
+        "510500.SH": {
+          "shares_delta_yi": {
+            "field": "shares_delta_yi",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ],
+            "statistic_date": "2026-11-05",
+            "symbol": "510500.SH",
+            "value": -0.68
+          }
+        },
+        "512100.SH": {},
+        "515080.SH": {},
+        "588000.SH": {
+          "shares_delta_yi": {
+            "field": "shares_delta_yi",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ],
+            "statistic_date": "2026-11-05",
+            "symbol": "588000.SH",
+            "value": 12.99
+          }
+        },
+        "588030.SH": {
+          "shares_delta_yi": {
+            "field": "shares_delta_yi",
+            "known_by": "2026-11-05T16:43:19.071808+00:00",
+            "source_dates": [
+              "2026-11-04",
+              "2026-11-05"
+            ],
+            "sources": [
+              "c0ce1389d03f44958e7e6d69c64bc0516d17f5e703042068213452999aaa7140",
+              "c67155b6ba4be1b296701330a75b8b74d03f2439fa1fd1523efe8ef754b8f8ae"
+            ],
+            "statistic_date": "2026-11-05",
+            "symbol": "588030.SH",
+            "value": 0.12
+          }
+        }
+      },
+      "historical_effective_fields": {
+        "159780.SZ": {},
+        "510050.SH": {},
+        "510300.SH": {},
+        "510500.SH": {},
+        "512100.SH": {},
+        "515080.SH": {},
+        "588000.SH": {},
+        "588030.SH": {}
+      }
+    },
+    "current_auxiliary_state": "available",
+    "current_auxiliary_reason": null
+  },
+  "runtime_state": "ready"
+}

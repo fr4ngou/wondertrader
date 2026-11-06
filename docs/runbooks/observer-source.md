@@ -22,3 +22,5 @@ npm缓存须包含本次package-lock声明的依赖；机器默认缓存可能�
 成功输出SOURCE-BUILD.json、六个新私有wheel、完整App角色制品、独立ZIP与manifest摘要。角色数量为本次私有wheel与固定registry的第三方wheel之和。source-roles记录真实source-build来源及installed=false；roles由现有compose生成，保留各自精确wheel/锁/永久local-projects。不会把来源记录标成已安装。现有account_runtime_install.prepare仍按其文本精确本地版本合同运行。
 
 接收ZIP、解压、核manifest并普通离线安装沿[原观衡安装手册](observer-runtime.md)。运行时外部行情/账户发布、观察数据、报告和个人目录分别配置；构建与安装不启动业务进程，不修改WT或QMT。实际来源继承、新安装验证、完整系统和生产资格沿每次交付记录分别核对。
+
+App118当前辅助读取采用冻结V1a13永久快照及其Corea8公共精确依赖，读取侧Core `a8+read2`与Runtime `a11+read10.diagnostics.1`保持原安装身份；不安装Runtime execution extra，不改变生产V1或交易Runtime。原状态行分别表达当前必需消费与历史逐行覆盖，两个公开策略入口共用可选当前消费投影。构建后须普通离线安装、pip check，并沿实际归档核旧/新报告兼容；完整约束见[SDO-R4-current](../specs/strategy-data-and-observability.md#sdo-r4-current-当前辅助消费公开读取)。

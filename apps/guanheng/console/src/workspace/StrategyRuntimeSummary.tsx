@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import { fetchStrategyRuntime, strategyRuntimeLabel } from './strategyRuntimeApi'
+import { currentAuxiliaryPresentation } from './currentAuxiliary'
 import './operations.css'
 import './strategy-runtime.css'
 
@@ -25,7 +26,7 @@ export default function StrategyRuntimeSummary() {
     {data?.runtime_state && publishedLabels[data.runtime_state] ? <p role="status">WT最近发布：{publishedLabels[data.runtime_state]}。下方保留最后完整结果及原数据时间。</p> : null}
     {strategy ? <>
       <h3>{strategy.display_name} <small>{strategy.strategy_version === null ? '版本未提供' : `v${strategy.strategy_version}`} </small></h3>
-      <p role="status">{strategyRuntimeLabel(strategy)}</p>
+      <p role="status" title={currentAuxiliaryPresentation(strategy).title}><span>{strategyRuntimeLabel(strategy)}</span>；{currentAuxiliaryPresentation(strategy).label}</p>
       {strategy.status === 'waiting_market_input' ? <p>请维护人员在WT入口核对策略所需行情；实际持仓保留原查询时间。</p> : null}
       <p>决策时间（北京时间）：{clock(strategy.decision_at)}</p>
       <p>持仓接收时间（北京时间）：{clock(strategy.broker_observed_at)}</p>

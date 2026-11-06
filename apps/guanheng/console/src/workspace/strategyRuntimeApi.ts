@@ -1,6 +1,7 @@
 import { fetchReadJson } from '../api'
 import { validateCapitalFields, type CapitalFields } from './strategyCapital'
 import { diagnosticWire } from './strategyDiagnosticWire.generated'
+import { projectCurrentAuxiliary, type CurrentAuxiliaryFields } from './currentAuxiliary'
 
 export const runtimeLabels = {
   initializing: '正在准备目标', selling: '正在调整卖出目标', buying: '正在调整买入目标',
@@ -75,7 +76,7 @@ export type StrategyRuntime = {
   /** WT原生命周期状态，旧响应可缺失。 */ runtime_state?: string
   /** 未配置执行组件时的原明确信息，旧响应可缺失。 */ execution_state?: 'not_started'
   /** 此次公开结果未配置、等待或已有策略投影。 */ state: 'unconfigured' | 'waiting' | 'available'
-  /** 原WT策略投影；未配置或尚未发布时为null。 */ strategy: null | (CapitalFields & {
+  /** 原WT策略投影；未配置或尚未发布时为null。 */ strategy: null | (CapitalFields & CurrentAuxiliaryFields & {
     /** WT发布的策略身份；旧App回包可缺失。 */ strategy_id?: string
     /** 原目录中文名称。 */ display_name: string
     /** WT实际版本；null表示尚未发布。 */ strategy_version: string | null
@@ -257,7 +258,7 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
     seen.add(row.symbol)
   }
   validateCapitalFields(s)
-  return { ...data, strategy: { ...s, ...projectDiagnosticFields(s, seen) } } as StrategyRuntime
+  return { ...data, strategy: { ...s, ...projectDiagnosticFields(s, seen), ...projectCurrentAuxiliary(s, seen) } } as StrategyRuntime
 }
 
 export async function fetchStrategyRuntime(signal: AbortSignal): Promise<StrategyRuntime> {
