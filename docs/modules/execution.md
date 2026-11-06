@@ -4,7 +4,7 @@
 
 保留1.1.2的实时薄桥可显式消费A已发布分析窗口，复用原C解码/计算、原日线Reader和NSQ；启动固定周期及原金融状态保持。[NRT-R24](../specs/native-realtime-strategy.md#nrt-r24-已发布分析窗口的持续消费)定义配置、等待及原恢复身份；[安装证据](../evidence/2026-10-30-retained-market-window.md)覆盖真实冻结窗口发布后的四买入/四周期收敛和17个模型边界，真实持续新日发布、C状态候选及稳定关闭仍待验。
 
-类型：模块说明。所有者角色：执行维护者。状态：原生交易接口、通道与执行单元源码已存在；QMT标准候选已通过限定查询、已知基线后的完整字段回报、真实共享内存替身组合及未知异常验证。未知委托原身份核查与定向取消已有[限定证据](../evidence/2026-10-25-qmt-unknown-cancel-standard.md)；缺字段补查已取得正常候选的限定整链证据；生产首次/重连交接、一般未知insert解除、完整容量/故障与正式入口仍在验收。
+类型：模块说明。所有者角色：执行维护者。原生交易接口、通道及执行单元由标准ITraderApi插件接入；实际采用模块与资格以运行配置及[当前事实](../roadmap/CURRENT.md)为准。现行产品已选择TraderQMTStandard并取得真实模拟交易及原账恢复证据，见[标准入口实际采用](../releases/2026-11-06-native-read-transport-live.md)、[当前配置接续](../releases/2026-11-06-analysis-cache-owner-live.md)。下述有日期的专项记录保留其当时限定范围，SDK替身证据与后继真实部署分别使用；本代完整自然策略目标仍按当前验收记录核实。
 
 后继[异常证据](../evidence/2026-10-24-qmt-standard-trader-faults.md)证明标准候选丢回复不重提交、SDK未知保留且账户可读；当前event_consumption_complete仍0；该值保留生产交接尚未闭合的事实，已知基线后稳定流及完整恢复分别验收。
 
@@ -54,7 +54,7 @@
 
 目标接入由标准 `ITraderApi` 插件承接 `TraderAdapter` 的委托、撤单及四类查询，通过 `ITraderSpi` 返回真实订单、成交和账户事实。插件负责供应商字段转换、WT 身份关联、通信防重与有界生命周期；运输认证保留在通信层。策略和执行单元共用该标准接口，产品采用正常写开关、明确账户配置和终端运行模式。
 
-当前 [TraderQMT 工厂](../../src/TraderQMT/Factory.cpp)仍创建 [ManagedTrader](../../src/GuanhengExecution/ManagedTrader.cpp)：其 `orderInsert/orderAction` 固定拒绝标准请求，私有 `submit/cancel` 要求 `SignedCommand`、授权校验器及 `production_trusted`，登录还要求四类快照同一 `CoherentBaseline`。这些是待退出的自有实现前提；候选已接通真实Host运输与共享内存替身链，正式工厂和完整交易恢复仍待接入。现有组件说明（外部历史/待归仓路径：`../../src/GuanhengExecution/README.md`）记录该实现；目标接口以标准 WT 链及[QMT 交易规格](../specs/qmt-shm-trading.md)为准。[受管运行时](managed-runtime.md)可复用有界调度和生命周期，通信记录由唯一通信 owner 持有。
+保留的 [TraderQMT 工厂](../../src/TraderQMT/Factory.cpp)创建 [ManagedTrader](../../src/GuanhengExecution/ManagedTrader.cpp)，其标准请求拒绝和私有SignedCommand约束只说明该兼容模块。显式`TraderQMTStandard`使用[StandardFactory](../../src/TraderQMT/StandardFactory.cpp)创建StandardQmtTrader，经原TraderAdapter执行委托、撤单及查询；两个工厂分别构建，不能用兼容入口的行为代表标准插件。接口要求见[QMT交易规格](../specs/qmt-shm-trading.md)，[受管运行时](managed-runtime.md)管理有界生命周期，通信记录归唯一通信owner。
 
 自有[标准候选](../../src/TraderQMT/StandardQmtTrader.h)及[真实候选工厂](../../src/TraderQMT/StandardFactory.cpp)已完成固定原版Adapter查询、直接SPI与共享内存正向写的[限定验收](../evidence/2026-10-24-qmt-standard-trader.md)。原名额在回调前归还、有效载荷在回调结束前保留计费，错误状态在回调前生效。后继已实现完整字段实时增量、有限交付索引和锁外SPI；真实共享内存组合已取得四项通过证据。缺字段补查已接入同一候选，生产交接、一般未知insert解除、完整故障及正式切换继续验收，详见[事件规格](../specs/native-qmt-standard-events.md)。
 
