@@ -151,3 +151,5 @@
 - [分钟原查询责任恢复正式采用](2026-11-06-minute-retained-resume-live.md)。
 
 - [日线r003正式发布与接续收束](2026-11-06-daily21-r003-settled.md)。
+
+- [六个已采用工作树定向清理](2026-11-06-qualified-worktree-cleanup.md)：逐提交采用映射、原始字节和运行引用核实；保留分支，实际回收约2.90GiB，六角色保持。
