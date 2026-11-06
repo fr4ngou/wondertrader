@@ -250,3 +250,5 @@
 - [账户实际策略归属](account-strategy-allocation.md)：原意图/FIFO、真实成交、独立现金及原收件恢复。
 - [原生策略归属接缝](native-strategy-attribution-hooks.md)：可选C ABI、原WT合并及派发前原UUID关联。
 - [原版双策略运行调度](original-live-runtime-dispatch.md)：真实双profile、后台单位/信号读取及默认只读。
+
+- [共振原版线上策略](original-live-strategy.md)：独立100万元、旧仓归属、原生执行和原账恢复验收。
