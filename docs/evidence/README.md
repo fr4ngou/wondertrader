@@ -1,5 +1,7 @@
 # 验证证据
 
+- [共振1.2.2重新回测与阶段阻断](2026-11-06-backtest-rerun-stage-block.md)：404日原生重跑及页面可读；288日stage_budget_exhausted实际复现，同区间新旧绩效均保留为诊断数值，接续修正待实施。
+
 历史现场记录保留：[原生当前分钟](2026-10-30-native-current-minutes.md)、[原生回放主链](2026-10-30-native-replay-mainpath.md)、[QMT真实组合局部验收](2026-10-30-qmt-real-composition-partial.md)、[策略等待行情根因](2026-10-30-strategy-market-wait-root.md)。各自只代表当时输入，当前运行沿下列后继核验。
 
 - [自动交易主线正式在线核验](2026-11-06-mainline-online-acceptance.md)：原目标逐项映射，本代实际计算/模拟成交/券商与页面一致、独立发行、原账恢复及限定清理；未成交与外部缺口分别表达。
