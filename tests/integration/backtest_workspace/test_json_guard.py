@@ -85,3 +85,44 @@ def test_deep_structure_after_cross_window_quoted_markers_stays_preparse_guarded
     monkeypatch.setattr(host.json, 'loads', lambda *_args, **_kwargs: pytest.fail('deep input reached decoder'))
     with pytest.raises(host.HostError, match='嵌套'):
         host._json(raw, 300000, monotonic()+5)
+
+
+def test_node_limit_rejection_precedes_object_allocation(monkeypatch):
+    maximum = 2097152
+    # 合法数组的根和2097152个标量超过原节点上限，先拒绝再进入C分配。
+    raw = b'[' + b'0,' * (maximum-1) + b'0]'
+    monkeypatch.setattr(host.json, 'loads', lambda *_args, **_kwargs: pytest.fail('over-budget input reached decoder'))
+    with pytest.raises(host.HostError, match='节点'):
+        host._json(raw, 5*1024*1024, monotonic()+15)
+
+
+@pytest.mark.parametrize('first', [b'[]', b'{}', b'[\t\r\n]', b'{\t\r\n}', b'"[,{}]"'])
+def test_exact_node_limit_across_window_empty_containers_and_string_markers(first):
+    maximum = 2097152
+    # 第一个子值起于65535：空容器闭合或字符串主体跨原64KiB窗口。
+    # 节点严格为根1 + 首值1 + 剩余2097150个标量；窗口暂记不能误拒。
+    raw = b'[' + b' '*65534 + first + b',' + b'0,'*(maximum-3) + b'0]'
+    value = host._json(raw, 5*1024*1024, monotonic()+15)
+    assert len(value) == maximum-1
+    assert value[0] == json.loads(first)
+
+
+def test_exact_node_limit_preserves_mixed_nonempty_container_children():
+    maximum = 2097152
+    # 尾部5个子值包含2个额外嵌套标量，合计节点为1+n+5+2。
+    raw = b'[' + b'0,'*(maximum-8) + b'[],{},[0],{"k":0},"[,]{}"]'
+    value = host._json(raw, 5*1024*1024, monotonic()+15)
+    assert value[-5:] == [[], {}, [0], {'k': 0}, '[,]{}']
+    with pytest.raises(host.HostError, match='节点'):
+        host._json(raw[:-1] + b',0]', 5*1024*1024, monotonic()+15)
+
+
+@pytest.mark.parametrize('raw', [b'{"unused":[1e9999]}', b'[-1e9999]', b'{"a":{"\\u0062":1,"b":2}}'])
+def test_nonfinite_and_escaped_duplicate_values_still_reject(raw):
+    with pytest.raises(host.HostError):
+        host._json(raw, 1024, monotonic()+5)
+
+
+def test_c_decoder_float_semantics_preserve_finite_extremes_and_underflow():
+    raw = b'[1.7976931348623157e308,-0.0,5e-324,1e-9999]'
+    assert host._json(raw, 1024, monotonic()+5) == json.loads(raw)
