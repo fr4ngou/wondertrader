@@ -14,9 +14,17 @@
 
 ## 启停入口
 
-WT运行侧入口支持start、stop、status。内部受控配置固定安装解释器、环境文件、WT配置和状态目录；公开指针与内部凭证配置分别存储。启动对已运行实例幂等，不重复创建Host或执行器；正常停止沿原身份stop.json和实际关闭收据，不按进程名结束外部进程。
+WT运行侧入口支持start、stop、status及显式adopt-bootstrap。内部受控配置固定安装解释器、环境文件、WT配置和状态目录；公开指针与内部凭证配置分别存储。启动对已运行实例幂等，不重复创建Host或执行器；正常停止沿原身份stop.json和实际关闭收据，不按进程名结束外部进程。
 
 后继使用原Native实际配置、金融根、库存输入及原关闭/故障证据，沿既有prepare_transition及原Native接收流程生成本代配置和新控制目录。当前实例指针准确反映新一代，包括启动、等待来源、运行和失败；保留旧代原件。发生未解决金融责任时由原执行链报告，启动器不绕过或重写证明。
+
+### 显式采用纯历史后继配置
+
+默认start在已有CURRENT时继续按原代配置恢复，保持执行prepare_transition与同版重启语义。更新ServiceConfig的bootstrap_configuration本身只准备材料；已有代改用新历史程序/配置时，操作员显式执行adopt-bootstrap。
+
+adopt-bootstrap在同一原ServiceLease下先核旧代CURRENT、generation、ready/owner、status及closed身份；要求closed的status=stopped、components_closed=true、error_code=null，status已closed/ready=false且无failure，ready/status/closed绑定同一PID。旧owner必须有原创建身份材料并通过原Windows退出核查，访问拒绝、活PID或未知结果均拒绝。旧代和固定SHA新bootstrap均严格仅history组件、kind=source_market，instance_id保持。没有旧代、故障代、混合/执行/账户来源组件、跨实例或原件漂移均在创建后继和发布CURRENT前拒绝；动作不自动stop、不补故障证明。
+
+通过核查后复用原_new_generation及唯一启动/发布/预算链，以已固定SHA新bootstrap为本代Runtime，generation记录真实predecessor_control_id；旧代和新bootstrap原件保持。新代启动失败/超时继续沿原启动结果和实际发布状态表达。后续默认start恢复此新代；相同bootstrap的显式动作也要求上一代先正常退出，不提供运行中幂等换配。
 
 ### WSC-R1 执行组件之前的启动失败
 

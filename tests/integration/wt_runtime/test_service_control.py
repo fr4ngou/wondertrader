@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from contextlib import redirect_stdout
 from uuid import uuid4
 
 from guanheng_wt_runtime.service_control import (
@@ -327,6 +329,12 @@ class ServiceControlTests(unittest.TestCase):
         self.assertEqual(controller.start()[0], 0)
         self.assertEqual(controller.stop()[0], 0)
 
+        with patch.object(controller, "_runtime_owner_active", return_value=False), \
+                patch("guanheng_wt_runtime.service_control.require_process_exited"), \
+                patch("guanheng_wt_runtime.service_control.prepare_transition") as forbidden:
+            self._assert_adoption_rejected(controller)
+        forbidden.assert_not_called()
+
         def prepare(configuration, predecessor_configuration, predecessor_control, destination, **unused):
             self.assertEqual(Path(predecessor_configuration), Path(predecessor_control) / "execution.json")
             self.assertTrue(Path(predecessor_control).name.startswith("native-"))
@@ -508,6 +516,122 @@ class ServiceControlTests(unittest.TestCase):
         status["components"]["execution"].pop("pending"); _write(path,status)
         with self.assertRaises(ValueError):controller.start()
         self.assertEqual(native_calls, [])
+
+
+    def _history_successor(self, *, before_components=None, after_components=None, change_instance=False):
+        """旧代正常关闭、新固定bootstrap；进程协议替身的OS退出由各测试显式替换。"""
+        before=json.loads(self.runtime.read_bytes())
+        history=dict(kind='source_market',descriptor=str(self.host),sha256=_sha(self.host))
+        before['components']=before_components or {'history':history}
+        _write(self.runtime,before)
+        original=json.loads(self.service_path.read_bytes())
+        original['bootstrap_configuration_sha256']=_sha(self.runtime)
+        _write(self.service_path,original)
+        old=ServiceController(ServiceConfig.from_path(self.service_path),launcher=self.fixture.launch,sleeper=self.fixture.sleep)
+        first=old.start()[1];self.assertEqual(old.stop()[0],0)
+        successor={**before,'components':after_components or {'history':{**history,'descriptor':str(self.root/'new-history.json')}}}
+        if change_instance:successor['instance_id']=str(uuid4())
+        new_runtime=_write(self.root/'new-runtime.json',successor)
+        new_service=_write(self.root/'new-service.json',{**original,'bootstrap_configuration':str(new_runtime),
+            'bootstrap_configuration_sha256':_sha(new_runtime)})
+        controller=ServiceController(ServiceConfig.from_path(new_service),launcher=self.fixture.launch,sleeper=self.fixture.sleep)
+        return controller,first,new_runtime
+
+    def _assert_adoption_rejected(self,controller):
+        """拒绝必须发生在生成后继或启动来源之前，保留公开指针及原代目录。"""
+        original=self.current.read_bytes() if self.current.exists() else None
+        generations=set(self.generations.iterdir());launches=len(self.fixture.processes)
+        with self.assertRaises((ValueError,FileNotFoundError)):
+            controller.adopt_bootstrap()
+        self.assertEqual(self.current.read_bytes() if self.current.exists() else None,original)
+        self.assertEqual(set(self.generations.iterdir()),generations)
+        self.assertEqual(len(self.fixture.processes),launches)
+
+    def test_history_explicit_adoption_and_default_predecessor_restore(self):
+        controller,first,new_runtime=self._history_successor()
+        ordinary=controller.start()[1]
+        generation=json.loads((self.generations/ordinary['current']['wt_control_id']/'generation.json').read_bytes())
+        ordinary_value=json.loads(Path(generation['runtime_configuration']).read_bytes())
+        self.assertEqual(ordinary_value['components']['history']['descriptor'],str(self.host))
+        self.assertEqual(controller.stop()[0],0)
+        with patch.object(controller,'_runtime_owner_active',return_value=False), \
+                patch('guanheng_wt_runtime.service_control.require_process_exited') as exited:
+            code,adopted=controller.adopt_bootstrap()
+        self.assertEqual((code,adopted['action'],adopted['state']),(0,'adopt-bootstrap','ready'))
+        self.assertEqual(exited.call_args.args,(os.getpid(),))
+        record=json.loads((self.generations/adopted['current']['wt_control_id']/'generation.json').read_bytes())
+        self.assertEqual(record['runtime_configuration'],str(new_runtime))
+        self.assertEqual(record['predecessor_control_id'],ordinary['current']['wt_control_id'])
+        self.assertEqual(first['current']['wt_instance_id'],adopted['current']['wt_instance_id'])
+        self.assertEqual(controller.stop()[0],0)
+        resumed=controller.start()[1]
+        record=json.loads((self.generations/resumed['current']['wt_control_id']/'generation.json').read_bytes())
+        self.assertEqual(json.loads(Path(record['runtime_configuration']).read_bytes())['components']['history']['descriptor'],str(self.root/'new-history.json'))
+        self.assertEqual(controller.stop()[0],0)
+
+    def test_adoption_requires_prior_normal_close_and_exited_owner(self):
+        self._assert_adoption_rejected(self.controller)
+        controller,first,_=self._history_successor()
+        # 协议替身ready绑定本测试活PID；closed本身不能证明进程已退出。
+        self._assert_adoption_rejected(controller)
+        with patch.object(controller,'_runtime_owner_active',return_value=False), \
+                patch('guanheng_wt_runtime.service_control.require_process_exited',side_effect=ValueError('unknown_exit')):
+            self._assert_adoption_rejected(controller)
+        owner=self.generations/first['current']['wt_control_id']/'runtime-owner.json'
+        owner.unlink()
+        self._assert_adoption_rejected(controller)
+
+    def test_adoption_rejects_running_faulted_and_incomplete_close(self):
+        controller,first,_=self._history_successor()
+        control=Path(first['current']['wt_status_file']).parent
+        closed=(control/'closed.json').read_bytes()
+        (control/'closed.json').unlink()
+        self._assert_adoption_rejected(controller)
+        (control/'closed.json').write_bytes(closed)
+        failure=json.loads(closed);failure.update(schema='guanheng.wt-runtime-failure.v1',status='faulted',error_code='fixture_failure')
+        _write(control/'failure.json',failure)
+        self._assert_adoption_rejected(controller)
+        (control/'failure.json').unlink()
+        value=json.loads(closed);value['components_closed']=False;_write(control/'closed.json',value)
+        self._assert_adoption_rejected(controller)
+        value['components_closed']=True;value['pid']+=1;_write(control/'closed.json',value)
+        self._assert_adoption_rejected(controller)
+
+    def test_adoption_rejects_foreign_instance_before_generation(self):
+        controller,_,_=self._history_successor(change_instance=True)
+        self._assert_adoption_rejected(controller)
+
+    def test_adoption_rejects_non_history_and_mixed_components(self):
+        history=dict(kind='source_market',descriptor=str(self.host),sha256=_sha(self.host))
+        host=dict(kind='qmt_read',descriptor=str(self.host),sha256=_sha(self.host))
+        for before,after in [({'host':host},{'history':history}),
+                             ({'history':history},{'host':host}),
+                             ({'history':history},{'execution':dict(kind='execution',descriptor=str(self.host),sha256=_sha(self.host))}),
+                             ({'history':history},{'host':host,'history':history})]:
+            with self.subTest(before=list(before),after=list(after)):
+                # 每次保留已有代，helper仅为下一次造显式新旧隔离协议代。
+                if self.current.exists():self.current.unlink()
+                controller,_,_=self._history_successor(before_components=before,after_components=after)
+                with patch.object(controller,'_runtime_owner_active',return_value=False), \
+                        patch('guanheng_wt_runtime.service_control.require_process_exited'):
+                    self._assert_adoption_rejected(controller)
+
+    def test_adoption_rejects_changed_bootstrap_sha_and_sanitizes_cli(self):
+        controller,_,runtime=self._history_successor()
+        runtime.write_bytes(runtime.read_bytes()+b' ')
+        with patch.object(controller,'_runtime_owner_active',return_value=False), \
+                patch('guanheng_wt_runtime.service_control.require_process_exited'):
+            self._assert_adoption_rejected(controller)
+        from guanheng_wt_runtime.service_control import main
+        output=io.StringIO()
+        with patch('guanheng_wt_runtime.service_control.ServiceConfig.from_path',return_value=controller.config), \
+                patch('guanheng_wt_runtime.service_control.ServiceController',return_value=controller),redirect_stdout(output):
+            self.assertEqual(main(['adopt-bootstrap','--service-config',str(self.service_path)]),2)
+        value=json.loads(output.getvalue())
+        self.assertEqual((value['action'],value['state'],value['changed']),('adopt-bootstrap','control_error',False))
+        self.assertNotIn('private',output.getvalue())
+
+
 
 
 class WindowsProcessIdentityTests(unittest.TestCase):
