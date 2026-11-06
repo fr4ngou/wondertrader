@@ -36,6 +36,40 @@ def snapshot():
             groups=dict(deal=dict(status='complete',execution_finished_at='2026-11-04T07:01:00+00:00',rows=[deal,deepcopy(deal)]))))
 
 
+def synthetic_account_publication():
+    """仅构造回调准入所需最小NAP帧；所有身份、金额和关闭事实均为测试生成。
+
+    三类证券查询完整空，资金查询一行满足原协议；不依赖本地捕获文件、账户或SDK。
+    """
+    stamp='2026-11-02T01:00:00.000000Z';scan=str(uuid4());account='SYNTHETIC-LSP-ACCOUNT'
+    binding=dict(account=account,environment='simulation',max_rows=8,ipc_schema='guanheng.account-scan.v2',
+        inspection_version=3,source='qmt_shm_bound',read_profile_version='qmt.read-profile.v3')
+    source=dict(kind='qmt_shm_bound',account_id=account,account_environment='simulation',
+        transport_binding=dict(schema_version='1.0',route=dict(route_id='synthetic-route',executor_id='synthetic-executor',route_epoch=0),
+            transport_generation='1'*32,host_instance_id='2'*32,journal_generation=None,observation_identity=None,capability_sha256='3'*64),
+        binding_sha256='4'*64,broker_session=dict(availability='unknown',value=None,reason='未取得券商登录会话证据'))
+    present=lambda value:dict(availability='present',value=value,reason='synthetic fixture')
+    rows=dict(position=[],order=[],deal=[],account=[dict(version=3,view=4,index=0,identity={},
+        facts=dict(m_dBalance=present(1000.0),m_dAvailable=present(900.0)),abi={})])
+    batches=[dict(datatype=name,delivered=True,source_row_count=len(rows[name]),delivered_row_count=len(rows[name]),
+        request_id=str(uuid4()),execution_started_at=stamp,execution_finished_at=stamp,
+        result_sha256=str(index+1)*64,source=deepcopy(source))for index,name in enumerate(('position','order','deal','account'))]
+    observation=dict(schema='guanheng.account-scan.v2',scan_id=scan,kind='observation',rows=rows,
+        summary=dict(version=3,view=0,phase=8,source_kind='qmt_shm_bound',profile='cny_cash_shsz_v1',
+            currency_binding=dict(value='CNY',source='configuration'),observation_qualified=True,aggregate_only=True,
+            trade_date=dict(availability='unknown',value=None,reason='synthetic date unavailable'),batches=batches,
+            close=dict(status='complete',drained=True,joined=True),
+            failure=dict(code=0,reason='',transport_error=None,source_error_code=None)))
+    completion=dict(schema='guanheng.account-scan.v2',scan_id=scan,kind='completion',closed=True,joined=True,
+        worker_live=False,queued=0,elapsed_ms=1,error_code='ok')
+    close=dict(status='complete',closed=True,joined=True,worker_live=False,queued=0,exit_code=0,error_code='ok',
+        resources={name:True for name in ('member_before_resume','tree_reaped','stdout_eof','stderr_eof','readers_joined','resources_closed')})
+    return dict(schema='guanheng.account-observation.v1',control_id=str(uuid4()),config_sha256='a'*64,pid=777,
+        revision=1,updated_at=stamp,state='ready',error_code=None,last_success_at=stamp,binding=binding,
+        scan_id=scan,observation=observation,completion=completion,close=close,
+        attempt=dict(scan_id=scan,completion=completion,close=close))
+
+
 class LiveTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(dir='E:/workspace')
@@ -234,7 +268,7 @@ class LiveTests(unittest.TestCase):
         import guanheng_app.account_publication as consumer
         from guanheng_app.live_strategy_performance import _sha
         from guanheng_app.wt_runtime_observation import RuntimeObservationConfig
-        value=json.loads(Path(__file__).with_name('account-publication.fixture.json').read_bytes())
+        value=synthetic_account_publication()
         root=Path(self.temp.name);folder=root/value['control_id'];folder.mkdir()
         identity={k:value[k]for k in ('control_id','config_sha256','pid')}
         reference=dict(schema='guanheng.account-observation-reference.v1',path=str(folder/'observation.json'),
