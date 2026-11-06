@@ -416,7 +416,7 @@ class CallbackContext:
 class CtaRuntime:
     """每进程一次的运行体装配；父owner先验证完整安装并将本进程纳入Job。"""
 
-    def __init__(self, configuration, bindings, *, deadline):
+    def __init__(self, configuration, bindings, *, deadline, attribution=None):
         global _claimed
         _need(type(configuration) is ExecutionProcessConfig and type(bindings) is tuple and 1 <= len(bindings) <= 64)
         _need(all(type(value) is StrategyBinding for value in bindings))
@@ -441,6 +441,7 @@ class CtaRuntime:
             _need(not _claimed, 'runtime_already_claimed');_claimed = True
         self.configuration, self.bindings = configuration, bindings
         self._active, self._last_error, self._ran, self._refs = None, None, False, []
+        self._running = False  # 原Native调用的动态寿命；金融租约只在原借用回调中授ASA使用。
         root = configuration.installation / 'app'
         expected = dict(configuration.artifacts)
         for name in ('GuanhengCtaRuntime.dll', 'strategies/GuanhengManagedStrategy.dll'):
@@ -451,6 +452,14 @@ class CtaRuntime:
         self._controller = self._thread()
         _need(time.monotonic() < deadline, 'startup_deadline')
         self._runtime = C.CDLL(str(root / 'GuanhengCtaRuntime.dll'))
+        # 显式共享账户接线仅注册Runtime一次；它向同次实际Managed/Standard传递。
+        # 持有引用至run返回及原worker回收，默认单策略路径不要求该可选能力。
+        self._attribution = attribution
+        if attribution is not None:
+            from .account_attribution import AttributionBridge
+            _need(type(attribution) is AttributionBridge, 'attribution_binding')
+            attribution.register(self._runtime)
+            attribution.bind_owner(self)
         self._pending_read=getattr(self._runtime,'gh_cta_pending_orders_read',None)
         if self._pending_read is not None:
             layout=self._runtime.gh_cta_pending_order_layout
@@ -550,6 +559,16 @@ class CtaRuntime:
 
     def _thread(self):
         return int(self._kernel.GetCurrentThreadId())
+
+    def financial_borrowed(self):
+        """借用原Native已持有的账户租约，不创建第二个owner。
+
+        原CtaProcess在取得账户mutex后才创建策略/Standard回调；关闭时先回收
+        策略及worker再释放mutex。仅这些同步调用栈可访问ASA，后台线程无资格。
+        """
+        return bool(self._running and ((self._active is not None and
+            self._active.event.thread_id == self._thread()) or
+            (self._attribution is not None and self._attribution.callback_active)))
 
     def _callback(self, binding, pointer):
         context = None
@@ -674,4 +693,11 @@ class CtaRuntime:
         self._runtime.gh_cta_run.restype = C.c_int32
         values = (C.c_wchar_p * len(arguments))(*arguments)
         # health直接使用原生原子入口；运行期间不依赖Python控制线程取得GIL。
-        return int(self._runtime.gh_cta_run(len(arguments), values, C.cast(self._api.gh_ms_health, C.c_void_p), None))
+        self._running = True
+        try:
+            result = int(self._runtime.gh_cta_run(len(arguments), values, C.cast(self._api.gh_ms_health, C.c_void_p), None))
+        finally:
+            self._running = False
+        if self._last_error is None and self._attribution is not None:
+            self._last_error = self._attribution.failure
+        return result
