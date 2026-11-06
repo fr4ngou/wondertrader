@@ -97,6 +97,10 @@ def _validate_launch_configuration(config, *, credentials, trading, policy_regis
         from guanheng_qmt_shm_agent.read_retention import retention
         retention(config['http_read_retention'])
         accepted=tuple(fields|{'http_read_retention'} for fields in accepted)
+    if type(config)is dict and 'trade_binding_extension'in config:
+        if not trading or config['trade_binding_extension']!='qmt.trade-binding-extension.v1':
+            raise ValueError('explicit trade binding extension version required')
+        accepted=tuple(fields|{'trade_binding_extension'}for fields in accepted)
     if type(config) is not dict or set(config) not in accepted:
         raise ValueError('managed Host config has missing or unsupported fields')
     config=decode(canonical(config))

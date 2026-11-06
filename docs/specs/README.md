@@ -252,3 +252,5 @@
 - [原版双策略运行调度](original-live-runtime-dispatch.md)：真实双profile、后台单位/信号读取及默认只读。
 
 - [共振原版线上策略](original-live-strategy.md)：独立100万元、旧仓归属、原生执行和原账恢复验收。
+
+- [原交易Journal绑定扩展](qmt-trade-binding-extension.md)：原库版本链、授权CAS和旧命令/来源责任保留。

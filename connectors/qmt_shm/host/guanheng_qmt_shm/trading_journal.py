@@ -21,6 +21,7 @@ from .journal import JournalConflict, JournalFull
 from .trade_event_records import (TABLES as EVENT_TABLES, CONTINUITY_TABLES,
     CONTINUITY_VERSION, TradeEventRecords)
 from .trade_order_links import TABLES as ORDER_LINK_TABLES, TradeOrderLinks, OrderSourceUnavailable
+from .trade_binding_extension import BindingVersions, TABLES as BINDING_VERSION_TABLES
 
 
 _COLUMNS = ('command_id', 'command_sha256', 'body', 'state', 'admitted_binding',
@@ -112,14 +113,17 @@ class HostTradingJournal(BoundReadJournal):
     admitted/actual/received B 须来自上层认证 owner，本模块只核精确关系。
     connection_continuity 默认 None；显式版本仅授事件认证续接，仍保留原命令
     精确绑定及业务截止。附属续接表要求每次重开都显式选择同一版本。
+    trade_binding_extension默认None，保持原精确身份；显式版本仅接受原库已采用
+    的current绑定。binding_extension_maintenance默认False，仅维护构造可准备/
+    采用且禁止新交易受理/派发；原命令查询始终保留。
     """
     schema_tables = (BoundReadJournal.schema_tables
-        | frozenset(('trade_identity', 'trade_commands')) | EVENT_TABLES | CONTINUITY_TABLES | ORDER_LINK_TABLES)
+        | frozenset(('trade_identity', 'trade_commands')) | EVENT_TABLES | CONTINUITY_TABLES | ORDER_LINK_TABLES | BINDING_VERSION_TABLES)
 
     def __setattr__(self, name, value):
         if name in {'max_trade_commands', 'max_trade_bytes', 'max_trade_result_bytes',
                     '_trade_identity_bytes', '_trade_binding_bytes', '_clock', '_wall_clock',
-                    '_event_records', '_order_links'} and hasattr(self, name):
+                    '_event_records', '_order_links', '_binding_versions'} and hasattr(self, name):
             raise AttributeError('trade Journal admission configuration is frozen')
         super().__setattr__(name, value)
 
@@ -127,7 +131,7 @@ class HostTradingJournal(BoundReadJournal):
                  max_request_bytes, max_journal_bytes, trade_binding,
                  max_trade_commands, max_trade_bytes, max_trade_result_bytes,
                  read_profile=None, clock=time.monotonic, wall_clock=time.time,
-                 event_storage=None, connection_continuity=None):
+                 event_storage=None, connection_continuity=None, trade_binding_extension=None, binding_extension_maintenance=False):
         if (connection_continuity not in (None, CONTINUITY_VERSION)
                 or connection_continuity is not None and event_storage is None):
             raise ValueError('explicit event authentication continuity configuration required')
@@ -142,6 +146,8 @@ class HostTradingJournal(BoundReadJournal):
         self._trade_binding_bytes = canonical(frozen)
         self._trade_identity_bytes = identity_bytes
         self._clock, self._wall_clock = clock, wall_clock
+        self._binding_versions=BindingVersions(self,trade_binding_extension,binding_extension_maintenance)
+        self._binding_opening=True
         self._trade_deadlines = {}
         self._trade_failed = False
         self._trade_hard_fault = None
@@ -179,7 +185,7 @@ class HostTradingJournal(BoundReadJournal):
                 identities = db.execute('SELECT id,value FROM trade_identity').fetchall()
                 count = db.execute('SELECT COUNT(*) FROM trade_commands').fetchone()[0]
                 if identities:
-                    if len(identities) != 1 or identities[0][0] != 1 or bytes(identities[0][1]) != self._trade_identity_bytes:
+                    if len(identities) != 1 or identities[0][0] != 1 or (bytes(identities[0][1]) != self._trade_identity_bytes and not self._binding_versions.trade_identity_matches(bytes(identities[0][1]))):
                         raise JournalConflict('trade Journal identity differs')
                 elif count:
                     raise JournalConflict('retained trade facts lack their identity')
@@ -197,9 +203,33 @@ class HostTradingJournal(BoundReadJournal):
                 db.execute("UPDATE trade_commands SET state='definitely_not_called',host_reason='owner_restarted' WHERE state='queued'")
                 db.execute("UPDATE trade_commands SET state='unknown',host_reason='owner_restarted' WHERE state='dispatching'")
                 self._admission_facts(db)
+            self._binding_opening=False
         except BaseException:
             self.close()
             raise
+
+    @contextmanager
+    def _transaction(self,deadline=None):
+        with super()._transaction(deadline) as db:
+            if self._binding_opening:self._binding_versions.opening(db)
+            yield db
+
+    def prepare_binding_extension(self,new_binding,authorization_sha256,rule_changes,*,deadline):
+        """仅原独占维护owner纯核prepare；不重写配对、命令、事件或读票据。"""
+        return self._binding_versions.prepare(new_binding,authorization_sha256,rule_changes,deadline=deadline)
+
+    def adopt_binding_extension(self,plan,*,deadline):
+        """沿同一SQLite原事务CAS采用；随后关闭维护owner，用新绑定重开。"""
+        return self._binding_versions.adopt(plan,deadline=deadline)
+
+    def _historical_event_identity_matches(self,raw):
+        return self._binding_versions.event_identity_matches(raw)
+
+    def _historical_retention_identity_matches(self,raw):
+        return self._binding_versions.retention_identity_matches(raw)
+
+    def _historical_profile_hashes(self):
+        return self._binding_versions.profile_hashes()
 
     @property
     def trade_binding(self):
@@ -211,7 +241,7 @@ class HostTradingJournal(BoundReadJournal):
 
     def _historical_read_profile_matches(self, binding):
         """只核已有持久proof；新来源准入仍由完整认证profile校验。"""
-        return binding['capability_sha256'] == digest(canonical(self.admission_profile))
+        return binding['capability_sha256'] in ({digest(canonical(self.admission_profile))}|self._historical_profile_hashes())
 
     def _bound_result_saved(self, db, rid, request, result, deadline):
         # 原读结果和原委托通信观察一起提交；失败均回滚，GET不触发认领。
@@ -276,7 +306,7 @@ class HostTradingJournal(BoundReadJournal):
             raise JournalConflict('trade Journal clock unavailable') from None
 
     def _trade_used(self, db):
-        return len(self._trade_identity_bytes) + db.execute(
+        return len(self._trade_identity_bytes) + self._binding_versions.logical_bytes(db) + db.execute(
             'SELECT COALESCE(SUM(reserved_bytes),0) FROM trade_commands').fetchone()[0]
 
     def _fail_trade(self, code):
@@ -320,6 +350,8 @@ class HostTradingJournal(BoundReadJournal):
             or operation == 'order.cancel' and cancel_admission))
 
     def _admission(self, db, operation='order.insert', cancel_admission=False):
+        if self._binding_versions.maintenance:
+            raise JournalConflict('binding maintenance cannot admit or dispatch new trades')
         if not self._admission_open(db, operation, cancel_admission):
             raise JournalConflict('trade admission closed; retain original identities')
 
@@ -458,6 +490,9 @@ class HostTradingJournal(BoundReadJournal):
                         raise JournalConflict('trade identity already has different bytes')
                     # 重连只领取原记录；传入的新 B 不覆盖原 B，也不延长 D。
                     return existing
+                if self._binding_versions.version is not None:
+                    if admitted_binding['capability_sha256']!=digest(canonical(self.admission_profile)):
+                        raise JournalConflict('new trade requires current binding profile')
                 self._admission(db, command['operation'], cancel_admission)
                 token = command.get('sdk_user_order_id')
                 original = command.get('original_command_id')

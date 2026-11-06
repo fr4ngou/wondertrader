@@ -94,7 +94,7 @@ def _build_trade_runtime(config, policies, public, credentials, *, business_cloc
         trade_binding=admitted.trade_binding, max_trade_commands=limits['max_commands'],
         max_trade_bytes=config['max_trade_bytes'], max_trade_result_bytes=limits['max_call_result_bytes'],
         read_profile=admitted.profile, event_storage=config['event_storage'], clock=business_clock,
-        connection_continuity=connection_continuity, **journal_extra)
+        connection_continuity=connection_continuity, trade_binding_extension=config.get('trade_binding_extension'), **journal_extra)
     if failed_owners is not None:
         failed_owners[0] = journal
     try:

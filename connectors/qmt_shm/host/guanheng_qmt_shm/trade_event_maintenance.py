@@ -100,13 +100,16 @@ class _MaintenanceValidation:
                 before_schema = _schema(database)
                 tables = {row[1] for row in before_schema
                     if row[0] == 'table' and not row[1].startswith('sqlite_')}
-                if tables != self.schema_tables:
+                if not self._maintenance_schema_matches(tables):
                     raise JournalConflict('event capacity maintenance requires an initialized Journal')
                 before_changes = database.total_changes
             yield database
             if self._maintenance_opening and (database.total_changes != before_changes
                     or _schema(database) != before_schema):
                 raise JournalConflict('event capacity validation would change retained facts')
+
+    def _maintenance_schema_matches(self,tables):
+        return tables==self.schema_tables
 
     def close(self, deadline=None):
         # 新截止只授失败后的物理回收；事务始终夹在首次维护D内。
@@ -131,12 +134,12 @@ class _RetainedTradingMaintenance(_MaintenanceValidation, RetainedTradingJournal
     pass
 
 
-def _facts(database, deadline):
+def _facts(database, deadline, *, excluded_tables=frozenset(('trade_event_identity',))):
     """返回有界的表摘要；原BLOB/账户/请求正文始终留在原事务内。"""
-    schema = _schema(database)
+    schema = [row for row in _schema(database) if row[1]not in excluded_tables and row[2]not in excluded_tables]
     tables = []
     for unused, name, unused_table, unused_sql in schema:
-        if unused != 'table' or name == 'trade_event_identity':
+        if unused != 'table':
             continue
         # 名称来自已验证的固定表集合或SQLite原自增表；双引号只转义标识符。
         quoted = '"' + name.replace('"', '""') + '"'

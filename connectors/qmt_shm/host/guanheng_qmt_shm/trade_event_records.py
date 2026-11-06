@@ -137,6 +137,7 @@ class TradeEventRecords:
         raw = self._owner._source(source['host_binding'])
         value = _object(raw, MAX_BINDING_BYTES)
         allowed = {self._profile_sha}
+        if retained:allowed.update(self._owner._historical_profile_hashes())
         if retained and self._previous_profile_sha is not None:
             allowed.add(self._previous_profile_sha)
         if value['schema_version'] != '2.0' or value['capability_sha256'] not in allowed:
@@ -443,6 +444,8 @@ class TradeEventRecords:
         else:
             if self._previous_identity is not None and identity == (1, self._previous_identity):
                 self._identity_bytes = self._previous_identity
+            if identity != (1,self._identity_bytes) and identity is not None and identity[0]==1 and self._owner._historical_event_identity_matches(bytes(identity[1])):
+                self._identity_bytes=bytes(identity[1])
             if identity != (1, self._identity_bytes) or cursor.fetchone() is not None:
                 _reject()
         self._initialize_auth(db, continuity_existed)
@@ -548,8 +551,8 @@ class TradeEventRecords:
         return receipt
 
     def state(self, source, *, deadline):
-        """返回持久前沿副本；未知流返回 None，不创建流或更新源确认。"""
-        session, source_raw = self._source(source)
+        """返回持久前沿副本；显式版本链允许历史原source，只读不授新事件。"""
+        session, source_raw = self._source(source,retained=bool(self._owner._historical_profile_hashes()))
         with self._owner._trade_transaction(deadline) as db:
             receipt = self._find(db, session, source_raw)
         return receipt
@@ -574,8 +577,8 @@ class TradeEventRecords:
         return receipt
 
     def read(self, source, *, after_seq, limit, max_bytes, deadline):
-        """有界复制原持久事件；输出规范 bytes，整条容纳失败时拒绝，不暗中截断。"""
-        session, source_raw = self._source(source)
+        """有界复制原持久事件；显式版本链只授历史读取，不授新来源准入。"""
+        session, source_raw = self._source(source,retained=bool(self._owner._historical_profile_hashes()))
         self._page_arguments(after_seq, limit, max_bytes)
         with self._owner._trade_transaction(deadline) as db:
             receipt = self._find(db, session, source_raw)

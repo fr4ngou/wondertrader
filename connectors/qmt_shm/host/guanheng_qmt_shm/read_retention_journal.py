@@ -80,7 +80,7 @@ class _RetainedJournal:
                                 or {row[1] for row in db.execute('PRAGMA table_info(read_retention)')} != {'request_id', 'ticket', 'consumed'}):
                             raise JournalConflict('unknown retained read Journal columns')
                         rows = db.execute('SELECT id,value FROM read_retention_identity').fetchall()
-                        if len(rows) != 1 or rows[0][0] != 1 or bytes(rows[0][1]) != self._retention_identity:
+                        if len(rows) != 1 or rows[0][0] != 1 or (bytes(rows[0][1]) != self._retention_identity and not getattr(self,'_historical_retention_identity_matches',lambda raw:False)(bytes(rows[0][1]))):
                             raise JournalConflict('read retention Journal configuration differs')
             yield db
             if fresh and not self._allow_legacy_initialization:
