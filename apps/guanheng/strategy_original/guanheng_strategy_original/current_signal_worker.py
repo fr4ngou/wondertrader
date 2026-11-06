@@ -153,7 +153,7 @@ def prepare(facts: dict, backend: Path) -> tuple[dict, dict]:
     versions = {facts["analysis"][c]["factor_version"] for c in selected | {"000300"}}
     if len(versions) != 1:
         reasons.append("front_reference_mismatch")
-    for code in selected | {"000300"}:
+    for code in sorted(selected | {"000300"}):
         packet = facts["analysis"][code]
         expected = "index-point" if code == "000300" else "CNY/share"
         if packet["price_unit"] != expected or packet["volume_unit"] == "unknown":

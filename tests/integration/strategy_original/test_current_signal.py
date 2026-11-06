@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import subprocess
 
 import pytest
 
@@ -213,3 +214,27 @@ def test_source_tamper_and_explicit_work_directory(source, facts, tmp_path):
     with pytest.raises(TimeoutError):
         build_current_signal(source, facts, work_directory=tmp_path, timeout_seconds=1e-9)
     assert not list(tmp_path.glob("original-current-*"))
+
+
+def test_identical_facts_keep_identity_across_worker_hash_seeds(source, facts, tmp_path):
+    # 实际worker以不同哈希种子运行；诊断标签也是prepared身份的一部分。
+    for code in ('510050', '510500'):
+        facts['codes'].append(code)
+        for basis in ('analysis', 'raw'):
+            facts[basis][code] = deepcopy(facts[basis]['510300'])
+        facts['shares'].extend(dict(row, code=code) for row in list(facts['shares']) if row['code'] == '510300')
+    for packet in facts['analysis'].values():
+        packet['volume_unit'] = 'unknown'
+    payload = dict(facts=normalize_facts(facts), facts_sha256=digest(facts), manifest_sha256='c'*64)
+    incoming = tmp_path/'facts.json';incoming.write_text(json.dumps(payload), encoding='utf8')
+    worker = ROOT/'apps/guanheng/strategy_original/guanheng_strategy_original/current_signal_worker.py'
+    identities = []
+    for seed in ('1', '2', '3', '4'):
+        output = tmp_path/('result-'+seed+'.json')
+        environment = dict(os.environ, PYTHONHASHSEED=seed, TEMP=str(tmp_path), TMP=str(tmp_path))
+        completed = subprocess.run([sys.executable, '-S', '-B', str(worker), str(source/'backend'),
+            str(incoming), str(output)], cwd=tmp_path, env=environment, capture_output=True, timeout=30)
+        assert completed.returncode == 0
+        result = json.loads(output.read_bytes())
+        identities.append((result['prepared_sha256'], digest(result['signals_today']), digest(result['model_state'])))
+    assert len(set(identities)) == 1
