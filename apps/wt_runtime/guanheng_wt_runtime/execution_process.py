@@ -81,6 +81,10 @@ class ExecutionProcessConfig:
         config = _json(raw)
         _require(config.get('schema_version') == 'guanheng.cta-execution.v1'
                  and Path(config['installation_root']) == installation / 'app')
+        if 'strategy_extension_origin' in config:
+            from .execution_recovery import strategy_extension_configuration
+            strategy_extension_configuration(config)
+            _require(config.get('recovery',{}).get('mode') in ('resume_clean','resume_reconciled'))
         if 'observation_refresh' in config:
             refresh=config['observation_refresh']
             _require(type(refresh) is dict and set(refresh)=={'interval_ms'}

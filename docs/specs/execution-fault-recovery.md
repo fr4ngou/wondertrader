@@ -85,6 +85,10 @@ EFR-21：同账权限交接显式提供execution_permission_origin={schema:"guan
 原账离线准备器保持原output_directory、initial_inventory.state_root和资本声明，固定实际前代control/configuration，生成独立通信配对及启用写权限的候选。准备器只写新候选目录，owner启动、Source替换、原金融状态写入、现场transition生成及新基准创建均由各自真实生命周期拥有。现场transition在实际正常关闭后，以后继角色解释器及已审Native安装生成。NAP新鲜度、自然交易窗口与SDK替身证据分别登记资格。
 
 
+## EFR-22 单账新增原版ctx
+
+显式策略扩展材料、固定新增行与比较边界见[OLS-6](original-live-strategy.md#ols-6-显式单账策略扩展材料)。恢复准入保留所有原金融文件SHA和原命令责任；首轮只要求原状态owner的ctx文件，并拒绝新增ctx已有stradata或userdata。后继正常关闭及clean恢复仍要求完整两ctx文件。新增依赖仅在显式扩展已核合同时接纳原版纯策略和行情SDK的安装文件，原Core、解释器和既有包约束继续保持。
+
 ## 已结束账户读取的回收结果
 
 显式账户票据的原ID lookup收到认证Host完整410/read_ticket_ended_unretained时，Common返回Unavailable/qmt_read_ticket_ended_unretained。Host对在途、未知及未消费结果仍保留原记录；该状态只结束旧读取责任，不提供账户数据。标准交易插件归还该原读取的槽和内存，沿既有刷新流程发起新一轮账户查询。其它410、绑定冲突、无法确认的原结果以及全部交易命令继续沿原核查／失败语义。

@@ -41,8 +41,10 @@ class OriginalLiveStrategy:
         self.seconds=p['evaluation_seconds'];self.max_age=p['broker_max_age_seconds'];self.capital_reader=None;self.participants={}
         self.execution_enabled=native['trader']['writes_enabled'];_need(type(self.execution_enabled)is bool,'execution_permission')
         self.identity=digest((self.id,ORIGINAL_LIVE_VERSION,{k:v for k,v in p.items() if k!='state_mode'},code_identity));self.initialized=False;self.sequence=0
+        from .execution_recovery import strategy_state_mode
+        self.state_mode=strategy_state_mode(native,self.id,deadline=deadline) or p['state_mode']  # 已核原状态owner决定恢复模式；固定new配置不重置后继ctx。
         self.previous_identity=None
-        if p['state_mode']=='resume' and getattr(configuration,'recovery_mode',None)=='resume_reconciled':
+        if self.state_mode=='resume' and getattr(configuration,'recovery_mode',None)=='resume_reconciled':
             from .execution_recovery import load_transition,state_origin_configuration
             _,prior_code=load_transition(native)
             previous=state_origin_configuration(native,deadline=deadline)
@@ -86,7 +88,7 @@ class OriginalLiveStrategy:
         context.bars(self.main,'m1',1,main=True);own,broker=self._view(context,min(self.start_deadline,time.monotonic()+self.seconds))
         _need(own is not None,'original_initial_allocation')
         text=context.load_quantity_state()
-        if self.parameters['state_mode']=='new':
+        if self.state_mode=='new':
             _need(text=='' and context.facts().fund_pnl==0,'original_new_context_required')
             for symbol in self.targets:
                 p=context.position(symbol);_need(p.raw_position==0 and p.raw_valid==0 and p.first_entry==p.last_entry==0,'original_new_context_required')

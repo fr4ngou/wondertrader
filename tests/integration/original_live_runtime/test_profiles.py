@@ -197,6 +197,7 @@ def test_waiting_original_announces_hold_and_old_sell_authorizes(tmp_path,monkey
     coord=AttributionCoordinator(book,control_id=str(uuid4()),account_scope_sha256='a'*64,strategy_ids=(RETAINED_ID,ORIGINAL_ID),
         fee_bound=lambda *a:Decimal(5),settlement_day=lambda day:'2026-11-09')
     def send(kind,body,epoch=0):
+        if kind==4:body=dict(body,instance_id='synthetic-native-executor')
         raw=json.dumps(body).encode();return coord(AttributionEvent(kind,1 if kind==1 else 2,epoch,body,raw,sha256(raw).hexdigest(),time.monotonic()+5))
     # 旧策略真实SELL意图已交原kind1，但另一ctx尚未声明时仍保持原保守规则。
     coord.prepare_intent(RETAINED_ID,10,source_sha256='d'*64,known_at='2026-11-06T09:00:00+08:00',buy_price_caps={},common_prices=(),deadline=time.monotonic()+5)
@@ -226,6 +227,18 @@ def test_resume_preserves_pending_original_caps_and_context_not_reseeded(monkeyp
     assert newctx.targets[resumed.mapping[c]]==100000
     meta=[x for x in newasa.calls if type(x)is tuple][-1][3]
     assert meta['source_sha256']=='d'*64 and meta['buy_price_caps'][resumed.mapping[c]]==Decimal('9.5')
+
+
+def test_verified_recovery_resumes_fixed_initial_new_declaration(monkeypatch):
+    from guanheng_wt_runtime import execution_recovery
+    c=DEFAULT_CODES[0];owner,ctx,asa,sig,out=make(monkeypatch,{c:'BUY'})
+    owner.callback(ctx);schedule(owner,ctx);saved=ctx.kv
+    monkeypatch.setattr(execution_recovery,'strategy_state_mode',lambda *a,**kw:'resume')
+    resumed,newctx,newasa,newsig,newout=make(monkeypatch,mode='new');newctx.kv=saved
+    assert resumed.parameters['state_mode']=='new' and resumed.state_mode=='resume'
+    resumed.callback(newctx)
+    assert resumed._plan==owner._plan and resumed._intent_prices==owner._intent_prices
+    assert resumed._consumed_codes==owner._consumed_codes and resumed._last_source==owner._last_source
 
 
 def test_worker_close_timeout_retains_original_owner_and_rejoins(tmp_path):

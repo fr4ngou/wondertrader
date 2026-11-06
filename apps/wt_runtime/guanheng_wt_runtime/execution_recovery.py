@@ -224,6 +224,7 @@ def market_origin_configuration(native, *, deadline=float('inf')):
     原参考只允许一跳且没有另一份origin，避免循环别名。准备阶段尚未注入
     takeover，按相同阶段比较；Native准入再核实际原takeover及状态文件。
     """
+    native=strategy_extension_configuration(native,deadline=deadline)
     native=execution_permission_origin_configuration(native,deadline=deadline)
     marker=native.get('market_input_origin')
     if marker is None:return native
@@ -280,8 +281,46 @@ def market_origin_configuration(native, *, deadline=float('inf')):
     return origin
 
 
+def strategy_extension_configuration(native, *, deadline=float('inf')):
+    """仅投影已冻结新增行；原单策略业务准入继续核其余所有字段。"""
+    marker=native.get('strategy_extension_origin')
+    if marker is None:return native
+    _require(type(marker)is dict and set(marker)=={'schema','file','sha256','added_strategy'}
+        and marker['schema']=='guanheng.strategy-extension-origin.v1')
+    def pinned(reference,maximum):
+        _require(type(reference)is dict and set(reference)=={'file','sha256'})
+        raw=_read(_path(reference['file']),maximum,deadline=deadline,clock=time.monotonic)
+        _require(hashlib.sha256(raw).hexdigest()==_sha(reference['sha256']))
+        return _json(raw)
+    _require(_path(marker['file']).name=='execution.json')
+    origin=pinned({k:marker[k]for k in ('file','sha256')},256*1024)
+    added=pinned(marker['added_strategy'],64*1024)
+    _require('strategy_extension_origin'not in origin and type(origin.get('strategies'))is list
+        and len(origin['strategies'])==1 and origin['strategies'][0]['id']=='resonance-regime-v1')
+    p=added['parameters']['python_strategy']
+    _require(added['id']=='resonance-original-wt-351f9d5-stable'
+        and p['schema']=='guanheng.original-live-cta.v1' and p['strategy_version']=='0.2.0a1'
+        and p['initial_capital_cny']=='1000000' and p['state_mode']=='new'
+        and p['activation_mode']=='signals-from-activation')
+    rows=native['strategies']
+    _require(type(rows)is list and len(rows)==2 and sum(r==added for r in rows)==1
+        and sum(r['id']=='resonance-regime-v1'for r in rows)==1)
+    projected=copy.deepcopy(native);projected.pop('strategy_extension_origin')
+    projected['strategies']=[r for r in projected['strategies']if r['id']=='resonance-regime-v1']
+    _require(compatible_business_configuration(projected,origin,deadline=deadline))
+    return projected
+
+
+def _extension_row(native):
+    return next((r for r in native.get('strategies',[])if r.get('id')=='resonance-original-wt-351f9d5-stable'),None)
+
+
 def compatible_business_configuration(current, previous, *, deadline=float('inf')):
     """同一原模型允许显式市场引用接入；原窗口内容继续由数据owner发布。"""
+    # 旧双ctx不能在投影时被丢弃；后继新增行必须逐值保持。
+    if 'strategy_extension_origin'in previous:
+        _require('strategy_extension_origin'in current and _extension_row(current)==_extension_row(previous)
+            and current['strategy_extension_origin']==previous['strategy_extension_origin'])
     before=_business(market_origin_configuration(previous,deadline=deadline))
     after=_business(market_origin_configuration(current,deadline=deadline))
     if ('takeover' in current)!=('takeover' in previous):
@@ -419,7 +458,7 @@ def _normalized(binding):
     return result
 
 
-def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrade=False):
+def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrade=False, strategy_extension=False):
     """同业务发行允许策略及数量实现升级；纯Core及解释器仍须逐件相同。
 
     strategy_upgrade仅由已核前后完整业务配置的transition路径传入。部署材料
@@ -438,7 +477,10 @@ def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrad
                 # 已核完整同业务transition才接纳数量实现升级；原冻结状态仍由NSQ构造器重验。
                 or strategy_upgrade and (
                     key.startswith('site/guanheng_strategy_native/')
-                    or key.startswith('site/guanheng_strategy_native-') and key.endswith('.dist-info/METADATA')))
+                    or key.startswith('site/guanheng_strategy_native-') and key.endswith('.dist-info/METADATA'))
+                or strategy_extension and any(key.startswith('site/'+package+'/')
+                    or key.startswith('site/'+package+'-') and key.endswith('.dist-info/METADATA')
+                    for package in ('guanheng_strategy_original','guanheng_market_client')))
 
 
 def load_transition(native, identities=None, *, binding=None, deadline=float('inf')):
@@ -474,11 +516,32 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
     if identities is not None:
         _require(binding is not None and digest(identities) == value['successor_python_code_identity'])
         # 上文已核显式发行材料和完整业务配置；换实现属于发行，不要求改零持仓角色。
-        _compatible_python(old,binding,role_handoff=role_handoff,strategy_upgrade=True)
+        _compatible_python(old,binding,role_handoff=role_handoff,strategy_upgrade=True,
+            strategy_extension='strategy_extension_origin'in native)
     restored=state_origin(value,deadline=deadline)
     if restored is not None and identities is not None:
-        _compatible_python(restored['binding'],binding,strategy_upgrade=True)
+        _compatible_python(restored['binding'],binding,strategy_upgrade=True,
+            strategy_extension='strategy_extension_origin'in native)
     return value, digest(dict((restored['binding']if restored else old)['files']))
+
+
+def strategy_state_mode(native, strategy_id, *, deadline=float('inf')):
+    """从已核恢复源确定新增ctx首次初始化或既有ctx恢复；不读取/重置策略资金。"""
+    if 'strategy_extension_origin'not in native:return None
+    strategy_extension_configuration(native,deadline=deadline)
+    mode=native['recovery']['mode']
+    if mode=='resume_clean':return 'resume'
+    _require(mode=='resume_reconciled')
+    transition,unused=load_transition(native,deadline=deadline)
+    origin=state_origin_configuration(native,deadline=deadline)
+    present=any(row['id']==strategy_id for row in origin['strategies'])
+    names=('stradata/'+strategy_id+'.json','userdata/ud_'+strategy_id+'.json')
+    if present:
+        _require(names[0]in transition['state_files'])
+        return 'resume'
+    _require(strategy_id=='resonance-original-wt-351f9d5-stable'
+        and all(name.casefold()not in {key.casefold()for key in transition['state_files']}for name in names))
+    return 'new'
 
 
 def prior_strategy_observations(native, strategy_id, *, deadline):

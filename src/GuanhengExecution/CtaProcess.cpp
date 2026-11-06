@@ -462,7 +462,7 @@ rj::Document permission_model(const rj::Value& config,unsigned depth=0){
 }
 
 // 显式只读市场引用回投原业务模型；原金融、账户及执行字段继续逐项核验。
-rj::Document market_model(const rj::Value& config){
+rj::Document legacy_market_model(const rj::Value& config){
     rj::Document normalized=permission_model(config);
     rj::Document current;current.CopyFrom(normalized,current.GetAllocator());
     if(!current.HasMember("market_input_origin"))return current;
@@ -527,6 +527,65 @@ rj::Document market_model(const rj::Value& config){
 }
 
 // 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
+rj::Document market_model(const rj::Value& config){
+    if(!config.HasMember("strategy_extension_origin"))return legacy_market_model(config);
+    const auto& marker=member(config,"strategy_extension_origin");
+    keys(marker,{"schema","file","sha256","added_strategy"});
+    need(text(marker,"schema")=="guanheng.strategy-extension-origin.v1");
+    const auto path=absolute(text(marker,"file"));need(path.filename()=="execution.json");
+    const auto raw=read(path,256*1024);need(sha(raw)==text(marker,"sha256",64));
+    const auto original=parse(raw);need(!original.HasMember("strategy_extension_origin"));
+    const auto& reference=member(marker,"added_strategy");keys(reference,{"file","sha256"});
+    const auto row_raw=read(absolute(text(reference,"file")),64*1024);need(sha(row_raw)==text(reference,"sha256",64));
+    const auto added=parse(row_raw);const auto& p=member(member(added,"parameters"),"python_strategy");
+    need(text(added,"id")=="resonance-original-wt-351f9d5-stable"
+        &&text(p,"schema")=="guanheng.original-live-cta.v1"&&text(p,"strategy_version")=="0.2.0a1"
+        &&text(p,"initial_capital_cny")=="1000000"&&text(p,"state_mode")=="new"
+        &&text(p,"activation_mode")=="signals-from-activation");
+    const auto& prior=member(original,"strategies");const auto& rows=member(config,"strategies");
+    need(prior.IsArray()&&prior.Size()==1&&text(prior[0],"id")=="resonance-regime-v1"
+        &&rows.IsArray()&&rows.Size()==2);
+    rj::Document projected;projected.CopyFrom(config,projected.GetAllocator());projected.RemoveMember("strategy_extension_origin");
+    auto& keep=projected["strategies"];unsigned removed=0,retained=0;
+    for(auto it=keep.Begin();it!=keep.End();){
+        if(*it==added){it=keep.Erase(it);++removed;}
+        else{need(text(*it,"id")=="resonance-regime-v1");++retained;++it;}
+    }
+    need(removed==1&&retained==1);
+    auto before=legacy_market_model(original);auto after=legacy_market_model(projected);
+    before.RemoveMember("recovery");after.RemoveMember("recovery");
+    need(same_business(before,after));return legacy_market_model(projected);
+}
+bool compatible_model(const rj::Value& previous,const rj::Value& current){
+    // 后继双ctx必须保留冻结新增行及扩展原件身份；投影不能隐藏策略删除或参数变更。
+    if(previous.HasMember("strategy_extension_origin")){
+        need(current.HasMember("strategy_extension_origin")
+            &&previous["strategy_extension_origin"]==current["strategy_extension_origin"]);
+        const auto find=[](const rj::Value& value)->const rj::Value*{
+            for(const auto& row:member(value,"strategies").GetArray())
+                if(text(row,"id")=="resonance-original-wt-351f9d5-stable")return &row;
+            return nullptr;
+        };
+        const auto* left=find(previous);const auto* right=find(current);need(left&&right&&*left==*right);
+    }
+    auto before=market_model(previous);auto after=market_model(current);
+    before.RemoveMember("recovery");after.RemoveMember("recovery");
+    return same_business(before,after);
+}
+rj::Document transition_state_identity(const fs::path& output,const rj::Value& current,const rj::Value& owner){
+    auto files=state_identity(output,member(owner,"strategies"));
+    for(const auto& row:member(current,"strategies").GetArray()){
+        const auto id=text(row,"id",63);bool existed=false;
+        for(const auto& old:member(owner,"strategies").GetArray())if(text(old,"id",63)==id)existed=true;
+        if(!existed){
+            need(current.HasMember("strategy_extension_origin")&&id=="resonance-original-wt-351f9d5-stable");
+            // Windows原加载器按大小写不敏感路径打开；直接核同一路径，不能借异大小写隐匿旧ctx。
+            need(!fs::exists(output/"stradata"/(id+".json"))
+                &&!fs::exists(output/"userdata"/("ud_"+id+".json")));
+        }
+    }
+    return files;
+}
 void admit_reconciled(const rj::Value& selection,const rj::Value& current,const fs::path& output,
     const rj::Value& strategies,const std::string& installation,const std::string& id,
     const std::string& configuration,const fs::path& control){
@@ -543,7 +602,8 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     const auto prior_sha=text(transition,"predecessor_configuration_sha256",64);need(sha(prior_raw)==prior_sha);
     auto prior_config=parse(prior_raw);prior_config.RemoveMember("recovery");
     rj::Document identity;identity.CopyFrom(current,identity.GetAllocator());identity.RemoveMember("recovery");
-    need(same_business(market_model(prior_config),market_model(identity)));
+    need(compatible_model(prior_config,identity));
+    rj::Document state_owner;state_owner.CopyFrom(prior_config,state_owner.GetAllocator()); // 金融文件属于真实源ctx集合，新增ctx不伪造原文件。
     const auto previous=absolute(text(transition,"predecessor_control_directory"));physical(previous);
     const bool initialization_abort=transition.HasMember("initialization_abort");
     need(!initialization_abort||(!fs::exists(previous/"ready.json")&&!transition.HasMember("restoration")));
@@ -584,7 +644,8 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
             &&sha(read(origin/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64));
         auto source=parse(source_raw);need(member(member(source,"trader"),"writes_enabled").IsFalse()
             &&member(member(current,"trader"),"writes_enabled").IsFalse());
-        source.RemoveMember("recovery");need(same_business(market_model(source),market_model(identity)));
+        source.RemoveMember("recovery");need(compatible_model(source,identity));
+        state_owner.CopyFrom(source,state_owner.GetAllocator());
         const auto terminal=parse(read(origin/"closed.json",4096));
         const auto source_ready=parse(read(origin/"ready.json",4096));
         need(text(source_ready,"schema")=="guanheng.execution.ready.v1"&&text(source_ready,"control_id")==origin.filename().string()
@@ -635,7 +696,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
                     &&member(member(current,"trader"),"writes_enabled").IsFalse());
                 const auto archive=absolute(text(restore,"archive_directory"));physical(archive);
                 need(read(archive/"clean.json",256*1024)==clean_raw
-                    &&state_identity(archive,strategies)==member(origin,"files"));
+                    &&state_identity(archive,member(prior_config,"strategies"))==member(origin,"files"));
                 const auto admitted=pinned(member(restore,"snapshot_admission"),256*1024);
                 const auto snapshot=pinned(member(restore,"snapshot_transition"),1024*1024);
                 const auto admission_path=absolute(text(member(restore,"snapshot_admission"),"file"));
@@ -653,7 +714,8 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
                 const auto snapshot_raw=read(snapshot_owner/"execution.json",256*1024);
                 need(sha(snapshot_raw)==text(snapshot,"predecessor_configuration_sha256",64)
                     &&sha(read(snapshot_owner/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64)
-                    &&same_business(market_model(parse(snapshot_raw)),market_model(current)));
+                    &&compatible_model(parse(snapshot_raw),current));
+                state_owner=parse(snapshot_raw);
             }else need(member(origin,"files")==member(transition,"state_files"));
         }else{
             const auto failure=parse(read(previous/"failure.json",4096));same_origin(failure);
@@ -690,7 +752,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
             &&member(source,"exit_code").GetInt()==0&&member(source,"resources_closed").IsTrue());
     }else need(false);
     need((clean_transition||!fs::exists(output/".cta-clean.json"))&&!fs::exists(output/".cta-clean.prepared.json")
-        &&encode(state_identity(output,strategies))==encode(member(transition,"state_files")));
+        &&encode(transition_state_identity(output,current,state_owner))==encode(member(transition,"state_files")));
     const auto claimed=output/(".cta-reconciled-"+transition_sha+".json");need(!fs::exists(claimed));
     auto proof=receipt("guanheng.cta-reconciled.v1",id,configuration,false);auto& a=proof.GetAllocator();
     proof.AddMember("transition_sha256",rj::Value(transition_sha.c_str(),a),a); // 配置绑定的固定发行材料摘要。
@@ -858,16 +920,20 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         native_log.start(control);
         native_log_attempted=true;
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
-        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","role_replacement"});
+        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","role_replacement","strategy_extension_origin"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
         if(cfg.HasMember("role_replacement")){
-            need(text(member(cfg,"recovery"),"mode")!="record_clean");role_model(cfg);
+            need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
         }
         if(cfg.HasMember("execution_permission_origin")){
-            need(text(member(cfg,"recovery"),"mode")!="record_clean");permission_model(cfg);
+            need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
         }
         if(cfg.HasMember("market_input_origin")){
             need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
+        }
+        if(cfg.HasMember("strategy_extension_origin")){
+            const auto mode=text(member(cfg,"recovery"),"mode");
+            need(mode=="resume_clean"||mode=="resume_reconciled");market_model(cfg);
         }
         unsigned observation_refresh_ms=0;
         const auto& trader_config=member(cfg,"trader");
