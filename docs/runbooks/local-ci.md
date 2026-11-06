@@ -59,4 +59,6 @@ python -B scripts/local_ci.py integrate --master-worktree <本地master工作区
 
 入口先验证结果、内容及master基线，再用Git正常快进。master已推进时更新候选并重验，冲突由Git保留。CI不会清理worktree、停止常驻进程、发布制品或触发真实下撤单。
 
+暂存区和工作文件不同时，CI记录实际运行的工作文件；合入时再核对提交树。执行器覆盖源码和对应构建输入也触发执行检查；覆盖文件、源码与构建配方先核一致，外部C++测试帮助文件冻结副本的摘要进入执行结果。
+
 当前通过统一本地命令自动检查，普通`git merge`未安装额外钩子；团队日常合入使用本手册入口。其余源码提交、审查及发布规则沿[开发流程](../development/workflow.md)和[发布规范](release.md)。

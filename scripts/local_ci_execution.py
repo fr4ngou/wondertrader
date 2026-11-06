@@ -34,6 +34,13 @@ def main():
     old = json.loads((seed / 'SOURCE.json').read_bytes())
     if old['upstream_commit'] != recipe['upstream_commit'] or old['overlays'] != recipe['overlays']:
         raise ValueError('本地依赖基线与已批准框架覆盖不一致，请更新构建缓存')
+    for overlay in recipe['overlays']:
+        if hashlib.sha256((ROOT / overlay['path']).read_bytes()).hexdigest() != overlay['sha256']:
+            raise ValueError('框架覆盖文件与构建配方不同：' + overlay['path'])
+    for name, identity in recipe['patched_files'].items():
+        runtime = ROOT / 'config/native-reader-overlays/runtime' / name
+        if runtime.is_file() and hashlib.sha256(runtime.read_bytes().replace(b'\r\n', b'\n')).hexdigest() != identity['normalized_result_sha256']:
+            raise ValueError('当前框架覆盖源码与构建配方不同：' + name)
     # 使用原产品冻结函数创建当前源码副本；依赖源码缓存保持原位置。
     files = source_files(recipe)
     owned = output / 'inputs/owned'
@@ -49,6 +56,8 @@ def main():
     helper = output / 'helpers'
     helper.mkdir()
     shutil.copyfile(legacy / 'qmt_standard_trader/standard_probe.cpp', helper / 'standard_probe.cpp')
+    # 外部C++帮助文件参与编译；冻结副本摘要须与结果一起留存，而非仅登记Python夹具。
+    helper_sha256 = hashlib.sha256((helper / 'standard_probe.cpp').read_bytes()).hexdigest()
     build = output / 'cmake'
 
     def run(argv, label, seconds=300):
@@ -90,7 +99,10 @@ def main():
         results.append({'scenario': scenario, 'outcome': result['case_outcome']})
     verify_snapshot(owned)
     verify_snapshot(upstream)
+    if hashlib.sha256((helper / 'standard_probe.cpp').read_bytes()).hexdigest() != helper_sha256:
+        raise ValueError('冻结的C++测试夹具在编译或运行期间发生变化')
     (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results,
+        'cpp_fixture': {'path': 'helpers/standard_probe.cpp', 'sha256': helper_sha256},
         'standard_source_sha256': hashlib.sha256((owned / 'src/TraderQMT/StandardQmtTrader.cpp').read_bytes()).hexdigest(),
         'real_broker_calls': 0, 'historical_reconciliation_qualified': False,
         'business_strategy_qualified': False}, indent=2) + '\n', encoding='utf-8')

@@ -40,7 +40,10 @@ def snapshot(root):
         if stage != b'0':
             raise ValueError('请先解决Git合并冲突')
         files[os.fsdecode(name)] = mode.decode() + ':' + blob.decode()
+    # HEAD到工作目录的净差异可能为零：暂存B后把工作文件改回A时，测试仍运行A。
+    # 独立纳入索引到工作目录的差异，确保身份对应实际被执行内容。
     changed = set(git(root, 'diff', '--name-only', '-z', 'HEAD').split(b'\0'))
+    changed.update(git(root, 'diff', '--name-only', '-z').split(b'\0'))
     changed.update(git(root, 'ls-files', '-z', '--others', '--exclude-standard').split(b'\0'))
     for raw in sorted(changed - {b''}):
         name = os.fsdecode(raw)
@@ -51,7 +54,11 @@ def snapshot(root):
         if path.is_symlink() or not path.is_file():
             raise ValueError('变更路径应为普通源码文件：' + name)
         mode = files.get(name, '100644:').split(':')[0]
-        blob = git(root, 'hash-object', '--path=' + name, '--stdin', data=path.read_bytes()).decode().strip()
+        data = path.read_bytes()
+        # 旧Git blob的CRLF可能受新属性重复报告M；原字节等于索引时保留该真实blob身份。
+        if name in files and data == git(root, 'cat-file', 'blob', files[name].split(':')[1]):
+            continue
+        blob = git(root, 'hash-object', '--path=' + name, '--stdin', data=data).decode().strip()
         files[name] = mode + ':' + blob
     encoded = json.dumps(files, sort_keys=True, separators=(',', ':')).encode()
     return {'sha256': hashlib.sha256(encoded).hexdigest(), 'files': files}
@@ -62,6 +69,7 @@ def changed_paths(root):
     base = git(root, 'merge-base', 'master', 'HEAD').decode().strip()
     changes = git(root, 'diff', '--name-only', '-z', base, 'HEAD')
     changes += git(root, 'diff', '--name-only', '-z', 'HEAD')
+    changes += git(root, 'diff', '--name-only', '-z')
     changes += git(root, 'ls-files', '-z', '--others', '--exclude-standard')
     return sorted({os.fsdecode(p) for p in changes.split(b'\0') if p})
 
@@ -71,7 +79,8 @@ def profiles_for(paths):
     if paths and all(p.endswith('.md') for p in paths):
         return ['documentation']
     profiles = ['software']
-    execution_prefixes = ('src/', 'cmake/', 'connectors/qmt_shm/',
+    execution_prefixes = ('src/', 'cmake/', 'connectors/qmt_shm/', 'config/native-reader-overlays/runtime/',
+                          'integrations/wondertrader_execution/', 'integrations/wondertrader_stock_reference/',
                           'tests/integration/qmt_broker_context/', 'tests/integration/wt_runtime/')
     if any(p.startswith(execution_prefixes) or p in (
             'scripts/execution_product.py', 'scripts/local_ci_execution.py',
@@ -177,9 +186,19 @@ def integrate(root, target, receipt_path):
         # Git属性变化可能给原字节完全相同的旧文件打M；原始内容相等时可复用。
         if not path.is_file() or path.read_bytes() != git(root, 'show', 'HEAD:' + name):
             actual_changes.append(name)
-    if untracked or actual_changes:
+    staged = git(root, 'diff', '--cached', '--name-only', '-z', 'HEAD').strip(b'\0')
+    if untracked or actual_changes or staged:
         raise ValueError('请先提交候选源码；CI支持先测试后提交，内容相同可复用结果')
     candidate = git(root, 'rev-parse', 'HEAD').decode().strip()
+    # 快进指向不可变提交；核对该提交树，避免只验证可变索引/工作目录。
+    committed = {}
+    for entry in git(root, 'ls-tree', '-r', '--full-tree', '-z', candidate).split(b'\0'):
+        if entry:
+            info, name = entry.split(b'\t', 1)
+            mode, kind, blob = info.split()
+            committed[os.fsdecode(name)] = mode.decode() + ':' + blob.decode()
+    if committed != receipt['source']['files']:
+        raise ValueError('候选提交内容与已测试源码不一致')
     if git(target, 'branch', '--show-current').decode().strip() != 'master':
         raise ValueError('目标工作区应检出master')
     if git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir') != git(target, 'rev-parse', '--path-format=absolute', '--git-common-dir'):
