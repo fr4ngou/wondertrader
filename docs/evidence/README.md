@@ -1,5 +1,10 @@
 # 验证证据
 
+- [开发原则与缺陷预防规范整合](2026-11-07-development-principles.md)：根因回归、语义复用与模块边界。
+- [文档完整性分类及恢复](2026-11-07-documentation-health.md)：旧分支缺失原件、历史材料归属和研究索引修复；后继收尾见正文。
+- [AI 原生知识方案重整](2026-11-07-ai-native-documentation-plan.md)：设计依据和待实施行为场景。
+- [当前快照治理](2026-11-07-roadmap-snapshots.md)：主题更新、历史完整性、预算及流水回归。
+
 - [观衡123与Data25实际后验真](2026-11-07-native-target-cash-gapplan-postflight.md)：普通安装、真实页面、原回测独立复算、保留计划恢复和来源阻塞。
 
 - [分析窗口有效期600秒采用](../releases/2026-11-06-market-window-age.md)：用户确认、真实窗口过期边界、同账恢复及实际Native加载；原生价格保护另列研究。

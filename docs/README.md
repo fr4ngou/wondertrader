@@ -50,6 +50,7 @@
 | 功能、修复、重构、审查 | [开发流程](development/workflow.md)、[代码规范](development/coding.md) | 相关测试与调用链；原规格和模块说明 |
 | 接口与复杂逻辑说明 | [注释规范](development/comments.md) | 语义、线程、生命周期与实现一致 |
 | 编写/维护文档 | [文档规范](development/documentation.md) | `project.py check`、唯一正文、索引及事实依据 |
+| AI 开发知识与任务续接方案 | [AKN 方案](specs/agent-project-knowledge.md)、[研究依据](research/2026-11-07-documentation-standards-lifecycle.md) | 按采用切片登记；任务选择及行为实验仍待实施 |
 | 功能设计、职责或状态变化 | [方案规范](development/design.md)、[规格索引](specs/README.md) | 要求与验收映射；原规格及适用 ADR |
 | 测试、审查与运行资格 | [验证规范](development/verification.md)、[测试手册](runbooks/testing.md) | 输入有效的测试及[证据](evidence/README.md) |
 | 原生隔离回测操作员入口 | [回测手册](runbooks/native-backtest.md)、[NBC规格](specs/native-backtest-cli.md) | 固定安装、同一总预算、取消回收及真实原DLL命令 |

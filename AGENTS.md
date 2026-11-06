@@ -10,7 +10,7 @@
 
 ## 共同约束
 
-- 开发顺序遵循[主路径优先](docs/development/workflow.md#主路径优先)：先完成整体模块并跑通实际调用链，再集中处理边界、bad case和代码评审。
+- 开发顺序遵循[主路径优先](docs/development/workflow.md#主路径优先)，以可运行的完整业务切片推进，验证随切片完成。
 - 跨会话分工和目标执行[会话协作](docs/development/workflow.md#会话协作)：消息只用于完整交付、需要接收方行动的真实阻塞、共享资源冲突或必须决策的事项；普通进度留在本会话。
 - Worktree开发任务合入master后，开发者按[Worktree收尾](docs/development/workflow.md#worktree收尾)手动清理临时工作树，并核对目录和Git登记已移除。
 - 在负责该事实或行为的模块修正根因，以统一逻辑实现；验收包含原触发条件及受影响调用链。
@@ -28,6 +28,7 @@
 | 工作 | 必须读取 |
 |---|---|
 | 功能、修复、重构与代码评审 | [开发流程](docs/development/workflow.md)、[代码规范](docs/development/coding.md)、[验证规范](docs/development/verification.md) |
+| 开发缺陷登记、历史检索与复盘 | [缺陷与故障处理规范](docs/runbooks/incidents.md#开发缺陷记录与检索) |
 | 新增或修改接口、结构体/数据类/DTO字段、协议字段、生命周期或复杂逻辑 | [注释规范](docs/development/comments.md)，数据模型的每个字段同步中文注释 |
 | 编写方案、改变模块职责或数据归属 | [方案规范](docs/development/design.md)、[系统架构](docs/architecture/overview.md) |
 | 文档、模块说明、规格或证据维护 | [文档规范](docs/development/documentation.md) |
@@ -38,4 +39,4 @@
 
 ## 完成工作
 
-运行适用验证及 `python -B scripts/project.py check`，按[证据规范](docs/evidence/README.md)记录结果，更新改变的唯一正文和任务状态。最终说明实际变更、验证证据、未覆盖范围及下一项必要动作。
+运行适用验证及 `python -B scripts/project.py check`，按[实际影响选择维护量](docs/development/documentation.md#按影响选择维护量)记录结果并更新真正变化的正文或续接项。最终说明实际变更、验证证据、未覆盖范围及下一项必要动作。

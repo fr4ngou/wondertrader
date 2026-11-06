@@ -1,3 +1,5 @@
+- [AI 原生项目知识与持续演进方案](agent-project-knowledge.md)：AKN，入口路由、任务续接与经验收敛；按采用切片和阶段分别登记。
+
 - [策略数据、业务诊断与运行日志](strategy-data-and-observability.md)：SDO，辅助来源/持续更新、逐角色与回测诊断、日志留存与发布验真。
 
 - [全市场分钟采集、覆盖与自动恢复](continuous-minute-collection.md)：原QST/Writer/Reader、动态名册对照、自然归档与原身份补缺接续。

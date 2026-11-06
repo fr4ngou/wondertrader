@@ -10,5 +10,9 @@
     "AGENTS.md",
     "docs/**/*.md"
   ],
-  "documentation_entry": "docs/README.md"
+  "documentation_entry": "docs/README.md",
+  "document_snapshot_limits": {
+    "docs/roadmap/CURRENT.md": 6000,
+    "docs/roadmap/TARGET.md": 6000
+  }
 }

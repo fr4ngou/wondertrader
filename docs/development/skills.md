@@ -8,4 +8,6 @@
 
 本工具根据 [project.json](../../config/project.json) 确定文档检查范围，支持 `start`、`check` 和技能清单维护。保留维护工具的[许可](../../scripts/project_support/LICENSE)，本地适配的源码和验证记录随版本管理。
 
+可选字段 `document_snapshot_limits` 将仓库内快照路径映射为正整数 Unicode 字符预算。`check` 对这些当前快照额外核对体积和日期流水；普通文档及历史归档继续沿原链接、导航和技能清单检查。格式规则、事实复核及历史保留见[当前快照维护](documentation.md#当前快照维护)。
+
 `python -B scripts/project.py start`默认输出文档导航及NOW最近三条状态，每页正文至多6000字符，并明确提示省略正文。按任务沿显示的路径读取相关章节；追溯需要完整入口输出时使用`start --full`。摘要仅控制入口输出量，原文、历史和`check`的完整文档检查范围保持。

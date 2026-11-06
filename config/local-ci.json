@@ -6,7 +6,7 @@
     ],
     "software": [
       {"name": "documents", "argv": ["{python}", "-B", "scripts/project.py", "check"], "seconds": 120},
-      {"name": "software-regression", "argv": ["{python}", "-B", "-m", "pytest", "tests/local_ci", "tests/integration/app_console", "tests/integration/wt_runtime", "-q", "-o", "cache_dir={run}/pytest-cache", "--basetemp", "{run}/pytest-temp", "--junitxml", "{run}/junit.xml"], "seconds": 600}
+      {"name": "software-regression", "argv": ["{python}", "-B", "-m", "pytest", "tests/local_ci", "tests/integration/app_console", "tests/integration/wt_runtime", "tests/tools/test_project_documents.py", "-q", "-o", "cache_dir={run}/pytest-cache", "--basetemp", "{run}/pytest-temp", "--junitxml", "{run}/junit.xml"], "seconds": 600}
     ],
     "execution": [
       {"name": "documents", "argv": ["{python}", "-B", "scripts/project.py", "check"], "seconds": 120},

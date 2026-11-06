@@ -28,6 +28,17 @@ def start_document(path: Path, *, full: bool, current: bool) -> str:
     return preview
 
 
+def check_document_snapshot(text: str, *, label: str, max_characters: int) -> list[str]:
+    """核对当前快照的字符预算与日期流水；历史正文沿普通文档检查。"""
+    errors = []
+    if len(text) > max_characters:
+        errors.append(f"{label}: snapshot exceeds character budget ({len(text)} > {max_characters})")
+    prose = re.sub(r"```.*?```", "", text, flags=re.S)
+    if re.search(r"(?m)^[ \t]*(?:[-*][ \t]+)?\d{4}-\d{2}-\d{2}", prose):
+        errors.append(f"{label}: dated timeline in current snapshot; update the topic and link event evidence")
+    return errors
+
+
 def check(root: Path, *, include_skills: bool = True) -> list[str]:
     root = root.resolve()
     errors = []
@@ -37,6 +48,20 @@ def check(root: Path, *, include_skills: bool = True) -> list[str]:
     patterns = config["documentation_paths"]
     docs = sorted({p for pattern in patterns for p in root.glob(pattern) if p.is_file()})
     paths = [root / "AGENTS.md", root / config["documentation_entry"]] + docs
+    # 配置字段：键为仓库内快照路径，值为含换行的最大 Unicode 字符数。
+    snapshot_limits = config.get("document_snapshot_limits", {})
+    if not isinstance(snapshot_limits, dict):
+        raise ValueError("document_snapshot_limits must be an object")
+    snapshot_budgets = {}
+    for relative, budget in snapshot_limits.items():
+        if not isinstance(relative, str) or type(budget) is not int or budget <= 0:
+            raise ValueError("snapshot limits require relative paths and positive integer budgets")
+        target = (root / relative).resolve()
+        if not target.is_relative_to(root) or Path(relative).is_absolute():
+            raise ValueError(f"snapshot path escapes project: {relative}")
+        if target not in {p.resolve() for p in paths}:
+            raise ValueError(f"snapshot is outside declared documentation scope: {relative}")
+        snapshot_budgets[target] = budget
     graph = {}
     for path in dict.fromkeys(paths):
         if not path.is_file():
@@ -44,7 +69,13 @@ def check(root: Path, *, include_skills: bool = True) -> list[str]:
             continue
         graph[path] = []
         try:
-            text = re.sub(r"```.*?```", "", path.read_text(encoding="utf-8-sig"), flags=re.S)
+            text = path.read_text(encoding="utf-8-sig")
+            if path.resolve() in snapshot_budgets:
+                errors.extend(check_document_snapshot(
+                    text, label=str(path.relative_to(root)),
+                    max_characters=snapshot_budgets[path.resolve()],
+                ))
+            text = re.sub(r"```.*?```", "", text, flags=re.S)
             for match in LINK.finditer(text):
                 raw = match.group(1).strip("<>")
                 parts = urlsplit(raw)
