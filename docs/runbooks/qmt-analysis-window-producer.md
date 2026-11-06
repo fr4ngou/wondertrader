@@ -18,6 +18,8 @@ Python owner 停止顺序：`request_close(deadline=绝对单调时刻)`，再 `
 
 需要自动更新近期日线时，在 configuration 同层显式增加 history_preparation，例如 `{"connection":{"base_url":"http://127.0.0.1:18120","key_id":"example","secret_env":"WT_HPR_HTTP_SECRET","timeout":10},"refresh_interval_seconds":300}`。地址/键为示例，实际选择既有受管 HPR v6；分析 source_connection 继续选择只读 v7。两份连接及准备间隔进入工作根身份，已有无补齐配置根须按原配置完成未确认读取后显式部署新根。
 
+已有独立日线服务负责持续补齐时省略history_preparation，先核该owner的实际缓存与公开回读，再运行原只读捕获。部署变更同时核实际生成代中的分析descriptor、工作根，以及Native Reader的status/source_root，使用原账配置升级流程；日常stop/start继承前代配置。原未知slot及结果保持完整，直接读取行情不把未知补齐标记为成功。
+
 启用后初次只补当前闭合日，后继含上次尾日推进；同日300秒示例间隔内合并请求。原2021年以来暖机缓存继续复用，缺暖机不自动触发五年下载。refresh_seconds 共用 HPR和v7/Native预算：按部署实际往返选择，例如180秒；每个 HPR及RPC仍至多原30秒，来源任务长于 D 时保留原身份。准备后观察实际 basis_date，PREPARATION.json 的 call_returned/coverage unknown 不代表尾日已经具备。源任务/Journal容量按原 HPR运行手册管理，当前模块不删除旧任务或重派未知；容量耗尽属于明确待处理的源边界。
 
 长期读取可为 source_connection 及 history_preparation.connection 各增加 `"read_retention":{"schema":"qmt.read-retention.v1","max_lifetime_ms":300000}`（数值为示例），并选择公共回收能力对应的已验Host/Agent及AWP retained extra。声明必须等于各自来源的认证profile；该字段属于完整配置身份，不能在已有Pending根随意改配。默认省略仍按上面的旧行为运行。
