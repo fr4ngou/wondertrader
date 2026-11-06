@@ -167,3 +167,7 @@ TraderAdapter的position_by_query默认关闭。配置或五参initExt在初始�
 
 原生产源保持的[生命周期后继](../evidence/2026-10-30-native-account-publication-faults.md)覆盖原常驻认证重连、Native暂停后的父总D回收/恢复、在途停止排空及父进程异常退出后的新代读取。外部物理回收与原Native正常完成分别表达，C原schema4投影与实际HTTP/页面分别验收。
 
+
+## 原生业务日志
+
+自有 [NativeRuntimeLog](../../src/GuanhengExecution/NativeRuntimeLog.h) 复用原WTSLogger转发入口和spdlog同步轮转，执行器动态分类沿原root回退；info门槛、4份各1MiB、8KiB正文、失败计数及同代生命周期由 [SDO-R5-Native](../specs/strategy-data-and-observability.md#sdo-r5-native-原生业务日志接线)定义。业务生产者完成停止后由原owner关闭；日志失败保持原业务控制流。头文件真实库验证与完整product/现场接线分别见对应验证及发布记录。

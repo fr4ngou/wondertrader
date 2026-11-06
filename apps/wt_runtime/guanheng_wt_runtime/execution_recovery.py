@@ -109,6 +109,16 @@ def _same_business(left, right):
         _require(type(duration) is int and (duration == 0 or 1000 <= duration <= 86400000))
         value['budget'].pop('run_ms')
         _normalize_publication_cache(value)
+        # 此显式执行修正不改变金融模型；只归一化比较副本，实际配置和原件SHA保持。
+        executer = value.get('executer')
+        policies = executer.get('policy') if type(executer) is dict else None
+        if type(policies) is dict:
+            for rule in policies.values():
+                if type(rule) is dict and 'replace_equal_position_target' in rule:
+                    _require(type(rule['replace_equal_position_target']) is bool
+                        and rule.get('name') in ('WtExeFact.WtStockMinImpactExeUnit',
+                                                'WtExeFact.WtStockMinImpactBorrowedExeUnit'))
+                    rule.pop('replace_equal_position_target')
         strategies = value.get('strategies')
         if type(strategies) is not list:
             continue

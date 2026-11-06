@@ -103,13 +103,13 @@
     {
       "target": "src/WtExeFact/WtStockMinImpactExeUnit.cpp",
       "source": "config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.cpp",
-      "sha256": "e92f69bff2cff4d5b2376ea88b46533e638a5f5b0e2a99a06a2be759c33ad0a6",
+      "sha256": "083fd03646327339a7d1d12c2f0ae19b677478a14d1f8dc08ea1196f75ecf843",
       "baseline_sha256": "b55e8b4191b6dc0414a45d3ad1e78040b508042534b519ca250506c83df83d22"
     },
     {
       "target": "src/WtExeFact/WtStockMinImpactExeUnit.h",
       "source": "config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.h",
-      "sha256": "1b57a0c0680701010c60c00ef495c0ad89c72fefcc0d9f67533986dda623f3fd",
+      "sha256": "8de0a704fe8bbe96738f6e270482ed18c4df00bc0426867a7608ce377085c9f4",
       "baseline_sha256": "ae699656cc721b6c1d9cb821c4392ab5d0711b53f70a4af759cb6f61ef2f391a"
     },
     {

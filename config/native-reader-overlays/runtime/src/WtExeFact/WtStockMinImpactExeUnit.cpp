@@ -74,6 +74,8 @@ void WtStockMinImpactExeUnit::init(ExecuteContext* ctx, const char* stdCode, WTS
 	_price_mode = cfg->getInt32("pricemode");	//价格类型,0-最新价,-1-最优价,1-对手价,2-自动,默认为0
 	_entrust_span = cfg->getUInt32("span");		//发单时间间隔，单位毫秒
 	_by_rate = cfg->getBoolean("byrate");		//是否按照对手的挂单数的比例下单，如果是true，则rate字段生效，如果是false则lots字段生效
+	// 目标接纳与交易判定分开；模式独立于Borrowed元数据所有权且初始化后固定。
+	_replace_equal_position_target = cfg->getBoolean("replace_equal_position_target");
 	_order_lots = cfg->getDouble("lots");		//单次发单手数
 	_qty_rate = cfg->getDouble("rate");			//下单手数比例
 	if (cfg->has("total_money"))
@@ -300,7 +302,8 @@ void WtStockMinImpactExeUnit::set_position(const char* stdCode, double newVol)
 	}
 	double cur_pos = _ctx->getPosition(stdCode);
 
-	if (decimal::eq(cur_pos, newVol))
+	// 恢复的旧理论目标须被新绝对目标替换；原do_calc继续核总量、活动单及T+1。
+	if (!_replace_equal_position_target && decimal::eq(cur_pos, newVol))
 		return;
 
 	if (decimal::lt(newVol, 0))

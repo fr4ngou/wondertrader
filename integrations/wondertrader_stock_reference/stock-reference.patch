@@ -8,16 +8,18 @@
  	virtual ~WtStockMinImpactExeUnit();
  
  private:
-@@ -178,6 +179,8 @@
+@@ -178,6 +179,10 @@
  	bool		_is_total_money_ready{ false };
  	std::map<std::string, double> _market_value{};
  	uint64_t _now;
 +	// 原工厂名保持原路径；显式适配工厂名才保留临时借用引用。
 +	bool _preserve_borrowed_commodity{ false };
++	// 显式配置才接纳已达可卖数量的新绝对目标；缺省沿原提前返回语义。
++	bool _replace_equal_position_target{ false };
  
  public:
  	inline int round_hands(double hands, double min_hands)
-@@ -202,7 +205,8 @@
+@@ -202,7 +207,8 @@
  				min_order = 200.0;
  			else
  				min_order = 100.0;
@@ -58,6 +60,25 @@
  }
  
  void WtStockMinImpactExeUnit::init(ExecuteContext* ctx, const char* stdCode, WTSVariant* cfg)
+@@ -68,6 +74,8 @@
+ 	_price_mode = cfg->getInt32("pricemode");	//价格类型,0-最新价,-1-最优价,1-对手价,2-自动,默认为0
+ 	_entrust_span = cfg->getUInt32("span");		//发单时间间隔，单位毫秒
+ 	_by_rate = cfg->getBoolean("byrate");		//是否按照对手的挂单数的比例下单，如果是true，则rate字段生效，如果是false则lots字段生效
++	// 目标接纳与交易判定分开；模式独立于Borrowed元数据所有权且初始化后固定。
++	_replace_equal_position_target = cfg->getBoolean("replace_equal_position_target");
+ 	_order_lots = cfg->getDouble("lots");		//单次发单手数
+ 	_qty_rate = cfg->getDouble("rate");			//下单手数比例
+ 	if (cfg->has("total_money"))
+@@ -294,7 +302,8 @@
+ 	}
+ 	double cur_pos = _ctx->getPosition(stdCode);
+ 
+-	if (decimal::eq(cur_pos, newVol))
++	// 恢复的旧理论目标须被新绝对目标替换；原do_calc继续核总量、活动单及T+1。
++	if (!_replace_equal_position_target && decimal::eq(cur_pos, newVol))
+ 		return;
+ 
+ 	if (decimal::lt(newVol, 0))
 --- a/src/WtExeFact/WtExeFact.cpp
 +++ b/src/WtExeFact/WtExeFact.cpp
 @@ -60,6 +60,8 @@

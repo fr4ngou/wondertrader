@@ -1,6 +1,7 @@
 // 显式配置的受管CTA产品入口；金融状态及执行算法由原WT拥有。
 #include "CtaProcess.h"
 #include "CtaExecutionSession.h"
+#include "NativeRuntimeLog.h"
 #include <algorithm>
 #include <atomic>
 #include "StandardExecutionHost.h"
@@ -261,7 +262,22 @@ void normalize_publication_cache(rj::Value& value){
     if(publication.HasMember("source_root"))absolute(text(publication,"source_root"));
     publication.RemoveMember("cache_root");
 }
-// 比较投影仅去除运行时长、账户发布接线和已核派生缓存定位；来源及金融身份保持严格。
+// 已批准的执行器目标修正属于发行行为选择；比较副本移除该开关，原配置及其SHA保持。
+// 只允许原股票执行单元使用严格布尔值；其他政策、数量与金融身份仍逐项比较。
+void normalize_target_replacement(rj::Value& value){
+    if(!value.HasMember("executer")||!value["executer"].IsObject())return;
+    auto& executer=value["executer"];
+    if(!executer.HasMember("policy")||!executer["policy"].IsObject())return;
+    for(auto& entry:executer["policy"].GetObject()){
+        auto& rule=entry.value;
+        if(!rule.IsObject()||!rule.HasMember("replace_equal_position_target"))continue;
+        need(rule["replace_equal_position_target"].IsBool());
+        const auto name=text(rule,"name");
+        need(name=="WtExeFact.WtStockMinImpactExeUnit"||name=="WtExeFact.WtStockMinImpactBorrowedExeUnit");
+        rule.RemoveMember("replace_equal_position_target");
+    }
+}
+// 比较投影只归一化已核运行接线及已批准目标修正；来源及金融身份保持严格。
 bool same_business(const rj::Value& left,const rj::Value& right){
     rj::Document before,after;before.CopyFrom(left,before.GetAllocator());after.CopyFrom(right,after.GetAllocator());
     for(auto* value:{&before,&after}){
@@ -269,6 +285,7 @@ bool same_business(const rj::Value& left,const rj::Value& right){
         const auto duration=number(budget,"run_ms",0,86400000);need(duration==0||duration>=1000);
         (*value)["budget"].RemoveMember("run_ms");
         normalize_publication_cache(*value);
+        normalize_target_replacement(*value);
         if(!value->HasMember("strategies")||!(*value)["strategies"].IsArray())continue;
         for(auto& strategy:(*value)["strategies"].GetArray()){
             if(!strategy.IsObject()||!strategy.HasMember("parameters")||!strategy["parameters"].IsObject())continue;
@@ -753,6 +770,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
     if(argc!=9)return 2;
     BrokerPublicationLifetime broker_lifetime;
     fs::path config_path,control;std::string id,expected_sha;
+    guanheng::NativeRuntimeLog native_log; // 原owner持有至业务生产者全部关闭，日志失败不改变交易准入。
     const auto started=Clock::now();auto close_until=started+std::chrono::seconds(60);
     WTSBaseDataMgr base;WTSHotMgr hot;wtp::ActionPolicyMgr policy;wtp::WtExecuterFactory factory;
     std::unique_ptr<guanheng::ExecutionEnvironment> environment;
@@ -769,6 +787,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
     decltype(&gh_ms_status) target_status=nullptr;std::uint64_t initial_setters=0;
     bool success=false,closed=false,stop_deadline_fixed=false;unsigned stop_ms=10000,native_error=0;
     bool lifecycle_started=false; // 原Native start已完成；用于确认停止事件属于真实启动过的这一代。
+    bool native_log_attempted=false; // 控制目录已准入后才创建日志及其旁证。
     const char* stage="configuration";
     decltype(&inspectStandardQmtEventChain) inspect_event_chain=nullptr; // 可选旁证；旧DLL缺导出继续原路径。
     decltype(&findStandardQmtTrader) find_event_chain=nullptr; // 同一已装载DLL的实例查找，借用至进程退出。
@@ -779,6 +798,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         id=fs::path(argv[6]).u8string();expected_sha=fs::path(argv[8]).u8string();
         need(id.size()==36&&expected_sha.size()==64&&fs::is_directory(control));
         need(!fs::exists(control/"ready.json")&&!fs::exists(control/"closed.json")&&!fs::exists(control/"close-prepared.json"));
+        native_log.start(control);
+        native_log_attempted=true;
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
         keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","role_replacement"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
@@ -988,9 +1009,20 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                 value.AddMember("parser_connects",observed.parser_connects,a);value.AddMember("parser_closes",observed.parser_closes,a);
                 value.AddMember("parser_logs",observed.parser_logs,a);
                 publish(control/"cta-observation.json",value,true);
+                const auto logging=native_log.status();
+                auto log_state=receipt("guanheng.execution.native-log.v1",id,expected_sha,false);
+                auto& l=log_state.GetAllocator();
+                log_state.AddMember("initialized",logging.initialized,l);log_state.AddMember("file_opened",logging.file_opened,l);
+                log_state.AddMember("attempted_records",logging.attempted_records,l);
+                log_state.AddMember("write_failures",logging.write_failures,l);
+                log_state.AddMember("truncated_records",logging.truncated_records,l);
+                log_state.AddMember("max_file_bytes",guanheng::NativeRuntimeLog::file_bytes,l);
+                log_state.AddMember("max_files",guanheng::NativeRuntimeLog::backup_files+1,l);
+                publish(control/"native-log-status.json",log_state,true);
               }catch(...){
                 // 可重建旁证沿原发布方式；失败不改变策略、金融状态或关闭时序。
                 std::error_code error;fs::remove(control/"cta-observation.json.pending",error);
+                fs::remove(control/"native-log-status.json.pending",error);
               }
               next_cta_publish=Clock::now()+std::chrono::seconds(1);
             }
@@ -1129,6 +1161,17 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         publish_lifecycle(control,"lifecycle-finished.json","guanheng.execution.finished.v1",id,expected_sha,true);
     // 未确认关闭保留整树至进程回收；避免普通局部析构越过原截止或释放在途依赖。
     if(!closed)ExitProcess(3);
+    native_log.close();
+    if(native_log_attempted)try {
+        const auto logging=native_log.status();
+        auto value=receipt("guanheng.execution.native-log.v1",id,expected_sha,true);auto& a=value.GetAllocator();
+        value.AddMember("initialized",logging.initialized,a);value.AddMember("file_opened",logging.file_opened,a);
+        value.AddMember("attempted_records",logging.attempted_records,a);value.AddMember("write_failures",logging.write_failures,a);
+        value.AddMember("truncated_records",logging.truncated_records,a);
+        value.AddMember("max_file_bytes",guanheng::NativeRuntimeLog::file_bytes,a);
+        value.AddMember("max_files",guanheng::NativeRuntimeLog::backup_files+1,a);
+        publish(control/"native-log-status.json",value,true);
+    } catch (...) { std::error_code error;fs::remove(control/"native-log-status.json.pending",error); }
     return success?0:1;
 }
 

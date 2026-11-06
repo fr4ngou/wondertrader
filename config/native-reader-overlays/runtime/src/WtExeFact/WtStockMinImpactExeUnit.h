@@ -181,6 +181,8 @@ private:
 	uint64_t _now;
 	// 原工厂名保持原路径；显式适配工厂名才保留临时借用引用。
 	bool _preserve_borrowed_commodity{ false };
+	// 显式配置才接纳已达可卖数量的新绝对目标；缺省沿原提前返回语义。
+	bool _replace_equal_position_target{ false };
 
 public:
 	inline int round_hands(double hands, double min_hands)

@@ -16,6 +16,8 @@
 
 ## 装配与线程
 
+股票执行策略可显式设置`executer.policy.*.replace_equal_position_target=true`，适用于精确工厂名`WtExeFact.WtStockMinImpactExeUnit`或`WtExeFact.WtStockMinImpactBorrowedExeUnit`。缺省/false沿原行为；其它类型及算法在交易API启动前拒绝。模式初始化时固定，通过停止、同账恢复和新完整制品切换；原Borrowed元数据引用语义保持。该选择避免“新目标已达可卖量”时保留更高旧目标，根因及验收见[CORE-012](../maintenance/upstream-overrides.md#core-012已达持仓时接纳新的绝对执行目标)。
+
 1. 外层在交易owner创建BaseDataMgr、ActionPolicyMgr、原WtExecuterFactory及owner专用IExecuterStub；可选IDataManager同样由owner访问。基础合约和会话信息先准备。依赖、配置对象和DLL至少保留至close确认；关闭未确认时保留至进程结束。
 2. 从原Adapter实际使用的同一插件DLL解析find/pump/inspect/stop/deleteTrader及提交组函数，组成StandardPluginFunctions。避免同名DLL不同加载身份；原Adapter继续通过原module工厂创建API。
 3. owner调用initialize，传入显式配置及有界ExecutionQueueLimits。false保留失败状态，仍执行close。初始化重复调用不产生新实例。

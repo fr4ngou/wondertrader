@@ -81,7 +81,12 @@ bool valid_configuration(Variant* trader, Variant* executer) {
     for (const auto& name : policies->memberNames()) {
         auto* rule = policies->get(name.c_str());
         if (!object(rule) || !string(rule->get("name")) || rule->getString("name").empty()
-            || !optional_boolean(rule, "byrate") || !optional_boolean(rule, "is_cancel_unmanaged_order")) return false;
+            || !optional_boolean(rule, "byrate") || !optional_boolean(rule, "is_cancel_unmanaged_order")
+            || !optional_boolean(rule, "replace_equal_position_target")) return false;
+        // 此开关只属于两个明确股票单元；其他算法不能静默忽略已声明的模式。
+        if (rule->get("replace_equal_position_target")
+            && rule->getString("name") != "WtExeFact.WtStockMinImpactExeUnit"
+            && rule->getString("name") != "WtExeFact.WtStockMinImpactBorrowedExeUnit") return false;
         // 股票执行器按min_order做数量取整；自有装配在插件启动前核所需的正整数单位。
         const auto algorithm = StrUtil::split(rule->getString("name"), ".");
         // 与原工厂消费同一Variant并复用其分段语义，额外段不改变实际选中的算法身份。

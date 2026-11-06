@@ -46,3 +46,9 @@
 用户2026-10-30明确回复“批准这3个框架文件，按配置选择修正版”，原始回复及限定授权见APPROVAL-001（外部历史/待归仓路径：`../../build/ms-stock-reference-fix-001/APPROVAL-001.json`）。唯一方案为[SCMR](../migration/native-stock-metadata-ownership-proposal.md)：仅WtStockMinImpactExeUnit.h/.cpp、WtExeFact.cpp新增同类构造模式和工厂名WtStockMinImpactBorrowedExeUnit；集中覆盖为[stock-reference.patch](../../integrations/wondertrader_stock_reference/stock-reference.patch)，已在三文件原字节的LF副本上实际应用并逐内容核对；原名和缺省构造保持原行为。适配路径对get_minOrderQty临时借用的基础资料不再release，原init/destructor长期引用仍按原逻辑配对；执行量价、策略账本、订单和调度算法保持。
 
 类布局改变，同批重编两个直接头消费者及全部工厂单元，自有Host/运行体重新链接；真实应用还需按SCMR-06核完整安装和消费者。自有Host在交易API初始化前核实际工厂能力，唯一1.1.2桥只接受精确的原名或适配名。回归入口为tests/integration/qmt_cta_product的正式受管策略、stock_factory_admission及diagnostics/stock_commodity_modes；当前开发和隔离验证正在进行，真实下撤单和生产切换未授权。原完整制品及配置保留回退，原路径的已知退出故障单列。上游提供等价借用引用配对并经相同生命周期及业务回归后退出本覆盖。维护者：模块B执行接入。
+
+## CORE-012：已达持仓时接纳新的绝对执行目标
+
+用户2026-11-06明确批准[最终方案](../migration/native-stock-target-replacement-proposal.md)。仅修改现有runtime overlay的WtStockMinImpactExeUnit.h/.cpp；每条股票执行policy新增严格bool `replace_equal_position_target`，缺省false保持原提前返回，显式true时即使新目标等于当前可卖持仓也更新原_target_pos，再由原do_calc核总量、活动单、T+1、资金和数量。既有Borrowed工厂及引用配对保持。当前覆盖与CORE-011合成保存在[stock-reference.patch](../../integrations/wondertrader_stock_reference/stock-reference.patch)，构建清单分别登记两项批准行为和合成SHA；固定上游及原源码路径保持。
+
+该类增加私有bool成员，必须同批重编两个直接头消费者和完整WtExeFact工厂；自有Host严格验证配置类型与适用算法。Python和Native仅归一化同账发行比较中的该键，真实配置和SHA保持，原恢复R33保留原账、周期和未知责任。公开工厂回归入口为tests/integration/stock_target_replacement/run.py；缺省/false、true、非法值、在途委托及总量/可卖分离分别验收，实际部署仍需同一完整制品与首目标/真实P验证。上游提供等价目标替换语义并通过同组回归后退出本覆盖。维护者：模块B执行接入。

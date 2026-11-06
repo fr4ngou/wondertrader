@@ -44,14 +44,15 @@
     },
     {
       "path": "integrations/wondertrader_stock_reference/stock-reference.patch",
-      "sha256": "cf46bc5bc136446dd9d840faa3e6460eeed536205c33d36f88cd39aaac7fe976",
+      "sha256": "473a0ccd91aa2eb08be238e852a73cc2cba84bbb529782c88301bd9a26e8a58a",
       "files": [
         "src/WtExeFact/WtExeFact.cpp",
         "src/WtExeFact/WtStockMinImpactExeUnit.cpp",
         "src/WtExeFact/WtStockMinImpactExeUnit.h"
       ],
       "approved_behavior": [
-        "CORE-011"
+        "CORE-011",
+        "CORE-012"
       ]
     }
   ],
@@ -126,11 +127,11 @@
     },
     "src/WtExeFact/WtStockMinImpactExeUnit.cpp": {
       "baseline_sha256": "b55e8b4191b6dc0414a45d3ad1e78040b508042534b519ca250506c83df83d22",
-      "normalized_result_sha256": "330c1875f05fb5d27a5b95e7348a7609223bf85d269c32d93cfa43826a4d5333"
+      "normalized_result_sha256": "9fb4e8235e76e0f0649a988453678d5fcfb1dcc6838e850cc6950ae21ac45284"
     },
     "src/WtExeFact/WtStockMinImpactExeUnit.h": {
       "baseline_sha256": "ae699656cc721b6c1d9cb821c4392ab5d0711b53f70a4af759cb6f61ef2f391a",
-      "normalized_result_sha256": "df1a8ba611801a5966d238ac2e144917aaf9787475dd4aea5ec9222e3b1144a2"
+      "normalized_result_sha256": "afa11b717616799570b2902b4adb21b5e997effeaa7abac93445bdcf854560f7"
     }
   },
   "owned_directories": [

@@ -1,0 +1,45 @@
+--- a/config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.h
++++ b/config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.h
+@@ -181,6 +181,8 @@
+ 	uint64_t _now;
+ 	// 原工厂名保持原路径；显式适配工厂名才保留临时借用引用。
+ 	bool _preserve_borrowed_commodity{ false };
++	// 显式配置才接纳已达可卖数量的新绝对目标；缺省沿原提前返回语义。
++	bool _replace_equal_position_target{ false };
+ 
+ public:
+ 	inline int round_hands(double hands, double min_hands)
+--- a/config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.cpp
++++ b/config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.cpp
+@@ -73,6 +73,8 @@
+ 	_expire_secs = cfg->getUInt32("expire");	//订单超时秒数
+ 	_price_mode = cfg->getInt32("pricemode");	//价格类型,0-最新价,-1-最优价,1-对手价,2-自动,默认为0
+ 	_entrust_span = cfg->getUInt32("span");		//发单时间间隔，单位毫秒
++	// 目标接纳与是否需要交易分别判断；本配置独立于Borrowed元数据所有权模式。
++	_replace_equal_position_target = cfg->getBoolean("replace_equal_position_target");
+ 	_by_rate = cfg->getBoolean("byrate");		//是否按照对手的挂单数的比例下单，如果是true，则rate字段生效，如果是false则lots字段生效
+ 	_order_lots = cfg->getDouble("lots");		//单次发单手数
+ 	_qty_rate = cfg->getDouble("rate");			//下单手数比例
+@@ -300,7 +302,9 @@
+ 	}
+ 	double cur_pos = _ctx->getPosition(stdCode);
+ 
+-	if (decimal::eq(cur_pos, newVol))
++	// 原目标可能来自恢复的理论仓位；新目标等于当前可卖量时仍须替换旧目标。
++	// 后续原do_calc继续核总持仓、活动单和T+1；此处不造交易、不改账户事实。
++	if (!_replace_equal_position_target && decimal::eq(cur_pos, newVol))
+ 		return;
+ 
+ 	if (decimal::lt(newVol, 0))
+--- a/src/GuanhengExecution/StandardExecutionHost.cpp
++++ b/src/GuanhengExecution/StandardExecutionHost.cpp
+@@ -81,7 +81,8 @@
+     for (const auto& name : policies->memberNames()) {
+         auto* rule = policies->get(name.c_str());
+         if (!object(rule) || !string(rule->get("name")) || rule->getString("name").empty()
+-            || !optional_boolean(rule, "byrate") || !optional_boolean(rule, "is_cancel_unmanaged_order")) return false;
++            || !optional_boolean(rule, "byrate") || !optional_boolean(rule, "is_cancel_unmanaged_order")
++            || !optional_boolean(rule, "replace_equal_position_target")) return false;
+         // 股票执行器按min_order做数量取整；自有装配在插件启动前核所需的正整数单位。
+         const auto algorithm = StrUtil::split(rule->getString("name"), ".");
+         // 与原工厂消费同一Variant并复用其分段语义，额外段不改变实际选中的算法身份。
