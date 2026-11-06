@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 
@@ -65,6 +66,26 @@ class DocumentSnapshotTests(unittest.TestCase):
         self.config.pop("document_snapshot_limits")
         (self.root / "docs/CURRENT.md").write_text("2026-11-04 " + "x" * 7000, encoding="utf-8")
         self.assertEqual(self.run_check(), [])
+
+    def test_archived_bytes_survive_git_index(self):
+        # 原文摘要必须在 Git 入库后保持；普通 Markdown 的 LF 规则会改变混合换行。
+        relative = "docs/roadmap/CURRENT.history-20261107.md"
+        archive = self.root / relative
+        archive.parent.mkdir(parents=True)
+        original = b"# Historical state\r\n\noriginal observation\r\n"
+        archive.write_bytes(original)
+        attributes = Path(__file__).resolve().parents[2] / ".gitattributes"
+        (self.root / ".gitattributes").write_bytes(attributes.read_bytes())
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "-c", "core.autocrlf=false", "add", "--", relative],
+            check=True, capture_output=True,
+        )
+        stored = subprocess.run(
+            ["git", "-C", str(self.root), "show", ":" + relative],
+            check=True, capture_output=True,
+        ).stdout
+        self.assertEqual(stored, original)
 
     def test_snapshot_budget_requires_positive_integer(self):
         for invalid in [True, 0, -1, "6000"]:
