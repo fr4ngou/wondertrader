@@ -2480,7 +2480,7 @@ int StandardQmtTrader::inspect_submission(const SubmissionKeyV1& key,SubmissionV
  std::lock_guard<std::mutex> lock(x.mutex);x.submission_view(key,out);
  out.decision=!x.query_first?SubmissionDecision::ModeMismatch:x.stop_requested?SubmissionDecision::Stopped
   :x.hard_fault?SubmissionDecision::Fault:x.submission.open?SubmissionDecision::BlockedBusy
-  :(x.unknown_fenced||x.writes_blocked||x.inserts_paused||out.unresolved_children)?SubmissionDecision::BlockedAwait:SubmissionDecision::Admitted;
+  :(!x.permits(Impl::Kind::Insert)||x.writes_blocked||out.unresolved_children)?SubmissionDecision::BlockedAwait:SubmissionDecision::Admitted;
  return static_cast<int>(out.decision);
 }
 int StandardQmtTrader::begin_submission(const SubmissionKeyV1& key,SubmissionTokenV1& token,SubmissionViewV1& out)
@@ -2494,7 +2494,8 @@ int StandardQmtTrader::begin_submission(const SubmissionKeyV1& key,SubmissionTok
  else if(!x.active()||!x.logged_in||!x.expected.writes_enabled||x.submissions_closed)decision=SubmissionDecision::Stopped;
  else if(x.hard_fault)decision=SubmissionDecision::Fault;
  else if(x.submission.open||x.pumping||x.in_callback)decision=SubmissionDecision::BlockedBusy;
- else if(x.unknown_fenced||x.writes_blocked||x.inserts_paused||out.unresolved_children)decision=SubmissionDecision::BlockedAwait;
+ // 提交组和实际insert共用原写许可，包含只读来源等待；等待不创建组或子命令。
+ else if(!x.permits(Impl::Kind::Insert)||x.writes_blocked||out.unresolved_children)decision=SubmissionDecision::BlockedAwait;
  else if(x.next_group==(std::numeric_limits<std::uint64_t>::max)()
    ||x.identities.size()>=static_cast<std::size_t>(x.binding.row_limit)+x.max_pending||x.outstanding>=x.max_queue)
   decision=SubmissionDecision::Capacity;

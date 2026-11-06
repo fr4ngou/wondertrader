@@ -1085,6 +1085,25 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                     diagnostic.AddMember("session_fault",session?static_cast<unsigned>(session->status().fault):0,a);
                     diagnostic.AddMember("native_error",native_error,a);
                     diagnostic.AddMember("reason_sha256",rj::Value(reason.c_str(),a),a);
+                    // 固定枚举/计数区分提交等待与owner队列首错，不复制账户、订单或来源正文。
+                    rj::Value plugin_state(rj::kObjectType);
+                    plugin_state.AddMember("phase",observed.plugin.phase,a); // 原Standard生命周期枚举。
+                    plugin_state.AddMember("writes_blocked",observed.plugin.writes_blocked,a); // 原提交保护观察，0/1。
+                    plugin_state.AddMember("stop_requested",observed.plugin.stop_requested,a); // 原owner停止请求，0/1。
+                    diagnostic.AddMember("plugin_state",plugin_state,a);
+                    if(execution)if(const auto bridge=execution->command()){
+                        const auto queue=bridge->status();rj::Value state(rj::kObjectType);
+                        state.AddMember("fault",static_cast<unsigned>(queue.fault),a); // 原ExecutionQueueFault枚举。
+                        state.AddMember("accepting",queue.accepting,a); // 原队列是否继续准入。
+                        state.AddMember("inflight",queue.inflight,a); // 原目标回调是否仍在执行。
+                        state.AddMember("accepted",queue.accepted,a); // 已准入命令前沿，单位条。
+                        state.AddMember("entered",queue.entered,a); // 已进入原执行器的命令前沿。
+                        state.AddMember("delivered",queue.delivered,a); // 已正常返回的命令前沿。
+                        state.AddMember("rejected",queue.rejected,a); // 原队列拒绝计数，单位次。
+                        state.AddMember("queued_commands",static_cast<std::uint64_t>(queue.queued_commands),a); // 排队条数。
+                        state.AddMember("payload_bytes",static_cast<std::uint64_t>(queue.payload_bytes),a); // 原在途预算字节数。
+                        diagnostic.AddMember("execution_queue",state,a);
+                    }
                     // 同批Standard冻结的首次截止旁证；固定字段不携账户/请求/异常原文。
                     guanheng::EventChainDiagnosticsV1 event_chain;
                     if(inspect_event_chain&&find_event_chain&&trader){

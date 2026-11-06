@@ -1,0 +1,27 @@
+# 分析capture换代拒绝与原owner自行恢复
+
+类型：现场只读根因核实及冻结原件回归。状态：已确认原实现正常自行恢复，生产源码保持原样；新增回放与证据，不新增恢复分支或部署。
+
+## 原terminal_failure的具体原因
+
+原capture `b05ace60-b0d8-4587-9757-98294befeec4` 的BINDING固定在旧Host身份。其30个来源slot全部成功且consumed，最后两项588030基准参考没有创建slot；588000 front_ratio原slot的received_at为02:49:17Z，这表示原结果接收时刻，不据此推断SDK执行时刻。
+
+后继Host绑定只改变 `host_instance_id` 和 `transport_generation`，原能力/请求参数对应字段保持。旧绑定规范SHA256为 `41efc47642c719c50fe606c69419a7b18ab10266bc804926c8b46c5bd3a4f356`，新绑定为 `c14b5206b266a698a443c58f8ca3581881ca9f7b5b5a8a7b22d1b913400fe9d1`。
+
+使用实际Runtime19安装的公共RetainedReadClient及冻结30原件/新Host metadata，严格沿原AnalysisSnapshotProvider读取顺序重放：30个成功消费原件返回原值，到首个尚未创建的588030 reference-none时只查询容量和当前绑定，触发 `RetainedReadBindingChanged/read_source_binding_changed`。SDK operation POST为0，两个参考slot仍不存在，30原件全部字节不变。source.py把该子类按基类RetainedReadFailure映射为 `analysis_source_terminal_failure`，所以没有失败reply slot。此现场触发点是尚未准入新slot时的来源绑定换代，容量/坏参数返回均不符合这条原件和代码链。
+
+## 原owner如何结束旧capture并自行恢复
+
+公共客户端首先恢复原slot/ID、保存完整结果并确认消费；未知仍返回RetainedReadPending。只有确定换代才抛BindingChanged。AWP source把它转成SourceUnavailable后，原runtime._run记录waiting_source并把本轮局部attempt置空。旧目录、原BINDING、slot和时间全部保留；下一次原刷新间隔建立新capture，重新取得本代BINDING。它没有修改旧capture身份，也没有把两代拼成同一快照。
+
+本次原owner于02:54:18.603650Z开始新capture `d89da6bf-fff1-4ce1-a0c6-713a3b18fd3a`，32个原请求全部成功并consumed；实际来源接收区间02:54:22.569767Z至02:55:51.591783Z。原Native/QNA随后于02:56:42.814020Z发布9268行，published_count=8，publication SHA256 `452a34c48974047eb2544c94f23890ff883b6589a6907735be920ee7d771b7b8`。03:03:58Z只读复核时phase=stopped、closed=true、error=null，last_success保持该新发布。金融父进程关闭及后继交易失败由Root另行处理，本模块不据此改变分析来源或金融状态。
+
+## 验证与源码身份
+
+冻结原件/受控证据根为 `E:/workspace/wondertrader-qa/analysis-binding-recovery-20261106-001`。FROZEN.json逐文件绑定旧30与新32原件，SHA256 `55d38100a930b0b9bce1de31a5c73ad7163667fe460fd53a73f07c0307a94c67`；RECOVERY-OBSERVED.json记录上述状态与来源实际时刻。私有完整来源结果留在该受控根，仓库保存[回放driver](../../tests/integration/analysis_window_producer/replay_binding_recovery.py)。
+
+实际命令采用Runtime19解释器 `-I -B`，driver使用永久AWP原实现和实际安装公共客户端，离线运输只接受固定metadata GET及原ID lookup，拒绝所有新SDK operation。最终 `original-owner-replay002/RESULT.json` 通过：旧30原件保持；新32原件重建完整SNAPSHOT与真实原快照完全相等、所有received_at保持；未知原责任只lookup原ID并保持Pending；实际AWP owner确认不可继续后下一轮新capture、Pending沿同capture；旧发布文件字节不变，新SDK POST为0。安装公共客户端SHA256为 `d95b4fec1132d006a9e0ec374239cb63c2ed187021fcc3cd0c655cbcc0749d43`。
+
+原15项停止准入、同ID恢复、消费交接、确定拒绝后新捕获及可选准备回归再次通过，原输出见ORIGINAL-REGRESSIONS.log。未操控QMT/服务/金融进程，未查询账户，未调用真实来源操作，未修改发布时间、TTL或现场文件。
+
+生产源码与Runtime19安装及原Git基线保持一致：source.py `32bb0521284be24207926c122f3869d7e2a6634f9008c59e3901ac2899001881`；runtime.py `7336a3cd21e7c7b881ec635fa9e55feaf4d9ede6e37ebe2f26b23f948d554707`；preparation.py `50e665cc3babd567b19ac479d0dfc1a01ebf9c4609e554c2ad47b29b90489851`。先前固定诊断原因候选仅保留在QA的UNADOPTED-DIAGNOSTIC.diff，按Root最新范围撤回，未采用或部署；RESTORED-SOURCE.json绑定恢复后的原源码。现有正确恢复职责直接复用。

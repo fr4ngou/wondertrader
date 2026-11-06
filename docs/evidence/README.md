@@ -1,5 +1,9 @@
 # 验证证据
 
+- [合法读取等待的提交组准入](2026-11-06-read-wait-submission.md)：实际Standard/提交门/Owner桥重现Destination硬失败，统一原写许可后等待/恢复及未知身份保留；真实恢复待Root集成。
+
+- [分析capture换代拒绝与原owner自行恢复](2026-11-06-analysis-binding-self-recovery.md)：真实30/32原件确认read_source_binding_changed、原capture结束与9268行自行发布；生产源码保持原样。
+
 - [股票已达持仓目标替换](2026-11-06-stock-target-replacement.md)：批准的默认关闭修正、公开原工厂DLL两工厂三模式42组回放、Host坏型准入与同账比较；正式恢复待集成。
 
 - [原生业务日志真实库验证](2026-11-06-native-runtime-log.md)：原WTSLogger动态日志/handler/spdlog实际文件链、4×1MiB轮转、UTF-8预算、打开及轮转写失败与关闭；完整product接线待集成。
