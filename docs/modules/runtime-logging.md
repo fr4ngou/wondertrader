@@ -30,6 +30,8 @@ stdout/stderr重定向覆盖整个Runner和运行异常处理，在正常及异�
 
 ## 当前覆盖与采用边界
 
+2026-11-06后继正式核验：Runtime21/原Native同代自然计算、10笔模拟委托及6笔实际成交已发生，独立观衡118正式发布且浏览器核心流程无错误。Native实际落盘、写失败0、首次身份拒绝后真实恢复；原风险配置/未处理信号提示分开解释。下表保留原覆盖范围，其待现场事项以[正式在线核验](../evidence/2026-11-06-mainline-online-acceptance.md)及[运行发行](../releases/2026-11-06-current-auxiliary-automatic-live.md)的后继结果为准。独立Web日志仍按延迟创建表达，未来来源/新收盘和全部旧wrapper升级不由此授予。
+
 分钟collection/history的父运行器已随[program021/data-service006](../releases/2026-11-06-minute-counter-quality-live.md)采用Runtime18，两个ProcessEventLog系列均实际落盘。其他仍使用旧wrapper的独立角色继续保留原状态/失败收据；本次采集更新不授予全角色日志已升级资格。
 
 | 调用链 | 当前已核覆盖 | 仍需完成 |

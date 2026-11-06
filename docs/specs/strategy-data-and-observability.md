@@ -1,6 +1,6 @@
 # 策略数据、业务诊断与运行日志
 
-类型：跨模块最终规格。前缀：SDO。状态：accepted / implementing。依据：用户2026-11-05确认辅助数据持续更新、策略/回测诊断及发布日志检查，并按完整模块并行实施。架构沿[系统架构](../architecture/overview.md)，唯一策略沿[RR112](retained-resonance.md)，分工见[实施方案](../migration/mainline-data-observability-20261105.md)。
+类型：跨模块最终规格。前缀：SDO。状态：accepted / implemented，当前正式运行及来源边界见[在线核验](../evidence/2026-11-06-mainline-online-acceptance.md)。依据：用户2026-11-05确认辅助数据持续更新、策略/回测诊断及发布日志检查，并按完整模块并行实施。架构沿[系统架构](../architecture/overview.md)，唯一策略沿[RR112](retained-resonance.md)，分工见[实施方案](../migration/mainline-data-observability-20261105.md)。
 
 ## SDO-R1 目标与复用
 

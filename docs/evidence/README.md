@@ -1,5 +1,9 @@
 # 验证证据
 
+历史现场记录保留：[原生当前分钟](2026-10-30-native-current-minutes.md)、[原生回放主链](2026-10-30-native-replay-mainpath.md)、[QMT真实组合局部验收](2026-10-30-qmt-real-composition-partial.md)、[策略等待行情根因](2026-10-30-strategy-market-wait-root.md)。各自只代表当时输入，当前运行沿下列后继核验。
+
+- [自动交易主线正式在线核验](2026-11-06-mainline-online-acceptance.md)：原目标逐项映射，本代实际计算/模拟成交/券商与页面一致、独立发行、原账恢复及限定清理；未成交与外部缺口分别表达。
+
 - [合法读取等待的提交组准入](2026-11-06-read-wait-submission.md)：实际Standard/提交门/Owner桥重现Destination硬失败，统一原写许可后等待/恢复及未知身份保留；真实恢复待Root集成。
 
 - [分析capture换代拒绝与原owner自行恢复](2026-11-06-analysis-binding-self-recovery.md)：真实30/32原件确认read_source_binding_changed、原capture结束与9268行自行发布；生产源码保持原样。

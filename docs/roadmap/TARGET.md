@@ -1,6 +1,6 @@
 # 当前开发目标
 
-状态：active。最后核实日期：2026-11-06。
+状态：complete / 线上模拟自动交易运行中。最后核实：2026-11-06北京时间14:16。原目标逐项完成与真实剩余挂单/外部数据边界见[正式在线核验](../evidence/2026-11-06-mainline-online-acceptance.md)，实际运行版本见[CURRENT](CURRENT.md)。未来自然市场事件继续原运行组件处理。
 
 本轮由用户清除旧目标后重新授权，新增明确范围为[SDO](../specs/strategy-data-and-observability.md)及[并行收敛](../migration/mainline-data-observability-20261105.md)：辅助事实持续更新/实际生效、逐角色与回测诊断、有界持久日志及发布后日志/业务检查。旧回测解释更正和588030旧校验纳入主线。
 
