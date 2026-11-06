@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ArchiveEntry } from './backtestApi'
 import { fetchLedger, type Trade } from './backtestVisualApi'
 import { backtestMoney } from './backtestMoney'
-import { reportDate } from './BacktestVisualChart'
+import { reportDate } from './backtestPresentation'
 import { reportSymbol } from './backtestSymbols'
 export { reportSymbol } from './backtestSymbols'
 

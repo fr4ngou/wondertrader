@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ArchiveEntry, ArchiveSummary } from './backtestApi'
 import { useBacktestReports } from './useBacktestReports'
 import { backtestMoney } from './backtestMoney'
-import { reportDate, reportPct } from './BacktestVisualChart'
+import { reportDate, reportPct } from './backtestPresentation'
 
 export type ReportItem = {
   /** 同一运行、完成收据和报告摘要的归档条目。 */ entry: ArchiveEntry

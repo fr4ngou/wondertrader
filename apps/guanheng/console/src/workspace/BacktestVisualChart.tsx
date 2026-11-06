@@ -6,10 +6,9 @@ import { SVGRenderer } from 'echarts/renderers'
 import type { DaySummary, Visuals } from './backtestVisualApi'
 import { backtestMoney } from './backtestMoney'
 import { reportSymbol } from './backtestSymbols'
+import { reportDate, reportPct } from './backtestPresentation'
 
 echarts.use([LineChart, ScatterChart, DataZoomComponent, GridComponent, LegendComponent, TooltipComponent, AxisPointerComponent, SVGRenderer])
-export const reportDate = (n: number) => `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}`
-export const reportPct = (n: number | null) => n === null ? '未知' : `${n.toLocaleString('zh-CN', { maximumFractionDigits: 4 })}%`
 const emptySummaries: ReadonlyMap<number, DaySummary> = new Map()
 
 /** 成交散点的dataIndex是标记序号，轴日期才是统一交易日；避免悬停买卖标记串日。 */

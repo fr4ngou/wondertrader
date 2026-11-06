@@ -11,10 +11,9 @@ import fixture from './backtest-performance.fixture.json'
 vi.mock('./backtestApi', async original => ({ ...await original<typeof api>(), fetchBacktestArchiveSummaries: vi.fn() }))
 vi.mock('./backtestPerformanceApi', async original => ({ ...await original<typeof performance>(), fetchBacktestPerformance: vi.fn() }))
 vi.mock('./strategyCatalogApi', async original => ({ ...await original<typeof catalog>(), fetchStrategyCatalog: vi.fn() }))
-vi.mock('./BacktestPerformance', () => ({ reportLabel: (entry: api.ArchiveEntry) => entry.configuration.label,
-  reportKey: (entry: api.ArchiveEntry) => entry.run_id+entry.receipt_sha256,
-  default: ({entry, entries, mainSelector, initialComparison}: {entry: api.ArchiveEntry; entries:api.ArchiveEntry[];mainSelector:import('react').ReactNode;initialComparison:string}) =>
-    <div><h1>回测分析</h1>{mainSelector}<span>可选{entries.length}</span><span>{entry.run_id}</span><span>对比{initialComparison}</span></div> }))
+const analysisModule = vi.hoisted(() => ({ loads: 0 }))
+vi.mock('./BacktestPerformance', () => { analysisModule.loads++; return ({ default: ({entry, entries, mainSelector, initialComparison}: {entry: api.ArchiveEntry; entries:api.ArchiveEntry[];mainSelector:import('react').ReactNode;initialComparison:string}) =>
+    <div><h1>回测分析</h1>{mainSelector}<span>可选{entries.length}</span><span>{entry.run_id}</span><span>对比{initialComparison}</span></div> }) })
 
 const clients: QueryClient[] = []
 const current = {strategy_id:'resonance-regime-v1',strategy_version:'1.1.2',display_name:'共振策略',description:'当前策略',historical_versions:[]}
@@ -34,6 +33,15 @@ function mount(path='/backtests', client=new QueryClient({defaultOptions:{querie
   clients.push(client)
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><BacktestWorkspace /></MemoryRouter></QueryClientProvider>)
 }
+
+test('列表保持分析模块未加载，打开报告才加载完整视图',async()=>{
+  vi.mocked(api.fetchBacktestArchiveSummaries).mockResolvedValue(index([left]))
+  mount();await screen.findByRole('region',{name:'策略回测列表'})
+  expect(analysisModule.loads).toBe(0)
+  fireEvent.click(screen.getByRole('button',{name:'打开回测分析'}))
+  expect(await screen.findByRole('heading',{name:'回测分析'})).toBeVisible()
+  expect(analysisModule.loads).toBe(1)
+})
 
 test('真实空目录保持空报告且只读',async()=>{
   vi.mocked(api.fetchBacktestArchiveSummaries).mockResolvedValue(index([]))

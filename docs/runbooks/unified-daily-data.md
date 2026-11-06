@@ -62,6 +62,8 @@ pythonw -I -B daily_data_service.py --config <daily.json> --config-sha256 <sha25
 
 ## 原WT托管组合
 
+日更的QMT批读入口按[批读来源托管](qmt-analysis-batch-source.md#独立日更的来源托管)独立常驻，避免金融执行退出同时关闭数据依赖。HPR、证券资料、批读和本日更沿既有服务组按依赖顺序管理；自动09:00/15:30任务与原请求恢复由日更owner拥有。
+
 Root沿原SourceMarketProcess创建描述符，pythonw/entry来自安装收据，control_root为新的E盘受控目录。SMP主配置增加可选daily_update固定引用，原监听/认证合同保持。下面是虚构路径示意，SHA在准备时计算：
 
 ```json

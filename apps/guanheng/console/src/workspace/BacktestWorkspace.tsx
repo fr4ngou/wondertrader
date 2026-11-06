@@ -1,11 +1,15 @@
+import { lazy, Suspense } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fetchBacktestArchiveSummaries } from './backtestApi'
-import BacktestPerformance, { reportKey, reportLabel } from './BacktestPerformance'
+import { reportKey, reportLabel } from './backtestPresentation'
 import BacktestSourceState from './BacktestSourceState'
 import { StrategyPicker, strategyKey, useStrategySelection } from './StrategyPicker'
 import BacktestReportList, { type ReportItem } from './BacktestReportList'
 import './backtest-performance.css'
+
+// 完整分析及图表只随已选中的报告加载，列表共享的文字格式保持轻量。
+const BacktestPerformance = lazy(() => import('./BacktestPerformance'))
 
 /** 轻量归属目录先提供可选择列表，完整绩效只由主/对比选择读取。 */
 export default function BacktestWorkspace() {
@@ -48,13 +52,13 @@ export default function BacktestWorkspace() {
     {strategy ? <>
       {runId ? <>
         <button className="bt-back-list" onClick={back}>← 返回回测列表</button>
-        {selected && compareId && !comparison ? <p role="status">当前策略下未取得该对比报告，请重新选择。<button onClick={() => open(runId)}>重新选择对比报告</button></p> : selected ? <BacktestPerformance key={strategyKey(strategy) + selected.entry.run_id + selected.entry.receipt_sha256 + (compareId ?? '')}
+        {selected && compareId && !comparison ? <p role="status">当前策略下未取得该对比报告，请重新选择。<button onClick={() => open(runId)}>重新选择对比报告</button></p> : selected ? <Suspense fallback={<p role="status">正在读取所选报告…</p>}><BacktestPerformance key={strategyKey(strategy) + selected.entry.run_id + selected.entry.receipt_sha256 + (compareId ?? '')}
           entry={selected.entry} entries={reports.map(item => item.entry)} capitalLabels={capitals} initialComparison={params.get('compare') ?? ''}
           ready={true}
           onRefreshArchive={() => void query.refetch()} archiveRefreshing={query.isFetching}
           mainSelector={<label>主报告<select aria-label="选择历史回测" value={selected.entry.run_id} onChange={event => open(event.target.value, params.get('compare') ?? undefined)}>
             {reports.map((item, index) => <option key={item.entry.run_id} value={item.entry.run_id}>{reportLabel(item.entry, capitals[reportKey(item.entry)], index + 1)}</option>)}
-          </select></label>} /> : <p role="status">{query.isPending ? '正在读取所选报告…' : '当前策略下未取得该报告，请返回列表重新选择。'}</p>}
+          </select></label>} /></Suspense> : <p role="status">{query.isPending ? '正在读取所选报告…' : '当前策略下未取得该报告，请返回列表重新选择。'}</p>}
       </> : query.data ? <BacktestReportList key={strategyKey(strategy)} reports={reports} pending={false} unclassified={unclassified} onOpen={open} /> : null}
     </> : null}
   </section>

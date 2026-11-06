@@ -223,6 +223,7 @@
       "apps/guanheng/console/src/workspace/backtestPerDate.test.ts",
       "apps/guanheng/console/src/workspace/backtestPerformanceApi.test.ts",
       "apps/guanheng/console/src/workspace/backtestPerformanceApi.ts",
+      "apps/guanheng/console/src/workspace/backtestPresentation.ts",
       "apps/guanheng/console/src/workspace/backtestRetained.test.ts",
       "apps/guanheng/console/src/workspace/backtestRetained.ts",
       "apps/guanheng/console/src/workspace/backtestSymbols.ts",

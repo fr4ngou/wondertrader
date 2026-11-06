@@ -5,16 +5,13 @@ import type { ArchiveEntry } from './backtestApi'
 import { differenceNames, fetchBacktestComparison, fetchBacktestPerformance, type BacktestPerformance as Performance } from './backtestPerformanceApi'
 import { fetchVisuals, fetchDaySummaries } from './backtestVisualApi'
 import { backtestMoney } from './backtestMoney'
-import BacktestVisualChart, { reportDate, reportPct } from './BacktestVisualChart'
+import BacktestVisualChart from './BacktestVisualChart'
+import { reportDate, reportPct, reportKey, reportLabel } from './backtestPresentation'
 import BacktestDateDetail from './BacktestDateDetail'
 import './backtest-performance.css'
 import { performanceKey } from './useBacktestReports'
 import { ORIGINAL_NATIVE_REPORT_SCHEMA } from './originalNativeIdentity'
 import OriginalNativeModel from './OriginalNativeModel'
-
-export const reportKey = (e: ArchiveEntry) => e.run_id + e.receipt_sha256
-/** 报告序号仅用于区分选项，本金取完成证明绑定的归属摘要或已核验绩效；标签不参与金融推断。 */
-export const reportLabel = (e: ArchiveEntry, capital?: string, number = 1) => `报告${number} · ${capital === undefined ? '本金待读取' : `${backtestMoney(capital)}元`} · 至${reportDate(Math.floor(e.configuration.end / 10000))} · ${e.record_count}期`
 
 function ExactDateTable({ value, label }: {
   /** 同一已核验报告的原精度日期净值。 */ value: Performance

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchArchiveConfiguration, type ArchiveEntry } from './backtestApi'
-import { reportDate } from './BacktestVisualChart'
+import { reportDate } from './backtestPresentation'
 import { ORIGINAL_CASH_EXECUTION } from './originalNativeIdentity'
 
 /** WT原模型与现金缺口来自同一完成证明，读取失败保持未知。 */
