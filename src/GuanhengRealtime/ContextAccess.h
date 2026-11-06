@@ -71,8 +71,9 @@ inline std::vector<GhRtBar> cta_bars(wtp::ICtaStraCtx& ctx,const std::string& co
     return out;
 }
 inline std::vector<GhRtTarget> cta_set_targets(wtp::ICtaStraCtx& ctx,const std::set<std::string>& reads,
-    const std::set<std::string>& executions,const GhRtTarget* rows,uint32_t count,std::atomic<uint64_t>& setters){
-    cta_require(rows&&count==executions.size()&&count&&count<=GH_RT_MAX_TARGETS,GH_RT_CAPACITY);
+    const std::set<std::string>& executions,const GhRtTarget* rows,uint32_t count,std::atomic<uint64_t>& setters,
+    uint32_t max_targets=GH_RT_MAX_TARGETS){
+    cta_require(rows&&count==executions.size()&&count&&count<=max_targets,GH_RT_CAPACITY);
     std::map<std::string,double> wanted;
     for(uint32_t i=0;i<count;++i){const auto code=cta_text(rows[i].symbol,sizeof(rows[i].symbol));const auto q=rows[i].quantity;
         cta_require(executions.count(code)&&std::isfinite(q)&&q>=0&&q<=9007199254740900.0

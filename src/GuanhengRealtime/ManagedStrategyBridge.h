@@ -16,6 +16,19 @@ typedef struct GhMsConfig {
     char read_symbols[GH_RT_MAX_READS][GH_RT_CODE_BYTES];
     char execution_symbols[GH_RT_MAX_TARGETS][GH_RT_CODE_BYTES];
 } GhMsConfig;
+// 可选V2只扩展受管配置；原ABI1和独立Realtime布局保持。
+#define GH_MS_CONFIG_V2_VERSION 2u
+#define GH_MS_CONFIG_V2_MAX_TARGETS 9u
+typedef struct GhMsConfigV2 {
+    uint32_t size; /* 调用方结构字节数，严格核sizeof。 */
+    uint32_t abi_version; /* 可选配置版本，固定2。 */
+    uint32_t read_count; /* 有效读取证券数，1..16。 */
+    uint32_t execution_count; /* 目标权限数，0只读，1..9完整向量。 */
+    char strategy_id[GH_RT_CODE_BYTES]; /* 固定策略身份，ASCII终止串。 */
+    char main_symbol[GH_RT_CODE_BYTES]; /* 主m1证券，必须属于读取集合。 */
+    char read_symbols[GH_RT_MAX_READS][GH_RT_CODE_BYTES]; /* 固定读取权限集合。 */
+    char execution_symbols[GH_MS_CONFIG_V2_MAX_TARGETS][GH_RT_CODE_BYTES]; /* 固定执行子集。 */
+} GhMsConfigV2;
 typedef struct GhMsStatus {
     uint32_t size,configured,created,destroyed,active;
     int32_t failure;
@@ -44,6 +57,10 @@ GH_RT_API uint32_t GH_RT_CALL gh_ms_read_only_abi_version(void);
 // layout 1=Config/2=Status/3=Event/4=Bar/5=Facts/6=Position/7=Target/8=Quote，未知为0。
 GH_RT_API uint64_t GH_RT_CALL gh_ms_layout(uint32_t id);
 GH_RT_API int32_t GH_RT_CALL gh_ms_configure(const GhMsConfig*,GhRtCallback,void* user);
+// 可选配置能力；不改变原gh_ms_abi_version/layout/目标入口。
+GH_RT_API uint32_t GH_RT_CALL gh_ms_config_v2_abi_version(void);
+GH_RT_API uint64_t GH_RT_CALL gh_ms_config_v2_layout(void);
+GH_RT_API int32_t GH_RT_CALL gh_ms_configure_v2(const GhMsConfigV2*,GhRtCallback,void* user);
 GH_RT_API int32_t GH_RT_CALL gh_ms_status(GhMsStatus*);
 // 可直接作为STQ-P20 health，只有原子读取；user忽略，0表示所有回调健康。
 GH_RT_API int32_t GH_RT_CALL gh_ms_health(void* user);

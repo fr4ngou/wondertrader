@@ -9,7 +9,9 @@ namespace {
 using namespace guanheng;
 using namespace wtp;
 struct Binding {
-    GhMsConfig config{};GhRtCallback callback=nullptr;void* user=nullptr;
+    std::string strategy_id,main_symbol; // 两种配置归一后的策略身份与主证券。
+    uint32_t max_targets=GH_RT_MAX_TARGETS; // 本绑定的资源容量，旧8或可选V2九项。
+    GhRtCallback callback=nullptr;void* user=nullptr;
     std::set<std::string> reads,executions;bool created=false,main_registered=false;
     std::mutex quote_mutex; // 原tick回调和原epoch读取共用，槽在configure预分配。
     std::map<std::string,GhMsQuote> quotes; // 仅固定reads集合，每证券最新已应用tick。
@@ -70,7 +72,7 @@ void emit(Binding& binding,ICtaStraCtx* ctx,uint32_t kind,uint32_t date=0,uint32
     if(o.active.fetch_add(1)!=0){o.active.fetch_sub(1);o.fail(GH_RT_THREAD);return;}
     struct Guard {Owner& o;~Guard(){borrowed=nullptr;o.active.fetch_sub(1);}} guard{o};
     try{
-        cta_require(ctx&&ctx->name()==std::string(binding.config.strategy_id)&&binding.callback,GH_RT_NATIVE);
+        cta_require(ctx&&ctx->name()==std::string(binding.strategy_id)&&binding.callback,GH_RT_NATIVE);
         GhRtEvent event{};event.size=sizeof(event);event.kind=kind;event.epoch=o.epochs.fetch_add(1)+1;
         event.owner_token=token();event.thread_id=GetCurrentThreadId();event.ctx_id=ctx->id();
         event.date=date?date:ctx->stra_get_date();event.time=time?time:ctx->stra_get_time();
@@ -94,7 +96,7 @@ public:
     void on_init(ICtaStraCtx* ctx)override{
         try{
             for(const auto& code:binding.reads)ctx->stra_sub_ticks(code.c_str());
-            ctx->stra_sub_bar_events(binding.config.main_symbol,"m1");emit(binding,ctx,GH_RT_INIT);
+            ctx->stra_sub_bar_events(binding.main_symbol.c_str(),"m1");emit(binding,ctx,GH_RT_INIT);
             if(!binding.main_registered)owner().fail(GH_RT_STATE);
         }catch(...){owner().fail(GH_RT_NATIVE);}
         // 初始化错误沿宿主既有启动异常边界传播，避免继续启动行情生产者。
@@ -137,6 +139,24 @@ public:
     }
 };
 Factory& factory(){static auto* value=new Factory;return *value;}
+template<class Config>int32_t configure(const Config* config,GhRtCallback callback,void* user,uint32_t version,uint32_t max_targets){
+    auto& o=owner();std::lock_guard<std::mutex> guard(o.mutex);
+    cta_require(!borrowed&&!o.frozen&&(!o.controller||o.controller==GetCurrentThreadId()),GH_RT_STATE);
+    cta_require(config&&config->size==sizeof(*config)&&config->abi_version==version&&callback);
+    cta_require(o.bindings.size()<GH_MS_MAX_STRATEGIES&&config->read_count&&config->read_count<=GH_RT_MAX_READS
+        &&config->execution_count<=max_targets,GH_RT_CAPACITY);
+    auto value=std::make_unique<Binding>();value->max_targets=max_targets;value->callback=callback;value->user=user;
+    const auto id=cta_text(config->strategy_id,sizeof(config->strategy_id));
+    const auto main=configured_symbol(config->main_symbol);
+    value->strategy_id=id;value->main_symbol=main;
+    for(uint32_t i=0;i<config->read_count;++i)cta_require(value->reads.insert(configured_symbol(config->read_symbols[i])).second);
+    for(uint32_t i=0;i<config->execution_count;++i){auto code=configured_symbol(config->execution_symbols[i]);
+        cta_require(value->reads.count(code)&&value->executions.insert(code).second);}
+    for(const auto& code:value->reads)value->quotes.emplace(code,GhMsQuote{});
+    cta_require(value->reads.count(main)&&!o.bindings.count(id));
+    o.bindings.emplace(id,std::move(value));o.controller=GetCurrentThreadId();o.configured.fetch_add(1);return GH_RT_OK;
+}
+
 }
 extern "C" {
 GH_RT_API ICtaStrategyFact* createStrategyFact(){return &factory();}
@@ -147,22 +167,14 @@ uint64_t GH_RT_CALL gh_ms_layout(uint32_t id){
     switch(id){case 1:return sizeof(GhMsConfig);case 2:return sizeof(GhMsStatus);case 3:return sizeof(GhRtEvent);
     case 4:return sizeof(GhRtBar);case 5:return sizeof(GhRtFacts);case 6:return sizeof(GhRtPosition);case 7:return sizeof(GhRtTarget);case 8:return sizeof(GhMsQuote);default:return 0;}
 }
-int32_t GH_RT_CALL gh_ms_configure(const GhMsConfig* config,GhRtCallback callback,void* user){return api([&]()->int32_t{
-    auto& o=owner();std::lock_guard<std::mutex> guard(o.mutex);
-    cta_require(!borrowed&&!o.frozen&&(!o.controller||o.controller==GetCurrentThreadId()),GH_RT_STATE);
-    cta_require(config&&config->size==sizeof(*config)&&config->abi_version==GH_MS_ABI_VERSION&&callback);
-    cta_require(o.bindings.size()<GH_MS_MAX_STRATEGIES&&config->read_count&&config->read_count<=GH_RT_MAX_READS
-        &&config->execution_count<=GH_RT_MAX_TARGETS,GH_RT_CAPACITY);
-    auto value=std::make_unique<Binding>();value->config=*config;value->callback=callback;value->user=user;
-    const auto id=cta_text(config->strategy_id,sizeof(config->strategy_id));
-    const auto main=configured_symbol(config->main_symbol);
-    for(uint32_t i=0;i<config->read_count;++i)cta_require(value->reads.insert(configured_symbol(config->read_symbols[i])).second);
-    for(uint32_t i=0;i<config->execution_count;++i){auto code=configured_symbol(config->execution_symbols[i]);
-        cta_require(value->reads.count(code)&&value->executions.insert(code).second);}
-    for(const auto& code:value->reads)value->quotes.emplace(code,GhMsQuote{});
-    cta_require(value->reads.count(main)&&!o.bindings.count(id));
-    o.bindings.emplace(id,std::move(value));o.controller=GetCurrentThreadId();o.configured.fetch_add(1);return GH_RT_OK;
-});}
+int32_t GH_RT_CALL gh_ms_configure(const GhMsConfig* config,GhRtCallback callback,void* user){
+    return api([&]{return configure(config,callback,user,GH_MS_ABI_VERSION,GH_RT_MAX_TARGETS);});
+}
+uint32_t GH_RT_CALL gh_ms_config_v2_abi_version(void){return GH_MS_CONFIG_V2_VERSION;}
+uint64_t GH_RT_CALL gh_ms_config_v2_layout(void){return sizeof(GhMsConfigV2);}
+int32_t GH_RT_CALL gh_ms_configure_v2(const GhMsConfigV2* config,GhRtCallback callback,void* user){
+    return api([&]{return configure(config,callback,user,GH_MS_CONFIG_V2_VERSION,GH_MS_CONFIG_V2_MAX_TARGETS);});
+}
 int32_t GH_RT_CALL gh_ms_health(void*){return owner().failure.load();}
 int32_t GH_RT_CALL gh_ms_status(GhMsStatus* out){return api([&]()->int32_t{
     cta_require(out&&out->size==sizeof(*out));auto& o=owner();GhMsStatus value{};
@@ -198,14 +210,14 @@ int32_t GH_RT_CALL gh_ms_bars(uint64_t epoch,const char* code,const char* period
     GhRtBar* out,uint32_t capacity,uint32_t* written){return api([&]()->int32_t{
     auto& b=access(epoch);cta_require(out&&written&&main<=1&&capacity>=count&&capacity<=GH_RT_MAX_BARS,GH_RT_CAPACITY);
     *written=0;const auto s=symbol(b,code),p=cta_text(period,8);
-    if(main)cta_require(b.kind==GH_RT_INIT&&p=="m1"&&s==b.binding->config.main_symbol&&!b.binding->main_registered,GH_RT_STATE);
+    if(main)cta_require(b.kind==GH_RT_INIT&&p=="m1"&&s==b.binding->main_symbol&&!b.binding->main_registered,GH_RT_STATE);
     const auto values=cta_bars(*b.ctx,s,p,count,main!=0);std::copy(values.begin(),values.end(),out);
     *written=static_cast<uint32_t>(values.size());if(main)b.binding->main_registered=true;return GH_RT_OK;
 });}
 int32_t GH_RT_CALL gh_ms_set_targets(uint64_t epoch,const GhRtTarget* targets,uint32_t count,GhRtTarget* out,uint32_t capacity){
     return api([&]()->int32_t{
-        auto& b=access(epoch,true);cta_require(out&&capacity>=count&&capacity<=GH_RT_MAX_TARGETS,GH_RT_CAPACITY);
-        const auto values=cta_set_targets(*b.ctx,b.binding->reads,b.binding->executions,targets,count,owner().setters);
+        auto& b=access(epoch,true);cta_require(out&&capacity>=count&&capacity<=b.binding->max_targets,GH_RT_CAPACITY);
+        const auto values=cta_set_targets(*b.ctx,b.binding->reads,b.binding->executions,targets,count,owner().setters,b.binding->max_targets);
         std::copy(values.begin(),values.end(),out);return GH_RT_OK;
     });
 }

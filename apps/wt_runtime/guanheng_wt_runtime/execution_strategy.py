@@ -115,6 +115,11 @@ class _Config(_Packed):
                 ('read_symbols', (C.c_char * 64) * 16), ('execution_symbols', (C.c_char * 64) * 8)]
 
 
+class _ConfigV2(_Packed):
+    # 可选九标的配置，原_Config及所有共享值结构保持。
+    _fields_ = [*_Config._fields_[:-1], ('execution_symbols', (C.c_char * 64) * 9)]
+
+
 class _Status(_Packed):
     _fields_ = [('size', C.c_uint32), ('configured', C.c_uint32), ('created', C.c_uint32),
                 ('destroyed', C.c_uint32), ('active', C.c_uint32), ('failure', C.c_int32),
@@ -139,6 +144,7 @@ class StrategyBinding:
     read_symbols: tuple[str, ...]
     execution_symbols: tuple[str, ...]  # 明确目标权限；空元组为只读绑定，须Native可选能力1。
     callback: object
+    native_config_abi: int = 1  # 配置布局版本；默认1八标的，显式2允许九标的。
 
     def __post_init__(self):
         name = self.strategy_id
@@ -146,7 +152,9 @@ class StrategyBinding:
         stem = name.split('.')[0].lower()
         _need(stem not in ('con', 'prn', 'aux', 'nul') and not re.fullmatch(r'(?:com|lpt)[1-9]', stem))
         _symbol(self.main_symbol)
-        for values, maximum, minimum in ((self.read_symbols, 16, 1), (self.execution_symbols, 8, 0)):
+        _need(type(self.native_config_abi) is int and self.native_config_abi in (1, 2), 'configuration_abi')
+        capacity = 9 if self.native_config_abi == 2 else 8
+        for values, maximum, minimum in ((self.read_symbols, 16, 1), (self.execution_symbols, capacity, 0)):
             _need(type(values) is tuple and minimum <= len(values) <= maximum)
             _need(len(set(values)) == len(values))
             for code in values:
@@ -514,17 +522,30 @@ class CtaRuntime:
             _need(readonly is not None,'readonly_binding_capability')
             readonly.argtypes=[];readonly.restype=C.c_uint32
             _need(readonly()==1,'readonly_binding_capability')
+        configure_v2 = None
+        if any(binding.native_config_abi == 2 for binding in bindings):
+            version = getattr(api, 'gh_ms_config_v2_abi_version', None)
+            layout = getattr(api, 'gh_ms_config_v2_layout', None)
+            configure_v2 = getattr(api, 'gh_ms_configure_v2', None)
+            _need(version is not None and layout is not None and configure_v2 is not None, 'configuration_v2_capability')
+            version.argtypes = [];version.restype = C.c_uint32
+            layout.argtypes = [];layout.restype = C.c_uint64
+            _need(version() == 2 and layout() == C.sizeof(_ConfigV2), 'configuration_v2_layout')
+            configure_v2.argtypes = [C.POINTER(_ConfigV2), _Callback, C.c_void_p]
+            configure_v2.restype = C.c_int32
         for binding in bindings:
             _need(time.monotonic() < deadline, 'startup_deadline')
-            config = _Config();config.size = C.sizeof(config);config.abi_version = 1
+            config_type = _ConfigV2 if binding.native_config_abi == 2 else _Config
+            configure = configure_v2 if binding.native_config_abi == 2 else api.gh_ms_configure
+            config = config_type();config.size = C.sizeof(config);config.abi_version = binding.native_config_abi
             config.strategy_id = binding.strategy_id.encode('ascii');config.main_symbol = binding.main_symbol.encode('ascii')
             config.read_count = len(binding.read_symbols);config.execution_count = len(binding.execution_symbols)
             for field, values in (('read_symbols', binding.read_symbols), ('execution_symbols', binding.execution_symbols)):
                 for index, value in enumerate(values):
-                    C.memmove(C.addressof(config) + getattr(_Config, field).offset + index * 64, value.encode('ascii'), len(value))
+                    C.memmove(C.addressof(config) + getattr(config_type, field).offset + index * 64, value.encode('ascii'), len(value))
             callback = _Callback(lambda event, user, value=binding: self._callback(value, event))
             self._refs.append(callback)
-            _need(api.gh_ms_configure(C.byref(config), callback, None) == 0, 'native_configuration')
+            _need(configure(C.byref(config), callback, None) == 0, 'native_configuration')
         _need(time.monotonic() < deadline, 'startup_deadline')
 
     def _thread(self):

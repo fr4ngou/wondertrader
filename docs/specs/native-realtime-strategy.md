@@ -73,6 +73,14 @@ pool0仍有parser与ticker计时来源，桥锁或GIL不构成原引擎全局一
 
 验收沿正式产品DLL→标准Factory→原ticker→同一configured纯核→NSQ→完整向量→组合/执行/WinSHM，包含1策略和同标的2策略、错epoch/线程/阶段、错误绑定/数据、部分setter/回读失败、重复配置和回调异常。原NRT ABI1 synthetic入口逐项回归，生产准入继续受真实来源/账户/恢复资格限制。
 
+### NRT-R9-V2 可选九标的配置
+
+原GhMsConfig、GH_MS_ABI_VERSION=1、gh_ms_configure、gh_ms_layout及独立Realtime ABI保持原布局和八标的上限。新增GhMsConfigV2使用pack8、abi_version=2，read_symbols仍16项、execution_symbols为9项；独立gh_ms_config_v2_abi_version返回2、gh_ms_config_v2_layout返回该结构大小、gh_ms_configure_v2注册该配置。两种配置规范化到同一内部Binding，工厂、epoch、事件、只读权限、状态、报价、失败锁存及首次create后禁止注册规则共用。
+
+Python StrategyBinding新增尾部默认字段native_config_abi=1；显式2允许最多九项。CtaRuntime在任何绑定注册前核需要的可选V2能力与实际layout；缺能力的旧DLL明确拒绝V2绑定，ABI1绑定继续使用原路径。gh_ms_set_targets沿绑定登记的容量进入共用完整向量实现；旧ABI1和独立Realtime仍最多八项。目标读取/登记确认与券商接单/成交、限价和现金保证分别归属。
+
+验收须实际构建策略DLL、沿标准Factory及真实WT上下文完成同一运行体的ABI1与V2多绑定初始化和完整目标；并覆盖旧布局、旧八项、只读0、V2缺能力、重复/缺项/foreign/十项、错误epoch/线程/阶段和部分失败锁存。该资源布局扩展不修改WT核心或股票执行器，不授予原版信号算法、并行资金归属或上线采用资格。
+
 ## NRT-R10 安装Python薄适配与公开回调
 
 `guanheng_app.execution_strategy`提供标准库ctypes薄适配，绑定同安装的GuanhengCtaRuntime及GuanhengManagedStrategy。构造先核实际ABI/layout，再冻结1..64个StrategyBinding；回调强引用保持到run返回，原工厂创建后由原生拒绝追加。调用者只给值与显式Python回调对象，产品JSON不接受动态模块、脚本或任意loader。
