@@ -15,6 +15,10 @@
 
 ## 工作规范
 
+本地持续集成：[CI与master合入](runbooks/local-ci.md)，开发分支按实际变化自动运行检查、回归及执行链E2E；源码身份匹配后合入本地master，发布独立执行。
+
+开发验证到发布的衔接：[开发流程](development/workflow.md) → [验证规范](development/verification.md) → [本地CI](runbooks/local-ci.md) → [构建手册](runbooks/build.md) → [发布与回滚](runbooks/release.md)。相同输入复用有效结果，WT与观衡分别发布。
+
 日常使用入口：[观衡中文操作员手册](runbooks/guanheng-operator.md)，覆盖启动、各业务页、09:00观察、停止恢复与升级回退；具体配置与当前验收资格沿各模块唯一正文。
 
 独立WT运行入口：[WT安装、启动和只读观察手册](runbooks/wt-independent-runtime.md)，运行侧独立维护通信、数据和执行生命周期，完整组合资格沿WRI核验。
