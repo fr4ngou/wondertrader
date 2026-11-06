@@ -42,40 +42,44 @@ test('真实空目录保持空报告且只读',async()=>{
   expect(screen.queryByRole('button',{name:/启动|保存/})).toBeNull()
 })
 
-test('主报告绩效很慢时列表立即可选，三份旧版本不产生绩效请求',async()=>{
+test('目录和策略切换只读取归属，未打开报告不占完整绩效读池',async()=>{
   const old=Array.from({length:3},(_,i)=>({...left,run_id:String(i+4).repeat(32),summary:summary('0.9')}))
   vi.mocked(api.fetchBacktestArchiveSummaries).mockResolvedValue(index([left,right,...old]))
   vi.mocked(performance.fetchBacktestPerformance).mockReturnValue(new Promise(()=>{}))
   mount();expect(await screen.findByText('当前策略的回测 · 2 份已完成报告')).toBeVisible()
   expect(screen.getByRole('button',{name:'打开回测分析'})).toBeEnabled()
-  await waitFor(()=>expect(performance.fetchBacktestPerformance).toHaveBeenCalledTimes(1))
-  expect(vi.mocked(performance.fetchBacktestPerformance).mock.calls[0][0].summary?.strategy.version).toBe('1.1.2')
+  expect(performance.fetchBacktestPerformance).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('选择策略'),{target:{value:'resonance-regime-v1@0.9'}})
+  expect(await screen.findByText('当前策略的回测 · 3 份已完成报告')).toBeVisible()
+  expect(performance.fetchBacktestPerformance).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('选择策略'),{target:{value:'resonance-regime-v1@1.1.2'}})
   fireEvent.click(screen.getByRole('button',{name:'打开回测分析'}))
   expect(await screen.findByRole('heading',{name:'回测分析'})).toBeVisible()
   expect(screen.getByText('可选2')).toBeVisible()
 })
 
-test('只有主报告和明确选择的对比报告加载完整绩效',async()=>{
+test('主报告和对比选择先保留身份，打开分析才交给完整读取',async()=>{
   vi.mocked(api.fetchBacktestArchiveSummaries).mockResolvedValue(index([left,right,extra]))
   mount();await screen.findByText('当前策略的回测 · 3 份已完成报告')
-  await waitFor(()=>expect(performance.fetchBacktestPerformance).toHaveBeenCalledTimes(1))
+  expect(performance.fetchBacktestPerformance).not.toHaveBeenCalled()
   const compare=screen.getAllByRole('button',{name:'设为对比'}).find(button=>!(button as HTMLButtonElement).disabled)!
   fireEvent.click(compare)
-  await waitFor(()=>expect(performance.fetchBacktestPerformance).toHaveBeenCalledTimes(2))
+  expect(performance.fetchBacktestPerformance).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button',{name:'打开对比分析'}))
   expect(await screen.findByRole('heading',{name:'回测分析'})).toBeVisible()
   expect(screen.getByText('可选3')).toBeVisible()
 })
 
-test('失败主报告不会挡住其他报告选择，重读范围只含所选绩效',async()=>{
+test('列表可以复用已打开分析的完整身份缓存，保持零额外绩效请求',async()=>{
   vi.mocked(api.fetchBacktestArchiveSummaries).mockResolvedValue(index([left,right]))
-  vi.mocked(performance.fetchBacktestPerformance).mockRejectedValueOnce(new Error('private failure'))
-  mount();expect(await screen.findByRole('alert')).toHaveTextContent('所选报告绩效读取失败')
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}})
+  client.setQueryData(['backtest-performance',left.run_id,left.receipt_sha256,left.report_sha256],fixture.left)
+  mount('/backtests',client)
+  await screen.findByText('当前策略的回测 · 2 份已完成报告')
   expect(screen.getByRole('region',{name:'策略回测列表'})).toBeVisible()
-  expect(document.body).not.toHaveTextContent('private failure')
   fireEvent.click(screen.getByRole('radio',{name:'主报告 2'}))
-  await waitFor(()=>expect(screen.queryByText('所选报告绩效读取失败',{exact:false})).toBeNull())
-  expect(performance.fetchBacktestPerformance).toHaveBeenCalledTimes(2)
+  expect(screen.getByText('0%',{selector:'.bt-return'})).toBeVisible()
+  expect(performance.fetchBacktestPerformance).not.toHaveBeenCalled()
 })
 
 test('单条归属失败保留其他报告，刷新目录可以恢复',async()=>{

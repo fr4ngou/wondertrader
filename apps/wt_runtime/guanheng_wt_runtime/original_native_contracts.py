@@ -20,7 +20,8 @@ def _quantity(value):
 INPUT_SCHEMA='guanheng.original-native-replay-input.v1'
 REPORT_SCHEMA='guanheng.original-native-replay-report.v1'
 STRATEGY_ID='resonance-original-wt-351f9d5-stable'
-STRATEGY_VERSION='0.1.0a1'
+STRATEGY_VERSION='0.1.0a2'
+LEGACY_VERSION='0.1.0a1'
 ALGORITHM_ID='resonance-original-351f9d5-stable'
 UPSTREAM_COMMIT='351f9d58152e10efd2447c997b8ee4db66b5ac6a'
 REPORT_SCOPE='WT-native-original-signals; daily-OHLC-next-tick; historical/PIT/broker/production-unqualified'
@@ -40,7 +41,7 @@ INPUT_FIELDS=(
     'market_manifest_source',  # 本次日线来源说明。
     'price_basis',  # 原价/复权基准，历史来源资格分别保留。
 )
-MODEL={
+LEGACY_MODEL={
     'execution':'signal-close-to-next-WT-native-tick',  # 原生日线下通常下一交易日开盘。
     'allocation':'new-buy-equal-weight; sell-only-preserve-other-shares',  # 原组合目标意图。
     'sizing':'D-close-NAV-and-price; floor-100-shares',  # 下一日开盘不进入D日数量规划。
@@ -50,6 +51,17 @@ MODEL={
     'historical_availability':'unknown',  # 实收/最终历史不等于当时首次可知。
     'constraints':'WT-native-T+1; frozen-sells-and-equal-weight-trims-deferred-with-original-intent',  # 沿原生valid保留原BUY/SELL意图，冻结卖出或等权减持延至合法时重规划。
 }
+MODEL={**LEGACY_MODEL,
+    'execution':'D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained',  # D已知价格限价；不消费未来开盘。
+    'sizing':'D-close-equal-weight-plan; cash-capped-integer-100-share-execution',  # 每次原BUY固定等权份数计划，按当前现金分批实现。
+    'cash':'actual-D-cash-reserves-all-buy-principal-and-fee-upper-bounds; no-unfilled-sale-credit',  # 待卖出款不计入买入力。
+    'constraints':LEGACY_MODEL['constraints']+'; cash-nonnegative; sell-limit-covers-fee',  # 卖出最低限价覆盖费用，买入保留一元舍入余量。
+}
+
+
+def model_for_version(version):
+    _need(version in (STRATEGY_VERSION,LEGACY_VERSION))
+    return MODEL if version==STRATEGY_VERSION else LEGACY_MODEL
 
 
 def _encode(value, *, original=False):
@@ -98,7 +110,9 @@ def _normalize_input(value):
     """DLL装载前复制并准入；不联网、不重新运行或翻译原信号算法。"""
     value=_snapshot_json(value,maximum=MAX_BYTES)
     _need(type(value) is dict and set(value)==set(INPUT_FIELDS) and value['schema']==INPUT_SCHEMA)
-    _need(value['strategy']==dict(strategy_id=STRATEGY_ID,strategy_version=STRATEGY_VERSION,algorithm_id=ALGORITHM_ID))
+    _need(type(value['strategy']) is dict and value['strategy']==dict(strategy_id=STRATEGY_ID,
+          strategy_version=value['strategy'].get('strategy_version'),algorithm_id=ALGORITHM_ID))
+    model_for_version(value['strategy']['strategy_version'])
     report=value['reference_report']
     _need(type(report) is dict and report.get('schema')=='guanheng.resonance-original-report.v1'
           and report.get('upstream_commit')==UPSTREAM_COMMIT and report.get('algorithm_id')==ALGORITHM_ID)
@@ -185,7 +199,8 @@ def verify_report_input(report,payload,*,check=None):
           and report['configuration_sha256']==configuration_id(value)
           and report['reference_report_sha256']==value['reference_report_sha256']
           and report['source_snapshot_sha256']==value['source_snapshot_sha256']
-          and report['evaluation_window']==value['evaluation_window'])
+          and report['evaluation_window']==value['evaluation_window']
+          and report['strategy_version']==value['strategy']['strategy_version'])
     expected={}
     for code,signals in sorted(value['reference_report']['trades_by_code'].items()):
         for signal in signals:
@@ -227,11 +242,13 @@ def validate_report(value,*,check=None):
             'reference_report_sha256','source_snapshot_sha256','status','native_files','native_outputs',
             'callback_counts','records','source_qualified','execution_qualified','point_in_time_qualified',
             'execution_model','evaluation_window'} and report.get('schema')==REPORT_SCHEMA
-            and report.get('strategy_id')==STRATEGY_ID and report.get('strategy_version')==STRATEGY_VERSION
+            and report.get('strategy_id')==STRATEGY_ID and report.get('strategy_version') in (STRATEGY_VERSION,LEGACY_VERSION)
             and report.get('signal_algorithm_id')==ALGORITHM_ID and report.get('scope')==REPORT_SCOPE)
         for name in ('session_id','input_sha256','configuration_sha256','reference_report_sha256','source_snapshot_sha256'):_hash(report.get(name))
         _need(report.get('source_qualified') is False and report.get('execution_qualified') is False and report.get('point_in_time_qualified') is False)
-        _need(report.get('historical_model')==MODEL and report.get('execution_model')==MODEL)
+        model=model_for_version(report['strategy_version'])
+        constrained=report['strategy_version']==STRATEGY_VERSION
+        _need(report.get('historical_model')==model and report.get('execution_model')==model)
         policy=report['policy']
         _need(type(policy) is dict and set(policy)=={'initial_capital_cny','capital_source','currency','quantity_unit','multiplier','lot'}
               and policy['initial_capital_cny']=='1000000' and policy['currency']=='CNY' and policy['quantity_unit']=='share'
@@ -252,8 +269,8 @@ def validate_report(value,*,check=None):
         previous=0
         for index,row in enumerate(records):
             if guarded:guarded()
-            _need(type(row) is dict and set(row)=={'trading_date','minute','status','reason','capture','signals',
-                'submit_vector','readback','cash_deficit','result','outcome','previous_status'})
+            _need(type(row) is dict and set(row)==({'trading_date','minute','status','reason','capture','signals',
+                'submit_vector','readback','cash_deficit','result','outcome','previous_status'}|({'cash_control'} if constrained else set())))
             _text(row['status']);_text(row['reason'])
             _need(type(row['cash_deficit']) is bool and row['result'] is None
                   and row['outcome'] is None and row['previous_status'] is None)
@@ -296,6 +313,26 @@ def validate_report(value,*,check=None):
                 price=prices[position['symbol']]
                 if actual:_number(price,positive=True);market+=actual*Fraction(repr(float(price)))
             _need(cash==nav-market and row['cash_deficit']==(cash<0))
+            if constrained:
+                _need(cash>=0)
+                control=row['cash_control']
+                _need(type(control) is dict and set(control)=={'available_cash_cny','reserved_buy_cost_cny','orders'})
+                available=_money(control['available_cash_cny']);reserved=_money(control['reserved_buy_cost_cny'])
+                _need(available==max(Fraction(0),cash-1) and 0<=reserved<=available
+                      and type(control['orders']) is list and len(control['orders'])<=9)
+                order_symbols=set();total_bound=Fraction(0)
+                for order in control['orders']:
+                    _need(type(order) is dict and set(order)=={'symbol','action','quantity','limit_price_cny','buy_cost_bound_cny'}
+                          and order['symbol'] in symbols and order['symbol'] not in order_symbols
+                          and order['action'] in ('BUY','SELL') and _quantity(order['quantity'])>0
+                          and _quantity(order['quantity'])%100==0 and _money(order['limit_price_cny'])>0)
+                    order_symbols.add(order['symbol']);bound=_money(order['buy_cost_bound_cny'])
+                    _need(bound>=0 and (order['action']=='BUY' or bound==0))
+                    if order['action']=='BUY':
+                        _need(bound>=order['quantity']*_money(order['limit_price_cny'])
+                              and _money(order['limit_price_cny'])==Fraction(repr(float(prices[order['symbol']]))))
+                    total_bound+=bound
+                _need(reserved==total_bound)
             _need(type(row['submit_vector']) is list and len(row['submit_vector'])<=9)
             submitted=set()
             frozen={position['symbol']:(_quantity(position['total'])-_quantity(position['valid'])
@@ -309,6 +346,15 @@ def validate_report(value,*,check=None):
                 _need(type(pairs) is list and len(pairs)<=9)
                 projected=dict(pairs);_need(len(projected)==len(pairs) and set(projected)<=symbols)
                 for quantity in projected.values():_need(_quantity(quantity)%100==0)
+            if constrained:
+                actual={p['symbol']:(_quantity(p['total']) if p['first_entry'] else 0) for p in positions}
+                submitted={p['symbol']:_quantity(p['quantity']) for p in row['submit_vector']}
+                orders={p['symbol']:p for p in control['orders']}
+                _need(set(orders)=={s for s,q in submitted.items() if q!=actual[s]})
+                for symbol,order in orders.items():
+                    change=submitted[symbol]-actual[symbol]
+                    _need(order['quantity']==abs(change) and order['action']==('BUY' if change>0 else 'SELL'))
+                _need(row['readback']==capture['projection'] if orders else not row['readback'])
             _need(type(row['signals']) is list and len(row['signals'])<=9)
             signal_codes=set()
             for signal in row['signals']:

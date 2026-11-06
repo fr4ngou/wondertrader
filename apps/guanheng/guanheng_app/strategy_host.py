@@ -34,7 +34,9 @@ _LIB_SHA = "4726fdb9c48d32ec46fe0793eabb23d120aec8a536dc8dc140b57b636b533b2e"
 _PROBE_SHA = "a7fdb6ecd763ebdd395d4b0d11d78a1f6d30bbb57f23a63630c2410c243b71b6"
 _PENDING_LOCK = Lock()
 _PENDING_OWNERS = {}  # 未确认回收的句柄/OS锁保留至确认；替换Host对象也不能跳过。
-_JSON_MARKERS = re.compile(rb'["\\\[\]{}]')
+_JSON_STRINGS = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"|("[^"\\]*(?:\\.[^"\\]*)*\\?\Z)', re.DOTALL)
+_JSON_STRING_PART = re.compile(rb'[^"\\]*(?:\\.[^"\\]*)*', re.DOTALL)
+_JSON_NONSTRUCTURAL = bytes(value for value in range(256) if value not in b'[]{}')
 
 
 class HostError(ValueError):
@@ -105,23 +107,36 @@ def _json(data, maximum, deadline):
     if type(data) is not bytes or len(data) > maximum:
         raise HostError("JSON输入类型或字节预算不合格")
     # 在解析器递归/分配之前限制结构深度；引号中的括号不计入结构。
-    depth, quoted, escaped_at = 0, False, -1
+    depth, quoted, escaped = 0, False, False
     for start in range(0, len(data), 65536):
         _check(deadline)
-        # 原字节窗口检查截止；C扫描仅筛结构标记，跨窗引号/转义状态保持。
-        for token in _JSON_MARKERS.finditer(data, start, min(start + 65536, len(data))):
-            index = token.start()
-            char = data[index]
-            if index == escaped_at:
+        # 字符串由C扫描整段跳过；窗口尾未闭合的引号/转义沿下一窗口继续。
+        # 结构深度仍在json.loads递归或分配前核验，不逐引号执行Python循环。
+        end, position = min(start + 65536, len(data)), start
+        if escaped:
+            position += 1
+            escaped = False
+        if quoted:
+            position = _JSON_STRING_PART.match(data, position, end).end()
+            if position == end:
                 continue
-            if quoted:
-                if char == 92:
-                    escaped_at = index + 1
-                elif char == 34:
-                    quoted = False
-            elif char == 34:
-                quoted = True
-            elif char in (91, 123):
+            if data[position] == 92:
+                escaped = True
+                continue
+            quoted = False
+            position += 1
+        segment = data[position:end]
+        # C正则整段去掉完整字符串；只将结构括号送回Python深度守卫。
+        # 末尾未闭合字符串的首引号及后缀全部留到下一窗口，不把内容括号算深度。
+        # 第二分支保留窗口尾字符串，避免未闭合且含大量转义引号时反复回溯。
+        structural = _JSON_STRINGS.sub(rb'\1', segment)
+        opening = structural.find(b'"')
+        if opening >= 0:
+            structural = structural[:opening]
+            quoted = True
+            escaped = (len(segment)-len(segment.rstrip(b'\\'))) % 2 == 1
+        for char in structural.translate(None, _JSON_NONSTRUCTURAL):
+            if char in (91, 123):
                 depth += 1
                 if depth > 24:
                     raise HostError("JSON嵌套超过预算")
@@ -140,21 +155,29 @@ def _json(data, maximum, deadline):
         value = json.loads(data.decode("utf-8"), object_pairs_hook=unique, parse_constant=invalid)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise HostError("JSON格式无效") from exc
-    nodes = 0
-    def visit(item):
-        nonlocal nodes
-        nodes += 1
+    # 节点预算按直接子项计数，标量留在当前循环；只递归容器，避免每个价格/
+    # 字符串都产生Python函数调用。数量口径仍为根节点及全部dict值/list项。
+    nodes, visited = 1, 0
+    def visit(container):
+        nonlocal nodes, visited
+        children = container.values() if type(container) is dict else container
+        nodes += len(container)
         if nodes > 2097152:
             raise HostError("JSON节点超过预算")
-        if type(item) is float and not math.isfinite(item):
-            raise HostError("JSON数值溢出")
-        if type(item) is dict:
-            for child in item.values():
+        for child in children:
+            visited += 1
+            if visited % 4096 == 0:
+                _check(deadline)
+            kind = type(child)
+            if kind is dict or kind is list:
                 visit(child)
-        elif type(item) is list:
-            for child in item:
-                visit(child)
-    visit(value); _check(deadline)
+            elif kind is float and not math.isfinite(child):
+                raise HostError("JSON数值溢出")
+    if type(value) is dict or type(value) is list:
+        visit(value)
+    elif type(value) is float and not math.isfinite(value):
+        raise HostError("JSON数值溢出")
+    _check(deadline)
     return value
 
 

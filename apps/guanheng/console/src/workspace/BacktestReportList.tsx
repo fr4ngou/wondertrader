@@ -21,7 +21,8 @@ export default function BacktestReportList({ reports, pending, unclassified = 0,
   const main = reports.find(item => item.entry.run_id === mainId) ?? reports[0]
   const compare = reports.find(item => item.entry.run_id === compareId && item !== main)
   const selected = [main, compare].filter((item): item is ReportItem => !!item)
-  const performance = useBacktestReports(selected.map(item => item.entry), true)
+  // 列表只复用已读指标；完整准入由打开分析触发，切策略时旧报告不占原读池。
+  const performance = useBacktestReports(selected.map(item => item.entry), false)
   const values = new Map(selected.map((item, index) => [item.entry.run_id, performance[index]]))
   const failed = performance.filter(item => item.isError)
   const label = (item: ReportItem) => `${backtestMoney(item.summary.initial_capital_cny)}元 · 至${reportDate(Math.floor(item.entry.configuration.end / 10000))}`
@@ -36,7 +37,7 @@ export default function BacktestReportList({ reports, pending, unclassified = 0,
         <tbody>{reports.map((item, index) => <tr key={item.entry.run_id} className={item === main ? 'bt-list-main' : ''}>
           <td><input type="radio" name="backtest-main" aria-label={`主报告 ${index + 1}`} checked={item === main} onChange={() => setMainId(item.entry.run_id)} /></td>
           <td><strong>{reportDate(Math.floor(item.entry.configuration.start / 10000))} 至 {reportDate(Math.floor(item.entry.configuration.end / 10000))}</strong><small>{item.entry.record_count} 期 · 报告 {index + 1}</small></td>
-          <td>{backtestMoney(item.summary.initial_capital_cny)}</td><td className="bt-return" title={values.has(item.entry.run_id) ? undefined : '选为主报告或对比后读取'}>{values.get(item.entry.run_id)?.data ? reportPct(values.get(item.entry.run_id)!.data!.metrics.total_return_pct) : '—'}</td><td title={values.has(item.entry.run_id) ? undefined : '选为主报告或对比后读取'}>{values.get(item.entry.run_id)?.data ? reportPct(values.get(item.entry.run_id)!.data!.metrics.observed_max_drawdown_pct) : '—'}</td>
+          <td>{backtestMoney(item.summary.initial_capital_cny)}</td><td className="bt-return" title={values.get(item.entry.run_id)?.data ? undefined : '打开分析后读取完整指标'}>{values.get(item.entry.run_id)?.data ? reportPct(values.get(item.entry.run_id)!.data!.metrics.total_return_pct) : '—'}</td><td title={values.get(item.entry.run_id)?.data ? undefined : '打开分析后读取完整指标'}>{values.get(item.entry.run_id)?.data ? reportPct(values.get(item.entry.run_id)!.data!.metrics.observed_max_drawdown_pct) : '—'}</td>
           <td><div className="bt-list-actions"><button onClick={() => onOpen(item.entry.run_id)}>查看分析</button>
             <button aria-pressed={item === compare} disabled={item === main} onClick={() => setCompareId(item === compare ? '' : item.entry.run_id)}>{item === compare ? '取消对比' : '设为对比'}</button></div></td>
         </tr>)}</tbody>

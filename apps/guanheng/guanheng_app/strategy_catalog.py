@@ -1,7 +1,6 @@
 """只读展示描述；具体版本来自WT活动结果或各份已保存报告，不从安装包推断。"""
 
-ORIGINAL_WT_ID = 'resonance-original-wt-351f9d5-stable'
-ORIGINAL_WT_VERSION = '0.1.0a1'
+from guanheng_wt_runtime.original_native_contracts import STRATEGY_ID as ORIGINAL_WT_ID, STRATEGY_VERSION as ORIGINAL_WT_VERSION
 _RETIRED_REFERENCE_ID = 'resonance-original-351f9d5-stable'
 
 
@@ -14,7 +13,7 @@ def strategy_definition(identity, version):
             or not version.isascii() or any(ord(c)<33 for c in version)):
         raise ValueError('策略版本格式无效')
     known=identity=='resonance-regime-v1'
-    original_wt=identity==ORIGINAL_WT_ID and version==ORIGINAL_WT_VERSION
+    original_wt=identity==ORIGINAL_WT_ID
     return dict(strategy_id=identity,  # WT或归档发布的策略身份；仅用于展示归属。
         strategy_version=version,  # 同一来源发布的版本；None保持缺失，不读取App计算包版本。
         display_name='共振原版（WT回测）' if original_wt else '共振市场状态 ETF 策略' if known else identity,  # 稳定中文展示描述，不授运行资格。

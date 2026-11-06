@@ -1,0 +1,507 @@
+{
+  "callback_counts": [
+    [
+      "init",
+      1
+    ],
+    [
+      "bar",
+      8
+    ],
+    [
+      "calculate",
+      4
+    ],
+    [
+      "calc_done",
+      0
+    ]
+  ],
+  "configuration_sha256": "c3748addcc3fe50a15b4be30e58ad9d68287c951f8c7d7d1062bb6117519da93",
+  "evaluation_window": {
+    "from": "2024-01-03",
+    "to": "2024-01-08",
+    "warmup_date": "2024-01-02"
+  },
+  "execution_model": {
+    "allocation": "new-buy-equal-weight; sell-only-preserve-other-shares",
+    "cash": "actual-D-cash-reserves-all-buy-principal-and-fee-upper-bounds; no-unfilled-sale-credit",
+    "constraints": "WT-native-T+1; frozen-sells-and-equal-weight-trims-deferred-with-original-intent; cash-nonnegative; sell-limit-covers-fee",
+    "execution": "D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained",
+    "fees": "WT-bound-fees-file",
+    "fills": "original-CtaMocker-daily-OHLC-simulated-ticks",
+    "historical_availability": "unknown",
+    "sizing": "D-close-equal-weight-plan; cash-capped-integer-100-share-execution"
+  },
+  "execution_qualified": false,
+  "historical_model": {
+    "allocation": "new-buy-equal-weight; sell-only-preserve-other-shares",
+    "cash": "actual-D-cash-reserves-all-buy-principal-and-fee-upper-bounds; no-unfilled-sale-credit",
+    "constraints": "WT-native-T+1; frozen-sells-and-equal-weight-trims-deferred-with-original-intent; cash-nonnegative; sell-limit-covers-fee",
+    "execution": "D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained",
+    "fees": "WT-bound-fees-file",
+    "fills": "original-CtaMocker-daily-OHLC-simulated-ticks",
+    "historical_availability": "unknown",
+    "sizing": "D-close-equal-weight-plan; cash-capped-integer-100-share-execution"
+  },
+  "input_sha256": "96ecfed97b6d0cb4a15f809df660368ace72bc296bea22ebd0f1a367de2d2ae7",
+  "native_files": [
+    [
+      "sessions",
+      "0bb9559854ba81e6cd16ca2e19fcd9a03921bd02d7340a8ef9abcdba392153a0"
+    ],
+    [
+      "commodities",
+      "8c24609293794d09b219f0cdea9fd17389fa4da85a75e58f3eca425c87d94d08"
+    ],
+    [
+      "contracts",
+      "81c7d7d222f4e6a719af5c99e5ff20fe2bbfb8443be0ea9b3d30517d81623dcd"
+    ],
+    [
+      "holidays",
+      "5ec1db62606c25627d507b054b43d70747ce10ac84042ad0bd8d4e5563101e21"
+    ],
+    [
+      "fees",
+      "18bcd5a5592c55f3fc5be0768682438f800c2bc7566be895c792d1056a34de5c"
+    ]
+  ],
+  "native_outputs": [
+    [
+      "funds.csv",
+      "ae616ef17898400594fc7f9ca4cda683fce3ac3e8915bd677754940bb0ea736d"
+    ],
+    [
+      "positions.csv",
+      "cb2e46b05bc9e373e430eb249ed08cf82086057e24103c84b86a97c22c15bf78"
+    ],
+    [
+      "trades.csv",
+      "0c7c2e0ba050814af166f3a277d237dedac7860fc25acabd5426f0efa9973cd5"
+    ],
+    [
+      "closes.csv",
+      "77c02b5c23f8fbf13c0c379ed7b7345667156aad1536e65d59efd588f9307967"
+    ],
+    [
+      "signals.csv",
+      "26eb4f7cd125eaa6fd530edf64a438957fecd9ad7b173afdaac56b5b5b23a9c6"
+    ],
+    [
+      "manual_listing.json",
+      "e9e54a1d92ac451f0fb969fad2e8d30487fb13ea1bee2b3072cf3412269f6928"
+    ],
+    [
+      "ud_manual_listing.json",
+      "03ffd469a5505d22d92f0f5c7a499f8943bef46c3206a97041c3874e737075c0"
+    ]
+  ],
+  "point_in_time_qualified": false,
+  "policy": {
+    "capital_source": "explicit-original-WT-model",
+    "currency": "CNY",
+    "initial_capital_cny": "1000000",
+    "lot": 100,
+    "multiplier": 1,
+    "quantity_unit": "share"
+  },
+  "records": [
+    {
+      "capture": {
+        "basis": {
+          "capital_source": "explicit-genesis-plus-WT-net",
+          "cash_cny": "1000000",
+          "cash_source": "WT-NAV-minus-complete-actual-position-value",
+          "input_sha256": "96ecfed97b6d0cb4a15f809df660368ace72bc296bea22ebd0f1a367de2d2ae7",
+          "nav_cny": "1000000",
+          "observed_at": "2024-01-03T15:00:00+08:00",
+          "pnl_cny": "0.0",
+          "price_basis": "synthetic-raw-OHLC-oracle"
+        },
+        "funds": {
+          "dynamic": 0.0,
+          "fees": 0.0,
+          "net": 0.0,
+          "realized": 0.0
+        },
+        "minute": 1500,
+        "positions": [
+          {
+            "first_entry": 0,
+            "last_entry": 0,
+            "symbol": "SSE.ETF.510050",
+            "total": 0.0,
+            "valid": 0.0
+          },
+          {
+            "first_entry": 0,
+            "last_entry": 0,
+            "symbol": "SSE.ETF.510300",
+            "total": 0.0,
+            "valid": 0.0
+          }
+        ],
+        "prices": [
+          [
+            "SSE.ETF.510050",
+            20.0
+          ],
+          [
+            "SSE.ETF.510300",
+            10.0
+          ]
+        ],
+        "projection": [],
+        "sequence": 1,
+        "session_id": "8cc24075fefcc065de7f834e8b01e3d3d9f27493371da08394b09ff7ec349ccf",
+        "trading_date": 20240103
+      },
+      "cash_control": {
+        "available_cash_cny": "999999",
+        "orders": [
+          {
+            "action": "BUY",
+            "buy_cost_bound_cny": "496148.81",
+            "limit_price_cny": "20",
+            "quantity": 24800,
+            "symbol": "SSE.ETF.510050"
+          },
+          {
+            "action": "BUY",
+            "buy_cost_bound_cny": "497149.11",
+            "limit_price_cny": "10",
+            "quantity": 49700,
+            "symbol": "SSE.ETF.510300"
+          }
+        ],
+        "reserved_buy_cost_cny": "993297.92"
+      },
+      "cash_deficit": false,
+      "minute": 1500,
+      "outcome": null,
+      "previous_status": null,
+      "readback": [],
+      "reason": "当前实际现金覆盖全部买入本金及绑定费用上界；原生限价撮合，未成交意图顺延",
+      "result": null,
+      "signals": [
+        {
+          "action": "BUY",
+          "code": "510050",
+          "date": "2024-01-03",
+          "price": 20,
+          "reason": "synthetic buy"
+        },
+        {
+          "action": "BUY",
+          "code": "510300",
+          "date": "2024-01-03",
+          "price": 10,
+          "reason": "synthetic buy"
+        }
+      ],
+      "status": "cash_limited_conditions_submitted",
+      "submit_vector": [
+        {
+          "quantity": 24800,
+          "symbol": "SSE.ETF.510050"
+        },
+        {
+          "quantity": 49700,
+          "symbol": "SSE.ETF.510300"
+        }
+      ],
+      "trading_date": 20240103
+    },
+    {
+      "capture": {
+        "basis": {
+          "capital_source": "explicit-genesis-plus-WT-net",
+          "cash_cny": "602280.72",
+          "cash_source": "WT-NAV-minus-complete-actual-position-value",
+          "input_sha256": "96ecfed97b6d0cb4a15f809df660368ace72bc296bea22ebd0f1a367de2d2ae7",
+          "nav_cny": "1148980.72",
+          "observed_at": "2024-01-04T15:00:00+08:00",
+          "pnl_cny": "148980.72",
+          "price_basis": "synthetic-raw-OHLC-oracle"
+        },
+        "funds": {
+          "dynamic": 149100.0,
+          "fees": 119.28,
+          "net": 148980.72,
+          "realized": 0.0
+        },
+        "minute": 1500,
+        "positions": [
+          {
+            "first_entry": 0,
+            "last_entry": 0,
+            "symbol": "SSE.ETF.510050",
+            "total": 0.0,
+            "valid": 0.0
+          },
+          {
+            "first_entry": 202401041500,
+            "last_entry": 202401041500,
+            "symbol": "SSE.ETF.510300",
+            "total": 49700.0,
+            "valid": 0.0
+          }
+        ],
+        "prices": [
+          [
+            "SSE.ETF.510050",
+            24.0
+          ],
+          [
+            "SSE.ETF.510300",
+            11.0
+          ]
+        ],
+        "projection": [
+          [
+            "SSE.ETF.510300",
+            49700.0
+          ]
+        ],
+        "sequence": 2,
+        "session_id": "8cc24075fefcc065de7f834e8b01e3d3d9f27493371da08394b09ff7ec349ccf",
+        "trading_date": 20240104
+      },
+      "cash_control": {
+        "available_cash_cny": "602279.72",
+        "orders": [
+          {
+            "action": "BUY",
+            "buy_cost_bound_cny": "595378.57",
+            "limit_price_cny": "24",
+            "quantity": 24800,
+            "symbol": "SSE.ETF.510050"
+          }
+        ],
+        "reserved_buy_cost_cny": "595378.57"
+      },
+      "cash_deficit": false,
+      "minute": 1500,
+      "outcome": null,
+      "previous_status": null,
+      "readback": [
+        [
+          "SSE.ETF.510300",
+          49700.0
+        ]
+      ],
+      "reason": "当前实际现金覆盖全部买入本金及绑定费用上界；原生限价撮合，未成交意图顺延",
+      "result": null,
+      "signals": [],
+      "status": "cash_limited_conditions_submitted",
+      "submit_vector": [
+        {
+          "quantity": 24800,
+          "symbol": "SSE.ETF.510050"
+        },
+        {
+          "quantity": 49700,
+          "symbol": "SSE.ETF.510300"
+        }
+      ],
+      "trading_date": 20240104
+    },
+    {
+      "capture": {
+        "basis": {
+          "capital_source": "explicit-genesis-plus-WT-net",
+          "cash_cny": "6902.16",
+          "cash_source": "WT-NAV-minus-complete-actual-position-value",
+          "input_sha256": "96ecfed97b6d0cb4a15f809df660368ace72bc296bea22ebd0f1a367de2d2ae7",
+          "nav_cny": "1223302.16",
+          "observed_at": "2024-01-05T15:00:00+08:00",
+          "pnl_cny": "223302.16",
+          "price_basis": "synthetic-raw-OHLC-oracle"
+        },
+        "funds": {
+          "dynamic": 223600.0,
+          "fees": 297.84000000000003,
+          "net": 223302.16,
+          "realized": 0.0
+        },
+        "minute": 1500,
+        "positions": [
+          {
+            "first_entry": 202401051500,
+            "last_entry": 202401051500,
+            "symbol": "SSE.ETF.510050",
+            "total": 24800.0,
+            "valid": 0.0
+          },
+          {
+            "first_entry": 202401041500,
+            "last_entry": 202401041500,
+            "symbol": "SSE.ETF.510300",
+            "total": 49700.0,
+            "valid": 49700.0
+          }
+        ],
+        "prices": [
+          [
+            "SSE.ETF.510050",
+            25.0
+          ],
+          [
+            "SSE.ETF.510300",
+            12.0
+          ]
+        ],
+        "projection": [
+          [
+            "SSE.ETF.510050",
+            24800.0
+          ],
+          [
+            "SSE.ETF.510300",
+            49700.0
+          ]
+        ],
+        "sequence": 3,
+        "session_id": "8cc24075fefcc065de7f834e8b01e3d3d9f27493371da08394b09ff7ec349ccf",
+        "trading_date": 20240105
+      },
+      "cash_control": {
+        "available_cash_cny": "6901.16",
+        "orders": [
+          {
+            "action": "SELL",
+            "buy_cost_bound_cny": "0",
+            "limit_price_cny": "0.00010003000900270082",
+            "quantity": 49700,
+            "symbol": "SSE.ETF.510300"
+          }
+        ],
+        "reserved_buy_cost_cny": "0"
+      },
+      "cash_deficit": false,
+      "minute": 1500,
+      "outcome": null,
+      "previous_status": null,
+      "readback": [
+        [
+          "SSE.ETF.510050",
+          24800.0
+        ],
+        [
+          "SSE.ETF.510300",
+          49700.0
+        ]
+      ],
+      "reason": "当前实际现金覆盖全部买入本金及绑定费用上界；原生限价撮合，未成交意图顺延",
+      "result": null,
+      "signals": [
+        {
+          "action": "SELL",
+          "code": "510300",
+          "date": "2024-01-05",
+          "price": 12,
+          "reason": "synthetic sell"
+        }
+      ],
+      "status": "cash_limited_conditions_submitted",
+      "submit_vector": [
+        {
+          "quantity": 24800,
+          "symbol": "SSE.ETF.510050"
+        },
+        {
+          "quantity": 0,
+          "symbol": "SSE.ETF.510300"
+        }
+      ],
+      "trading_date": 20240105
+    },
+    {
+      "capture": {
+        "basis": {
+          "capital_source": "explicit-genesis-plus-WT-net",
+          "cash_cny": "702493.42",
+          "cash_source": "WT-NAV-minus-complete-actual-position-value",
+          "input_sha256": "96ecfed97b6d0cb4a15f809df660368ace72bc296bea22ebd0f1a367de2d2ae7",
+          "nav_cny": "1347293.42",
+          "observed_at": "2024-01-08T15:00:00+08:00",
+          "pnl_cny": "347293.42",
+          "price_basis": "synthetic-raw-OHLC-oracle"
+        },
+        "funds": {
+          "dynamic": 49600.0,
+          "fees": 506.58000000000004,
+          "net": 347293.42,
+          "realized": 298200.0
+        },
+        "minute": 1500,
+        "positions": [
+          {
+            "first_entry": 202401051500,
+            "last_entry": 202401051500,
+            "symbol": "SSE.ETF.510050",
+            "total": 24800.0,
+            "valid": 24800.0
+          },
+          {
+            "first_entry": 0,
+            "last_entry": 0,
+            "symbol": "SSE.ETF.510300",
+            "total": 0.0,
+            "valid": 0.0
+          }
+        ],
+        "prices": [
+          [
+            "SSE.ETF.510050",
+            26.0
+          ],
+          [
+            "SSE.ETF.510300",
+            14.0
+          ]
+        ],
+        "projection": [
+          [
+            "SSE.ETF.510050",
+            24800.0
+          ],
+          [
+            "SSE.ETF.510300",
+            0.0
+          ]
+        ],
+        "sequence": 4,
+        "session_id": "8cc24075fefcc065de7f834e8b01e3d3d9f27493371da08394b09ff7ec349ccf",
+        "trading_date": 20240108
+      },
+      "cash_control": {
+        "available_cash_cny": "702492.42",
+        "orders": [],
+        "reserved_buy_cost_cny": "0"
+      },
+      "cash_deficit": false,
+      "minute": 1500,
+      "outcome": null,
+      "previous_status": null,
+      "readback": [],
+      "reason": "沿原生实际持仓保持",
+      "result": null,
+      "signals": [],
+      "status": "holding",
+      "submit_vector": [],
+      "trading_date": 20240108
+    }
+  ],
+  "reference_report_sha256": "d69c8081f6364b26c23828f347e5d7cf1eac7684861ea5dc71ec288eec658eab",
+  "schema": "guanheng.original-native-replay-report.v1",
+  "scope": "WT-native-original-signals; daily-OHLC-next-tick; historical/PIT/broker/production-unqualified",
+  "session_id": "8cc24075fefcc065de7f834e8b01e3d3d9f27493371da08394b09ff7ec349ccf",
+  "signal_algorithm_id": "resonance-original-351f9d5-stable",
+  "source_qualified": false,
+  "source_snapshot_sha256": "e9f30dab7a0eaac35d58d9b779eab8b0f798a4ab9291e7b172e43baaed46dff5",
+  "status": "holding",
+  "strategy_id": "resonance-original-wt-351f9d5-stable",
+  "strategy_version": "0.1.0a2"
+}

@@ -7,6 +7,7 @@ import { useLiveStrategyPerformance } from './liveStrategyApi'
 import './live-strategy.css'
 
 const LiveStrategyPerformance = lazy(() => import('./LiveStrategyPerformance'))
+const StrategyTargetHistory = lazy(() => import('./StrategyTargetHistory'))
 
 /** 策略目录决定当前选择，运行详情按同一身份读取。 */
 export default function StrategyCatalogWorkspace() {
@@ -34,10 +35,12 @@ export default function StrategyCatalogWorkspace() {
       {live.isError ? <p role="alert">{live.error.message}；当前在线标记待重新核验。<button onClick={() => void live.refetch()}>重试运行状态</button></p> : null}
       <nav className="strategy-view-tabs" aria-label="策略详情视图">
         {hasObservation ? <button aria-pressed={selectedView === 'performance'} onClick={() => view('performance')}>线上表现</button> : null}
-        <button aria-pressed={!description && selectedView !== 'performance'} onClick={() => view('runtime')}>{original && !online ? 'WT回测概况' : '运行与持仓'}</button>
+        <button aria-pressed={!description && selectedView !== 'performance' && selectedView !== 'targets'} onClick={() => view('runtime')}>{original && !online ? 'WT回测概况' : '运行与持仓'}</button>
+        {!original || online ? <button aria-pressed={selectedView === 'targets'} onClick={() => view('targets')}>目标仓位记录</button> : null}
         <button aria-pressed={description} onClick={() => view('description')}>策略说明</button>
       </nav>
       {description ? <p className="strategy-description">{selected.description}</p>
+        : selectedView === 'targets' && (!original || online) ? <Suspense fallback={<p role="status">正在加载目标记录…</p>}><StrategyTargetHistory key={strategyKey(selected)} strategy={selected} /></Suspense>
         : hasObservation && selectedView === 'performance' && live.data ? <>
           {!online ? <p role="status">当前运行状态尚未确认，以下保留已观察事实及其原时间。</p> : null}
           <Suspense fallback={<p role="status">正在加载线上图表…</p>}><LiveStrategyPerformance key={`${strategyKey(selected)}:${live.data.coverage.history_scope_id ?? live.data.current.scope_id}`} data={live.data} /></Suspense>

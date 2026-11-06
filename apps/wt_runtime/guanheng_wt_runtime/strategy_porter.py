@@ -763,6 +763,48 @@ class BacktestPorter:
             self._block("incomplete_batch", _reason(exc))
             raise IncompleteBatch(str(self._failure)) from exc
 
+    def submit_conditional_targets(self, vector: tuple[Target, ...], limits: tuple[tuple[str, float], ...], tag: str = "") -> tuple[tuple[str, float], ...]:
+        """按原WT限价条件提交完整目标；读回只核原持仓，条件单没有原生ack接口。
+
+        条件在下次calculate前由原CtaMocker清理；触发、成交和费用均归原生。
+        调用者负责组合现金预算，禁止把本次返回值解释成限价已成交。
+        """
+        self._gate(("calculate",))
+        if not self.execution_symbols or type(vector) is not tuple or any(type(row) is not Target for row in vector):
+            raise AdmissionError("条件目标需要已准入执行证券与immutable Target tuple")
+        if len(vector) != len(self.execution_symbols) or {row.symbol for row in vector} != set(self.execution_symbols):
+            raise AdmissionError("条件目标必须完整覆盖执行证券")
+        encoded_tag = _text(tag, 31)
+        if any(c in tag for c in ('"', ',', '\r', '\n')):
+            raise AdmissionError("tag不能破坏原生CSV字段边界")
+        before = self.targets()
+        current = {symbol: _quantity(self.position(symbol).total) for symbol in self.execution_symbols}
+        values = {row.symbol: _quantity(row.quantity) for row in vector}
+        if type(limits) is not tuple or any(type(row) is not tuple or len(row) != 2 for row in limits):
+            raise AdmissionError("条件限价必须为immutable证券价格tuple")
+        prices = dict(limits)
+        if len(prices) != len(limits) or set(prices) != {symbol for symbol in values if values[symbol] != current[symbol]}:
+            raise AdmissionError("每个变化目标必须有且只有一个原生限价")
+        for symbol, price in prices.items():
+            if _finite(price) <= 0:
+                raise AdmissionError("原生限价必须为有限正数")
+            position = self.position(symbol)
+            if values[symbol] < position.total - position.valid:
+                raise AdmissionError("条件目标涉及T+1冻结份额")
+        if any(dict(before).get(symbol, current[symbol]) != current[symbol] for symbol in current):
+            raise AdmissionError("原生pending存在时不能重叠提交条件目标")
+        try:
+            for symbol in self.execution_symbols:
+                if symbol in prices:
+                    self._call("cta_set_position", self._ctx, symbol.encode(), values[symbol], encoded_tag, prices[symbol], 0)
+            after = self.targets()
+            if after != before:
+                raise IncompleteBatch("条件提交期间原生持仓或pending异常变化")
+            return after
+        except BaseException as exc:
+            self._block("incomplete_batch", _reason(exc))
+            raise IncompleteBatch(str(self._failure)) from exc
+
     def run(self) -> tuple[tuple[str, int], ...]:
         """同步原生运行；本层无法中断C调用，父进程仍须Job与总截止。"""
         self._owner_only()

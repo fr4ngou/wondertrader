@@ -4,15 +4,19 @@
 
 ## ONB-1 身份与模型
 
-策略ID为 `resonance-original-wt-351f9d5-stable`，版本 `0.1.0a1`，显示名“原版信号·WT标准回测”。信号算法ID继续为 `resonance-original-351f9d5-stable`。原BUY/SELL来自完整冻结ORR报告的 `trades_by_code`，本模块不重写信号公式。
+策略ID为 `resonance-original-wt-351f9d5-stable`，默认版本 `0.1.0a2`，显示名“原版信号·WT标准回测（现金约束）”。旧 `0.1.0a1` 保留其原模型和历史证据，读取时按版本严格分流。信号算法ID继续为 `resonance-original-351f9d5-stable`。原BUY/SELL来自完整冻结ORR报告的 `trades_by_code`，本模块不重写信号公式。
 
-本次WT接入使用模型A：保留冻结日线真实OHLC形状，D日闭合信号在WT `on_calculate` 提交目标，下一交易日首个原生模拟tick成交，通常为下一日开盘价。WT日线的模拟tick时间戳可能仍为15:00，不能据此描述为真实盘中或收盘成交。原CtaMocker负责pending、T+1、成交、费用和损益；适配层不自建撮合，不改变原框架，不将日线改成close-only。
+保留冻结日线真实OHLC形状，D日闭合信号在WT `on_calculate` 形成目标。a1使用零限价目标，通常下一日开盘成交；a2使用原生 `stra_set_position(limitprice)`，由原CtaMocker条件和撮合决定实际触发与后继tick成交，允许未成交和延后。WT日线的模拟tick时间戳可能仍为15:00，不能据此描述为真实盘中或收盘成交。原CtaMocker负责pending、T+1、成交、费用和损益；适配层不自建撮合，不改变原框架，不将日线改成close-only。
 
 初始资本固定人民币100万元；ETF数量为整数份且按100份向下取整。新BUY对当时原生已成交在仓集合与本次新买集合等权（同时去除SELL）；只有SELL时释放对应仓位，其余份数保持。目标用D日可见价格/NAV和显式费用预留计算，不读取D+1价格。末日未到下一事件的信号保留为未执行目标。
 
 原生当日买入的T+1冻结份额以total-valid核定。SELL先减少可卖份数，冻结余额保留原意图至后继可卖；新BUY等权若需减持冻结份额，完整等权提交延后，在合法D时点用当时价格/NAV重新规划。意图元数据不代表成交或独立现金账本。信号日期/原因仍逐字保留，延后提交以status/reason说明。
 
-WT CtaMocker资金接口报告损益，不实施证券现金账户购买力限制。适配层在D日按NAV减预留规划，记录真实已成交份数推算现金；下一日跳空或费用仍可能导致现金缺口，必须在报告逐日显式披露，后续新BUY暂停。该约束与原组合次日收盘、浮点份额、零费率的模型分别比较。
+WT CtaMocker资金接口报告损益；源码没有本金或证券现金购买力开关。a1按D日NAV规划零限价目标，在次日跳空时产生负现金。该旧模型继续按其原MODEL读取，不能当作现金约束结果。
+
+a2在原BUY当日用D日NAV、价格和费用预留固定等权份数计划；每个后继D日只以已成交持仓和原生损益推算的实际现金承担本批买入。全部增加份数按当日收盘价设置原生买入限价，总本金加绑定费用上界不得超过实际现金减1元舍入余量；不足时按需要金额同比缩减并向下取100份整手。绑定费用支持比例、按份与最低收费，买入费用上界另加1分舍入余量。卖出款在实际成交后才进入下一次D日现金，不预支未成交销售；卖出原生最低限价覆盖收费上界，保证卖出自身净流入非负。T+1冻结数量继续保留，所有未实现份数意图在下一原生calculate重试；原生在calculate前清理上日尚未触发条件。存在已触发pending时整体保留责任，不重叠下单或重复占用现金。新的BUY重新生成等权份数计划，SELL取消该证券剩余买入意图。
+
+买入限价、现金分批、未成交等待和固定份数计划都会改变成交日期/数量。a2每次逐日现金负值都属于失败，不以披露风险替代约束。原生条件设置没有ack枚举接口，submit/readback仅核提交期间实际持仓不变，不能解释为已成交；成交和费用以原生CSV及后继实际持仓核对。本模型仍缺真实盘口、涨跌停队列与成交量约束，不能据其每日OHLC条件撮合宣称实盘可实现收益。
 
 ## ONB-2 冻结输入
 
@@ -42,6 +46,8 @@ schema=`guanheng.original-native-replay-input.v1`，字段由唯一 `original_na
 ## ONB-3 报告与原生事实
 
 schema=`guanheng.original-native-replay-report.v1`。顶层保留session_id/input_sha256/configuration_sha256、独立策略与信号算法身份、policy、historical_model、reference_report_sha256/source_snapshot_sha256、原生五类basefiles摘要、完整native_outputs摘要、callback_counts和records。source_qualified/execution_qualified/point_in_time_qualified均false。
+
+a2每条record增加 `cash_control`：`available_cash_cny` 为当日实际现金减1元的本批预算；`reserved_buy_cost_cny` 为新提交全部买入成本上界；`orders` 记录证券、BUY/SELL、增减份数、原生限价和买入成本上界。它描述本批计划和成本界，不是独立资金账本。validator核版本与MODEL、非负实际现金、预算/本金界、方向/增减份数/完整目标/当日限价一致性；旧a1条目保持原字段集合。真实pending来自原生，等待时不新增条件。
 
 每条record记录trading_date/minute/status/reason、原信号、submit_vector/readback、cash_deficit和同owner无setter区间的capture。capture保存原生positions/prices/targets/funds；basis.nav_cny为100万元加WT原生净损益，cash_cny为该NAV减全部原生实际持仓估值；pending目标单独表达。收益和费用取WT事实，适配层不从ORR净值重构WT收益。
 

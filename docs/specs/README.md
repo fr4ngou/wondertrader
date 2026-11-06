@@ -240,3 +240,5 @@
 - [原版信号的WT框架回测](original-native-backtest.md)
 
 - [线上策略实际发布观察](live-strategy-performance.md)
+
+- [线上策略目标仓位历史](strategy-target-history.md)：原生目标份数变动、固定前缀分页与来源边界。

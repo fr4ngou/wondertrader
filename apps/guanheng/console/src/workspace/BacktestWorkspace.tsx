@@ -12,7 +12,7 @@ export default function BacktestWorkspace() {
   const [params, setParams] = useSearchParams()
   const runId = params.get('run')
   const query = useQuery({ queryKey: ['native-backtest-archive-summaries'], queryFn: ({ signal }) => fetchBacktestArchiveSummaries(signal), retry: false,
-    refetchOnWindowFocus: false, refetchOnReconnect: false, enabled: true })
+    staleTime: Infinity, refetchOnWindowFocus: false, refetchOnReconnect: false, enabled: true })
   const entries = [...(query.data?.runs ?? [])].sort((a, b) => b.configuration.end - a.configuration.end || a.run_id.localeCompare(b.run_id))
   const saved = entries.flatMap(item => item.summary ? [{ strategy_id: item.summary.strategy.id, strategy_version: item.summary.strategy.version,
     display_name: item.summary.strategy.id,

@@ -305,6 +305,11 @@ def _margin(day, get):
                   pageNumber='1', pageSize='10', sortColumns='STATISTICS_DATE', sortTypes='-1',
                   filter="(STATISTICS_DATE='" + day + "')")
     data, parent, received = _read(get, _EM, params, 'https://data.eastmoney.com/rzrq/zhtjday.html')
+    # 原报表按目标日尚无数据时返回9201/null；缺事实与协议损坏保持独立。
+    if (type(data) is dict and data.get('success') is False
+            and type(data.get('code')) is int and data['code'] == 9201
+            and 'result' in data and data['result'] is None):
+        _fail('source_record_missing')
     if type(data) is not dict or data.get('success') is not True or type(data.get('result')) is not dict:
         _fail('source_schema_invalid')
     result = data['result']

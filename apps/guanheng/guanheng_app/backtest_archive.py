@@ -125,7 +125,8 @@ class _Read:
                 _require(_wire(normalized) == _wire(value))
             elif request['report_schema'] == ORIGINAL_REPORT_SCHEMA:
                 _require(value.get('schema') == ORIGINAL_INPUT_SCHEMA)
-                _require(_wire(normalize_session(value)) == _wire(value))
+                # 原版输入由下方唯一WT报告/输入绑定入口规范化；本处只核原摘要。
+                # 避免先复制完整OHLC历史，再由同一validator为绑定重复复制。
         if request['report_schema'] == PER_DATE_REPORT_SCHEMA:
             _require(value['source'] == report.get('per_date_source'))
             value = value['session']
@@ -165,6 +166,7 @@ class BacktestArchive:
         self._lock = Lock()
         self._admitted_report = None
         self._day_view = None  # 唯一轻量按日投影；每次复用前仍重新核完整原件SHA。
+        self._summaries = {}  # 最多MAX_RUNS份小归属JSON；每次重新核原字节SHA才复用。
 
     def _run(self, read, run_id):
         _require(_id(run_id), "历史运行身份无效", 422)
@@ -252,9 +254,16 @@ class BacktestArchive:
         列表不重建全部报告、不缓存第二份完整金融报告，也不从名称推断版本。
         """
         _require(read.raw(directory / 'request.json', 16 * 1024 * 1024, checksum=True) == receipt['request_sha256'])
-        result, raw = read.value(directory / 'result.json', 32 * 1024 * 1024)
+        raw = read.raw(directory / 'result.json', 32 * 1024 * 1024)
         _require(_sha(raw) == receipt['result_sha256'])
         _require(read.raw(directory / 'installation.json', 2 * 1024 * 1024, checksum=True) == receipt['installation_sha256'])
+        identity = tuple(receipt[key] for key in ('request_sha256', 'result_sha256',
+                         'installation_sha256', 'report_sha256', 'record_count'))
+        cached = self._summaries.get(receipt['run_id'])
+        if cached is not None and cached[0] == identity:
+            read.check()
+            return json.loads(cached[1])
+        result = _json(raw, 32 * 1024 * 1024, read.deadline)
         _require(result['schema'] == HOST_SCHEMA and result['run_id'] == receipt['run_id']
                  and result['request_sha256'] == receipt['request_sha256']
                  and result['installation_sha256'] == receipt['installation_sha256'])
@@ -282,10 +291,14 @@ class BacktestArchive:
         amount = _fraction(initial)
         _require(amount > 0)
         read.check()
-        return dict(strategy=strategy,  # 完成证明绑定的原报告/输入策略身份，不取展示名称。
-                    initial_capital_cny=_money(amount))  # 原模型初始本金，人民币十进制文本；不表示当前账户资金。
+        summary = dict(strategy=strategy,  # 完成证明绑定的原报告/输入策略身份，不取展示名称。
+                       initial_capital_cny=_money(amount))  # 原模型初始本金，人民币十进制文本。
+        if receipt['run_id'] not in self._summaries and len(self._summaries) >= MAX_RUNS:
+            del self._summaries[next(iter(self._summaries))]
+        self._summaries[receipt['run_id']] = identity, _wire(summary)
+        return summary
 
-    def _originals(self, read, directory, value, result_raw=None):
+    def _originals(self, read, directory, value, result_raw=None, *, details=False):
         self._capacity(read, directory)
         request, request_raw = read.value(directory / "request.json", 16 * 1024 * 1024)
         if result_raw is None:
@@ -318,7 +331,8 @@ class BacktestArchive:
         _require(admitted.record_count == value["record_count"] and report["schema"] == result["report_schema"])
         if report['schema'] == ORIGINAL_REPORT_SCHEMA:
             if cached is None or cached[0] != report_key:
-                verify_original_native_input(report,session,check=read.check)
+                normalized = verify_original_native_input(report,session,check=read.check)
+                _require(_wire(normalized) == _wire(session))
             for name,identity in report['native_outputs']:
                 read.check()
                 _require(result['native_outputs'].get(f"outputs/{c['name']}/{name}")==identity)
@@ -354,6 +368,8 @@ class BacktestArchive:
         read.check()
         read.admitted_input = input_identity
         self._admitted_report = (report_key, admitted, input_identity)
+        if details:
+            return request, admitted, report, session, result, installation
         return request, admitted, report, session
 
     def _capacity(self, read, directory, *, reserve=False):
@@ -460,39 +476,22 @@ class BacktestArchive:
         try:
             _require(_digest(receipt_sha), "历史读取需要固定归档摘要", 422)
             directory, value, digest = self._load(read, run_id, receipt_sha)
+            view = self._day_view
+            if (configuration and not performance and index is None and view is not None
+                    and view.identity == (run_id, digest, value['report_sha256'])
+                    and view.configuration_json is not None):
+                self._verify_day_view(read, directory, view)
+                response = json.loads(view.configuration_json)
+                _require(len(_wire(response)) <= MAX_RESPONSE, "归档页面超过响应容量")
+                read.check()
+                return response
             request, admitted, report, session = self._originals(read, directory, value)
             if performance:
                 _require(configuration is False and index is None, "绩效读取参数无效", 422)
                 response = build_performance(receipt=value, receipt_sha256=digest, request=request, session=session,
                     report=report, admitted=admitted, check=read.check)
             elif configuration:
-                response = {"schema": "nbw-archive-configuration-v1", "run_id": run_id, "receipt_sha256": digest,
-                            "request_id": value["request_id"], "configuration": value["configuration"],
-                            "report_sha256": value["report_sha256"], "installation_sha256": value["installation_sha256"],
-                            "session_configuration": (session["request"]["configuration"]
-                                if session.get("schema") == "guanheng.retained-replay-input.v1"
-                                else session.get("strategy", session.get("config"))),
-                            "policy": session["policy"], "fee_reserve_cny": session["fee_reserve_cny"],
-                            "fee_source": session["fee_source"], "scope": SCOPE}
-                response['business_diagnostics'] = project_input_business_diagnostics(admitted, session, check=read.check)
-                if report['schema'] == ORIGINAL_REPORT_SCHEMA:
-                    deficit_dates = []
-                    for row in report['records']:
-                        read.check()
-                        if row['cash_deficit']:
-                            deficit_dates.append(row['trading_date'])
-                    response['original_native'] = {
-                        'signal_algorithm_id': report['signal_algorithm_id'],  # 固定原stable信号算法，不等同WT执行模型。
-                        'reference_report_sha256': report['reference_report_sha256'],  # 原ORR规范报告摘要。
-                        'source_snapshot_sha256': report['source_snapshot_sha256'],  # 原完整输入规范摘要。
-                        'execution_model': report['historical_model']['execution'],  # 沿原报告已校模型的D信号至下一交易日首tick语义。
-                        'historical_model': report['historical_model'],  # OHLC、整手、现金缺口等模型事实。
-                        'evaluation_window': report['evaluation_window'],  # 原评价首尾及额外前一真实交易日暖机，ISO日期。
-                        'cash_deficit_count': len(deficit_dates),  # 已准入逐日WT事实中现金为负的日期数，不推断源缺口。
-                        'cash_deficit_dates': deficit_dates,  # 中国交易日YYYYMMDD升序，沿validator核过的cash_deficit。
-                        'source_qualified': report['source_qualified'],  # 来源资格，研究输入保持false。
-                        'execution_qualified': report['execution_qualified'],  # 只读报告不授交易资格。
-                        'point_in_time_qualified': report['point_in_time_qualified']}  # 历史首次可知未合格。
+                response = self._configuration(read, run_id, value, digest, session, admitted, report)
             elif index is None:
                 _require(type(offset) is int and 0 <= offset <= 4096 and type(limit) is int and 1 <= limit <= 50, code=422)
                 headers = [{k: row[k] for k in ("trading_date", "minute", "status", "reason")} for row in report["records"]]
@@ -517,6 +516,37 @@ class BacktestArchive:
             raise ArchiveError() from None
         finally:
             self._lock.release()
+
+    def _configuration(self, read, run_id, value, digest, session, admitted, report):
+        """同一已准入原件的轻量模型DTO；冷读取和日期索引共用唯一投影。"""
+        response = {"schema": "nbw-archive-configuration-v1", "run_id": run_id, "receipt_sha256": digest,
+                    "request_id": value["request_id"], "configuration": value["configuration"],
+                    "report_sha256": value["report_sha256"], "installation_sha256": value["installation_sha256"],
+                    "session_configuration": (session["request"]["configuration"]
+                        if session.get("schema") == "guanheng.retained-replay-input.v1"
+                        else session.get("strategy", session.get("config"))),
+                    "policy": session["policy"], "fee_reserve_cny": session["fee_reserve_cny"],
+                    "fee_source": session["fee_source"], "scope": SCOPE}
+        response['business_diagnostics'] = project_input_business_diagnostics(admitted, session, check=read.check)
+        if report['schema'] == ORIGINAL_REPORT_SCHEMA:
+            deficit_dates = []
+            for row in report['records']:
+                read.check()
+                if row['cash_deficit']:
+                    deficit_dates.append(row['trading_date'])
+            response['original_native'] = {
+                'signal_algorithm_id': report['signal_algorithm_id'],  # 固定原stable信号算法，不等同WT执行模型。
+                'reference_report_sha256': report['reference_report_sha256'],  # 原ORR规范报告摘要。
+                'source_snapshot_sha256': report['source_snapshot_sha256'],  # 原完整输入规范摘要。
+                'execution_model': report['historical_model']['execution'],  # 沿原报告已校模型的D信号至下一交易日首tick语义。
+                'historical_model': report['historical_model'],  # OHLC、整手、现金缺口等模型事实。
+                'evaluation_window': report['evaluation_window'],  # 原评价首尾及额外前一真实交易日暖机，ISO日期。
+                'cash_deficit_count': len(deficit_dates),  # 已准入逐日WT事实中现金为负的日期数，不推断源缺口。
+                'cash_deficit_dates': deficit_dates,  # 中国交易日YYYYMMDD升序，沿validator核过的cash_deficit。
+                'source_qualified': report['source_qualified'],  # 来源资格，研究输入保持false。
+                'execution_qualified': report['execution_qualified'],  # 只读报告不授交易资格。
+                'point_in_time_qualified': report['point_in_time_qualified']}  # 历史首次可知未合格。
+        return response
 
     def _verify_day_view(self, read, directory, view):
         """重复日期仍核全部原字节及输出集合；省去已绑定原件的大JSON/CSV重解析。"""
@@ -548,8 +578,8 @@ class BacktestArchive:
                 self._verify_day_view(read,directory,view)
             else:
                 result_raw = read.raw(directory / 'result.json', 32 * 1024 * 1024)
-                request, admitted, report, session = self._originals(read, directory, value, result_raw=result_raw)
-                result = _json(result_raw, 32 * 1024 * 1024, deadline)
+                request, admitted, report, session, result, installation = self._originals(
+                    read, directory, value, result_raw=result_raw, details=True)
                 trades, positions = native_tables(read, directory, value, result)
                 performance = build_performance(receipt=value, receipt_sha256=digest, request=request, session=session,
                     report=report, admitted=admitted, check=read.check)
@@ -557,13 +587,21 @@ class BacktestArchive:
                 proof=[('request.json',value['request_sha256'],16*1024*1024),
                     ('result.json',value['result_sha256'],32*1024*1024),
                     ('installation.json',value['installation_sha256'],2*1024*1024)]
-                installation,installation_raw=read.value(directory/'installation.json',2*1024*1024)
-                _require(_sha(installation_raw)==value['installation_sha256'])
                 proof.extend((folder+'/'+name+'.json',installation['basefiles'][name]['sha256'],1024*1024)
                     for name in ('sessions','commodities','contracts','holidays','fees') for folder in ('basefiles','session-basefiles'))
                 proof.extend((relative,expected,MAX_NATIVE) for relative,expected in result['native_outputs'].items())
+                configuration = None
+                try:
+                    configuration = self._configuration(read, run_id, value, digest, session, admitted, report)
+                    _require(len(_wire(configuration)) <= MAX_RESPONSE, "归档页面超过响应容量")
+                except (Exception, SystemExit) as error:
+                    # 模型说明的派生错误保持独立；真实请求仍可按原路径报告错误。
+                    configuration = None
+                    read.check()
+                    logging.getLogger(__name__).warning('backtest_configuration_projection_unavailable run_id=%s error_type=%s',
+                                                       run_id, type(error).__name__)
                 view=build_day_view(receipt=value,receipt_sha=digest,report=report,trades=trades,positions=positions,
-                    proof=proof,visuals=visuals,check=read.check)
+                    proof=proof,visuals=visuals,configuration=configuration,check=read.check)
                 self._day_view=view
             _require(type(offset) is int and 0<=offset<=65536 and type(limit) is int and 1<=limit<=50,'分页参数无效',422)
             if ledger:

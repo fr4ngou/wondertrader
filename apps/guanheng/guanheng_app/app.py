@@ -30,6 +30,7 @@ from .security_catalog import SecurityCatalog
 from .security_routes import router as security_router
 from .live_strategy_performance import LiveStrategyPerformanceOwner
 from .live_strategy_routes import router as live_strategy_router
+from .strategy_target_history_routes import router as strategy_target_history_router
 
 UNMIGRATED_REASON = "该观衡只读功能正在接入WonderTrader公开结果"
 LIVE_OBSERVATION_SECONDS = 30  # App本地观察节拍；不触发交易或来源查询。
@@ -170,6 +171,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
     application.include_router(observation_router())
     application.include_router(security_router(securities))
     application.include_router(live_strategy_router())
+    application.include_router(strategy_target_history_router(configured))
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(_request,_exception):

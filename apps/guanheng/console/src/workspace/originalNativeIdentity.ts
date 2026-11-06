@@ -5,4 +5,6 @@ export const ORIGINAL_NATIVE_REPORT_SCHEMA = 'guanheng.original-native-replay-re
 /** WT输入冻结的原stable信号算法；该值不登记为第二个公开策略。 */
 export const ORIGINAL_SIGNAL_ALGORITHM = 'resonance-original-351f9d5-stable'
 /** 原版WT策略版本，独立于App和读取侧制品版本。 */
-export const ORIGINAL_VERSION = '0.1.0a1'
+export const ORIGINAL_VERSION = '0.1.0a2'
+/** 现金约束版沿用原生限价撮合；旧a1执行模型单独保留。 */
+export const ORIGINAL_CASH_EXECUTION = 'D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained'

@@ -24,6 +24,7 @@ class DayView:
     positions_available: bool  # 原positions.csv已适配，缺失保持未知。
     summary_json: str  # 紧凑逐日悬停投影；仅字符串缓存，不暴露可变对象。
     visuals_json: str  # 同身份日收益/回撤/成交计数投影；原WT资金仍由报告owner持有。
+    configuration_json: str | None = None  # 同一原件的轻量模型DTO；未知/派生失败仍走原配置读取。
 
     def ledger(self,day,offset,limit):
         """返回独占小DTO；全体成交仍沿原分页，不从摘要补金融事实。"""
@@ -36,7 +37,7 @@ class DayView:
             trades=[dict(zip(TRADE_FIELDS,row)) for row in rows[offset:offset+limit]])
 
 
-def build_day_view(*,receipt,receipt_sha,report,trades,positions,proof,visuals,check):
+def build_day_view(*,receipt,receipt_sha,report,trades,positions,proof,visuals,check,configuration=None):
     """由完整原件准入后的值构建一次；数量聚合使用有理数，保持原CSV精度。"""
     identity=(receipt['run_id'],receipt_sha,receipt['report_sha256'])
     dates=frozenset(row['trading_date'] for row in report['records'])
@@ -64,4 +65,4 @@ def build_day_view(*,receipt,receipt_sha,report,trades,positions,proof,visuals,c
     encode=lambda value:json.dumps(value,ensure_ascii=True,separators=(',',':'),allow_nan=False)
     return DayView(identity,tuple(proof),dates,captures,MappingProxyType({day:tuple(rows) for day,rows in by_position.items()}),
         None if trade_values is None else tuple(trade_values),MappingProxyType({day:tuple(rows) for day,rows in by_trade.items()}),
-        positions is not None,encode(summary),encode(visuals))
+        positions is not None,encode(summary),encode(visuals),None if configuration is None else encode(configuration))

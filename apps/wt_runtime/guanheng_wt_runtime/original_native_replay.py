@@ -22,6 +22,8 @@ from .original_native_contracts import (
     MAX_BYTES,
     INPUT_FIELDS,
     MODEL,
+    LEGACY_VERSION,
+    model_for_version,
     _encode,
     _digest,
     _need,
@@ -62,6 +64,8 @@ class OriginalNativeSession:
         self._records=[];self._session_id=None;self._last_userdata=''
         self._buy_intents=set()  # 尚未生成合法完整目标的原BUY意图，不代表成交或现金。
         self._sell_intents=set()  # T+1冻结/原生pending下保留的原SELL责任。
+        self._cash_plan=None  # 原BUY当日固定的份数目标；只保存策略意图，成交与现金由WT拥有。
+        self._fees={}  # 已核SHA的绑定费用模板，用于下单成本上界，不替代原生实际费用。
         self._signals={}
         for code,rows in self._value['reference_report']['trades_by_code'].items():
             for row in rows:self._signals.setdefault(_day(row['date']),[]).append(dict(code=code,**row))
@@ -119,6 +123,8 @@ class OriginalNativeSession:
         return capture,actual,pending
 
     def _calculate(self,porter,day,minute):
+        if self._value['strategy']['strategy_version']!=LEGACY_VERSION:
+            return self._calculate_cash(porter,day,minute)
         self._guard(porter);_need(self._initialized and minute==1500 and day in self._days and (not self._records or day>self._records[-1]['trading_date']))
         capture,actual,pending=self._capture(porter,day);signals=self._signals.get(day,[])
         nav=_money(capture['basis']['nav_cny']);cash=_money(capture['basis']['cash_cny'])
@@ -161,10 +167,99 @@ class OriginalNativeSession:
         self._records.append(dict(trading_date=day,minute=1500,status=status,reason=reason,capture=capture,
             signals=signals,submit_vector=vector,readback=readback,cash_deficit=cash<0,result=None,outcome=None,previous_status=None))
 
+    def _buy_bound(self,code,quantity,price):
+        """原生每笔费用的向上成本界；多明细费用不用于买入开仓，预留1分覆盖分位舍入。"""
+        fee=self._fees.get(self._mapping[code].rsplit('.',1)[0])
+        if fee is None:return quantity*price
+        rate=Fraction(repr(float(fee['open'])))
+        commission=rate*quantity*(1 if fee['byvolume'] else price)
+        commission=max(commission,Fraction(repr(float(fee.get('minfee',0))))) if rate else Fraction(0)
+        return quantity*price+commission+Fraction(1,100)
+
+    def _sell_floor(self,code,quantity):
+        """确保原生每笔卖出净流入非负；不用未来成交价或未成交卖出款。"""
+        fee=self._fees.get(self._mapping[code].rsplit('.',1)[0])
+        if fee is None:return Fraction(1,1000000)
+        rate=max(Fraction(repr(float(fee[k]))) for k in ('close','closetoday'))
+        # 原生按明细逐笔收费；本模型每次新增至少100份，每个关闭明细至少100份。
+        minimum=Fraction(repr(float(fee.get('minfee',0))))
+        if fee['byvolume']:return max(rate+(minimum+Fraction(1,100))/100,Fraction(1,1000000))
+        _need(rate<1)
+        return max((minimum+Fraction(1,100))/(100*(1-rate)),Fraction(1,1000000))
+
+    def _calculate_cash(self,porter,day,minute):
+        self._guard(porter);_need(self._initialized and minute==1500 and day in self._days and (not self._records or day>self._records[-1]['trading_date']))
+        capture,actual,pending=self._capture(porter,day);signals=self._signals.get(day,[])
+        cash=_money(capture['basis']['cash_cny']);nav=_money(capture['basis']['nav_cny']);_need(cash>=0)
+        available=max(Fraction(0),cash-1)  # 实际现金仅扣一元浮点/费用舍入余量；未成交销售从不计入。
+        control=dict(available_cash_cny=_decimal(available),reserved_buy_cost_cny='0',orders=[])
+        targets=dict(actual);status='holding';reason='沿原生实际持仓保持';vector=[];readback=[]
+        self._sell_intents={code for code in self._sell_intents if actual[code]>0}
+        if self._cash_plan is not None and all(actual[c]==q for c,q in self._cash_plan.items()):
+            self._cash_plan=None;self._buy_intents.clear()
+        for signal in signals:
+            code=signal['code']
+            if signal['action']=='BUY':
+                self._buy_intents.add(code);self._sell_intents.discard(code);self._cash_plan=None
+            else:
+                self._sell_intents.add(code);self._buy_intents.discard(code)
+                if self._cash_plan is not None:self._cash_plan[code]=0
+        frozen={code:actual[code]-_quantity(next(p['valid'] for p in capture['positions'] if p['symbol']==self._mapping[code])) for code in self._codes}
+        prices={code:Fraction(repr(float(price))) for native,price in capture['prices'] if price is not None for code in self._codes if self._mapping[code]==native}
+        if not pending:
+            if self._buy_intents and self._cash_plan is None:
+                active=({c for c,q in actual.items() if q>0}|self._buy_intents)-self._sell_intents
+                if active and all(c in prices and any(b.date==day for b in self._series[self._mapping[c]]) for c in active):
+                    budget=max(Fraction(0),nav-_money(self._value['fee_reserve_cny']))/len(active)
+                    self._cash_plan={c:(int(budget/prices[c]/100)*100 if c in active else 0) for c in self._codes}
+                else:status='blocked_missing_price';reason='原BUY目标缺少当日已闭合价格，保留意图'
+            if self._cash_plan is not None:targets={c:max(q,frozen[c]) for c,q in self._cash_plan.items()}
+            for c in self._sell_intents:targets[c]=frozen[c]
+            increases={c:targets[c]-actual[c] for c in self._codes if targets[c]>actual[c]}
+            full_cost=sum((self._buy_bound(c,q,prices[c]) for c,q in increases.items()),Fraction(0))
+            scale=min(Fraction(1),available/full_cost) if full_cost else Fraction(1)
+            limits=[];reserved=Fraction(0)
+            for c in self._codes:
+                if c in increases:
+                    q=int(increases[c]*scale/100)*100
+                    while q and reserved+self._buy_bound(c,q,prices[c])>available:q-=100
+                    targets[c]=actual[c]+q
+                    if q:
+                        bound=self._buy_bound(c,q,prices[c]);reserved+=bound
+                        limits.append((self._mapping[c],float(prices[c])))
+                        control['orders'].append(dict(symbol=self._mapping[c],action='BUY',quantity=q,
+                            limit_price_cny=_decimal(prices[c]),buy_cost_bound_cny=_decimal(bound)))
+                elif targets[c]<actual[c]:
+                    floor=self._sell_floor(c,actual[c]-targets[c])
+                    # 向上转换保证浮点限价仍覆盖精确费用界。
+                    import math
+                    limit=math.nextafter(float(floor),math.inf)
+                    limits.append((self._mapping[c],limit))
+                    control['orders'].append(dict(symbol=self._mapping[c],action='SELL',quantity=actual[c]-targets[c],
+                        limit_price_cny=_decimal(Fraction(repr(limit))),buy_cost_bound_cny='0'))
+            control['reserved_buy_cost_cny']=_decimal(reserved);_need(reserved<=available)
+            if limits:
+                vector=[dict(symbol=self._mapping[c],quantity=targets[c]) for c in self._codes]
+                readback=[list(x) for x in porter.submit_conditional_targets(tuple(Target(x['symbol'],x['quantity']) for x in vector),tuple(limits),'original-WT-cash-limit')]
+                status='cash_limited_conditions_submitted';reason='当前实际现金覆盖全部买入本金及绑定费用上界；原生限价撮合，未成交意图顺延'
+            elif self._cash_plan is not None or self._buy_intents or self._sell_intents:
+                status='deferred_T1' if any(frozen.values()) else 'waiting_cash_or_lot'
+                reason='保留原信号份数意图；等待原生可卖份额、实际卖出回款或整手预算'
+        else:status='pending_native_execution';reason='保留原生已触发未成交责任，不重复预占或下单'
+        text=_encode(dict(schema='guanheng.original-native-state.v2',session_id=self._session_id,sequence=len(self._records)+1,
+            buy_intents=sorted(self._buy_intents),sell_intents=sorted(self._sell_intents),cash_plan=self._cash_plan)).decode('ascii')
+        porter.store_userdata(STATE_KEY,text);self._last_userdata=text
+        self._records.append(dict(trading_date=day,minute=1500,status=status,reason=reason,capture=capture,signals=signals,
+            submit_vector=vector,readback=readback,cash_deficit=False,cash_control=control,result=None,outcome=None,previous_status=None))
+
     def run(self,library,abi_probe,config):
         _need(get_ident()==self._owner and not self._started and type(config) is BacktestConfig)
         _need(config.start//10000==self._days[0] and config.start%10000<=1500 and config.end==self._days[-1]*10000+1500)
         self._started=True;identities,frozen=admit_native_files(self._mapping,config)
+        self._fees=json.loads(frozen['fees'])
+        if self._value['strategy']['strategy_version']!=LEGACY_VERSION:
+            for rule in self._fees.values():
+                _need(rule['byvolume'] or max(rule['close'],rule['closetoday'])<1)
         base=Path(config.cwd)/'session-basefiles';base.mkdir(exist_ok=False)
         for name,raw in frozen.items():(base/(name+'.json')).write_bytes(raw)
         config=replace(config,**{name:base/(name+'.json') for name in frozen})
@@ -183,9 +278,9 @@ class OriginalNativeSession:
             path=output/name;_need(path.is_file() and path.stat().st_size<=32*1024*1024)
             files.append([name,hashlib.sha256(path.read_bytes()).hexdigest()])
         report=dict(schema=REPORT_SCHEMA,session_id=self._session_id,input_sha256=self._input_id,scope=REPORT_SCOPE,
-            policy=self._value['policy'],configuration_sha256=configuration_id(self._value),strategy_id=STRATEGY_ID,strategy_version=STRATEGY_VERSION,
-            signal_algorithm_id=ALGORITHM_ID,historical_model=MODEL,reference_report_sha256=self._value['reference_report_sha256'],
-            execution_model=MODEL,evaluation_window=self._value['evaluation_window'],
+            policy=self._value['policy'],configuration_sha256=configuration_id(self._value),strategy_id=STRATEGY_ID,strategy_version=self._value['strategy']['strategy_version'],
+            signal_algorithm_id=ALGORITHM_ID,historical_model=model_for_version(self._value['strategy']['strategy_version']),reference_report_sha256=self._value['reference_report_sha256'],
+            execution_model=model_for_version(self._value['strategy']['strategy_version']),evaluation_window=self._value['evaluation_window'],
             source_snapshot_sha256=self._value['source_snapshot_sha256'],status=self._records[-1]['status'],native_files=[list(x) for x in identities],
             native_outputs=files,callback_counts=[list(x) for x in counts],records=self._records,source_qualified=False,
             execution_qualified=False,point_in_time_qualified=False)

@@ -65,11 +65,38 @@ class SummaryIndexTests(unittest.TestCase):
     def test_changed_original_affects_its_summary_only(self):
         broken, _ = archive(self.root, '1'*32)
         archive(self.root, '2'*32)
+        self.archive.list(monotonic()+5, summaries=True)  # 先建立合法归属投影。
         (broken/'request.json').write_bytes(b'{"changed":true}')
         value = self.archive.list(monotonic()+5, summaries=True)
         self.assertEqual(len(value['runs']), 2)
         self.assertIsNone(value['runs'][0]['summary'])
         self.assertEqual(value['runs'][1]['summary']['strategy']['version'], '1.2.2')
+
+    def test_warm_summary_reuses_small_projection_after_raw_sha_and_returns_copy(self):
+        archive(self.root, '1'*32)
+        first = self.archive.list(monotonic()+5, summaries=True)
+        first['runs'][0]['summary']['strategy']['version'] = 'forged'
+        from guanheng_app import backtest_archive as module
+        original = module._json
+        def guarded(raw, maximum, deadline):
+            if b'"report":' in raw:
+                self.fail('warm list reparsed the full result report')
+            return original(raw, maximum, deadline)
+        with patch.object(module, '_json', guarded):
+            second = self.archive.list(monotonic()+5, summaries=True)
+        self.assertEqual(second['runs'][0]['summary']['strategy']['version'], '1.2.2')
+
+    def test_warm_summary_revalidates_replaced_result_and_report_identity(self):
+        directory, receipt = archive(self.root, '1'*32)
+        self.archive.list(monotonic()+5, summaries=True)
+        result = json.loads((directory/'result.json').read_bytes())
+        result['report']['strategy_version'] = '2.0'
+        changed = wire(result)
+        receipt['result_sha256'] = sha256(changed).hexdigest()
+        # 未同步固定报告SHA，新的外层结果字节不能沿用旧归属投影。
+        (directory/'result.json').write_bytes(changed)
+        (directory/'completed-archive.json').write_bytes(wire(receipt))
+        self.assertIsNone(self.archive.list(monotonic()+5, summaries=True)['runs'][0]['summary'])
 
     def test_summary_is_not_full_report_qualification(self):
         _directory, receipt = archive(self.root, '1'*32)

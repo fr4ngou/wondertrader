@@ -54,6 +54,8 @@ QMT双指数代理按实际缺失日期及现行profile的行数/自然日上限
 
 每row包含`date/symbol/metric/value/unit/source/source_sha256/received_at/available_at`。value为有限非负十进制字符串，原精度与缩放明确；unit为share、CNY或unknown，source为固定来源标识（QMT/SSE/SZSE/SSE+SZSE/Eastmoney）。source_sha256绑定`guanheng.supplement-source-proof.v1`派生清单，包含该行date/symbol/metric/value/unit/source及1..4个parents原件SHA。官方两市合计保留两个原件；QMT双指数代理同样保留两份原回执。发布前验证整个目录的能力证据、逐行清单及浅层原件闭包，查询时再核当前页。received_at是本次实际取得UTC带时区时刻，available_at历史首次可知未知为null。每gap是`{date,symbol,metric,reason}`。目录文件最多32MiB，固定SHA，读取不触发采集。
 
+东方财富原融资表的精确日期查询若返回已核空结果协议 `success=false, code=9201, result=null`，登记 `source_record_missing`；这表示该次查询没有目标日记录，不作为表结构损坏或零融资余额。未知错误码、缺字段和其它异常结构继续登记 `source_schema_invalid`。最新可见日期、当日未取得和网络失败分别保留；不根据请求日期前填发布值。
+
 snapshot配置增加可选supplement_facts descriptor={path,sha256}；摘要进入provenance.supplement_facts_sha256并参与snapshot_id。源目录、目录内容、snapshot身份同时准入，未配置不改变旧身份。创建线程拥有store及关闭，不增加HTTP写入口。
 
 快照查询采用显式投影协商：`market.source-snapshot-query` 的 request 为 `{date, include_supplement?: boolean}`。省略或 false 返回旧 v1 可见投影，只从 provenance 移除 `supplement_facts_sha256`，按该投影完整正文重新计算自己的合法 snapshot_id；磁盘完整快照与原完整 ID 保持。true 返回完整原快照，SDK 0.20 的 source_market_snapshot_query 默认发送 true。旧无补充快照两种请求原样返回原身份，未知字段及非 boolean 明确拒绝。

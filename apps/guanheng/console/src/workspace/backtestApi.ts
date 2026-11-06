@@ -260,7 +260,7 @@ export type OriginalNativeMetadata = {
   /** 原版信号算法身份，不替代WT执行模型。 */ signal_algorithm_id: string
   /** 原参考报告规范JSON的SHA256。 */ reference_report_sha256: string
   /** 原完整输入规范JSON的SHA256。 */ source_snapshot_sha256: string
-  /** WT原生下一tick撮合的显式模型。 */ execution_model: 'signal-close-to-next-WT-native-tick'
+  /** 原报告绑定的WT原生执行模型；现金约束版与旧a1分别说明。 */ execution_model: 'signal-close-to-next-WT-native-tick' | 'D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained'
   /** 原报告完整模型声明。 */ historical_model: Record<string, unknown>
   /** ISO评价首尾及额外前一真实交易日暖机。 */ evaluation_window: {
     /** 额外一前日，仅用于WT真实bar暖机。 */ warmup_date: string
@@ -335,7 +335,9 @@ export async function fetchArchiveConfiguration(entry: ArchiveEntry, signal?: Ab
   if (value.original_native !== undefined) {
     const m = value.original_native
     if (!object(m) || m.signal_algorithm_id !== ORIGINAL_SIGNAL_ALGORITHM || !validDigest(m.reference_report_sha256) || !validDigest(m.source_snapshot_sha256)
-      || m.execution_model !== 'signal-close-to-next-WT-native-tick' || !object(m.historical_model) || m.historical_model.execution !== m.execution_model
+      || !['signal-close-to-next-WT-native-tick', 'D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained'].includes(String(m.execution_model))
+      || !object(m.historical_model) || m.historical_model.execution !== m.execution_model
+      || m.execution_model === 'D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained' && m.historical_model.cash !== 'actual-D-cash-reserves-all-buy-principal-and-fee-upper-bounds; no-unfilled-sale-credit'
       || !object(m.evaluation_window) || ['warmup_date', 'from', 'to'].some(k => typeof m.evaluation_window !== 'object' || !object(m.evaluation_window)
         || typeof m.evaluation_window[k] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(String(m.evaluation_window[k])) || !tradingDate(Number(String(m.evaluation_window[k]).replaceAll('-', ''))))
       || !(m.evaluation_window.warmup_date as string < (m.evaluation_window.from as string)) || m.evaluation_window.from as string > (m.evaluation_window.to as string)

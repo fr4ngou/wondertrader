@@ -1,5 +1,6 @@
 """轻量日期索引沿完整原件身份复用，变更/追加/串报仍在原owner拒绝。"""
 from hashlib import sha256
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -62,6 +63,22 @@ def test_hot_date_bypasses_full_report_json_and_keeps_sha_proof(tmp_path,monkeyp
     first=archive.visual(run.name,receipt,monotonic()+5,ledger=True,day=day)
     second=archive.visual(run.name,receipt,monotonic()+5,ledger=True,day=day)
     assert first==second and first['date']==day
+
+
+def test_model_projection_reuses_same_day_proof_and_returns_own_copy(tmp_path, monkeypatch):
+    archive, run, receipt, _day = archived_cache(tmp_path)
+    expected = dict(schema='fixture-model-projection', run_id=run.name, receipt_sha256=receipt,
+                    policy=dict(initial_capital_cny='100000'))
+    archive._day_view = replace(archive._day_view, configuration_json=json.dumps(expected))
+    monkeypatch.setattr(archive, '_originals', lambda *_args, **_kwargs: pytest.fail('model reparsed the full report'))
+    value = archive.read(run.name, receipt, monotonic()+5, configuration=True)
+    assert value == expected
+    value['policy']['initial_capital_cny'] = 'forged'
+    assert archive.read(run.name, receipt, monotonic()+5, configuration=True) == expected
+    target = run/'basefiles/fees.json'
+    target.write_bytes(b'changed')
+    with pytest.raises(ArchiveError):
+        archive.read(run.name, receipt, monotonic()+5, configuration=True)
 
 
 @pytest.mark.parametrize('relative',['request.json','result.json','installation.json','basefiles/fees.json','session-basefiles/contracts.json','outputs/test.trades.csv'])

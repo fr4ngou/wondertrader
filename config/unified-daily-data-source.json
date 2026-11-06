@@ -522,7 +522,7 @@
       "source": "integrations/guanheng/market_supplement_capture.py"
     },
     "integrations/guanheng/market_supplement_sources.py": {
-      "sha256": "eae1fddf8103fdc75cd2beb0f9a885d719f11d98cd34fd0faa16791fdc730c2b",
+      "sha256": "0936a379ec5175c7c079bb4175e92d33687889515388a3fdb9b57c63a8a9c70d",
       "source": "integrations/guanheng/market_supplement_sources.py"
     },
     "integrations/guanheng/market_supplement_store.py": {
@@ -738,5 +738,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.23"
+  "version": "0.2.0a1+unified.24"
 }
