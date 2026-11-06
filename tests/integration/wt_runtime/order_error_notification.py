@@ -13,6 +13,7 @@ import native
 parser = argparse.ArgumentParser()
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--source', type=Path, default=repo / 'src/TraderQMT/StandardQmtTrader.cpp')
+parser.add_argument('--build-root', type=Path, default=repo / 'build/wo2')
 args = parser.parse_args()
 out = args.output.resolve()
 out.mkdir(parents=True, exist_ok=False)
@@ -46,8 +47,10 @@ struct Sink {
 };
 struct Probe {
  Sink sink;Sink* spi=&sink;Status first_error;unsigned handled=0;int original_order_remaining=1000;
+ unsigned refresh_requests=0; // 原查询调度触发数，不代表订单终态。
  struct Chain {int deadline=0;}chain;
  void note(const Status& s){if(first_error.code==ErrorCode::Ok)first_error=s;}
+ void request_order_refresh(){++refresh_requests;}
  template<class F>void deliver_event(const QmtEventDeliveryObservation& o,int,F&& f){require(o.diagnostic&&o.sequence>0,"not original diagnostic");f();++handled;}
  void run(const rapidjson::Value& event){std::string kind=event["kind"].GetString();
  // BRANCH
@@ -59,11 +62,11 @@ int main(){try{
   event["payload"]["order_args"]["opType"].SetInt(operation);
   Probe p;p.run(event);
   require(p.first_error.code==ErrorCode::Ok,"business error poisoned channel");
-  require(p.sink.errors==1&&p.handled==1&&p.original_order_remaining==1000,"notification changed order or event not handled");
+  require(p.sink.errors==1&&p.handled==1&&p.original_order_remaining==1000&&p.refresh_requests==1,"notification changed order or omitted refresh");
   p.note({ErrorCode::IoError,"real transport failure"});p.run(event);
   require(p.first_error.reason=="real transport failure","business diagnostic replaced existing transport cause");
   Probe failing;failing.sink.throws=true;bool propagated=false;try{failing.run(event);}catch(...){propagated=true;}
-  require(propagated&&failing.handled==0,"SPI exception falsely acknowledged");
+  require(propagated&&failing.handled==0&&failing.refresh_requests==0,"SPI exception falsely acknowledged");
  }
  std::cout<<"Original error branch: cancel/insert diagnostics, retained order, original transport cause, SPI exception PASS\n";
  }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}
@@ -71,12 +74,12 @@ int main(){try{
 '''.replace('// BRANCH', branch)
 cpp = out / 'probe.cpp'
 cpp.write_text(fixture, encoding='utf-8')
-toolchain = json.loads((repo / 'build/wo2/TOOLCHAIN.json').read_bytes())
+toolchain = json.loads((args.build_root / 'TOOLCHAIN.json').read_bytes())
 env = toolchain['environment']
 compiler = shutil.which('cl.exe', path=env['PATH'])
 exe = out / 'probe.exe'
 native.run([compiler, '/nologo', '/std:c++17', '/EHsc', '/MD', '/utf-8',
-            '/I' + str(repo / 'build/wo2/deps/rapidjson/include'), cpp,
+            '/I' + str(args.build_root / 'deps/rapidjson/include'), cpp,
             '/Fe:' + str(exe), '/Fo:' + str(out / 'probe.obj')],
            cwd=out, env=env, timeout=60, log=out / 'compile.log', private_console=True)
 native.run([exe], cwd=out, env=env, timeout=10, log=out / 'run.log', private_console=True)

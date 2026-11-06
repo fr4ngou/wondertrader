@@ -299,6 +299,8 @@ struct StandardQmtTrader::Impl {
  unsigned observation_refresh_ms=0,observation_refresh_stage=3;
  std::uint64_t observation_refresh_task=0;
  Clock::time_point observation_refresh_at{};
+ bool observation_orders_requested=false; // 后到的撤单/业务错误请求；已在途查询不能提前消费它。
+ bool observation_order_cycle=false; // 本轮沿原队列执行ORDER→POSITION→ACCOUNT，非独立订单状态。
  std::size_t max_queue_bytes=0,payload_bytes=0;unsigned outstanding=0;std::atomic<unsigned> active_ingress{0};
  std::uint64_t next_task=0,worker_thread=0;
  std::mutex mutex;std::condition_variable cv;
@@ -1480,7 +1482,8 @@ struct StandardQmtTrader::Impl {
    event_chain.reset();uncharge(chain_charge);chain_charge=0;read_cursor=handled_cursor;
   }
   read_waiting=true;query_flow_mask=0;observation_refresh_task=0;
-  observation_refresh_stage=3;observation_refresh_at=Clock::now()+std::chrono::milliseconds(event_poll_ms);
+  observation_refresh_stage=3;observation_order_cycle=false;
+  observation_refresh_at=Clock::now()+std::chrono::milliseconds(event_poll_ms);
   cv.notify_all();return true;
  }
  void fence_terminal_event_locked(Completion& result)
@@ -1905,18 +1908,35 @@ struct StandardQmtTrader::Impl {
   if(enqueue(std::move(task),false,&id,stage==0,after_query)==0){std::lock_guard<std::mutex> lock(mutex);submission_refresh_task=id;
    if(unknown_fenced)submission_refresh_after=Clock::now()+std::chrono::milliseconds(request_ms);}
  }
+ void request_order_refresh(){
+  std::lock_guard<std::mutex> lock(mutex);
+  if(!query_first||!events_enabled||stop_requested||submissions_closed)return;
+  observation_orders_requested=true;observation_refresh_at=Clock::now();cv.notify_all();
+ }
+ bool observation_refresh_enabled()const {
+  return read_waiting||observation_refresh_ms||observation_orders_requested||observation_order_cycle;
+ }
+ bool observation_orders_needed()const {
+  if(observation_orders_requested||active_orders)return true;
+  // 尚待核清的原提交继续由原Identity持有；不以当前列表缺行推断原单已撤。
+  for(const auto& item:identities)if(item.second.group_id)return true;
+  return false;
+ }
  bool observation_refresh_ready(Clock::time_point now)const {
-  return (read_waiting||observation_refresh_ms)&&active()&&logged_in&&spi&&(read_waiting||query_flow_mask==15)
+  return observation_refresh_enabled()&&active()&&logged_in&&spi&&(read_waiting||query_flow_mask==15)
    &&!submissions_closed&&!hard_fault&&!observation_refresh_task&&now>=observation_refresh_at;
  }
  Clock::time_point observation_refresh_wake(Clock::time_point until)const {
-  if((read_waiting||observation_refresh_ms)&&active()&&logged_in&&spi&&(read_waiting||query_flow_mask==15)
+  if(observation_refresh_enabled()&&active()&&logged_in&&spi&&(read_waiting||query_flow_mask==15)
      &&!submissions_closed&&!hard_fault&&!observation_refresh_task)
    return (std::min)(until,observation_refresh_at);
   return until;
  }
  void schedule_observation_refresh(){
-  {std::lock_guard<std::mutex> lock(mutex);if(!observation_refresh_ready(Clock::now()))return;}
+  {std::lock_guard<std::mutex> lock(mutex);if(!observation_refresh_ready(Clock::now()))return;
+   if(!read_waiting&&!observation_order_cycle&&observation_refresh_stage==3&&observation_orders_needed()){
+    observation_order_cycle=true;observation_refresh_stage=1;
+   }}
   if(read_waiting&&!held_reads.empty()){
    std::lock_guard<std::mutex> lock(mutex);auto& original=*held_reads.begin();if(original.second.inflight)return;
    Task task;task.kind=Kind::Query;task.id=original.first;task.generation=generation;
@@ -1926,9 +1946,13 @@ struct StandardQmtTrader::Impl {
    observation_refresh_task=original.first;cv.notify_all();return;
   }
   Task task;task.kind=Kind::Query;task.stage=observation_refresh_stage;task.deadline=deadline();
+  const auto scheduled_stage=task.stage;
   std::uint64_t id=0;const auto rc=enqueue(std::move(task),false,&id);
   std::lock_guard<std::mutex> lock(mutex);
-  if(rc==0)observation_refresh_task=id;
+  if(rc==0){observation_refresh_task=id;
+   // 入队后才交接本次请求；后续回报再置位，完成旧查询时不清除后到请求。
+   if(!read_waiting&&observation_order_cycle&&scheduled_stage==1)observation_orders_requested=false;
+  }
   else observation_refresh_at=Clock::now()+std::chrono::milliseconds(read_waiting?event_poll_ms:observation_refresh_ms);
  }
  void observation_refresh_applied(std::uint64_t task_id){
@@ -1936,12 +1960,18 @@ struct StandardQmtTrader::Impl {
   if(!observation_refresh_task||observation_refresh_task!=task_id)return;
   observation_refresh_task=0;
   if(read_waiting){
-   if(observation_refresh_stage==0){read_waiting=false;observation_refresh_stage=3;
-    observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_refresh_ms);}
+   if(observation_refresh_stage==0){read_waiting=false;observation_refresh_stage=3;observation_order_cycle=false;
+    observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_orders_requested?0:observation_refresh_ms);}
    else {observation_refresh_stage=observation_refresh_stage==3?1:observation_refresh_stage==1?2:0;
     observation_refresh_at=Clock::now();}
+  }else if(observation_order_cycle){
+   if(observation_refresh_stage==1){observation_refresh_stage=0;observation_refresh_at=Clock::now();}
+   else if(observation_refresh_stage==0){observation_refresh_stage=3;observation_refresh_at=Clock::now();}
+   else {observation_order_cycle=false;observation_refresh_stage=3;
+    observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_orders_requested?0:observation_refresh_ms);}
   }else if(observation_refresh_stage==3){observation_refresh_stage=0;observation_refresh_at=Clock::now();}
-  else {observation_refresh_stage=3;observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_refresh_ms);}
+  else {observation_refresh_stage=3;
+   observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_orders_requested?0:observation_refresh_ms);}
   cv.notify_all();
  }
  void forget(const std::string& entrust)
@@ -1978,6 +2008,14 @@ struct StandardQmtTrader::Impl {
   if(query_first&&result.kind==Kind::Insert&&result.business_rejected&&result.insert_failure_confirmed
      &&result.trade.phase==QmtTradePhase::DefinitelyNotCalled){
    forget(result.order.insert.entrust_id);entrust_reply(result.order,result.status,true);return;
+  }
+  if(query_first&&result.kind==Kind::Cancel&&result.business_rejected
+     &&(result.insert_failure_confirmed||result.trade.phase==QmtTradePhase::SdkReturned)){
+   // 本次撤单明确未发送或SDK明确返回，原买卖单结果仍由O/P/A核实；拒绝撤单不关闭通道。
+   request_order_refresh();
+   std::unique_ptr<wtp::WTSError,ObjectRelease> error(wtp::WTSError::create(wtp::WEC_ORDERCANCEL,status.reason.c_str()));
+   require(bool(error),"qmt_standard_cancel_error_allocation");
+   callback([&]{spi->onTraderError(error.get());});return;
   }
   if(result.business_rejected||result.audit.role==PendingRole::UnadmittedTargetLookup)note(status);
   else if(!result.insert_failure_confirmed&&status.code==ErrorCode::SubmissionUnknown){fence_unknown();note(status);}
@@ -2267,7 +2305,8 @@ struct StandardQmtTrader::Impl {
    // 账户/原命令关联仍留在Host；订单状态只由原查询及完整order/deal回报更新。
    std::unique_ptr<wtp::WTSError,ObjectRelease> error(wtp::WTSError::create(wtp::WEC_UNKNOWN,reason.c_str()));
    require(bool(error),"qmt_standard_event_error_allocation");
-   deliver_event(observation,chain.deadline,[&]{spi->onTraderError(error.get());});return;
+   deliver_event(observation,chain.deadline,[&]{spi->onTraderError(error.get());});
+   request_order_refresh();return;
   }
   if(event_control.stop_requested()||stop_requested||event_detached||!spi)return;
   const unsigned stage=kind=="order"?1:2;
@@ -2860,7 +2899,8 @@ int StandardQmtTrader::pump(std::uint32_t limit)
     // pump(1)也在本次完成中结算空页/最后一项；不等下一次调度才判已结束任务的D。
     x.settle_completed_event_chain();
    }else {
-    if(result.kind==Impl::Kind::Insert){++x.inserts;x.entrust_reply(result.order,{},false);}else ++x.cancels;
+    if(result.kind==Impl::Kind::Insert){++x.inserts;x.entrust_reply(result.order,{},false);}
+    else {++x.cancels;x.request_order_refresh();}
     // SDK返回仅确认原调用结果；真实订单/成交推送沿后续事件消费实现，不能构造假回报。
    }
   }

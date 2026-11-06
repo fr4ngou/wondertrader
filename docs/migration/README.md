@@ -1,5 +1,7 @@
 # 观衡量化系统移植入口
 
+- [QMT撤单异常与跨日旧单同步方案](qmt-cancel-reconciliation-proposal.md)：独立worktree实施；自有查询调度及隔离验证已完成，历史查询实际接入与整链联调继续。
+
 - [已达持仓时替换旧执行目标](native-stock-target-replacement-proposal.md)：真实模拟额外买入的原DLL复现、已批准的两框架文件默认关闭修正及同账发行比较。
 
 - [自动交易主线数据、诊断与日志收敛](mainline-data-observability-20261105.md)：开发者1/2/杂役模块边界、Root集成、真实验收和稀疏协作。
