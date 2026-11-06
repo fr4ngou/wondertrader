@@ -10,6 +10,7 @@ import uuid
 
 from .daily_data_update import _save, _load, _descriptor
 from .market_generation import read_fixed, read_generation
+from .daily_gap_plan import load_gap_plan, MAX_PROTECTED_SLOTS
 from ..guanheng_market_client import strict_json
 
 
@@ -135,7 +136,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             price_plan=strict_json(read_fixed(phase,maximum=65536))['result']
             if price_plan is not None:prior_plans.append((price_plan,price_root/'gap-work'))
         for plan,gap_work in prior_plans:
-            value=_load(plan);pending=[]
+            value=load_gap_plan(plan,deadline=deadline,cancelled=cancelled);pending=[]
             for task in value['tasks']:
                 slot=gap_work/'preparation'/('%06d.json'%task['index'])
                 if not slot.exists():continue
@@ -143,7 +144,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                 if not observed.exists()or strict_json(read_fixed(observed,maximum=1048576))['row']['state']!='call_returned':
                     pending.append(task['index'])
             if pending:plans.append((plan,gap_work,pending))
-    if len(protected) > 100000:
+    if len(protected) > MAX_PROTECTED_SLOTS:
         raise ValueError('daily protected request capacity')
     # 先观察原未知身份；所有非原槽的计划项交本日缓存计划判定，不在旧计划里重派。
     prior_observations=[]
@@ -301,7 +302,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             template['price_maintenance']['cache_seed']=inputs['price_cache_seed']  # 同名单/闭合日的已完成原缓存，目录及原UUID保持。
         if configuration['price_scope'].get('index_fallback')is not None:
             template['price_maintenance']['index_fallback']=configuration['price_scope']['index_fallback']  # 显式官方指数来源；读侧仍只读WT。
-        by_plan={descriptor['sha256']:_load(descriptor)for descriptor,_,_ in plans}
+        by_plan={descriptor['sha256']:load_gap_plan(descriptor,deadline=deadline,cancelled=cancelled)
+                 for descriptor,_,_ in plans}
         pending=set()
         for observation in prior_observations:
             for index in observation['task_indices']:

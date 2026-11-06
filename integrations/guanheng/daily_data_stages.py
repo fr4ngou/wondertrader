@@ -6,15 +6,18 @@ from ..guanheng_market_client import strict_json
 from .market_generation import read_fixed
 
 
-def prepare_directory(root, name, marker, build, restore):
+def prepare_directory(root, name, marker, build, restore, *, recover_prior=False):
     """调用者持任务写锁且已固定INPUTS/REQUEST；成功描述符保存后才算提交。
 
     builder沿原准备器独占创建output。中断前已完成marker则完整复核并采用；
     缺失或不完整marker的原尝试保留，新尝试不触碰原HPR槽/已提交数据。
     同阶段最多16个尝试，防止持续故障无限积累目录；超限保留当前版本。
+    recover_prior仅由纯本地、同冻结输入阶段显式启用；其它阶段只核最后尝试，
+    不跨过较晚尝试可能持有的Source/未知责任。
     """
     from .daily_data_update import _save
-    if name not in ('facts', 'gap-plan', 'snapshot', 'price-archive', 'price-front') or type(marker) is not str or Path(marker).name != marker:
+    if (name not in ('facts', 'gap-plan', 'snapshot', 'price-archive', 'price-front') or type(marker) is not str
+            or Path(marker).name != marker or type(recover_prior) is not bool):
         raise ValueError('daily immutable stage name invalid')
     root = Path(root).absolute()
     path = root / ('PHASE-' + name + '.json')
@@ -23,11 +26,14 @@ def prepare_directory(root, name, marker, build, restore):
         name=name,  # facts/gap-plan/snapshot，映射不同不可变准备器。
         attempts=[],  # 最多16个本任务创建的输出目录，未完成目录保留供核查。
         result=None)  # 已提交结果描述符；None表示成功输出尚未登记。
-    if (type(state) is not dict or set(state) != {'schema', 'name', 'attempts', 'result'}
+    if (type(state) is not dict or not {'schema', 'name', 'attempts', 'result'} <= set(state)
+            or set(state)-{'schema', 'name', 'attempts', 'result', 'result_attempt'}
             or state.get('schema') != 'guanheng.daily-immutable-stage.v1' or state.get('name') != name
             or type(state['attempts']) is not list or len(state['attempts']) > 16
             or len(set(state['attempts'])) != len(state['attempts'])
-            or (state['result'] is not None and not state['attempts'])):
+            or (state['result'] is not None and not state['attempts'])
+            or ('result_attempt' in state and
+                (state['result'] is None or state['result_attempt'] not in state['attempts']))):
         raise ValueError('daily immutable stage identity differs')
 
     def output(attempt):
@@ -36,12 +42,14 @@ def prepare_directory(root, name, marker, build, restore):
         return root / (name + '-' + attempt)
 
     if state['result'] is not None:
-        restored = restore(output(state['attempts'][-1]))
+        # 旧状态沿最后尝试；新状态显式绑定已认领的原尝试，保留完整时间顺序。
+        restored = restore(output(state.get('result_attempt',state['attempts'][-1])))
         if restored != state['result']:
             raise ValueError('daily immutable committed output differs')
         return restored
-    if state['attempts']:
-        previous = output(state['attempts'][-1])
+    candidates = reversed(state['attempts']) if recover_prior else state['attempts'][-1:]
+    for previous_attempt in candidates:
+        previous = output(previous_attempt)
         if (previous / marker).exists():
             try:
                 result = restore(previous)
@@ -51,6 +59,8 @@ def prepare_directory(root, name, marker, build, restore):
                 # 尚未提交的半份marker保留；已提交结果损坏在上面的分支明确失败。
             else:
                 state['result'] = result
+                if previous_attempt != state['attempts'][-1]:
+                    state['result_attempt'] = previous_attempt  # 原合法marker所属尝试UUID，不重排或删除旧尝试。
                 _save(path, state)
                 return result
     if len(state['attempts']) >= 16:

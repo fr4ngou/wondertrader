@@ -8,6 +8,7 @@ import time
 from ..guanheng_market_client import strict_json
 from .market_generation import read_fixed, encode
 from .security_reference import SecurityReference
+from .daily_gap_plan import load_gap_plan, write_gap_plan, collect_protected_requests
 
 
 def _save(path, value):
@@ -81,30 +82,8 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
         securities[symbol] = dict(identity=identity, basic=reference.security(snapshot, identity),
                                   dates=(set(manifest['comparison'][symbol]['common_dates'])
                                          if required_adjustments==('none','front_ratio')else selected_dates[symbol]))
-    from guanheng_qmt_shm.read_retention_client import inspect_saved_result
     # 所有原槽继续留证；严格确认SDK返回的执行责任与尚缺缓存分别拥有。
-    protected = []
-    for path in protected_slots:
-        check()
-        slot = strict_json(read_fixed(path, maximum=1048576))
-        original = slot['request']
-        state = 'unknown'
-        if original['operation_id'] == 'market.history_prepare':
-            reply = inspect_saved_result(slot)
-            if (reply is not None and reply['ok'] is True and reply['data']['effect'] == 'call_returned'
-                    and all(slot['result'][key]==slot['binding']for key in('admitted_binding','dispatch_binding','result_binding'))):
-                state = 'call_returned'
-            elif (reply is not None and reply['ok'] is False and reply.get('error_code') == 'preparation_not_executed'
-                    and slot['result']['admitted_binding'] == slot['binding']
-                    and slot['result']['dispatch_binding'] is None and slot['result']['result_binding'] is None):
-                state = 'not_executed'  # 原Host明确在SDK派发前停止；原结果留证，后继可按真实缺口新建任务。
-        protected.append(dict(
-            slot=str(Path(path).absolute()),  # 原持久slot绝对位置，结果和消费事实继续由原owner拥有。
-            request_id=original['request_id'],  # 原UUID；本计划只引用，绝不改写或重新生成。
-            operation_id=original['operation_id'],  # 原业务操作，HPR与普通批读责任分别处理。
-            arguments=original['arguments'],  # 原证券/日期/截止参数，保留原值。
-            request_sha256=hashlib.sha256(encode(original)).hexdigest(),  # 原请求语义摘要，不绑定后续消费状态。
-            execution_state=state))  # 已返回、明确未派发或未知，均不授缓存覆盖资格。
+    protected=collect_protected_requests(protected_slots,deadline=deadline,cancelled=cancelled)
     blocked = {}
     for item in protected:
         if (item['operation_id'] == 'market.history_prepare' and item['arguments']['period'] == '1d'
@@ -174,11 +153,7 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
         value.update(
             required_adjustments=list(required_adjustments),  # 本计划真正必需的缓存价格口径。
             required_from=required_from or {})  # 每证券已存在原生历史之后的闭合日边界。
-    output = Path(output).absolute()
-    output.mkdir(parents=False, exist_ok=False)
-    path = output / 'PLAN.json'
-    path.write_bytes(encode(value))
-    return dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    return write_gap_plan(output, value, deadline=deadline, cancelled=cancelled)
 
 
 def freeze_gap_progress(plan,progress,observations=None,*,deadline,cancelled=lambda:False):
@@ -188,8 +163,7 @@ def freeze_gap_progress(plan,progress,observations=None,*,deadline,cancelled=lam
     缺完整状态时只采用已存进度，缺项保守标记unattempted，交后继修订重新实读。
     快照只保留状态及原请求ID；完整SDK记录继续由原slot/observations拥有。
     """
-    from .daily_data_update import _load
-    value=_load(plan);observed={}
+    value=load_gap_plan(plan,deadline=deadline,cancelled=cancelled);observed={}
     if progress is not None:
         if progress.get('plan_sha256')!=plan['sha256']:
             raise ValueError('daily readback progress plan differs')
@@ -311,9 +285,7 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
     if (type(max_tasks) is not int or not 1 <= max_tasks <= 10000 or not callable(cancelled)
             or type(deadline) not in (int, float) or not math.isfinite(deadline)):
         raise ValueError('daily gap advancement budget invalid')
-    value = strict_json(read_fixed(plan['path'], maximum=16777216, identity=plan['sha256']))
-    if value.get('schema') != 'guanheng.daily-gap-plan.v1':
-        raise ValueError('daily gap plan schema invalid')
+    value = load_gap_plan(plan,deadline=deadline,cancelled=cancelled)
     tasks = value['tasks']
     if task_indices is not None:
         if (type(task_indices) not in (tuple, list) or not task_indices or len(task_indices) != len(set(task_indices))
