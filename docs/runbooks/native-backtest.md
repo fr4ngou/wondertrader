@@ -41,42 +41,30 @@ busy退出3，普通失败退出2，已请求取消的不完整运行退出130�
 
 ## 验收
 
-CLI路由/准入/信号/退出码测试位于`tests/integration/strategy_cli`，实际安装后的CLI→原宿主→原DLL链另取证。执行本仓库测试时，将pytest临时目录与XML显式指定到E盘独占输出根，并先建立其父目录。初次准入失败、业务回测失败、测试配方超期及完整成功分别保留记录；资格以实际证据为准。
+CLI路由/准入/信号/退出码测试位于`tests/integration/strategy_cli`，实际安装后的CLI→原宿主→原DLL链另取证。执行本仓库测试时，将pytest临时目录与XML显式指定到受控独占输出根；回测及延迟敏感数据沿用户指定D盘，并先建立其父目录。初次准入失败、业务回测失败、测试配方超期及完整成功分别保留记录；资格以实际证据为准。
 
-## 浏览器回测配置
+## 正式归档的唯一位置
 
-逐日原生基准的开发API及报告读取见[R28证据](../evidence/2026-10-30-per-date-native-replay.md)。新族guanheng.retained-per-date-replay-report.v1使用独立逐窗模型，由WT的backtest_reports.validate_report_dict及project_session_record读取；原最终批次会话和报告族保持。逐日产品入口沿R28-C4及下文R6验收，观衡只读归档消费由其模块owner核实。
+观衡只读已有完成报告；WT原生回测CLI拥有新运行和父完成证明发布。正式位置由受控运行环境的 `backtest-current/STORAGE.json` 记录，字段 `state=active`、`archive_root`、`work_root` 与实际采用收据一起核对。该文件是运维采用记录，CLI显式参数与App环境分别沿其原入口配置。
 
-逐日CLI接线沿[NBC-R6](../specs/native-backtest-cli.md#nbc-r6-逐日基准的配置入口)验收。该角色在原六发行之外安装匹配的 `guanheng-native-analysis-core` 后继，保留原market-client wheel；通过固定SDK import读取原ReplayCatalog。部署生成绑定时显式提供 `replay_catalog={path,manifest_sha256}`，会话采用R6的纯值外层，包含原session和完整逐窗source绑定。操作命令保持上文形式，行情目录路径归安装配置。默认最终批次角色仍使用原六发行和原会话。运行资格以安装后CLI证据为准，逐日模型保持历史15:00假设及真实首次可知未知。
+当前受控记录为 `E:/workspace/wondertrader-data/backtest-current/STORAGE.json`，已采用根为 `D:/wondertrader-data/formal-backtests-20261107-001`。观衡使用 `GUANHENG_BACKTEST_ARCHIVE_ROOT` 指向此根，在正常重启时绑定。WT CLI须显式使用同一位置：
 
-需要在观衡重启后读取本次结果时，给同一安装CLI增加`--archive-label "逐日回测示例"`。沿[NBC-R7](../specs/native-backtest-cli.md#nbc-r7-wt父责任层发布原完成证明)，WT在本次原总期限内完成进程回收与原件核验，再发布原运行目录的`completed-archive.json`。回执的archive.status为available及固定receipt_sha256时，观衡可将已有归档根指向该runs目录，只读原配置、报告和绩效。执行已完成但archive为unknown时保留完整目录核查；子result.json和旧stdout不能用于补造父完成证明。省略该参数保持原CLI行为，历史R6目录保持原件。具体安装及消费资格沿[完成证明证据](../evidence/2026-10-30-wt-backtest-completion.md)。
-
-本节保留原App托管制品的配置和报告读取背景。当前独立WT新运行使用上述命令；观衡消费新绑定/完成报告的只读接线由其模块owner集成，按独立证据授予资格。
-
-已完成归档可在“回测与报告”标签页查看“回测绩效与比较”。先选择历史回测，再选择另一份比较报告；每次读取核验原配置、报告、安装及原生输出摘要。收益以显式初始本金和末个合格日末净值计算，回撤以初始本金及已观察日末峰值计算，费用为末次原生累计值。缺失观察保留为空，详情见[BPC规格](../specs/backtest-performance-comparison.md)。条件差异用于解释各自结果，报告范围和来源资格沿原件保留。
-
-读取失败时保留原运行目录，按提示核查完整性、权限或容量，再点击“重新读取绩效”。此操作只读文件；重跑需要从原运行入口显式启动。两份报告共用一次读取截止。同一报告或报告对刷新失败时保留上次成功结果和原读取时间；首次失败按提示重读。切换报告后显示所选报告自己的结果。可选择“仅查看当前报告”分别核查。升级或回滚须保留运行根及原completion receipt，使用与归档报告族相匹配的应用版本。
-
-独立应用可通过`GUANHENG_BACKTEST_CONFIG`和`GUANHENG_BACKTEST_CONFIG_SHA256`读取有摘要的部署文件。以下JSON为占位示例，路径和摘要须替换为实际受管值，运行根预先建立：
-
-```json
-{
-  "schema": "nbw-config-v1",
-  "binding": {"path": "E:/guanheng/installation.json", "sha256": "<安装manifest的64位小写SHA>"},
-  "work_root": "E:/guanheng/backtests",
-  "session": {"path": "E:/guanheng/frozen-session.json", "sha256": "<冻结会话字节的64位小写SHA>"},
-  "start": 202401030930,
-  "end": 202401091500,
-  "name": "configured",
-  "label": "示例冻结输入",
-  "max_seconds": 30
-}
+```powershell
+& "<已安装Python绝对路径>" -I -B -m guanheng_wt_runtime.backtest_cli `
+  --binding "<安装manifest绝对路径>" `
+  --binding-sha256 "<已核小写SHA256>" `
+  --work-root "D:/wondertrader-data/formal-backtests-20261107-001" `
+  --session "<冻结会话JSON绝对路径>" `
+  --start 202401030930 --end 202401091500 --seconds 1800 `
+  --archive-label "<本次回测中文名称>"
 ```
 
-路径、安装和会话由部署管理，浏览器仅操作当前owner/request身份，不上传源码或替换DLL。只配置回测不接入券商终端，也不开放真实交易。部署文件默认关闭，变更后重启本业务应用生效；回测配置错误时该功能保持不可用，其他已配置能力继续提供服务。
+CLI独立解析 `--work-root`，由操作员核对STORAGE记录；Observer环境变量只配置读取应用。`--archive-label` 要求WT父责任在原期限内完成回收与原件校验，再于原run目录发布 `completed-archive.json`。回执 `archive.status=available` 和固定receipt SHA才授予正式归档资格，详见[NBC-R7](../specs/native-backtest-cli.md#nbc-r7-wt父责任层发布原完成证明)。archive为unknown时保留原运行核查，子result或stdout不足以补造父证明。
 
-从`/backtests`或`/strategies?tab=backtests`打开：核对策略名称、版本和北京时间回放范围后点击“启动回测”。当前新运行固定为共振市场状态ETF策略1.1.2；旧版本保留已保存报告读取。内部输入摘要、运行及进程身份归维护诊断资料。重复同一request只认领原运行；接收超时后先“刷新状态”核查，再点击“核查运行结果”，继续核查原任务。取消先发停止请求，进程及管道回收事实由原宿主结果确认。关闭页面只停止该页面读取，原运行继续。
+完整已完成run采用新根时，沿受控采用流程逐文件复制、核源前后与目标SHA，再用支持该报告族的普通安装归档owner核所有引用、摘要和详情投影。保持报告、完成证明、原安装绑定、相对输出和run身份原字节；源目录保留备份。当前D盘9run/252文件已逐件核验，见[采用记录](../releases/2026-11-07-observer125-data-update-and-d-archive.md)。进行中的旧E运行继续由原owner在原根完成，完成后再按完整原件采用流程处理。回测及延迟敏感数据按用户指定放D；C盘候选从未线上采用。
 
-本进程状态投影至多128次受理；完整实验保留在NSH原运行目录，报告按页和当日读取，不新增任务数据库。业务进程重启更换owner_id，旧请求拒绝，原目录保持且不自动执行。容量满或线程启动/关闭尚未确认时，按中文原因核查原运行证据；启动未知持续时由运维关闭业务进程、确认自有子进程回收，再启动新的owner，禁止按同名进程批量终止。
+## 浏览器只读报告
 
-CLI与浏览器若显式配置同一运行根，仍受NSH的OS排他锁保护；繁忙保持原任务，操作员等待原任务结束后再提出新的运行。模型资金、实际模拟持仓、目标和提交阶段分别展示，完整增长历史与原生CSV归对应实验。
+从 `/backtests` 或策略页的“回测与报告”打开。列表核完成证明后展示轻量目录，用户选择报告才读取完整绩效和分析。报告切换保留各自绑定；比较、曲线、悬停日摘要和固定日明细沿[BPC](../specs/backtest-performance-comparison.md)及[读取性能规格](../specs/backtest-report-read-performance.md)核验。收益、回撤与费用按原报告显式资本及原生日末值解释；模型持仓、策略目标与实际成交分别展示。
+
+读取失败保留原目录，按提示核完整性、权限、容量及原件再显式重读。同报告刷新失败保留上次成功结果和读取时间；切换报告使用新绑定。重跑沿WT CLI启动，页面不负责新回测或交易。旧 `GUANHENG_BACKTEST_CONFIG` 托管运行配置属于历史阶段；当前观衡只读入口沿上述归档环境，原历史实现见Git及[NBC](../specs/native-backtest-cli.md)。
