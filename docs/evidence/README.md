@@ -973,3 +973,5 @@
 - [原版策略与WT报告只读接入](2026-11-06-original-strategy-readonly.md)
 
 - [撤回非WT原组合公开入口](2026-11-06-orr-public-withdrawal.md)
+
+- [观衡121真实页面及Data23运行](2026-11-06-observer-liveviews-postflight.md)：普通安装36回归、实际桌面/手机及0.1秒切日验真，日更服务/当日发布分列。
