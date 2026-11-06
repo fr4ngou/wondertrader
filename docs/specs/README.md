@@ -246,3 +246,7 @@
 - [线上策略目标仓位历史](strategy-target-history.md)：原生目标份数变动、固定前缀分页与来源边界。
 
 - [本地持续集成](local-continuous-integration.md)：开发候选检查、实际执行链E2E、代码身份及本地master合入。
+
+- [账户实际策略归属](account-strategy-allocation.md)：原意图/FIFO、真实成交、独立现金及原收件恢复。
+- [原生策略归属接缝](native-strategy-attribution-hooks.md)：可选C ABI、原WT合并及派发前原UUID关联。
+- [原版双策略运行调度](original-live-runtime-dispatch.md)：真实双profile、后台单位/信号读取及默认只读。
