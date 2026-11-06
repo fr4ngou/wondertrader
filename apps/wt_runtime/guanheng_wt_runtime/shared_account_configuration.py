@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, localcontext, ROUND_CEILING
+from bisect import bisect_right
 import hashlib
 import json
 from pathlib import Path
@@ -121,6 +122,12 @@ def create_runtime_attribution(native, configuration, control_directory, control
         _need(monotonic() < deadline, 'shared_account_deadline')
     rows, unused_metadata = official_calendar(calendar, check=check)
     days = tuple(r['date'] for r in rows if r['is_open'])
+    def observation_day(received_day):
+        # 实际观察日由完整P/A接收时钟和同一官方日历所有；未来计划session保留给排程。
+        if not calendar['coverage_start'] <= received_day <= calendar['coverage_end']:
+            return None
+        index = bisect_right(days, received_day)
+        return days[index-1] if index else None
     def settlement(day):
         _need(day in days, 'shared_account_calendar_day')
         next_day = next((d for d in days if d > day), None)
@@ -149,7 +156,8 @@ def create_runtime_attribution(native, configuration, control_directory, control
     allocation = _BorrowedAllocation(root, identity, tuple(seeds), Decimal(initial['unallocated_cash_cny']), snapshot)
     coordinator = AttributionCoordinator(allocation, control_id=control_id,
         account_scope_sha256=identity.account_scope_sha256, strategy_ids=(old_seed.strategy_id, new_seed.strategy_id),
-        fee_bound=fee_bound, settlement_day=settlement, trading_day_qualified=lambda day: day in days)
+        fee_bound=fee_bound, settlement_day=settlement, trading_day_qualified=lambda day: day in days,
+        account_observation_day=observation_day)
     bridge = AttributionBridge(coordinator, callback_seconds=value['callback_seconds'])
     allocation.bind(bridge)
     return coordinator, bridge

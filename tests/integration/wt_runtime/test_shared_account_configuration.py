@@ -47,6 +47,9 @@ def test_frozen_seed_creates_book_only_inside_native_borrow_and_preserves_millio
         dict(id=original_id,parameters=dict(python_strategy=dict(schema='guanheng.original-live-cta.v1',shared_account=shared,strategy_version='0.2.0a1')))])
     coordinator,bridge=create_runtime_attribution(native,SimpleNamespace(configuration=tmp_path/'execution.json'),
         tmp_path,str(uuid4()),deadline=monotonic()+10)
+    assert coordinator._account_observation_day('2026-11-07') == '2026-11-06'
+    assert coordinator._account_observation_day('2026-11-09') == '2026-11-09'
+    assert coordinator._account_observation_day('2026-11-11') is None
     assert not(financial/'account-allocation.sqlite3').exists()
     with pytest.raises(RuntimeError,match='attribution_owner_not_borrowed'):
         coordinator.view(original_id,deadline=monotonic()+5)

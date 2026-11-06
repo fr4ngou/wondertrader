@@ -7,7 +7,7 @@ from dataclasses import asdict
 import hashlib
 import json
 import math
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 import sys
 from threading import RLock, local
@@ -207,13 +207,14 @@ class AttributionCoordinator:
 
     def __init__(self, allocation, *, control_id, account_scope_sha256, strategy_ids,
                  fee_bound, settlement_day, clock=monotonic, utcnow=lambda: datetime.now(timezone.utc),
-                 trading_day_qualified=None):
+                 trading_day_qualified=None, account_observation_day=None):
         _need(type(control_id) is str and str(UUID(control_id)) == control_id, 'attribution_control')
         _need(type(account_scope_sha256) is str and len(account_scope_sha256) == 64
               and all(c in '0123456789abcdef' for c in account_scope_sha256), 'attribution_account_scope')
         _need(type(strategy_ids) is tuple and len(strategy_ids) > 1
               and len(set(strategy_ids)) == len(strategy_ids), 'attribution_strategies')
         _need(callable(fee_bound) and callable(settlement_day), 'attribution_fact_providers')
+        _need(account_observation_day is None or callable(account_observation_day), 'attribution_fact_providers')
         self.allocation, self.strategy_ids = allocation, strategy_ids
         self._control, self._scope = control_id, account_scope_sha256
         self._fee_bound, self._settlement = fee_bound, settlement_day
@@ -224,6 +225,7 @@ class AttributionCoordinator:
         self._inbox_cursor = 0  # 原inbox分页水位，仅观察调度；unknown原件不阻塞后页。
         self._order_sources = {}  # 当前原O投影，原始每次证明保存在唯一ASA inbox。
         self._trading_day_qualified = trading_day_qualified
+        self._account_observation_day = account_observation_day  # 官方日历按实际P/A接收上海日选择最近已开市日。
         self._authorizations = {}  # 仅保存原Local预览到紧接group的同次准入值；没有金融占款/命令状态。
 
     def _identity(self, *parts):
@@ -260,7 +262,12 @@ class AttributionCoordinator:
                 return 'account_observation_stale'
             if min(received) < self._last_mutating_fill_ms:
                 return 'account_observation_before_actual_fill'
-            day = datetime.strptime(str(context.event.tdate), '%Y%m%d').date().isoformat()
+            received_day = datetime.fromtimestamp(min(received)/1000, timezone.utc).astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
+            day = received_day if self._account_observation_day is None else self._account_observation_day(received_day)
+            if day is None:
+                return 'account_observation_day_unqualified'
+            _need(type(day) is str and date.fromisoformat(day).isoformat() == day and day <= received_day,
+                  'attribution_account_observation_day')
             if self._trading_day_qualified is not None and not self._trading_day_qualified(day):
                 return 'account_trading_day_unqualified'
             account_body = asdict(broker)

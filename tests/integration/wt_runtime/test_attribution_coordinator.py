@@ -258,3 +258,26 @@ def test_order_projection_keeps_only_live_owned_sell_and_ignores_late_active_aft
     assert send(bridge,9,foreign)[0] == 0
     assert coordinator._order_sources == {}
     assert len(book.pending_events(deadline=end())) == 1  # 外部原件保留，不能归入任一策略。
+
+
+def test_weekend_native_planned_session_does_not_advance_actual_account_day(tmp_path):
+    from guanheng_wt_runtime.execution_strategy import BrokerObservationValue, BrokerPositionValue
+    book, coordinator, bridge = setup(tmp_path)
+    command=prepared(coordinator,bridge)
+    fill=dict(command,source_kind='query-result',source_sha256='d'*64,trading_date=20261106,
+        trade_id='nqh1.weekend-t1',quantity=20,price_cny='10.01',amount_cny='200.20',trade_time=93102000,fee_cny=None)
+    assert send(bridge,8,fill)[0] == 0
+    now=datetime(2026,11,7,3,0,tzinfo=timezone.utc)
+    coordinator._utcnow=lambda:now
+    coordinator._trading_day_qualified=lambda day:day in (DAY,NEXT)
+    coordinator._account_observation_day=lambda day:DAY if day=='2026-11-07' else None
+    stamp=int(now.timestamp()*1000)
+    broker=BrokerObservationValue(True,True,9,stamp,10,stamp,stamp,2000000,1999799.8,
+        (BrokerPositionValue(CODE,True,10020,10000),))
+    context=SimpleNamespace(event=SimpleNamespace(tdate=20261109),broker_observation=lambda:broker)
+    assert coordinator.observe_context(context,deadline=end(),max_age_seconds=30) is None
+    assert book.strategy_observation('old',deadline=end()).trading_day==DAY
+    assert book.view('new',deadline=end()).positions[0].sellable==0
+    # 官方范围之外没有可用归属日期，明确等待；原计划交易日仍不可代替。
+    coordinator._account_observation_day=lambda day:None
+    assert coordinator.observe_context(context,deadline=end(),max_age_seconds=30)=='account_observation_day_unqualified'

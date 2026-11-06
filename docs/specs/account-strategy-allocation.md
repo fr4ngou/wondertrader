@@ -20,6 +20,8 @@
 
 ## ASA-2 初始化与账户观察
 
+归属适配器以完整P/A较早接收时间的上海日期，经同一已核官方日历选取不晚于该日的最近开市日。周末接收的P/A沿此前开市日核对，T+1继续受真实可卖与交易日约束。Native的计划tdate保留给策略排程；原账户事实日期沿接收来源和日历所有。日历覆盖外或没有此前开市日返回`account_observation_day_unqualified`，原账及未来日防线保持。
+
 `initialize(seeds, unallocated_cash_cny, account_snapshot, deadline=...)`原子创建旧/新初值，策略优先级显式给定，旧优先。StrategySeed含策略id/version、现金、完整证券池universe及OwnedPosition(quantity/sellable)；旧原现金/数量由调用方从旧owner提供，本模块不重建旧PnL。新策略使用100万元现金、空份额。券商数量减去已显式分配数量成为未分配份额，不复制到各策略。现金分配沿原金融owner的基准与新增预算证明；本模块不能由账户available重建原总现金/本金。
 
 重复初始化必须规范输入完全相同，身份或初值冲突拒绝。`observe_account(snapshot)`仅接受递增/同值幂等来源序号：该序号由原金融owner跨正常重启持久保持，不能直接传入每代归零的扫描序号。来源交易日晚于当前上海日期返回`account_future_day`，未来观察不能提前解锁T+1。完整P数量必须等于所有策略归属与未分配数量之和；差异明确`account_position_mismatch`，不按比例修正。初版仅通过已记录买入的明确settlement_day及当前账户sellable核同解锁可卖，无法解释的冻结变化拒绝，不虚构企业行为/人工交易归属。available仅为全账户可买上限；各策略另受自己的cash及占款约束。调用方提供同一完整观察的P/A，确保已覆盖此前入账的D；不能把晚收到的旧A和新P拼接。
