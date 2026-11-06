@@ -13,6 +13,7 @@ from .daily_data_update import _save,_load,_descriptor
 from .daily_data_stages import prepare_directory
 from .analysis_price_capture import load_price_capture,price_batches,original_price_quality
 from .daily_gap_update import prepare_gap_plan,advance_gap_plan,freeze_gap_progress
+from .daily_gap_plan import load_gap_plan, restore_gap_plan
 from .security_reference import SecurityReference
 from .source_market import create_native_source_market
 
@@ -126,14 +127,13 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
         initial=capture('cache')
         snapshot=dict(snapshot_id=hashlib.sha256(encode(request)).hexdigest(),observation_date=day,basics={})
         def restore(output):
-            value=_descriptor(output/'PLAN.json');plan=_load(value)
-            if plan['snapshot_id']!=snapshot['snapshot_id']or plan['capture']!=initial:
-                raise ValueError('daily price restored gap plan differs')
-            return value
+            return restore_gap_plan(output/'PLAN.json',capture=initial,snapshot_id=snapshot['snapshot_id'],
+                authorized_from=earliest,authorized_to=last,protected_slots=request['protected_slots'],
+                required_adjustments=('none',),required_from=bounds,deadline=deadline,cancelled=cancelled)
         plan=prepare_directory(root,'gap-plan','PLAN.json',lambda output:prepare_gap_plan(initial,reference,snapshot,output,
             protected_slots=request['protected_slots'],authorized_from=earliest,authorized_to=last,deadline=deadline,
-            required_adjustments=('none',),required_from=bounds,cancelled=cancelled),restore)
-        plan_value=_load(plan);progress=None;selected=initial
+            required_adjustments=('none',),required_from=bounds,cancelled=cancelled),restore,recover_prior=True)
+        plan_value=load_gap_plan(plan,deadline=deadline,cancelled=cancelled);progress=None;selected=initial
         if plan_value['tasks']:
             readback_progress=root/'READBACK-PROGRESS.json'
             if (root/'readback'/'manifest.json').exists()and not readback_progress.exists():

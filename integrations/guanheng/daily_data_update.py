@@ -63,6 +63,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
     原SDK及DLL的物理硬截止由外层WT进程Job负责，返回前关闭本轮全部Reader/连接。
     """
     from .daily_gap_update import prepare_gap_plan, advance_gap_plan,freeze_gap_progress
+    from .daily_gap_plan import restore_gap_plan, load_gap_plan
     from .day_facts import DayFactsStore
     from .security_reference import SecurityReference
     from .source_history_transport import BoundHistorySource
@@ -151,20 +152,16 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
             snapshot = dict(snapshot_id=identity, observation_date=day,
                             basics=load_snapshot_basics(current_facts['members'], request['basic_capture'])[0])
             def restore_plan(output):
-                result = _descriptor(output / 'PLAN.json')
-                value = _load(result)
-                if (value.get('schema') != 'guanheng.daily-gap-plan.v1' or value['snapshot_id'] != identity
-                        or value['capture'] != cache or value['authorized_from'] != request['authorized_from']
-                        or value['authorized_to'] != request['authorized_to']):
-                    raise ValueError('daily update restored plan differs')
-                return result
+                return restore_gap_plan(output/'PLAN.json',capture=cache,snapshot_id=identity,
+                    authorized_from=request['authorized_from'],authorized_to=request['authorized_to'],
+                    protected_slots=request['protected_slots'],deadline=deadline,cancelled=cancelled)
             plan = stage('gap_plan', lambda: prepare_directory(root, 'gap-plan', 'PLAN.json',
                 lambda output: prepare_gap_plan(cache, reference, snapshot, output,
                     protected_slots=request['protected_slots'], daily_facts=facts,
                     authorized_from=request['authorized_from'], authorized_to=request['authorized_to'], deadline=deadline,
                     cancelled=cancelled),
-                restore_plan))
-            plan_value = _load(plan)
+                restore_plan,recover_prior=True))  # 已捕获QAB/原槽的纯本地计划，不跨Source执行阶段。
+            plan_value = load_gap_plan(plan,deadline=deadline,cancelled=cancelled)
             if plan_value['tasks']:
                 prior_progress=state.get('gap_readback_progress')
                 has_readback='readback'in state['stages']or(root/'readback'/'manifest.json').exists()
@@ -269,7 +266,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
             if price_result is not None:
                 from .daily_price_continuation import requires_price_continuation
                 state['continuation_required']=requires_price_continuation(price_result,request.get('prior_pending_symbols',()),
-                    stock_plan=plan,stock_progress=state.get('gap_readback_progress'))
+                    stock_plan=plan,stock_progress=state.get('gap_readback_progress'),deadline=deadline,cancelled=cancelled)
                 # 原HPR未闭合且相关目标Native仍缺，后继同日修订沿原槽接续；发布成功独立保存。
             if supplement_complete is not None:
                 state['supplement_complete'] = supplement_complete  # 补充要求窗口是否齐全，供原owner次自然日09:00修订。

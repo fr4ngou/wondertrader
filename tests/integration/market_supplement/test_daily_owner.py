@@ -93,7 +93,8 @@ def patch_owner_dependencies(monkeypatch,config,pool,facts,original_request):
     monkeypatch.setattr('guanheng_qmt_shm.market_daily_cache.assess',lambda p:dict(full_coverage=True))
     def gap_plan(cache,reference,snapshot,output,**kwargs):
         return write(Path(output)/'PLAN.json',dict(schema='guanheng.daily-gap-plan.v1',snapshot_id=snapshot['snapshot_id'],
-            capture=cache,authorized_from=kwargs['authorized_from'],authorized_to=kwargs['authorized_to'],tasks=[]))
+            capture=cache,authorized_from=kwargs['authorized_from'],authorized_to=kwargs['authorized_to'],
+            protected_requests=[],exclusions=[],tasks=[]))
     monkeypatch.setattr('integrations.guanheng.daily_gap_update.prepare_gap_plan',gap_plan)
     monkeypatch.setattr('integrations.guanheng.source_market.create_native_source_market',lambda *a,**k:BaseMarket())
     return fetches,transports,healthy
