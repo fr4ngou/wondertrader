@@ -1,6 +1,6 @@
 # 当前工作
 
-2026-11-06 12:25：六个已采用工作树已定向移除，保留原分支/提交，注册18→12，回收约2.90GiB；六WT角色及独立观衡保持，见[执行记录](../releases/2026-11-06-qualified-worktree-cleanup.md)。已核6743项真实辅助事实和16项最新派生齐全，原接口只有逐收盘合并，盘中消费存在实际缺口；已按[SDO-R3-current](../specs/strategy-data-and-observability.md#sdo-r3-current-当前决策辅助视图)开发独立当前辅助视图，保留历史因果/原公式及原账。Root已在新Runtime20仅准备未变依赖，候选尚未采用；当前仍为Runtime19、WT59060/Native26424。剩余当前辅助完整消费和新代下午自然回调、最终采用及用户入口核实；无需用户新增决策，整体active。
+2026-11-06 12:20：六个已采用工作树已定向移除，保留原分支/提交，注册18→12，回收约2.90GiB；六WT角色及独立观衡保持，见[执行记录](../releases/2026-11-06-qualified-worktree-cleanup.md)。已核6743项真实辅助事实和16项最新派生齐全，原接口只有逐收盘合并，盘中消费存在实际缺口；已按[SDO-R3-current](../specs/strategy-data-and-observability.md#sdo-r3-current-当前决策辅助视图)开发独立当前辅助视图，保留历史因果/原公式及原账。Root已在新Runtime20仅准备未变依赖，候选尚未采用；当前仍为Runtime19、WT59060/Native26424。剩余当前辅助完整消费和新代下午自然回调、最终采用及用户入口核实；无需用户新增决策，整体active。
 
 2026-11-06 11:38：已批准CORE-012及自有读取等待修正已采用，WT59060/Native26424正常ready，Runtime19、financial-state008、100万元基准和原周期保持。10:58～59已自然完成16setter及5笔全数模拟成交；后继自有read_waiting许可不一致导致退出，现已修正并沿原故障恢复，恢复序号157。当前午休awaiting_first_strategy_calculation，初始化158不计新自然计算。group024及两启停入口已同步，其他五角色和独立观衡保持。剩余：新代自然回调/现场等待连续性、真实收盘辅助合并、确认无引用成果的最终清理；整体active，无新增用户决策。见[正式采用及证据范围](../releases/2026-11-06-stock-target-and-read-wait-live.md)。
 
