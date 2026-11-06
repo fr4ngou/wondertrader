@@ -108,6 +108,7 @@ def _json(data, maximum, deadline):
         raise HostError("JSON输入类型或字节预算不合格")
     # 在解析器递归/分配之前限制结构深度；引号中的括号不计入结构。
     depth, quoted, escaped = 0, False, False
+    nodes, previous = 1, b""  # 根节点及前窗最后一个非空白标记。
     for start in range(0, len(data), 65536):
         _check(deadline)
         # 字符串由C扫描整段跳过；窗口尾未闭合的引号/转义沿下一窗口继续。
@@ -126,15 +127,24 @@ def _json(data, maximum, deadline):
             quoted = False
             position += 1
         segment = data[position:end]
-        # C正则整段去掉完整字符串；只将结构括号送回Python深度守卫。
-        # 末尾未闭合字符串的首引号及后缀全部留到下一窗口，不把内容括号算深度。
-        # 第二分支保留窗口尾字符串，避免未闭合且含大量转义引号时反复回溯。
-        structural = _JSON_STRINGS.sub(rb'\1', segment)
+        # 字符串换成单个0，保留“此处有子值”；尾部未闭合引号继续沿原状态跨窗。
+        # 第二分支仍一次消费窗口尾，避免大量转义引号导致反复回溯。
+        structural = _JSON_STRINGS.sub(rb'0\1', segment)
         opening = structural.find(b'"')
         if opening >= 0:
             structural = structural[:opening]
             quoted = True
             escaped = (len(segment)-len(segment.rstrip(b'\\'))) % 2 == 1
+        # 合法JSON的每个非空容器贡献首个子值，其余子值对应字符串外的逗号。
+        # 因而总节点=根1+逗号+开容器-空容器；语法仍由下方C decoder完整校验。
+        # 只删除JSON的四种空白，保留跨窗空{}和[]，字符串标点已替成0。
+        compact = structural.translate(None, b' \t\r\n')
+        nodes += compact.count(b',') + compact.count(b'[') + compact.count(b'{')
+        nodes -= compact.count(b'[]') + compact.count(b'{}')
+        if compact:
+            if previous + compact[:1] in (b'[]', b'{}'):
+                nodes -= 1
+            previous = compact[-1:]
         for char in structural.translate(None, _JSON_NONSTRUCTURAL):
             if char in (91, 123):
                 depth += 1
@@ -142,6 +152,17 @@ def _json(data, maximum, deadline):
                     raise HostError("JSON嵌套超过预算")
             elif char in (93, 125):
                 depth -= 1
+    # 跨窗空容器在闭合时才扣回，完整扫描后核上限，避免暂记多1误拒精确上限。
+    if nodes > 2097152:
+        raise HostError("JSON节点超过预算")
+    # float沿标准库相同转换；收集全部溢出，省去解码后的第二次全树遍历。
+    overflow = False
+    def finite(value):
+        nonlocal overflow
+        number = float(value)
+        if not math.isfinite(number):
+            overflow = True
+        return number
     def unique(pairs):
         result = {}
         for key, value in pairs:
@@ -152,30 +173,10 @@ def _json(data, maximum, deadline):
     def invalid(value):
         raise HostError("JSON含非有限值")
     try:
-        value = json.loads(data.decode("utf-8"), object_pairs_hook=unique, parse_constant=invalid)
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=unique, parse_constant=invalid, parse_float=finite)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise HostError("JSON格式无效") from exc
-    # 节点预算按直接子项计数，标量留在当前循环；只递归容器，避免每个价格/
-    # 字符串都产生Python函数调用。数量口径仍为根节点及全部dict值/list项。
-    nodes, visited = 1, 0
-    def visit(container):
-        nonlocal nodes, visited
-        children = container.values() if type(container) is dict else container
-        nodes += len(container)
-        if nodes > 2097152:
-            raise HostError("JSON节点超过预算")
-        for child in children:
-            visited += 1
-            if visited % 4096 == 0:
-                _check(deadline)
-            kind = type(child)
-            if kind is dict or kind is list:
-                visit(child)
-            elif kind is float and not math.isfinite(child):
-                raise HostError("JSON数值溢出")
-    if type(value) is dict or type(value) is list:
-        visit(value)
-    elif type(value) is float and not math.isfinite(value):
+    if overflow:
         raise HostError("JSON数值溢出")
     _check(deadline)
     return value
