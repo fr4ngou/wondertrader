@@ -1,3 +1,3 @@
 """WT 自有持续分析窗口发布，价格计算由固定原 QNA/WT 提供。"""
 
-__version__ = '0.1.0a14+targethandoff.1'
+__version__ = '0.1.0a14+targethandoff.2'

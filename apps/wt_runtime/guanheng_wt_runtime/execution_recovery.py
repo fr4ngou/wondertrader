@@ -399,7 +399,7 @@ def _normalized(binding):
 
 
 def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrade=False):
-    """同业务发行允许策略实现升级；纯Core、NSQ及解释器仍须逐件相同。
+    """同业务发行允许策略及数量实现升级；纯Core及解释器仍须逐件相同。
 
     strategy_upgrade仅由已核前后完整业务配置的transition路径传入。部署材料
     绑定实际前后源码，既有金融状态仍由当前原加载器校验，不能以换包改变账户、
@@ -413,7 +413,11 @@ def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrad
                 or key=='venv/pyvenv.cfg'
                 or (role_handoff or strategy_upgrade) and (
                     key.startswith('site/guanheng_strategy_v1/')
-                    or key.startswith('site/guanheng_strategy_v1-') and key.endswith('.dist-info/METADATA')))
+                    or key.startswith('site/guanheng_strategy_v1-') and key.endswith('.dist-info/METADATA'))
+                # 已核完整同业务transition才接纳数量实现升级；原冻结状态仍由NSQ构造器重验。
+                or strategy_upgrade and (
+                    key.startswith('site/guanheng_strategy_native/')
+                    or key.startswith('site/guanheng_strategy_native-') and key.endswith('.dist-info/METADATA')))
 
 
 def load_transition(native, identities=None, *, binding=None, deadline=float('inf')):
