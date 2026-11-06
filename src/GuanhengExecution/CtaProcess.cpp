@@ -338,7 +338,16 @@ bool same_business(const rj::Value& left,const rj::Value& right){
             if(!strategy.IsObject()||!strategy.HasMember("parameters")||!strategy["parameters"].IsObject())continue;
             auto& parameters=strategy["parameters"];
             if(!parameters.HasMember("python_strategy")||!parameters["python_strategy"].IsObject())continue;
-            auto& python=parameters["python_strategy"];if(!python.HasMember("capital_account"))continue;
+            auto& python=parameters["python_strategy"];
+            if(python.HasMember("market_window")){
+                auto& window=python["market_window"];keys(window,{"path","max_age_seconds"});
+                need(window.MemberCount()==2);absolute(text(window,"path"));
+                const auto& age=member(window,"max_age_seconds");need(age.IsNumber());
+                const double seconds=age.GetDouble();need(std::isfinite(seconds)&&seconds>=1&&seconds<=604800);
+                // 原窗口路径和配置SHA保持；时效参数随显式部署换代。
+                window.RemoveMember("max_age_seconds");
+            }
+            if(!python.HasMember("capital_account"))continue;
             auto& account=python["capital_account"];keys(account,{"path","config_sha256","account","environment"});
             need(account.MemberCount()==4);absolute(text(account,"path"));
             const auto config_sha=text(account,"config_sha256",64);need(config_sha.size()==64);

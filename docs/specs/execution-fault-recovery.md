@@ -100,3 +100,8 @@ EFR-21：同账权限交接显式提供execution_permission_origin={schema:"guan
 ## 股票执行器分单数量换代
 
 用户显式调整原股票执行器的 `lots` 时，Python与Native在同账恢复比较副本中统一校验其为有限正数并归一化该字段。适用工厂为 `WtExeFact.WtStockMinImpactExeUnit` 和 `WtExeFact.WtStockMinImpactBorrowedExeUnit`。原完整配置及SHA、账户、策略模型、目标、金融状态根、倍率、byrate和min_order继续逐项核验。该参数同时用于买卖；实际发单继续受目标余量、整手、可卖和资金约束。正常关闭后沿原transition启用新配置，旧挂单及未知命令保留原身份。
+
+
+## 分析窗口时效配置换代
+
+用户显式调整 `market_window.max_age_seconds` 时，Python与Native在恢复比较副本中按原窗口配置合同校验1至604800秒的有限数值，仅移除有效期字段；窗口路径、账户、策略、目标和金融根仍严格绑定。原配置SHA及前代状态身份继续按原件核验，后继状态使用新时效身份。新时效约束决策截止与current_view.received_at的差，等于上限时已过期。配置采用通过原正常关闭、transition和同账恢复完成，原发布者及其刷新间隔保持。该配置独立于逐单限价、盘口行情新鲜度和信号参考价偏离保护。

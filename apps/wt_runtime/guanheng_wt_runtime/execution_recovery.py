@@ -139,7 +139,14 @@ def _same_business(left, right):
         for strategy in strategies:
             parameters = strategy.get('parameters') if type(strategy) is dict else None
             python = parameters.get('python_strategy') if type(parameters) is dict else None
-            if type(python) is not dict or 'capital_account' not in python:
+            if type(python) is not dict:
+                continue
+            if 'market_window' in python:
+                from .execution_market_window import MarketWindowFile
+                # 时效是显式部署参数；复用原校验，比较副本保持窗口路径及原配置SHA。
+                MarketWindowFile.from_dict(python['market_window'])
+                python['market_window'].pop('max_age_seconds')
+            if 'capital_account' not in python:
                 continue
             account = python['capital_account']
             _require(type(account) is dict and set(account) == {'path', 'config_sha256', 'account', 'environment'})
