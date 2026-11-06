@@ -3,6 +3,14 @@ import { fetchBacktestComparison, fetchBacktestPerformance, validatePerformance 
 import fixture from './backtest-performance.fixture.json'
 
 afterEach(() => vi.unstubAllGlobals())
+test.each(['0.1.0a1','0.1.0a2'])('同族原版WT绩效按已验版本读取：%s', version => {
+  const value={...structuredClone(fixture.left),report_schema:'guanheng.original-native-replay-report.v1',
+    strategy:{id:'resonance-original-wt-351f9d5-stable',version,algorithm_id:'resonance-original-351f9d5-stable'},
+    metrics:{...fixture.left.metrics,initial_capital_cny:'1000000'}}
+  const entry={...fixture.left_entry,summary:{strategy:{id:value.strategy.id,version},initial_capital_cny:'1000000'}}
+  expect(validatePerformance(value,entry).strategy.version).toBe(version)
+  expect(()=>validatePerformance({...value,strategy:{...value.strategy,version:'0.1.0a999'}},entry)).toThrow()
+})
 test('完整绩效继续匹配轻量目录的原策略版本及本金',()=>{
   const summary={strategy:{id:fixture.left.strategy.id,version:fixture.left.strategy.version},initial_capital_cny:fixture.left.metrics.initial_capital_cny}
   expect(validatePerformance(fixture.left,{...fixture.left_entry,summary})).toEqual(fixture.left)
