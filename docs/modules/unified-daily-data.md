@@ -38,3 +38,10 @@
 已有成功版本时，daily_price_refresh在同一owner/原publication租约内先维护全类别价格，随后原任务再获取公共日事实。公共股票资料供应商超时保留旧事实及其原日期，价格批读/HPR、Native及CURRENT独立推进。INDEX分别保存price_request、price_state、price_result及price_history_requests；status.last_price_success表示实际价格目标日，auxiliary_observation_date表示最后真实指标池/事实日期。逐证券和逐组覆盖仍使用原daily-price-update结果，Source分母未知继续为None。
 
 旧定日快照日期在公共事实完成前保持；价格查询从新Reader层读取真实新日线，完整指标快照由原公共事实流程随后推进。原请求保护、read-retention责任发现、同日修订与CAS仍归原owner。对应合同见UDI-R55。
+
+
+## 市场补充事实与每日更新
+
+按[MSF规格](../specs/market-supplement-facts.md)由同一日线owner采集ETF每日总份额、融资报告余额、官方股票成交额及独立双指数代理。QMT能力先核，显式允许的公开来源补充事实；价格bar和股票定日事实保持原定义。补充目录与原件闭包参与同一snapshot及CURRENT身份，SDK0.19通过固定快照分页读取事实与缺口。
+
+原日线价格先行、09:00与15:30闭合窗口、请求恢复、原slot及发布CAS保持。最新事实优先，历史缺口用余量继续；可选max_requests仅分配同一总账中的阶段额度。partial在下一北京时间自然日09:00后最多建立一次同市场日修订，失败仍续原任务。程序/配置换代同时保留已物化REQUEST和未物化任务的固定INPUTS引用，原未知来源责任沿原身份核查。具体配置与采用前检查见[运行手册](../runbooks/unified-daily-data.md)。

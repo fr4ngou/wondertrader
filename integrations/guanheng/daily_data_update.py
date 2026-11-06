@@ -19,9 +19,10 @@ def _save(path, value):
     _replace_pointer(pending, path)
 
 
-def _descriptor(path):
+def _descriptor(path, maximum=16777216):
+    """固定原文件摘要；maximum为该类合同允许的字节上界，默认保持原16MiB。"""
     path = Path(path).absolute()
-    return dict(path=str(path), sha256=hashlib.sha256(read_fixed(path, maximum=16777216)).hexdigest())
+    return dict(path=str(path), sha256=hashlib.sha256(read_fixed(path, maximum=maximum)).hexdigest())
 
 
 def _load(descriptor, maximum=16777216):
@@ -29,6 +30,28 @@ def _load(descriptor, maximum=16777216):
             or type(descriptor['path']) is not str or not Path(descriptor['path']).is_absolute()):
         raise ValueError('daily update descriptor invalid')
     return strict_json(read_fixed(descriptor['path'], maximum=maximum, identity=descriptor['sha256']))
+
+
+def verify_supplement_configuration(config, expected, day, check):
+    """每次发布前核原请求的补充事实闭包，已提交snapshot阶段恢复也沿本入口。
+
+    expected是UPDATE固定目录descriptor；原owner的check贯穿逐件IO。
+    没有配置时保持旧行为，避免给旧snapshot增加字段或身份。
+    """
+    if config.get('supplement_facts') != expected:
+        raise ValueError('daily update supplement configuration differs')
+    if expected is None:
+        return
+    from .market_supplement_store import MarketSupplementStore
+    snapshot = _load(config['snapshot'])
+    if snapshot['provenance'].get('supplement_facts_sha256') != expected['sha256']:
+        raise ValueError('daily update supplement provenance differs')
+    store = MarketSupplementStore(expected, observation_date=day)
+    try:
+        store.verify_sources(check=check)
+        return store.catalog['complete']
+    finally:
+        store.close()
 
 
 def run_update(request, directory, *, deadline, cancelled=lambda: False, environ=None, publisher=None):
@@ -56,7 +79,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 'calendar', 'base_configuration', 'basic_capture', 'helper', 'previous_stores',
                 'previous_archives', 'protected_slots', 'authorized_from', 'authorized_to', 'additional_archives'}
     if (type(request) is not dict or not required <= set(request)
-            or set(request) - required - {'connections', 'prepared_native', 'price_maintenance', 'prior_pending_symbols'}
+            or set(request) - required - {'connections', 'prepared_native', 'price_maintenance', 'prior_pending_symbols', 'supplement_facts'}
             or request['schema'] != 'guanheng.daily-data-update.v1'):
         raise ValueError('daily update request invalid')
     if (type(deadline) not in (int, float) or not math.isfinite(deadline)
@@ -222,11 +245,13 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                         if price_result is not None else request['security_reference']),
                     calendar=request['calendar'], additional_archives=(price_result['additional_archives']
                         if price_result is not None else request['additional_archives']),
-                    maximum_history_rows=price_result['maximum_history_rows']if price_result is not None else 2000)
+                    maximum_history_rows=price_result['maximum_history_rows']if price_result is not None else 2000,
+                    supplement_facts=request.get('supplement_facts'), check=check)
                 return restore_snapshot(output)
             configuration = stage('snapshot', lambda: prepare_directory(root, 'snapshot', 'PREPARED.json',
                 prepare_snapshot, restore_snapshot))
-            _load(configuration, 1048576)
+            candidate = _load(configuration, 1048576)
+            supplement_complete = verify_supplement_configuration(candidate, request.get('supplement_facts'), day, check)
             current = read_generation(publisher.current_file) if publisher.current_file.exists() else (None, None)
             # 处理CURRENT成功、工作流回执尚未保存的窗口；沿实际指针确认，避免二次发布。
             if current[0] is not None and current[0]['configuration'] == configuration:
@@ -246,6 +271,8 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 state['continuation_required']=requires_price_continuation(price_result,request.get('prior_pending_symbols',()),
                     stock_plan=plan,stock_progress=state.get('gap_readback_progress'))
                 # 原HPR未闭合且相关目标Native仍缺，后继同日修订沿原槽接续；发布成功独立保存。
+            if supplement_complete is not None:
+                state['supplement_complete'] = supplement_complete  # 补充要求窗口是否齐全，供原owner次自然日09:00修订。
             _save(journal, state)
             return state
         except BaseException as error:

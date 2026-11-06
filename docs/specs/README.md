@@ -232,3 +232,9 @@
 - [Fresh共振1.2.1与固定源码闭包](etf-role-replacement.md)：当前真实持仓新100万元基准、V1/QNA/cash.4三包重建及旧档保留。
 
 - [原生报价与精确金额输入](native-quote-money-boundary.md)：WT合约档位、有界double尾差、统一原价估值与NSQ资金临界。
+
+- [市场补充事实采集与补历史](market-supplement-facts.md)
+
+- [共振原版独立还原与只读导入](original-resonance-reference.md)
+
+- [原版信号的WT框架回测](original-native-backtest.md)

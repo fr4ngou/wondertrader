@@ -29,6 +29,37 @@ pythonw -I -B daily_data_service.py --config <daily.json> --config-sha256 <sha25
 
 同任务恢复沿原目录、capture_id、slot、截止事实和已完成阶段。已有来源责任暂不可续核时保留原ID与保护区间，其他计划及新缓存继续核查。当前未出现的旧价格键保留原DSB和复权参考；来源截短旧日期时拒绝本候选，当前成功数据继续可读。
 
+## 市场补充事实和历史补齐
+
+按[MSF规格](../specs/market-supplement-facts.md)在原`inputs`增加可选配置。日期为示例；应使用已核上市起日及实际授权窗口：
+
+```json
+{
+  "supplement_facts": {
+    "schema": "guanheng.market-supplement-plan.v1",
+    "targets": [
+      {"metric": "etf_total_shares", "symbol": "SSE.510300", "from": "2024-09-02"},
+      {"metric": "margin_balance", "symbol": "CN.MARGIN_REPORT", "from": "2024-09-02"},
+      {"metric": "market_turnover_proxy", "symbol": "CN.SH_SZ", "from": "2024-09-02"}
+    ],
+    "policy": "qmt_preferred",
+    "external_fallback": ["SSE", "Eastmoney"],
+    "required": false,
+    "max_requests": 24
+  }
+}
+```
+
+原`public_facts.allowed_hosts`须显式包含实际使用的主机：`query.sse.com.cn`、`www.sse.com.cn`、`www.szse.cn`、`datacenter-web.eastmoney.com`、`data.eastmoney.com`。总请求、字节和时间额度继续由该原配置负责；先核当前QMT绑定，代理读取使用原持久slot。历史窗口较长时同一任务可能多轮pending；沿原输入目录运行才能复用成功原件并只补缺。`supplement/COVERAGE.json`记录应有数、成功数和逐项原因；required模式完整后才冻结UPDATE、进入原发布链。
+
+`required=false`允许带缺口发布，避免晚到份额/融资或旧官方金额缺口阻断完整事实版本；原price-first仍可先发布价格。次北京时间自然日09:00后，对partial同市场日创建一次原INDEX修订；失败按原节拍恢复，同日partial成功后等待新自然日或新的闭合日。`max_requests`为本阶段HTTP＋SDK份额，仍扣原总账；新日优先取最新事实，再补旧gaps。新配置/新程序先使用独立目录验收，保持生产CURRENT；安装和采用分别执行。补充查询SDK0.19.0为`source_supplement_query(request)`，请求固定snapshot_id，日期和分页沿MSF；价格、股票daily_facts与这些补充指标各自保持事实定义。
+
+已有历史目录通过`template.supplement_facts`固定描述符作为首次seed；daily.raw_store必须与seed目录的raw_store一致。跨库迁移先逐SHA复制能力/proof/父原件并核闭包，再生成新描述符，保持原目录与原收到时刻。后继日自动优先采用CURRENT中的补充目录。
+
+新任务根沿`inputs.previous_requests`携带实际存在的旧REQUEST；对于旧INDEX已登记、外层REQUEST尚未物化的任务，固定其实际存在的`inputs/INPUTS.json`并放入`inputs.previous_inputs=[{"path":"E:/example/old/inputs/INPUTS.json","sha256":"<sha256>"}]`。原来源读取可能在完整REQUEST之前已经派发，不能从REQUEST缺失推断无责任。原input recovery只续核已尝试slot，不为未尝试旧批次派新请求；保留旧INDEX和未物化意向的迁移记录。
+
+发行清单以已运行角色为基线，包含补充模块与原生目录实际读取所需的内部模块闭包；SDK0.19与角色普通安装一起验证。原件仍在外部受控对象库，安装及日常采用分别登记。
+
 ## 原WT托管组合
 
 Root沿原SourceMarketProcess创建描述符，pythonw/entry来自安装收据，control_root为新的E盘受控目录。SMP主配置增加可选daily_update固定引用，原监听/认证合同保持。下面是虚构路径示意，SHA在准备时计算：

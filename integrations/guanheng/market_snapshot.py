@@ -12,7 +12,7 @@ class SnapshotSourceMarket:
     """创建线程独占base生命周期；无SDK、下载、调度或另一套行情存储。"""
     def __init__(self,config,*,max_response_bytes):
         if (type(config)is not dict or not {'mode','base','snapshot'}<=set(config)
-                or set(config)-{'mode','base','snapshot','daily_facts','security_reference','calendar'}or config['mode']!='source-market-snapshot'):
+                or set(config)-{'mode','base','snapshot','daily_facts','security_reference','calendar','supplement_facts'}or config['mode']!='source-market-snapshot'):
             raise ValueError('market snapshot configuration invalid')
         descriptor=config['snapshot']
         if type(descriptor)is not dict or set(descriptor)!={'path','sha256'}:
@@ -40,7 +40,18 @@ class SnapshotSourceMarket:
         elif 'daily_facts_sha256'in snapshot['provenance']:
             raise ValueError('market snapshot daily facts missing')
         self._reference=None  # 本版本证券参考与日历；可缺项，关闭释放固定对象及索引。
+        self._supplement=None  # 可选独立ETF/市场事实目录；同创建线程读取及关闭。
         try:
+            expected=snapshot['provenance'].get('supplement_facts_sha256')
+            if 'supplement_facts' in config:
+                from .market_supplement_store import MarketSupplementStore
+                if (type(config['supplement_facts']) is not dict
+                        or expected != config['supplement_facts'].get('sha256')):
+                    raise ValueError('market snapshot supplement facts differs')
+                self._supplement=MarketSupplementStore(config['supplement_facts'],
+                    observation_date=snapshot['observation_date'])
+            elif expected is not None:
+                raise ValueError('market snapshot supplement facts missing')
             for key in ('security_reference','calendar'):
                 expected=snapshot['provenance'].get(key+'_sha256')
                 if key in config:
@@ -53,6 +64,7 @@ class SnapshotSourceMarket:
         except BaseException:
             if self._facts is not None:self._facts.close()
             if self._reference is not None:self._reference.close()
+            if self._supplement is not None:self._supplement.close()
             raise
         self._snapshot=snapshot;self._owner=threading.get_ident();self._closed=False
 
@@ -65,6 +77,8 @@ class SnapshotSourceMarket:
         self._check_owner();request=validate_request(strict_json(encode_json(request)))
         if request['action']=='market.source-security-query':
             return self._security(request)
+        if request['action']=='market.source-supplement-query':
+            return self._supplement_query(request)
         if request['action']=='market.source-day-facts-query':
             query=request['request'];data={};code='Unavailable';reason='requested daily facts are not published'
             if query['snapshot_id']!=self._snapshot['snapshot_id']:
@@ -91,6 +105,20 @@ class SnapshotSourceMarket:
             if response['status']['code']=='Ok':response['data']['source_snapshot_id']=self._snapshot['snapshot_id']
             return validate_response(response,request)
         return self._base.call(request)
+
+    def _supplement_query(self,request):
+        """原件查询不采集；缺装配、快照冲突和源损坏保持不同业务状态。"""
+        query=request['request'];data={};code='Ok';reason=''
+        if query['snapshot_id']!=self._snapshot['snapshot_id']:
+            code='Conflict';reason='market snapshot changed'
+        elif self._supplement is None:
+            code='NotSupported';reason='market supplement facts are not configured'
+        else:
+            try:
+                data=self._supplement.query(query)
+            except (OSError,ValueError,KeyError,TypeError):
+                code='IoError';reason='market supplement facts read failed';data={}
+        return validate_response(dict(api_version=API_VERSION,status=dict(code=code,reason=reason),data=data),request)
 
     def _security(self,request):
         """资料和实际日期沿同一版本；真实价格错误保持原错误类别。"""
@@ -131,4 +159,5 @@ class SnapshotSourceMarket:
         finally:
             if self._facts is not None:self._facts.close()
             if self._reference is not None:self._reference.close()
+            if self._supplement is not None:self._supplement.close()
             self._closed=True

@@ -16,8 +16,10 @@ from uuid import uuid4
 from .strategy_host import HostError as HostError, HostResult, SCHEMA as HOST_SCHEMA, _path, _json
 from .backtest_reports import (validate_report_dict, project_session_record,
                                normalize_session, report_schema_for_input, PER_DATE_REPORT_SCHEMA,
-                               project_input_business_diagnostics)
+                               project_input_business_diagnostics, ORIGINAL_REPORT_SCHEMA, ORIGINAL_INPUT_SCHEMA,
+                               verify_original_native_input)
 from .backtest_performance import build_performance, build_comparison, MAX_RESPONSE, _fraction, _money
+from . import original_reports as original
 
 SCHEMA = "nbw-completed-archive-v1"
 SCOPE = "isolated-raw-BT; real-source/RT/broker/production-unqualified"
@@ -122,6 +124,9 @@ class _Read:
             if request['report_schema'] == PER_DATE_REPORT_SCHEMA:
                 normalized = normalize_session(value)
                 _require(_wire(normalized) == _wire(value))
+            elif request['report_schema'] == ORIGINAL_REPORT_SCHEMA:
+                _require(value.get('schema') == ORIGINAL_INPUT_SCHEMA)
+                _require(_wire(normalize_session(value)) == _wire(value))
         if request['report_schema'] == PER_DATE_REPORT_SCHEMA:
             _require(value['source'] == report.get('per_date_source'))
             value = value['session']
@@ -169,7 +174,10 @@ class BacktestArchive:
     def _load(self, read, run_id, receipt_sha=None):
         directory = self._run(read, run_id)
         value, raw = read.value(directory / RECEIPT, MAX_RECEIPT)
-        _receipt(value, run_id)
+        if type(value) is dict and value.get('schema') == original.RECEIPT_SCHEMA:
+            original.validate_receipt(value, run_id)
+        else:
+            _receipt(value, run_id)
         if receipt_sha is not None:
             _require(_digest(receipt_sha) and _sha(raw) == receipt_sha, "归档身份已改变，请重新读取历史目录", 409)
         return directory, value, _sha(raw)
@@ -201,7 +209,8 @@ class BacktestArchive:
                     try:
                         _, value, receipt_sha = self._load(read, path.name)
                         self._capacity(read, path)
-                        item = {**{k: value[k] for k in ("run_id", "owner_id", "request_id", "record_count", "report_sha256", "configuration", "scope")},
+                        keys = ("run_id", "record_count", "report_sha256", "configuration", "scope", "report_family") if value['schema'] == original.RECEIPT_SCHEMA else ("run_id", "owner_id", "request_id", "record_count", "report_sha256", "configuration", "scope")
+                        item = {**{k: value[k] for k in keys},
                                 "receipt_sha256": receipt_sha}
                         if summaries:
                             # 列表归属与完整绩效分层；单份原件失败只影响本条归属。
@@ -235,6 +244,9 @@ class BacktestArchive:
         完整来源、领域、原生输出和绩效仍在用户选择该报告时由_originals核验。
         列表不重建全部报告、不缓存第二份完整金融报告，也不从名称推断版本。
         """
+        if receipt['schema'] == original.RECEIPT_SCHEMA:
+            original.load(read, directory, receipt)
+            return original.summary()
         _require(read.raw(directory / 'request.json', 16 * 1024 * 1024, checksum=True) == receipt['request_sha256'])
         result, raw = read.value(directory / 'result.json', 32 * 1024 * 1024)
         _require(_sha(raw) == receipt['result_sha256'])
@@ -247,7 +259,7 @@ class BacktestArchive:
                  and report['schema'] == result['report_schema']
                  and len(report['records']) == receipt['record_count'])
         from .backtest_reports import RETAINED_REPORT_SCHEMAS
-        if report['schema'] in RETAINED_REPORT_SCHEMAS:
+        if report['schema'] in (*RETAINED_REPORT_SCHEMAS, ORIGINAL_REPORT_SCHEMA):
             strategy = dict(id=report['strategy_id'],  # 原报告中的策略业务ID。
                             version=report['strategy_version'])  # 该份原报告的实际策略版本。
             initial = report['policy']['initial_capital_cny']
@@ -300,6 +312,11 @@ class BacktestArchive:
             session, input_identity = read.session(request, report)
             admitted = validate_report_dict(report, check=read.check)
         _require(admitted.record_count == value["record_count"] and report["schema"] == result["report_schema"])
+        if report['schema'] == ORIGINAL_REPORT_SCHEMA:
+            verify_original_native_input(report,session,check=read.check)
+            for name,identity in report['native_outputs']:
+                read.check()
+                _require(result['native_outputs'].get(f"outputs/{c['name']}/{name}")==identity)
         bases = ("sessions", "commodities", "contracts", "holidays", "fees")
         _require(dict(report["native_files"]) == {k: installation["basefiles"][k]["sha256"] for k in bases})
         for key in bases:
@@ -438,6 +455,16 @@ class BacktestArchive:
         try:
             _require(_digest(receipt_sha), "历史读取需要固定归档摘要", 422)
             directory, value, digest = self._load(read, run_id, receipt_sha)
+            if value.get('schema') == original.RECEIPT_SCHEMA:
+                self._capacity(read, directory)
+                report = original.load(read, directory, value)
+                if index is not None:
+                    _require(type(index) is int and 0 <= index < value['record_count'], '记录索引越界', 404)
+                response = original.project(value, digest, report, config=configuration, perf=performance,
+                    offset=offset, limit=limit, index=index, check=read.check)
+                _require(len(_wire(response)) <= MAX_RESPONSE)
+                read.check()
+                return response
             request, admitted, report, session = self._originals(read, directory, value)
             if performance:
                 _require(configuration is False and index is None, "绩效读取参数无效", 422)
@@ -453,6 +480,24 @@ class BacktestArchive:
                             "policy": session["policy"], "fee_reserve_cny": session["fee_reserve_cny"],
                             "fee_source": session["fee_source"], "scope": SCOPE}
                 response['business_diagnostics'] = project_input_business_diagnostics(admitted, session, check=read.check)
+                if report['schema'] == ORIGINAL_REPORT_SCHEMA:
+                    deficit_dates = []
+                    for row in report['records']:
+                        read.check()
+                        if row['cash_deficit']:
+                            deficit_dates.append(row['trading_date'])
+                    response['original_native'] = {
+                        'signal_algorithm_id': report['signal_algorithm_id'],  # 固定原stable信号算法，不等同WT执行模型。
+                        'reference_report_sha256': report['reference_report_sha256'],  # 原ORR规范报告摘要。
+                        'source_snapshot_sha256': report['source_snapshot_sha256'],  # 原完整输入规范摘要。
+                        'execution_model': report['historical_model']['execution'],  # 沿原报告已校模型的D信号至下一交易日首tick语义。
+                        'historical_model': report['historical_model'],  # OHLC、整手、现金缺口等模型事实。
+                        'evaluation_window': report['evaluation_window'],  # 原评价首尾及额外前一真实交易日暖机，ISO日期。
+                        'cash_deficit_count': len(deficit_dates),  # 已准入逐日WT事实中现金为负的日期数，不推断源缺口。
+                        'cash_deficit_dates': deficit_dates,  # 中国交易日YYYYMMDD升序，沿validator核过的cash_deficit。
+                        'source_qualified': report['source_qualified'],  # 来源资格，研究输入保持false。
+                        'execution_qualified': report['execution_qualified'],  # 只读报告不授交易资格。
+                        'point_in_time_qualified': report['point_in_time_qualified']}  # 历史首次可知未合格。
             elif index is None:
                 _require(type(offset) is int and 0 <= offset <= 4096 and type(limit) is int and 1 <= limit <= 50, code=422)
                 headers = [{k: row[k] for k in ("trading_date", "minute", "status", "reason")} for row in report["records"]]
@@ -478,13 +523,29 @@ class BacktestArchive:
         finally:
             self._lock.release()
 
-    def visual(self, run_id, receipt_sha, deadline, *, ledger=False, day=None, offset=0, limit=50):
+    def visual(self, run_id, receipt_sha, deadline, *, ledger=False, signals=False, day=None, offset=0, limit=50):
         """曲线辅助与日期明细复用完整原件校验、同一锁/预算；不写归档。"""
         from .backtest_visuals import native_tables, build_visuals
         read = _Read(deadline)
         _require(self._lock.acquire(blocking=False), '归档正在读取，请稍后重试', 429)
         try:
             directory, value, digest = self._load(read, run_id, receipt_sha)
+            if value.get('schema') == original.RECEIPT_SCHEMA:
+                self._capacity(read, directory)
+                report = original.load(read, directory, value)
+                dates = {original.day(r['date']) for r in report['portfolio']['history']}
+                _require(day is None or day in dates, '该报告没有所选日期', 404)
+                _require(type(offset) is int and 0 <= offset <= original.MAX_TRADES
+                         and type(limit) is int and 1 <= limit <= 50, '分页参数无效', 422)
+                if signals:
+                    response = original.signals(value, digest, report, day_filter=day, offset=offset, limit=limit, check=read.check)
+                else:
+                    response = (original.ledger(value, digest, report, day_filter=day, offset=offset, limit=limit,
+                        check=read.check) if ledger else original.visuals(value, digest, report, read.check))
+                _require(len(_wire(response)) <= MAX_RESPONSE)
+                read.check()
+                return response
+            _require(not signals, '该报告族没有原版信号分页', 422)
             result_raw = read.raw(directory / 'result.json', 32 * 1024 * 1024)
             request, admitted, report, session = self._originals(read, directory, value, result_raw=result_raw)
             result = _json(result_raw, 32 * 1024 * 1024, deadline)
@@ -525,6 +586,15 @@ class BacktestArchive:
             read.check()
             right = self._read(read, right_run_id, right_receipt_sha, performance=True)
             read.check()
+            if left['schema'] == 'orr-performance-v1' or right['schema'] == 'orr-performance-v1':
+                _require(left['schema'] == right['schema'], '原版归一化模型与WT人民币模型请分别阅读', 422)
+                differences = [key for key in ('configuration', 'input_sha256', 'model', 'data_kind', 'source')
+                               if left[key] != right[key]]
+                response = dict(schema='orr-comparison-v1', left=left, right=right,
+                                differences=differences, scope=original.SCOPE)
+                _require(len(_wire(response)) <= MAX_RESPONSE)
+                read.check()
+                return response
             response = build_comparison(left, right, SCOPE)
             _require(len(_wire(response)) <= MAX_RESPONSE, "比较页面超过响应容量")
             read.check()

@@ -2,6 +2,7 @@ import { fetchReadJson as fetchBoundedJson } from '../api'
 import { boundedBacktestTree, V2_REPORT_SCHEMA, validateV2Summary, type V2Summary } from './backtestV2'
 import { HISTORICAL_REPORT_SCHEMA, validateHistoricalSummary } from './backtestHistorical'
 import { PER_DATE_REPORT_SCHEMA, RETAINED_REPORT_SCHEMA, isRetainedReport, retainedSymbols, validatePerDateWindow, validateRetainedSummary } from './backtestRetained'
+import { ORIGINAL_STRATEGY, validateOriginalEntry, type OriginalArchiveEntry } from './originalBacktestApi'
 
 /** 报告排队、原件核验及比较共用后端30秒，另留1秒HTTP余量。 */
 export function fetchBacktestReadJson<T>(input: RequestInfo | URL, context: string, signal?: AbortSignal): Promise<T> {
@@ -246,13 +247,33 @@ export type ArchiveEntry = {
     /** 原运行截止预算，单位秒。 */ max_seconds: number
   }
 }
-export type ArchiveIndex = { schema: 'nbw-archive-index-v1'; runs: ArchiveEntry[]; invalid_receipts: number; unarchived_runs: number; scope: string }
+export type AnyArchiveEntry = ArchiveEntry | OriginalArchiveEntry
+export type ArchiveIndex = { schema: 'nbw-archive-index-v1'; runs: AnyArchiveEntry[]; invalid_receipts: number; unarchived_runs: number; scope: string }
 export type ArchiveSummaryIndex = Omit<ArchiveIndex, 'schema'> & {
   /** 轻量归属目录的固定协议版本，区别于旧完成证明目录。 */ schema: 'nbw-archive-summary-index-v1'
 }
 export type ArchiveConfiguration = { schema: 'nbw-archive-configuration-v1'; run_id: string; request_id: string;
   receipt_sha256: string; report_sha256: string; installation_sha256: string; configuration: ArchiveEntry['configuration'];
-  session_configuration: unknown; policy: unknown; fee_reserve_cny: unknown; fee_source: unknown; scope: string }
+    session_configuration: unknown; policy: unknown; fee_reserve_cny: unknown; fee_source: unknown; scope: string
+    /** 原只读诊断投影；本接口不从诊断推断绩效或交易资格。 */ business_diagnostics?: Record<string, unknown> | null
+    /** 仅原版WT族提供的已核模型和资金缺口，旧族缺省。 */ original_native?: OriginalNativeMetadata }
+export type OriginalNativeMetadata = {
+  /** 原版信号算法身份，不替代WT执行模型。 */ signal_algorithm_id: string
+  /** 原参考报告规范JSON的SHA256。 */ reference_report_sha256: string
+  /** 原完整输入规范JSON的SHA256。 */ source_snapshot_sha256: string
+  /** WT原生下一tick撮合的显式模型。 */ execution_model: 'signal-close-to-next-WT-native-tick'
+  /** 原报告完整模型声明。 */ historical_model: Record<string, unknown>
+  /** ISO评价首尾及额外前一真实交易日暖机。 */ evaluation_window: {
+    /** 额外一前日，仅用于WT真实bar暖机。 */ warmup_date: string
+    /** 评价开始日，上海YYYY-MM-DD。 */ from: string
+    /** 评价结束日，上海YYYY-MM-DD。 */ to: string
+  }
+  /** 从已校原生逐日现金派生的负现金日期数。 */ cash_deficit_count: number
+  /** 负现金日期，上海YYYYMMDD，升序唯一。 */ cash_deficit_dates: number[]
+  /** 来源单位及可知性未取得完整资格。 */ source_qualified: false
+  /** 研究报告不授账户执行资格。 */ execution_qualified: false
+  /** 历史首次可知时点未取得资格。 */ point_in_time_qualified: false
+}
 function validateArchiveSelection(value: ArchiveSelection) {
   if (!validId(value.runId) || !validDigest(value.receiptSha) || value.reportSha !== undefined && !validDigest(value.reportSha)) return invalid()
 }
@@ -284,6 +305,12 @@ function archiveIndex(value: unknown, summaries: boolean): ArchiveIndex | Archiv
   const ids = new Set<string>()
   for (const entry of value.runs) {
     if (!object(entry)) return invalid()
+    if (entry.report_family === 'resonance-original') {
+      const original = validateOriginalEntry(entry, summaries)
+      if (ids.has(original.run_id)) return invalid()
+      ids.add(original.run_id)
+      continue
+    }
     exactKeys(entry, ['run_id', 'owner_id', 'request_id', 'record_count', 'report_sha256', 'receipt_sha256', 'configuration', 'scope', ...(summaries ? ['summary'] : [])])
     if (!validId(entry.run_id) || !validId(entry.owner_id) || !validId(entry.request_id) || ids.has(entry.run_id)
       || !validDigest(entry.report_sha256) || !validDigest(entry.receipt_sha256) || !archiveConfiguration(entry.configuration)
@@ -306,10 +333,22 @@ export async function fetchArchiveConfiguration(entry: ArchiveEntry, signal?: Ab
   boundedBacktestTree(value)
   if (!object(value)) return invalid()
   exactKeys(value, ['schema', 'run_id', 'request_id', 'receipt_sha256', 'report_sha256', 'installation_sha256', 'configuration',
-    'session_configuration', 'policy', 'fee_reserve_cny', 'fee_source', 'scope'])
+    'session_configuration', 'policy', 'fee_reserve_cny', 'fee_source', 'scope'], ['original_native', 'business_diagnostics'])
   if (value.schema !== 'nbw-archive-configuration-v1' || value.run_id !== entry.run_id || value.request_id !== entry.request_id
     || value.receipt_sha256 !== entry.receipt_sha256 || value.report_sha256 !== entry.report_sha256
     || !validDigest(value.installation_sha256) || !archiveConfiguration(value.configuration) || !boundedText(value.scope)) return invalid()
   if (Object.entries(entry.configuration).some(([key, item]) => (value.configuration as Record<string, unknown>)[key] !== item)) return invalid()
+  if (value.business_diagnostics !== undefined && value.business_diagnostics !== null && !object(value.business_diagnostics)) return invalid()
+  if (value.original_native !== undefined) {
+    const m = value.original_native
+    if (!object(m) || m.signal_algorithm_id !== ORIGINAL_STRATEGY || !validDigest(m.reference_report_sha256) || !validDigest(m.source_snapshot_sha256)
+      || m.execution_model !== 'signal-close-to-next-WT-native-tick' || !object(m.historical_model) || m.historical_model.execution !== m.execution_model
+      || !object(m.evaluation_window) || ['warmup_date', 'from', 'to'].some(k => typeof m.evaluation_window !== 'object' || !object(m.evaluation_window)
+        || typeof m.evaluation_window[k] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(String(m.evaluation_window[k])) || !tradingDate(Number(String(m.evaluation_window[k]).replaceAll('-', ''))))
+      || !(m.evaluation_window.warmup_date as string < (m.evaluation_window.from as string)) || m.evaluation_window.from as string > (m.evaluation_window.to as string)
+      || !Number.isInteger(m.cash_deficit_count) || Number(m.cash_deficit_count) < 0 || Number(m.cash_deficit_count) > 4096
+      || !Array.isArray(m.cash_deficit_dates) || m.cash_deficit_dates.length !== m.cash_deficit_count || m.cash_deficit_dates.some((d, i, all) => !tradingDate(d) || i > 0 && d <= all[i - 1])
+      || m.source_qualified !== false || m.execution_qualified !== false || m.point_in_time_qualified !== false) return invalid()
+  }
   return value as ArchiveConfiguration
 }

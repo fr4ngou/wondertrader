@@ -11,6 +11,7 @@ from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import math
 import os
+import re
 import time
 from uuid import UUID,uuid4
 
@@ -56,15 +57,26 @@ def validate_configuration(value):
             raise ValueError('daily service budget invalid')
     inputs = value['inputs']
     fields = {'connections', 'public_facts', 'cache_from', 'max_rows', 'source_kind'}
-    if (type(inputs) is not dict or not fields <= set(inputs) or set(inputs) - fields - {'cache_seed','price_cache_seed','previous_requests'}
+    if (type(inputs) is not dict or not fields <= set(inputs) or set(inputs) - fields - {'cache_seed','price_cache_seed','previous_requests','previous_inputs','supplement_facts'}
             or set(inputs['connections']) != {'batch', 'hpr'}
             or type(inputs['max_rows']) is not int or not 40 <= inputs['max_rows'] <= 2000
             or inputs['source_kind'] not in ('actual-qmt', 'sdk-synthetic')):
         raise ValueError('daily service inputs invalid')
+    if 'supplement_facts' in inputs:
+        from integrations.guanheng.market_supplement_capture import validate_plan
+        validate_plan(inputs['supplement_facts'])
     previous=inputs.get('previous_requests',[])
     if (type(previous)is not list or len(previous)>366 or len(set(previous))!=len(previous)
             or any(type(path)is not str or not Path(path).is_absolute()for path in previous)):
         raise ValueError('daily service prior request references invalid')
+    previous_inputs=inputs.get('previous_inputs',[])
+    if (type(previous_inputs)is not list or len(previous_inputs)>366
+            or any(type(item)is not dict or set(item)!={'path','sha256'}
+                   or type(item['path'])is not str or not Path(item['path']).is_absolute()
+                   or type(item['sha256'])is not str or re.fullmatch(r'[0-9a-f]{64}',item['sha256'])is None
+                   for item in previous_inputs)
+            or len({item['path']for item in previous_inputs})!=len(previous_inputs)):
+        raise ValueError('daily service prior input references invalid')
     datetime.strptime(inputs['cache_from'], '%Y%m%d')
     public = inputs['public_facts']
     if (type(public) is not dict or set(public) != {'source', 'allowed_hosts', 'seconds', 'max_requests',
@@ -169,7 +181,9 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                                 entry['price_continuation_required']=required
                                 _save(index_path,index)
                         status['input_reads'] = observe_input_reads(index, read_state, target_day=day,
-                            deadline=time.monotonic()+5, cancelled=stopped)  # 只核既有v8/v9身份，不补发旧页或旧批次。
+                            deadline=time.monotonic()+5, cancelled=stopped,
+                            prior_requests=config['inputs'].get('previous_requests',()),
+                            prior_inputs=config['inputs'].get('previous_inputs',()))  # 只核既有v8/v9身份，不补发旧页或旧批次。
                         input_recovery_failed = False
                         if 'input_recovery_error_type' in status:
                             status['state'] = 'waiting'
@@ -190,9 +204,14 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                 scheduled = once or bool(entry) or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
                 continuation=entry.get('continuation_required',False)
                 price_continuation=entry.get('price_continuation_required',False)
+                local_now=now.astimezone(ZONE)
+                supplement_refresh=('supplement_facts' in config['inputs']
+                    and entry.get('state')=='published' and entry.get('supplement_complete') is False
+                    and (local_now.hour,local_now.minute)>=(9,0)
+                    and entry.get('supplement_attempt_date')!=local_now.date().isoformat())
                 if type(continuation)is not bool or type(price_continuation)is not bool:
                     raise ValueError('daily service continuation flag invalid')
-                continuation=continuation or price_continuation
+                continuation=continuation or price_continuation or supplement_refresh
                 if scheduled and not input_recovery_failed and (entry.get('state') != 'published'or continuation) and time.monotonic() >= retry_at:
                     if day not in index and len(index) >= 366:
                         raise ValueError('daily service retained task capacity')
@@ -212,6 +231,10 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         raise ValueError('daily service task path outside day root')
                     work.mkdir(parents=True,exist_ok=True)
                     entry.update(request=str(request_file),state='preparing')
+                    if 'supplement_facts' in config['inputs']:
+                        # 09:00前只续原任务，不提前消耗本自然日一次partial刷新资格。
+                        entry['supplement_attempt_date']=(local_now.date() if (local_now.hour,local_now.minute)>=(9,0)
+                            else local_now.date()-timedelta(days=1)).isoformat()  # 原INDEX持久来源刷新自然日，上海时区。
                     index[day]=entry;_save(index_path,index)
                     deadline = time.monotonic() + config['cycle_seconds']
                     status.update(state='updating', active_date=day)
@@ -264,6 +287,8 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             state='published',  # 已确认指针成功采用，而非仅接收任务。
                             current_sha256=result['current_sha256'],  # 本日实际采用的指针身份；后继版本独立保存。
                             continuation_required=result.get('continuation_required',False)or index[day].get('price_continuation_required',False))  # 股票/独立价格原责任共同决定接续。
+                        if 'supplement_facts' in config['inputs']:
+                            index[day]['supplement_complete']=result['supplement_complete']  # partial成功仍允许次自然日再补，不在同日空转。
                         if index[day]['continuation_required']:retry_at=time.monotonic()+config['retry_seconds']
                         status.update(state='waiting', active_date=None, last_success=day)
                     except InterruptedError:

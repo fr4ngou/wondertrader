@@ -76,7 +76,8 @@ def validate_market_snapshot(value):
         if row['volume_unit']not in ('share','unknown'):raise MarketProtocolError('market snapshot basic volume unit invalid')
         _clock(row['observed_at'])
     required=('capture_sha256','source_binding_sha256','universe_sha256','basics_sha256','base_configuration_sha256')
-    provenance=_object(value['provenance'],required+('daily_facts_sha256','security_reference_sha256','calendar_sha256'),required)
+    provenance=_object(value['provenance'],required+('daily_facts_sha256','security_reference_sha256','calendar_sha256',
+        'supplement_facts_sha256'),required)  # 可选补充目录SHA参与identity；旧快照不添加字段。
     for identity in provenance.values():_hash(identity)
     if reference['capture_sha256']!=provenance['capture_sha256']:
         raise MarketProtocolError('market snapshot price reference differs')

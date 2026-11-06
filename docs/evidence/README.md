@@ -963,3 +963,7 @@
 - [11月6日开盘前自然触发、日线责任与指数来源核实](2026-11-06-mainline-preopen-followup.md)。
 
 - [当前辅助事实实际消费模块](current-auxiliary-consumption-20261106.md)：6743真实事实经AWP、已安装V1/Runtime及原NSQ形成当前目标；历史因果保持，现场采用由Root验收。
+
+- [市场补充事实与每日接入](2026-11-06-market-supplement-facts.md)
+
+- [原版策略与WT报告只读接入](2026-11-06-original-strategy-readonly.md)

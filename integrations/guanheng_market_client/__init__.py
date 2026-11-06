@@ -16,7 +16,7 @@ import time
 from urllib.parse import urlsplit
 
 
-__version__ = "0.18.0"
+__version__ = "0.19.0"
 API_VERSION = "guanheng.market.v1"
 MAX_REQUEST_BYTES = 262144
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -30,6 +30,7 @@ PATHS = {
     "history.source-daily-batch-query": "/api/market/v1/history/source-daily-batch-query",
     "market.source-snapshot-query": "/api/market/v1/source-snapshot/query",
     "market.source-day-facts-query": "/api/market/v1/source-day-facts/query",
+    "market.source-supplement-query": "/api/market/v1/source-supplement/query",
     "market.source-security-query": "/api/market/v1/source-security/query",
     "history.read": "/api/market/v1/history/read",
     "history.prepare": "/api/market/v1/history/prepare",
@@ -216,6 +217,10 @@ def validate_request(value):
         from .daily_facts import validate_facts_request
         keys.add('request')
         validate_facts_request(value.get('request'))
+    elif action == 'market.source-supplement-query':
+        from .supplement_facts import validate_supplement_request
+        keys.add('request')
+        validate_supplement_request(value.get('request'))
     elif action == 'market.source-snapshot-query':
         from .market_snapshot import validate_snapshot_request
         keys.add('request')
@@ -357,6 +362,9 @@ def validate_response(value, request):
     elif action == 'market.source-day-facts-query':
         from .daily_facts import validate_facts_data
         validate_facts_data(data,request['request'])
+    elif action == 'market.source-supplement-query':
+        from .supplement_facts import validate_supplement_data
+        validate_supplement_data(data,request['request'])
     elif action == 'market.source-snapshot-query':
         from .market_snapshot import validate_market_snapshot
         validate_market_snapshot(data)
@@ -717,6 +725,10 @@ class MarketClient(_JSONTransport):
         """读取同一WT版本的定日前收盘、成交股数、换手及交易状态。"""
         return self.call(dict(api_version=API_VERSION,action='market.source-day-facts-query',
             request=dict(date=day,snapshot_id=snapshot_id)))
+
+    def source_supplement_query(self, request):
+        """同快照分页读取ETF份额、融资报表和成交额事实/缺口；查询不触发补采。"""
+        return self.call(dict(api_version=API_VERSION,action='market.source-supplement-query',request=request))
 
     def history_read(self, request):
         """一次有界读取及服务内补齐；请求结束不保留客户端需要释放的任务。"""

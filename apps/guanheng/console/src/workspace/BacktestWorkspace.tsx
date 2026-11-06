@@ -1,4 +1,5 @@
 import { useSearchParams, Link } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchBacktestArchiveSummaries } from './backtestApi'
 import BacktestPerformance, { reportKey, reportLabel } from './BacktestPerformance'
@@ -6,6 +7,9 @@ import BacktestSourceState from './BacktestSourceState'
 import { StrategyPicker, strategyKey, useStrategySelection } from './StrategyPicker'
 import BacktestReportList, { type ReportItem } from './BacktestReportList'
 import './backtest-performance.css'
+import { isOriginalEntry, ORIGINAL_STRATEGY } from './originalBacktestApi'
+
+const OriginalBacktests = lazy(() => import('./OriginalBacktests'))
 
 /** 轻量归属目录先提供可选择列表，完整绩效只由主/对比选择读取。 */
 export default function BacktestWorkspace() {
@@ -20,9 +24,12 @@ export default function BacktestWorkspace() {
   const selection = useStrategySelection(saved)
   const strategy = selection.selected
   const reports: ReportItem[] = entries.flatMap(entry => {
+    if (isOriginalEntry(entry)) return []
     const summary = entry.summary
     return summary && summary.strategy.id === strategy?.strategy_id && summary.strategy.version === strategy?.strategy_version ? [{ entry, summary }] : []
   })
+  const originals = entries.filter(isOriginalEntry).filter(entry => entry.summary?.strategy.id === strategy?.strategy_id && entry.summary?.strategy.version === strategy?.strategy_version)
+  const originalSelected = strategy?.strategy_id === ORIGINAL_STRATEGY
   const unclassified = entries.filter(item => item.summary === null).length
   const selected = reports.find(item => item.entry.run_id === runId)
   const compareId = params.get('compare')
@@ -46,7 +53,10 @@ export default function BacktestWorkspace() {
       {query.data?.unarchived_runs ? <p role="status">{query.data.unarchived_runs} 项运行尚未保存完成证明。</p> : null}
       {unclassified ? <p role="alert">{unclassified} 份报告的归属读取失败，其他报告仍可查看。<button disabled={query.isFetching} onClick={() => void query.refetch()}>重读报告目录</button></p> : null}
     {strategy ? <>
-      {runId ? <>
+      {originalSelected ? <>
+        {runId ? <button className="bt-back-list" onClick={back}>← 返回回测列表</button> : null}
+        <Suspense fallback={<p role="status">正在加载原版回测…</p>}><OriginalBacktests key={strategyKey(strategy)} entries={originals} runId={runId} compareId={compareId} onOpen={open} /></Suspense>
+      </> : runId ? <>
         <button className="bt-back-list" onClick={back}>← 返回回测列表</button>
         {selected && compareId && !comparison ? <p role="status">当前策略下未取得该对比报告，请重新选择。<button onClick={() => open(runId)}>重新选择对比报告</button></p> : selected ? <BacktestPerformance key={strategyKey(strategy) + selected.entry.run_id + selected.entry.receipt_sha256 + (compareId ?? '')}
           entry={selected.entry} entries={reports.map(item => item.entry)} capitalLabels={capitals} initialComparison={params.get('compare') ?? ''}

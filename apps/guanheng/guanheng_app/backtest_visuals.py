@@ -1,6 +1,7 @@
 """核验后WT原件的可视化投影；金额和持仓沿原生报告，派生只用于展示。"""
 import csv
 from datetime import datetime
+from decimal import Decimal
 from hashlib import sha256
 from io import StringIO
 
@@ -31,10 +32,12 @@ def _amount(value, *, positive=False, nonnegative=False):
     amount = _fraction(value)
     if positive and amount <= 0 or nonnegative and amount < 0:
         raise ValueError('原生数量、价格或费用无效')
-    # 原CSV文本保留精度；浏览器只按声明的十进制协议读取。
-    if not value or any(c not in '-0123456789.' for c in value):
+    # 原生CSV对大数量可输出科学计数；精确展开为公开DTO十进制，原文件仍按SHA保留。
+    # Decimal的固定格式保留普通2.00等尾零，不经float或舍入改变金融数值。
+    normalized = format(Decimal(value), 'f')
+    if not normalized or len(normalized) > 512:
         raise ValueError('原生金额格式无效')
-    return value
+    return normalized
 
 
 def build_visuals(performance, trades, *, check):

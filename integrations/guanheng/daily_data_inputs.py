@@ -84,11 +84,14 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     check()
     template = deepcopy(configuration['template'])
     inputs = configuration['inputs']
+    supplement_previous = template.pop('supplement_facts', None)  # 同一原件库的已采市场事实。
     # 运行指针只贡献成功日事实和上次原生版本；固定基准/旧价格根持续保留。
     current = Path(template['publication_directory']) / 'CURRENT.json'
     if current.exists():
         current_value, _ = read_generation(current)
         current_config = _load(current_value['configuration'], 1048576)
+        if 'supplement_facts' in inputs:
+            supplement_previous = current_config.get('supplement_facts', supplement_previous)
         template['daily_facts'] = current_config['daily_facts']
         base = current_config['base'];additional_selected=False;current_additional=[]
         while isinstance(base, dict):
@@ -162,11 +165,31 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         max_bytes=public['max_bytes'], response_bytes=public['response_bytes'], cancelled=cancelled)
     fetch = Fetcher(BoundedContentStore(reader.objects, budget), public['allowed_hosts'],
         timeout=public['timeout_seconds'], budget=budget)
+    supplement = None  # 未配置时不改变原UPDATE/快照字段或身份。
+    supplement_transport = None  # 由本输入owner在finally关闭，不创建第二个采集线程。
     try:
         packet, facts = capture_day_facts(reader, fetch, public['source'], day,
             retry_window_seconds=min(86400,max(60,configuration['retry_seconds']*8)))
+        if 'supplement_facts' in inputs:
+            from .market_supplement_capture import collect_supplement, prior_supplement_catalogs
+            from guanheng_app.observation.calendars import official_calendar
+            calendar = _load(template['calendar'])
+            calendar_rows, _ = official_calendar(calendar)
+            supplement_previous = prior_supplement_catalogs(supplement_previous, configuration['directory'],
+                root, day, objects=reader.objects, check=check)
+            supplement_transport = BoundHistorySource(inputs['connections']['batch'], environ=environ,
+                                                       reuse_connections=True)
+            supplement = collect_supplement(inputs['supplement_facts'], day,
+                [row['date'] for row in calendar_rows if row['is_open'] == 1], root / 'supplement',
+                objects=reader.objects, fetch=fetch, qmt_transport=supplement_transport,
+                calendar_coverage=(calendar['coverage_start'], calendar['coverage_end']),
+                previous=supplement_previous, deadline=deadline, cancelled=cancelled)
     finally:
-        fetch.close()
+        try:
+            if supplement_transport is not None:
+                supplement_transport.close()
+        finally:
+            fetch.close()
     check()
     universe = root / 'UNIVERSE.json'
     body = reader.objects.get(packet['universe']['sha256'])
@@ -285,6 +308,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                 qmt=by_plan[observation['plan_sha256']]['tasks'][index]['symbol'];code,market=qmt.split('.')
                 pending.add({'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[market]+'.'+code)
         template['prior_pending_symbols']=sorted(pending)  # 原身份仍待核的证券集合，已可读Native不因此失去价格资格。
+    if supplement is not None:
+        template['supplement_facts'] = supplement  # 同一固定快照发布新增市场事实。
     if 'prepared_native' in template and _load(template['prepared_native'])['capture_sha256'] != cache['sha256']:
         template.pop('prepared_native')
     _save(final, template)
