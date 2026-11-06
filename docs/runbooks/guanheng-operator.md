@@ -4,7 +4,9 @@
 
 ## 启动与独立运行
 
-维护人员按[独立安装手册](observer-runtime.md)安装App和SPA，配置行情连接、WT发布身份、报告归档、个人自选及观察数据根。使用该安装的`observer-web.py start/status/stop`管理Web，成功启动后打开交付记录中的实际地址；端口和目录由对应配置决定。
+维护人员按[独立安装手册](observer-runtime.md)安装App和SPA，配置行情连接、WT发布身份、报告归档、个人自选及观察数据根。使用该安装的`observer-web.py start/status/stop`管理Web。
+
+本机观衡正式地址固定为 **http://127.0.0.1:18143**。用户要求后续发布、升级和回退保持18143；变更前须取得用户明确同意。部署沿用observer-current/web-profile.json的host/port及DEPLOYMENT定位，核实际监听；端口占用沿原实例排障，测试端口仅服务隔离验收。
 
 WT拥有QMT通信、行情、历史、采集、策略及交易生命周期；市场观察更新服务拥有公开资料采集和归档；观衡只读取结果、保存个人自选。三个入口分别启停，关闭或升级观衡后，WT和市场观察更新继续运行。运行身份与维护命令分别沿[WT手册](wt-independent-runtime.md)、[市场观察手册](market-observation.md)和[Web维护入口](observer-runtime.md)。
 

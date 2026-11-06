@@ -4,6 +4,8 @@
 
 类型：操作手册。适用范围：[独立观衡development制品](../specs/observer-runtime-package.md)，Windows x64。安装与维护流程的SDK替身资格、真实来源接入及生产发布分别登记；当前实际版本、来源绑定和用户入口以[发布记录](../releases/README.md)的最新后继为准。
 
+正式发布沿用已登记地址和端口；本机固定18143，用户明确同意后才能调整，见[操作员入口](guanheng-operator.md#启动与独立运行)。下方通用命令中的18120仅为示例，不能据此替换本机正式profile的18143。
+
 接收交付记录中的ZIP、ZIP SHA256和OBSERVER-RUNTIME.json SHA256。先用Get-FileHash核ZIP，再用系统Expand-Archive解压至新目录。安装需要显式CPython 3.12 x64（含pip）和uv；离线wheel已随包提供。
 
 ```powershell
@@ -27,7 +29,7 @@
 & "$newRoot/runtime/app/venv/Scripts/python.exe" -I -B -m guanheng_app --port 18120 --static-directory "$newRoot/payload/spa"
 ```
 
-地址为http://127.0.0.1:18120/dashboard；端口可以显式更换。前台运行适用于交互诊断；隐藏常驻运行使用下方本机维护入口。WT按独立操作手册启停。WT停止后观衡保留最近一次原结果及其时间，并展示停止状态。
+上方示例地址为http://127.0.0.1:18120/dashboard；具体安装沿其已登记profile，正式入口变化按[发布规范](release.md#用户入口保持)处理。前台运行适用于交互诊断；隐藏常驻运行使用下方本机维护入口。WT按独立操作手册启停。WT停止后观衡保留最近一次原结果及其时间，并展示停止状态。
 
 更新时保留旧安装、外部读取配置和个人目录，将新包安装至另一全新目录；正常关闭旧观衡，再用新解释器和新SPA启动，核账户/行情/个人观察。回退时正常关闭新观衡，重新使用旧解释器和旧SPA，沿用同一外部配置及个人目录。具体合格回退版本、数据兼容范围和可读取的报告模式以该次交付记录为准；旧版本尚未支持的新报告模式需要使用支持该模式的已验证安装查看。旧托管App需要另行迁移。两个版本并行占用同一个人目录会触发独占保护。
 
