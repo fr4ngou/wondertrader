@@ -10,18 +10,14 @@ import time
 
 from .managed_local_process import ManagedLocalProcess, _identity, _inspect, _json, _read, _require, _sha
 
-_RETAINED_PYTHON_PACKAGES = ('guanheng_wt_runtime', 'guanheng_strategy_core',
-                             'guanheng_strategy_native', 'guanheng_strategy_v1', 'tzdata')
+from .strategy_profiles import RETAINED_PACKAGES, SHARED_PACKAGES, shared_profiles
+_RETAINED_PYTHON_PACKAGES = RETAINED_PACKAGES
 _PYTHON_PACKAGES = _RETAINED_PYTHON_PACKAGES
 
 
 def _python_packages(native):
-    """独立运行候选只装配用户保留的唯一正式策略。"""
-    profiles = tuple(item['parameters'].get('python_strategy', {}).get('schema')
-                     for item in native['strategies'])
-    _require(profiles == ('guanheng.retained-cta.v1',)
-             and native['strategies'][0]['id'] == 'resonance-regime-v1')
-    return _RETAINED_PYTHON_PACKAGES
+    """固定单/双profile依赖；旧调用保持原包集合。"""
+    return SHARED_PACKAGES if shared_profiles(native) else RETAINED_PACKAGES
 
 
 def _library_files(installation, *, clock=time.monotonic, deadline=float('inf')):
@@ -330,7 +326,7 @@ class ManagedPythonExecutionProcess(ManagedExecutionProcess):
 def _python_inventory(site, identities, *, packages=_RETAINED_PYTHON_PACKAGES):
     """固定纯Python发行的完整源码集合；额外包目录不能遮蔽已绑定模块。"""
     seen, count = set(), 0
-    _require(packages == _RETAINED_PYTHON_PACKAGES)
+    _require(packages in (RETAINED_PACKAGES, SHARED_PACKAGES))
     for package in packages:
         pending = [site / package]
         while pending:

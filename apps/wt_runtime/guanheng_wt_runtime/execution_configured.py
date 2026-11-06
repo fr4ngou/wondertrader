@@ -20,6 +20,7 @@ from .execution_process import ExecutionProcessConfig, _PYTHON_PACKAGES, _python
 from .execution_strategy import CtaBridgeError, CtaRuntime, StrategyBinding, _need
 from .managed_local_process import _inspect, _json, _read
 from .thread_owner import ThreadOwner
+from .profile_facts import allocation_projection
 
 
 def _encode(value):
@@ -169,17 +170,22 @@ def _retained_seed_identity(inputs, recovery, *, budget):
 
 
 class RetainedStrategy:
+    allocation = None  # 旧独立调用及局部适配器默认沿原单策略来源。
+    allocation_observation = None  # 双profile才由原借用刷新。
     """唯一当前版本实时薄桥。周期元数据存原KV，数量只读取原owner。
 
     首次已核周期可连续部分增减/清仓；新开仓起点缺少实际来源时等待。
     新周期仅消费原管理成交的源时间；缺少完整事实时保持等待。
     """
-    def __init__(self, item, publish, configuration, native, *, deadline, code_identity):
+    def __init__(self, item, publish, configuration, native, *, deadline, code_identity, allocation=None):
         self.start_deadline = deadline  # 原监督者启动绝对截止；资金观察失败不重开启动预算。
         from guanheng_strategy_v1 import SYMBOLS
         from guanheng_strategy_core.contracts import EvaluationBudget
         from .execution_facts import admit_native_files, native_price_ticks
-        _need(type(native.get('strategies')) is list and len(native['strategies'])==1, 'retained_cycle_scope')
+        from .strategy_profiles import shared_profiles
+        _need(shared_profiles(native) == (allocation is not None), 'retained_cycle_scope')
+        self.allocation, self.allocation_observation, self.participants = allocation, None, {}
+        self._shared_announced = False
         parameters = item['parameters'].get('python_strategy')
         required = {'schema','input_file','input_sha256','main_symbol','evaluation_seconds','broker_max_age_seconds'}
         _need(type(parameters) is dict and required <= set(parameters) <= required | {'market_window', 'capital_account', 'capital_market'}
@@ -212,7 +218,7 @@ class RetainedStrategy:
         self.capital_reader, self.capital_observation = None, None
         self._initial_capital_basis = None  # 原初始化估值的不可变私有值；首帧NAP晚到时只由账户线程读取。
         self.capital_market = parameters.get('capital_market')
-        if self.inputs.capital_baseline is not None:
+        if self.inputs.capital_baseline is not None and self.allocation is None:
             from .strategy_capital import AccountCashReader
             _need(self.inputs.cash_anchor is not None, 'capital_cash_anchor')
             self.capital_reader = AccountCashReader(parameters['capital_account'], self.max_age)
@@ -231,24 +237,10 @@ class RetainedStrategy:
         self.mapping = {s:('SSE' if s.endswith('.SH') else 'SZSE')+'.ETF.'+s[:6] for s in self.execution}
         self.reads = self.targets = tuple(sorted(self.mapping.values()))
         self.main = parameters['main_symbol'];_need(self.main in self.reads, 'main_symbol')
-        root = configuration.installation/'app';expected = dict(configuration.artifacts)
-        names = {n:native['base_data'][n] for n in ('sessions','commodities','contracts','holidays')}
-        names['fees'] = native['environment'].get('fees')
-        paths = {}
-        for name,relative in names.items():
-            _need(type(relative) is str and relative, 'native_cash_model')
-            path = root/relative
-            _need(path.is_relative_to(root) and '..' not in path.parts, 'native_cash_model')
-            data = _read(path, 1024*1024, clock=time.monotonic, deadline=deadline)
-            _need(hashlib.sha256(data).hexdigest() == expected.get('app/'+path.relative_to(root).as_posix()),
-                  'native_cash_model_identity')
-            paths[name] = path
-        identities, frozen = admit_native_files(self.mapping, SimpleNamespace(**paths))
-        _need(all(hashlib.sha256(frozen[n]).hexdigest() == expected.get('app/'+paths[n].relative_to(root).as_posix())
-                  for n,_ in identities) and time.monotonic() < deadline, 'native_cash_model_identity')
-        self.native_fees = _json(frozen['fees'])  # 原WT已准入模板的本代只读副本；open为CNY/份或成交金额比例，实际费用仍由WT记账。
-        self.native_fee_source = 'original-WT:fees-sha256:'+hashlib.sha256(frozen['fees']).hexdigest()  # 冻结原文件SHA；只证明配置模型来源。
-        self.native_price_ticks = native_price_ticks(self.mapping, frozen)  # 本代已SHA绑定WT品种报价档位，CNY/份；不可变，原价估值和NSQ共用。
+        from .profile_facts import configured_native_facts
+        identities, frozen, self.native_price_ticks = configured_native_facts(configuration,native,self.mapping,deadline=deadline)
+        self.native_fees = _json(frozen['fees'])
+        self.native_fee_source = 'original-WT:fees-sha256:'+hashlib.sha256(frozen['fees']).hexdigest()
         self.takeover = 'takeover' in native
         identity = (self.id, self.input_sha, tuple(sorted(self.mapping.items())), asdict(self.inputs.policy), code_identity)
         if self.market_window is not None:
@@ -271,13 +263,13 @@ class RetainedStrategy:
             self.role_handoff = is_role_handoff(native, previous_native)
             if self.role_handoff:
                 self.previous_inputs = input_value(previous_native, deadline=deadline)
-                previous_parameters = previous_native['strategies'][0]['parameters']['python_strategy']
+                previous_parameters = next(row for row in previous_native['strategies'] if row['id']==self.id)['parameters']['python_strategy']
                 old_mapping = dict(self.mapping)
                 old_mapping.pop('588030.SH')
                 old_mapping['589680.SH'] = 'SSE.ETF.589680'
                 prior_identity = (self.id,previous_parameters['input_sha256'],tuple(sorted(old_mapping.items())),
                                   asdict(self.inputs.policy),prior_code_identity)
-            prior_window=previous_native['strategies'][0]['parameters']['python_strategy'].get('market_window')
+            prior_window=next(row for row in previous_native['strategies'] if row['id']==self.id)['parameters']['python_strategy'].get('market_window')
             if prior_window is not None:
                 prior_identity += (MarketWindowFile.from_dict(prior_window).configuration_identity,)
             self.previous_state_identity = _digest(prior_identity)
@@ -389,7 +381,23 @@ class RetainedStrategy:
         self.state, self.sequence, self.cycles, self.exits = state, seq, metadata, exits
         self.restored_state_id, self.restored_sequence = None if state is None else state.state_id, seq
 
+    def _allocation_refresh(self, context, deadline):
+        """只在原Native借用内更新源账户事实，随后读取独立策略归属。"""
+        if self.allocation is None:return None
+        reason = self.allocation.observe_context(context,deadline=deadline,max_age_seconds=self.max_age)
+        self.allocation_observation = self.allocation.strategy_observation(self.id,deadline=deadline)
+        _need(self.allocation_observation.strategy.strategy_id==self.id,'retained_allocation_scope')
+        return reason
+
     def _broker_rows(self, broker):
+        if self.allocation is not None:
+            _need(self.allocation_observation is not None,'retained_allocation_unknown')
+            rows={}
+            for row in self.allocation_observation.strategy.positions:
+                _need(row.symbol in self.targets and row.symbol not in rows,'retained_allocation_scope')
+                total,valid=self._shares(row.quantity),self._shares(row.sellable)
+                _need(valid<=total,'broker_quantity');rows[row.symbol]=(total,valid)
+            return rows
         rows = {}
         for row in broker.positions:
             _need(row.is_long and row.symbol in self.targets and row.symbol not in rows, 'broker_scope')
@@ -399,6 +407,7 @@ class RetainedStrategy:
         return rows
 
     def _initialize(self, context):
+        _need(self._allocation_refresh(context,self.start_deadline) is None,'retained_allocation_initial')
         broker = context.broker_observation()
         _need(broker.positions_known, 'broker_unknown')
         rows = self._broker_rows(broker)
@@ -451,7 +460,7 @@ class RetainedStrategy:
             # 身份交接独立于资金展示和首轮调度；正常关闭后即可沿本代身份恢复。
             context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
         self.initialized = True
-        if self.inputs.capital_baseline is not None and self.capital_market is not None:
+        if self.allocation is None and self.inputs.capital_baseline is not None and self.capital_market is not None:
             self._publish_initial_capital(context, broker)
         print('CTA retained strategy initialized',flush=True)
         print('CTA retained strategy initialized',file=sys.stderr,flush=True)
@@ -632,6 +641,7 @@ class RetainedStrategy:
         return response
 
     def _flat_source(self,symbol,broker,trades):
+        if self.allocation is not None:return None
         if trades is None or not trades.known or trades.submission_revision is None:return None
         return {'submission_revision':trades.submission_revision,
                 'source_sha256':_digest(('guanheng.actual-flat-source.v1',self.state_identity,symbol,
@@ -645,6 +655,15 @@ class RetainedStrategy:
             self.flat_sources[symbol]=self._flat_source(symbol,broker,trades)
 
     def _opening_cycle(self,symbol,broker,trades,cutoff,check):
+        if self.allocation is not None:
+            check();cycle=self.allocation_observation.opening_cycles.get(self.mapping[symbol])
+            if cycle is None or cycle.status=='unknown' or cycle.opened_at is None or cycle.cycle_id is None or cycle.source_sha256 is None:return None
+            origin=datetime.fromisoformat(cycle.opened_at)
+            _need(origin.tzinfo is not None and origin<=cutoff,'retained_allocation_cycle')
+            value=dict(cycle_id=cycle.cycle_id,source_sha256=cycle.source_sha256)
+            if cycle.status=='initial_inventory':value.update(status='initial_inventory',baseline_at=origin.isoformat())
+            else:_need(cycle.status=='held','retained_allocation_cycle');value['opened_at']=origin.isoformat()
+            return value
         if self.inputs.capital_baseline is not None:
             # 唯一策略已核初始库存作为来源起点；完整实际成交与本次P一致才恢复开仓时间。
             # 查询事实可跨运行代，不能把仅驻内存的提交序号当作重启后的必要材料。
@@ -679,7 +698,13 @@ class RetainedStrategy:
         canonical_prices = {s:canonical_raw_price(prices[s],self.native_price_ticks[self.mapping[s]])
                             for s in self.execution}  # 本帧唯一规范原价；原prices及其审计身份保持原double字节语义。
         raw, positions = [], []
+        own_rows=self._broker_rows(broker) if self.allocation is not None else None
         for symbol in self.execution:
+            if own_rows is not None:
+                p=context.position(self.mapping[symbol]);actual,valid=own_rows.get(self.mapping[symbol],(0,0))
+                wanted=actual if p.enum_target is None else self._shares(p.enum_target)
+                positions.append(NativePosition(symbol,actual,valid,wanted if wanted!=actual else None))
+                raw.append((symbol,asdict(p)));continue
             p = context.position(self.mapping[symbol]);total = self._shares(p.raw_position)
             actual = total if p.first_entry else 0
             # 空仓财务观察不消费理论可卖字段；原始值保留，执行可卖仍来自券商P。
@@ -698,7 +723,15 @@ class RetainedStrategy:
         verified = True
         basis_pnl = Fraction(repr(facts.fund_pnl))
         nav_source, cash_source = 'original-CTA:explicit-genesis+flag0', 'original-CTA:NAV-minus-complete-theoretical-holdings'
-        if self.inputs.capital_baseline is not None:
+        if self.allocation is not None:
+            own=self.allocation_observation.strategy
+            cash=Fraction(own.spendable_cash_cny)
+            nav=Fraction(own.ledger_cash_cny)+sum((p.actual*canonical_prices[p.symbol] for p in positions),Fraction(0))
+            basis_pnl=nav-Fraction(self.inputs.policy.initial_capital_cny)
+            verified=own.cash_cny is not None
+            nav_source,cash_source='ASA:strategy-ledger+own-position-raw-price','ASA:strategy-spendable-cash'
+            identity=_digest((identity,allocation_projection(self.allocation_observation)))
+        elif self.inputs.capital_baseline is not None:
             from .strategy_capital import observe_broker_capital
             _need(broker is not None and broker.positions_known and broker.position_received_ms is not None, 'capital_positions')
             quantities = self._broker_rows(broker)
@@ -763,7 +796,7 @@ class RetainedStrategy:
         rows = self._broker_rows(broker)
         identity = _digest((theoretical.native_observation_id,asdict(broker),
                             tuple(asdict(row) for row in pending_orders)))
-        pending={row.symbol for row in pending_orders}
+        pending={row.symbol for row in pending_orders} if self.allocation is None else (set(self.targets) if self.allocation_observation.strategy.pending_groups else set())
         positions = tuple(NativePosition(p.symbol,*rows.get(self.mapping[p.symbol],(0,0)),
                           (p.pending_target if p.pending_target is not None else p.actual)
                           if self.mapping[p.symbol] in pending else p.pending_target)
@@ -783,9 +816,10 @@ class RetainedStrategy:
         from .retained_evaluation import evaluate_retained, advance_retained
         deadline = time.monotonic()+self.seconds
         def check():_need(time.monotonic() < deadline, 'evaluation_deadline')
-        cutoff = datetime.now(timezone.utc);broker = context.broker_observation();trades=context.broker_trades();check()
+        allocation_reason=self._allocation_refresh(context,deadline);check()
+        cutoff = datetime.now(timezone.utc);broker = context.broker_observation();trades=context.broker_trades() if self.allocation is None else None;check()
         self.sequence += 1
-        status, reason, cycles, metadata = None,None,[],dict(self.cycles)
+        status, reason, cycles, metadata = (None if allocation_reason is None else 'waiting_allocation'),allocation_reason,[],dict(self.cycles)
         if not broker.positions_known or broker.position_received_ms is None:
             status, reason = 'waiting_broker_position','broker_position_unknown'
         else:
@@ -794,6 +828,11 @@ class RetainedStrategy:
                 status, reason = 'waiting_broker_position','broker_position_stale'
         rows = self._broker_rows(broker)
         if status is None:
+            if self.execution_enabled and self.allocation is not None and not self._shared_announced:
+                from .profile_facts import announce_shared_hold
+                announce_shared_hold(context,self.id,self.targets,self.allocation_observation,self.allocation,
+                    source_identity=self.state_identity,deadline=deadline)
+                self._shared_announced=True
             source = _digest(asdict(broker))
             for symbol in self.execution:
                 quantity = rows.get(self.mapping[symbol],(0,0))[0]
@@ -803,7 +842,7 @@ class RetainedStrategy:
                     metadata.pop(symbol,None);cycles.append(PositionCycle(symbol,'flat',0,source))
                 else:
                     actual=self._opening_cycle(symbol,broker,trades,cutoff,check)
-                    if self.inputs.capital_baseline is not None:
+                    if self.allocation is not None or self.inputs.capital_baseline is not None:
                         # 完整查询已证明当前周期；真实卖平再买覆盖旧周期，缺证据则等待。
                         old=actual
                     elif old is None:old=actual
@@ -821,6 +860,7 @@ class RetainedStrategy:
                          broker_position_qualified=False,recovery_mode=self.recovery,
                          restored_state_id=self.restored_state_id,restored_sequence=self.restored_sequence)
         candidate['broker_trades']=None if trades is None else asdict(trades)
+        if self.allocation_observation is not None:candidate['allocation_observation']=allocation_projection(self.allocation_observation)
         candidate['cycle_metadata']=dict(metadata)
         if self.inputs.capital_baseline is not None:
             candidate['capital_baseline'] = self.inputs.capital_baseline
@@ -914,6 +954,11 @@ class RetainedStrategy:
         text = self._state_payload(state,self.sequence,metadata,exits)
         self._publish(candidate,preview=True,deadline=deadline);check()
         if vector:
+            if self.allocation is not None:
+                from .profile_facts import common_prices
+                commons=common_prices(context,self.mapping,self.native_price_ticks,self.participants,now=cutoff,max_age=self.max_age)
+                self.allocation.prepare_intent(self.id,context.event.epoch,source_sha256=result['input_sha256'],known_at=cutoff.isoformat(),
+                    buy_price_caps={},common_prices=commons,deadline=deadline)
             _need(dict(context.set_targets(vector)) == dict(vector), 'target_readback');check()
         context.store_quantity_state(text);check()
         self.state,self.cycles,self.exits = state,metadata,exits
@@ -990,16 +1035,20 @@ def main():
         from .execution_recovery import load_transition
         binding = _json(_read(args.control/'python-binding.json',256*1024))
         load_transition(native,identities,binding=binding)
-    strategies = tuple(RetainedStrategy(
-                            item,publish,config,native,deadline=args.deadline,code_identity=code_identity)
-                       for item in native['strategies'])
+    from .strategy_profiles import shared_profiles, build_strategies
+    allocation, attribution = None, None
+    if shared_profiles(native):
+        from .account_attribution import create_runtime_attribution
+        allocation, attribution = create_runtime_attribution(native,config,args.control,args.control_id,deadline=args.deadline)
+    strategies = build_strategies(native,publish,config,deadline=args.deadline,code_identity=code_identity,
+                                 retained_factory=RetainedStrategy,allocation=allocation)
     # -S准入后，关键纯核与NSQ实际导入路径仍逐项属于同一次绑定源码。
     for name, module in tuple(sys.modules.items()):
-        if name.split('.')[0] in _PYTHON_PACKAGES:
+        if name.split('.')[0] in _python_packages(native):
             path = Path(module.__file__).absolute()
             _need(str(path) in identities and hashlib.sha256(_python_bytes(path, deadline=args.deadline)).hexdigest()
                   == identities[str(path)], 'imported_module_identity')
-    runtime = CtaRuntime(config, tuple(s.binding() for s in strategies), deadline=args.deadline)
+    runtime = CtaRuntime(config, tuple(s.binding() for s in strategies), deadline=args.deadline, attribution=attribution)
     # 同一原执行进程持有账户约束线程；线程只读NAP及发布值，从不借用Native上下文。
     # K线回调和账户更新共享唯一原子发布者，估值时间与策略sequence保持原值。
     refresh_stop = Event()
@@ -1035,12 +1084,20 @@ def main():
             with (args.control/'capital-refresh-failure.json').open('x',encoding='ascii') as stream:
                 json.dump(dict(exception_type=type(error).__name__),stream)
     refresher = ThreadOwner(target=refresh_accounts,name='capital-account-constraint') if readers else None
+    workers=tuple(s.signals for s in strategies if hasattr(s,'signals'))
     try:
+        for worker in workers:worker.start()
         if refresher is not None:
             refresher.start()
         result = runtime.run(args.control, args.control_id)
     finally:
         refresh_stop.set()
+        for worker in workers:worker.request_close()
+        worker_deadline=time.monotonic()+3
+        workers_joined=all([worker.close(worker_deadline) for worker in workers])
+        if workers:
+            with (args.control/'signal-workers-closed.json').open('x',encoding='ascii') as stream:
+                json.dump(dict(joined=workers_joined,pending=any(w.pending for w in workers)),stream)
         if refresher is not None:
             joined = refresher.join_until(time.monotonic()+3)
             with (args.control/'capital-refresh-closed.json').open('x',encoding='ascii') as stream:
@@ -1048,6 +1105,7 @@ def main():
                     joined=joined,  # 原ThreadOwner已取得标准线程退出/join证明；False表示关闭未确认。
                     pending=refresher.pending),stream)  # 账户读取线程仍有生命周期责任；布尔值，由原owner提供。
             _need(joined,'capital_refresh_close_unconfirmed')
+        _need(workers_joined,'signal_worker_close_unconfirmed')
     if runtime._last_error is not None:
         # 私有有限诊断只记类型/调用位置；账户、变量内容和异常正文保持在原owner内。
         import traceback
