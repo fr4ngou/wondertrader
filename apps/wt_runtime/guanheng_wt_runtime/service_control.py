@@ -20,7 +20,7 @@ from guanheng_market_client.runtime_status import (
     replace_status,
 )
 
-from .execution_recovery import prepare_transition
+from .execution_recovery import prepare_transition, require_process_exited
 from .managed_local_process import _inspect, _path, _read, _require, _sha
 from .runtime import RuntimeConfig
 
@@ -513,12 +513,37 @@ class ServiceController:
             _require(transition_file is None)
         return transition_file
 
-    def _new_generation(self, previous: dict | None, previous_status: dict | None) -> tuple[dict, Path]:
+    def _admit_history_bootstrap(self, previous: dict | None, status: dict | None) -> None:
+        """持原服务租约核纯历史显式采用；未知/故障保持原代，不生成或停止进程。"""
+        _require(previous is not None and status is not None)
+        closed = _terminal(previous, "closed.json")
+        _require(closed is not None and not (Path(previous["wt_status_file"]).parent / "failure.json").exists())
+        _require(closed.get("status") == "stopped" and closed.get("components_closed") is True
+                 and closed.get("error_code") is None and status.get("state") == "closed"
+                 and status.get("ready") is False and status.get("error_code") is None)
+        ready = read_status(Path(previous["wt_status_file"]).parent / "ready.json", 4096)
+        _require(type(closed.get("pid")) is int and closed["pid"] == status["pid"] == ready.get("pid"))
+        _require(self._runtime_owner_active(previous) is False)
+        # 原Win32核查拒绝活PID、访问拒绝及未知退出；PID/创建身份另沿原owner材料核同。
+        require_process_exited(closed["pid"])
+        old_path, old_sha = self._configuration_for(previous)
+        before = RuntimeConfig.from_path(str(old_path), old_sha)
+        after = RuntimeConfig.from_path(str(self.config.bootstrap_configuration), self.config.bootstrap_configuration_sha256)
+        _require(before.instance_id == after.instance_id == previous["wt_instance_id"]
+                 and tuple(name for name, _ in before.components) == ("history",)
+                 and tuple(name for name, _ in after.components) == ("history",)
+                 and before.components[0][1].kind == after.components[0][1].kind == "source_market")
+        _require(type(status.get("components")) is dict and set(status["components"]) == {"history"})
+        history = status["components"]["history"]
+        _require(type(history) is dict and history.get("state") == "closed"
+                 and history.get("ready") is False and history.get("error_code") is None)
+
+    def _new_generation(self, previous: dict | None, previous_status: dict | None, *, adopt_bootstrap=False) -> tuple[dict, Path]:
         control_id = str(uuid4())
         generation = self.config.generation_root / control_id
         generation.mkdir()
         owner_file = generation / "runtime-owner.json"
-        if previous is None:
+        if previous is None or adopt_bootstrap:
             runtime_path = self.config.bootstrap_configuration
             runtime_sha = self.config.bootstrap_configuration_sha256
             runtime = RuntimeConfig.from_path(str(runtime_path), runtime_sha)
@@ -636,10 +661,21 @@ class ServiceController:
         return 0, _safe_projection("status", current, status, state, changed=False)
 
     def start(self) -> tuple[int, dict]:
+        """默认按原代恢复；已有bootstrap变化由显式纯历史采用动作负责。"""
+        return self._start()
+
+    def adopt_bootstrap(self) -> tuple[int, dict]:
+        """正常旧纯历史owner退出后采用固定新bootstrap；保持稳定CURRENT与原实例。"""
+        return self._start(adopt_bootstrap=True)
+
+    def _start(self, *, adopt_bootstrap=False) -> tuple[int, dict]:
+        action = "adopt-bootstrap" if adopt_bootstrap else "start"
         with _ServiceLease(self.config.current_file):
             previous = self._owned_current()
             previous_status = _runtime_status(previous) if previous else None
-            if previous is not None:
+            if adopt_bootstrap:
+                self._admit_history_bootstrap(previous, previous_status)
+            elif previous is not None:
                 closed = _terminal(previous, "closed.json")
                 if closed is None:
                     failed = _terminal(previous, "failure.json")
@@ -647,12 +683,12 @@ class ServiceController:
                         pass
                     elif previous_status is None or self._runtime_owner_active(previous) is True:
                         state = "ready" if previous_status and previous_status.get("ready") else "starting"
-                        return 0, _safe_projection("start", previous, previous_status, state, changed=False)
+                        return 0, _safe_projection(action, previous, previous_status, state, changed=False)
                     elif self._runtime_owner_active(previous) is False and self._record_process_loss(previous):
                         pass
                     else:
-                        return 2, _safe_projection("start", previous, previous_status, "process_lost", changed=False)
-            current, runtime_path = self._new_generation(previous, previous_status)
+                        return 2, _safe_projection(action, previous, previous_status, "process_lost", changed=False)
+            current, runtime_path = self._new_generation(previous, previous_status, adopt_bootstrap=adopt_bootstrap)
             control_directory = Path(current["wt_status_file"]).parent
             command = [
                 str(self.config.pythonw),
@@ -688,14 +724,14 @@ class ServiceController:
                         except (FileNotFoundError, CollectionStatusPending):
                             pass
                         else:
-                            return 0, _safe_projection("start", current, status, "ready", changed=True)
+                            return 0, _safe_projection(action, current, status, "ready", changed=True)
                     if _terminal(current, "failure.json") is not None:
-                        return 2, _safe_projection("start", current, status, "faulted", changed=True)
+                        return 2, _safe_projection(action, current, status, "faulted", changed=True)
                 if process.poll() is not None and not published:
-                    return 2, _safe_projection("start", previous, previous_status, "launch_failed", changed=False)
+                    return 2, _safe_projection(action, previous, previous_status, "launch_failed", changed=False)
                 self._sleep(0.05)
             status = _runtime_status(current) if published else None
-            return 3, _safe_projection("start", current if published else previous, status, "start_timeout", changed=published)
+            return 3, _safe_projection(action, current if published else previous, status, "start_timeout", changed=published)
 
     def stop(self) -> tuple[int, dict]:
         with _ServiceLease(self.config.current_file):
@@ -736,12 +772,12 @@ class ServiceController:
 def main(argv=None) -> int:
     """安装后 CLI；标准输出只含有限公开结果，私有配置和异常正文不输出。"""
     parser = argparse.ArgumentParser(description="WT日常启停与当前实例入口")
-    parser.add_argument("action", choices=("start", "stop", "status"))
+    parser.add_argument("action", choices=("start", "stop", "status", "adopt-bootstrap"))
     parser.add_argument("--service-config", required=True)
     args = parser.parse_args(argv)
     try:
         controller = ServiceController(ServiceConfig.from_path(args.service_config))
-        code, value = getattr(controller, args.action)()
+        code, value = getattr(controller, args.action.replace("-", "_"))()
     except Exception:
         code, value = 2, {
             "schema": "guanheng.wt-service-result.v1",

@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-daily-data"
-version = "0.2.0a1+unified.21"
+version = "0.2.0a1+unified.22"
 description = "WT-owned unified daily prices, securities and persistent data updates"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

@@ -37,6 +37,8 @@ def _slot_candidates(root, original):
         if not (capture/'manifest.json').exists():
             for slot in (capture/'slots').glob('*.json'):
                 yield slot, original['inputs']['connections']['batch']
+    for slot in (root/'supplement/qmt-slots').glob('*.json'):
+        yield slot, original['inputs']['connections']['batch']
     source = root/'prices/source'
     scope = root/'prices/SCOPE.json'
     complete = scope.exists() and strict_json(read_fixed(scope, maximum=16777216)).get('reference_state', {}).get('membership_complete') is True
@@ -57,7 +59,7 @@ def close_input_discovery(state):
         state.get('discovery', {}).clear()
 
 
-def observe_input_reads(index, state, *, target_day, deadline, cancelled):
+def observe_input_reads(index, state, *, target_day, deadline, cancelled, prior_requests=(), prior_inputs=()):
     """调用方持publication租约及本线程state；原slot仍为唯一持久结果。
 
     state只缓存本进程已核的consumed槽及轮询顺序，重启从原INDEX/slot恢复。
@@ -73,6 +75,17 @@ def observe_input_reads(index, state, *, target_day, deadline, cancelled):
         roots.update((Path(path).parent/'inputs', day) for path in
                      [*row.get('history_requests', []), *([row['request']] if row.get('request') else []),
                       *row.get('price_history_requests',[]),*([row['price_request']]if row.get('price_request')else[])])
+    for path in prior_requests:
+        root=Path(path).parent/'inputs'
+        intent=root/'INPUTS.json'
+        if intent.exists():
+            original=strict_json(read_fixed(intent,maximum=16777216))
+            roots[root]=original['day']  # 显式旧任务引用保留原读slot责任，程序/配置换代不丢来源身份。
+    for descriptor in prior_inputs:
+        path=Path(descriptor['path'])  # 未物化REQUEST时已经固定的INPUTS原件绝对路径。
+        original=strict_json(read_fixed(path,maximum=16777216,identity=descriptor['sha256']))  # 迁移绑定原字节，缺失/变更明确失败。
+        if path.name!='INPUTS.json':raise ValueError('daily prior input intent path differs')
+        roots[path.parent]=original['day']  # 仅恢复已尝试原slot，不推断REQUEST缺失代表未派发。
     slots = state['slots']
     discovery = state.setdefault('discovery', {})
     discovered = state.setdefault('discovered', set())

@@ -1,0 +1,258 @@
+"""原输入owner→原更新发布→固定snapshot→真实回环HTTP/SDK；不运行原生DLL。"""
+from copy import deepcopy
+from decimal import Decimal
+import hashlib
+import json
+from pathlib import Path
+import queue
+import sys
+import threading
+import time
+
+sys.path.insert(0,str(Path(__file__).parent))
+from msf_fixture import DAYS,FrozenFetch,QmtTransport,encode,plan,query,write,capture_metadata
+import pytest
+
+from integrations.guanheng import daily_data_inputs as inputs,daily_data_update as update
+from integrations.guanheng.market_generation import GenerationPublisher
+from integrations.guanheng.market_service import MarketHTTPServer
+from integrations.guanheng.market_snapshot import SnapshotSourceMarket
+from integrations.guanheng.market_supplement_capture import SupplementPending
+from integrations.guanheng_market_client import API_VERSION,MarketClient
+from integrations.guanheng_market_client.daily_facts import FIELDS,STATS
+
+
+class ReferenceStub:
+    """证券资料是无关边界；本用例实际验证新增市场事实的完整生产/发布链。"""
+    def __init__(self,*args):self.closed=False
+    def close(self):self.closed=True
+
+
+class BaseMarket:
+    def __init__(self):self.closed=False
+    def close(self):self.closed=True
+
+
+def owner_fixture(root):
+    from integrations.guanheng.day_facts_prepare import prepare_facts_catalog
+    pool=dict(date=DAYS[-1],members=['sh.600000'],market_count=1,unresolved_identity_count=0)
+    universe=write(root/'seed-universe.json',pool)
+    facts=dict(schema='guanheng.daily-source-facts.v1',date=DAYS[-1],members=['SSE.600000'],
+        fields=FIELDS,rows=[[DAYS[-1],'SSE.600000','1','1','100','1','1','qualified']],
+        units=dict(close_reference='CNY',preclose='CNY',volume='share',turn='percent_of_float'),
+        stats={k:0 for k in STATS},provenance=dict(packet_sha256='a'*64,universe_sha256=universe['sha256'],
+                                               source_received_at='2026-11-06T00:00:00+00:00'))
+    day_facts=prepare_facts_catalog([facts],root/'old-facts')
+    calendar=write(root/'calendar.json',dict(coverage_start='2026-01-01',coverage_end='2026-12-31'))
+    reference=write(root/'reference.json',{})
+    base=write(root/'base.json',dict(mode='source-catalog',stores=[],native_reader={}))
+    basic=root/'basic';basic.mkdir()
+    raw=encode(dict(symbol='600000.SH',value=None))+b'\n';(basic/'rows.jsonl').write_bytes(raw)
+    write(basic/'RESULT.json',dict(state='completed',rows_sha256=hashlib.sha256(raw).hexdigest()))
+    capture=root/'seed';capture.mkdir()
+    original_request=dict(universe=universe,start_date='20261104',end_date='20261105')
+    manifest=write(capture/'manifest.json',dict(request=original_request))
+    metadata=capture_metadata()
+    binding=metadata['binding']
+    write(capture/'BINDING.json',metadata)
+    native=root/'native';native.mkdir()
+    archive=write(root/'archive.json',{})
+    imported=write(native/'IMPORT.json',dict(schema='guanheng.qmt-analysis-native-import.v1',state='completed',
+        capture_sha256=manifest['sha256'],helper_sha256='d'*64,archive=archive,securities=1,
+        observation_date='20261105',stores=[],source_kind='sdk-synthetic',source_received_at='2026-11-06T00:00:00+00:00'))
+    write(native/'PROVENANCE.json',dict(capture_sha256=manifest['sha256'],capture=str(capture),
+        request=original_request,batches=[dict(binding=binding)]))
+    template=dict(schema='guanheng.daily-data-update.v1',publication_directory=str(root/'publication'),
+        daily_facts=day_facts,security_reference=reference,calendar=calendar,base_configuration=base,
+        basic_capture=str(basic),helper=dict(path=str(root/'not-invoked-helper'),sha256='d'*64),
+        previous_stores=[],previous_archives=[],protected_slots=[],additional_archives=[],prepared_native=imported)
+    config=dict(schema='guanheng.daily-data-service.v1',directory=str(root/'tasks'),raw_store=str(root/'raw'),
+        template=template,inputs=dict(connections=dict(batch={},hpr={}),cache_from='20261104',max_rows=40,
+            source_kind='sdk-synthetic',cache_seed=dict(directory=str(capture),sha256=manifest['sha256']),
+            supplement_facts=plan(('etf_total_shares','SSE.510300')),
+            public_facts=dict(source={},allowed_hosts=[],seconds=30,max_requests=100,max_bytes=4*1024*1024,
+                response_bytes=1024*1024,timeout_seconds=1)),schedule=dict(timezone='Asia/Shanghai',at='09:00',poll_seconds=1),
+        cycle_seconds=60,retry_seconds=1)
+    return config,pool,facts,original_request
+
+
+def patch_owner_dependencies(monkeypatch,config,pool,facts,original_request):
+    fetches=[];transports=[];healthy={'value':False}
+    def make_fetch(*args,**kwargs):
+        value=FrozenFetch(bad_day=None if healthy['value'] else DAYS[-1]);fetches.append(value);return value
+    def make_transport(*args,**kwargs):
+        value=QmtTransport();transports.append(value);return value
+    def public_packet(reader,fetch,source,day,**kwargs):
+        sha=reader.objects.put(encode(pool));return dict(universe=dict(sha256=sha)),deepcopy(facts)
+    monkeypatch.setattr('guanheng_app.observation.source_fetch.Fetcher',make_fetch)
+    monkeypatch.setattr('integrations.guanheng.source_history_transport.BoundHistorySource',make_transport)
+    monkeypatch.setattr('integrations.guanheng.day_facts_capture.capture_day_facts',public_packet)
+    monkeypatch.setattr('guanheng_app.observation.calendars.official_calendar',lambda c:([dict(date=d,is_open=1) for d in DAYS],None))
+    monkeypatch.setattr('guanheng_qmt_shm.analysis_batch_source.read_capture',lambda p:dict(request=original_request))
+    monkeypatch.setattr('integrations.guanheng.security_reference.SecurityReference',ReferenceStub)
+    monkeypatch.setattr('guanheng_qmt_shm.market_daily_cache.assess',lambda p:dict(full_coverage=True))
+    def gap_plan(cache,reference,snapshot,output,**kwargs):
+        return write(Path(output)/'PLAN.json',dict(schema='guanheng.daily-gap-plan.v1',snapshot_id=snapshot['snapshot_id'],
+            capture=cache,authorized_from=kwargs['authorized_from'],authorized_to=kwargs['authorized_to'],tasks=[]))
+    monkeypatch.setattr('integrations.guanheng.daily_gap_update.prepare_gap_plan',gap_plan)
+    monkeypatch.setattr('integrations.guanheng.source_market.create_native_source_market',lambda *a,**k:BaseMarket())
+    return fetches,transports,healthy
+
+
+def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypatch):
+    config,pool,facts,original_request=owner_fixture(tmp_path)
+    config['inputs']['supplement_facts']=plan(('etf_total_shares','SSE.510300'),
+        ('etf_total_shares','SZSE.159780'),('margin_balance','CN.MARGIN_REPORT'),
+        ('market_turnover','CN.SH_SZ'),('market_turnover_proxy','CN.SH_SZ'))
+    from integrations.guanheng.daily_data_service import validate_configuration
+    validate_configuration(config)
+    fetches,transports,healthy=patch_owner_dependencies(monkeypatch,config,pool,facts,original_request)
+    work=tmp_path/'inputs'
+    with pytest.raises(SupplementPending):inputs.prepare_update(config,DAYS[-1],work,deadline=time.monotonic()+20)
+    assert not (work/'UPDATE.json').exists()
+    assert fetches[-1].closed and transports[-1].closed
+    assert len(json.loads((work/'supplement/STATE.json').read_bytes())['rows'])==8
+    healthy['value']=True
+    descriptor=inputs.prepare_update(config,DAYS[-1],work,deadline=time.monotonic()+20)
+    request=json.loads(Path(descriptor['path']).read_bytes())
+    assert request['supplement_facts']['path'].endswith('catalog.json')
+    assert fetches[-1].closed and transports[-1].closed
+    assert len(fetches[-1].calls)==2
+    # 已固定输入再次读取不构造任何新来源对象。
+    before=len(fetches)
+    assert inputs.prepare_update(config,DAYS[-1],work,deadline=time.monotonic()+20)==descriptor
+    assert len(fetches)==before
+    result=update.run_update(request,tmp_path/'update',deadline=time.monotonic()+20)
+    assert result['status']=='published'
+    current=json.loads((tmp_path/'publication/CURRENT.json').read_bytes())
+    published=json.loads(Path(current['configuration']['path']).read_bytes())
+    snapshot=json.loads(Path(published['snapshot']['path']).read_bytes())
+    assert published['supplement_facts']==request['supplement_facts']
+    assert snapshot['provenance']['supplement_facts_sha256']==request['supplement_facts']['sha256']
+    ready=queue.Queue();stop=threading.Event();errors=[];bases=[]
+    def serve():
+        server=None
+        try:
+            market=SnapshotSourceMarket(published,max_response_bytes=4*1024*1024)
+            bases.append(market._base)
+            server=MarketHTTPServer(('127.0.0.1',0),market,'synthetic-msf-http-token');server.timeout=.05
+            ready.put(server.server_port)
+            while not stop.is_set():server.handle_request()
+        except BaseException as exc:errors.append(type(exc).__name__);ready.put(None)
+        finally:
+            if server is not None:server.server_close()
+    thread=threading.Thread(target=serve);thread.start()
+    try:
+        port=ready.get(timeout=5);assert port is not None,errors
+        client=MarketClient(f'http://127.0.0.1:{port}','synthetic-msf-http-token')
+        reply=client.source_supplement_query(query(snapshot['snapshot_id']))
+        assert reply['status']['code']=='Ok'
+        assert [r['value'] for r in reply['data']['rows']]==['1750001250','1750001250']
+        assert reply['data']['source_sha256']==request['supplement_facts']['sha256']
+        for metric,symbol,value,unit in [('etf_total_shares','SZSE.159780','4037248583','share'),
+                ('margin_balance','CN.MARGIN_REPORT','12345678900','CNY'),
+                ('market_turnover','CN.SH_SZ','2120874000000','CNY'),
+                ('market_turnover_proxy','CN.SH_SZ','301','unknown')]:
+            selected=client.source_supplement_query(query(snapshot['snapshot_id'],metric=metric,symbols=[symbol]))
+            assert selected['status']['code']=='Ok'
+            assert len(selected['data']['rows'])==2 and selected['data']['gaps']==[]
+            assert {Decimal(r['value']) for r in selected['data']['rows']}=={Decimal(value)}
+            assert {r['unit'] for r in selected['data']['rows']}=={unit}
+        assert client.source_supplement_query(query('9'*64))['status']['code']=='Conflict'
+    finally:stop.set();thread.join(5)
+    assert not thread.is_alive() and not errors
+    assert bases[0].closed
+    # 同日成功重入保持同CURRENT，而非另发一个generation。
+    before=(tmp_path/'publication/CURRENT.json').read_bytes()
+    update.run_update(request,tmp_path/'update',deadline=time.monotonic()+20)
+    assert (tmp_path/'publication/CURRENT.json').read_bytes()==before
+
+
+def test_input_owner_closes_sources_when_qmt_binding_unresolved(tmp_path,monkeypatch):
+    config,pool,facts,original_request=owner_fixture(tmp_path)
+    fetches,transports,healthy=patch_owner_dependencies(monkeypatch,config,pool,facts,original_request)
+    healthy['value']=True
+    def pending(*a,**k):
+        value=QmtTransport(binding_pending=True);transports.append(value);return value
+    monkeypatch.setattr('integrations.guanheng.source_history_transport.BoundHistorySource',pending)
+    from guanheng_qmt_shm.read_retention_client import RetainedReadPending
+    with pytest.raises(RetainedReadPending):inputs.prepare_update(config,DAYS[-1],tmp_path/'inputs',deadline=time.monotonic()+20)
+    assert fetches[-1].closed and transports[-1].closed
+    assert fetches[-1].calls==[]
+    assert not (tmp_path/'inputs/UPDATE.json').exists()
+
+
+def test_optional_supplement_public_budget_timeout_keeps_latest_and_publishes(tmp_path,monkeypatch):
+    """旧缺口耗尽公共预算后仍发布已得最新事实；原owner总D继续有效。"""
+    from guanheng_app.observation.source_fetch import SourceFailure
+    config,pool,facts,original_request=owner_fixture(tmp_path)
+    config['inputs']['supplement_facts']=plan(('etf_total_shares','SSE.510300'),
+        ('margin_balance','CN.MARGIN_REPORT'),required=False)
+    fetches,transports,healthy=patch_owner_dependencies(monkeypatch,config,pool,facts,original_request)
+    healthy['value']=True
+    class TimeoutOld(FrozenFetch):
+        def get(self,url,params=None,referer=None):
+            # 先让最新日两项成功，旧日期触发生产CollectionBudget的真实超时分类。
+            if params.get('STAT_DATE')==DAYS[0]:self.budget.deadline=time.monotonic()-1
+            return super().get(url,params,referer)
+    created=[]
+    def make_fetch(*args,**kwargs):
+        result=TimeoutOld();created.append(result);return result
+    monkeypatch.setattr('guanheng_app.observation.source_fetch.Fetcher',make_fetch)
+    descriptor=inputs.prepare_update(config,DAYS[-1],tmp_path/'inputs',deadline=time.monotonic()+20)
+    request=json.loads(Path(descriptor['path']).read_bytes())
+    result=update.run_update(request,tmp_path/'update',deadline=time.monotonic()+20)
+    assert result['status']=='published' and result['supplement_complete'] is False
+    catalog=json.loads(Path(request['supplement_facts']['path']).read_bytes())
+    assert len(catalog['rows'])==2 and {r['date'] for r in catalog['rows']}=={DAYS[-1]}
+    assert len(catalog['gaps'])==2 and any(r['reason']=='collection_timeout' for r in catalog['gaps'])
+    assert (tmp_path/'publication/CURRENT.json').exists() and created[-1].closed
+
+
+def test_committed_snapshot_resume_rechecks_proof_before_publication(tmp_path,monkeypatch):
+    config,pool,facts,original_request=owner_fixture(tmp_path)
+    fetches,transports,healthy=patch_owner_dependencies(monkeypatch,config,pool,facts,original_request)
+    healthy['value']=True
+    descriptor=inputs.prepare_update(config,DAYS[-1],tmp_path/'inputs',deadline=time.monotonic()+20)
+    request=json.loads(Path(descriptor['path']).read_bytes())
+    def interrupt(*args,**kwargs):raise InterruptedError('after committed snapshot, before CURRENT')
+    with monkeypatch.context() as scoped:
+        scoped.setattr(GenerationPublisher,'publish',interrupt)
+        with pytest.raises(InterruptedError):update.run_update(request,tmp_path/'update',deadline=time.monotonic()+20)
+    assert not (tmp_path/'publication/CURRENT.json').exists()
+    state=json.loads((tmp_path/'update/STATE.json').read_bytes())
+    assert 'snapshot' in state['stages']
+    from integrations.guanheng.market_supplement_store import MarketSupplementStore
+    store=MarketSupplementStore(request['supplement_facts'])
+    try:
+        row=store.catalog['rows'][0]
+        proof=json.loads(store._objects.get(row['source_sha256']))
+        parent=store._objects.path(proof['parents'][0]);before=parent.read_bytes()
+        parent.write_bytes(b'corrupted after snapshot commit')
+        with pytest.raises(ValueError):update.run_update(request,tmp_path/'update',deadline=time.monotonic()+20)
+        assert not (tmp_path/'publication/CURRENT.json').exists()
+        parent.write_bytes(before)
+    finally:store.close()
+    result=update.run_update(request,tmp_path/'update',deadline=time.monotonic()+20)
+    assert result['status']=='published'
+
+
+def test_snapshot_proof_walk_obeys_original_owner_cancel_before_output(tmp_path,monkeypatch):
+    config,pool,facts,original_request=owner_fixture(tmp_path)
+    fetches,transports,healthy=patch_owner_dependencies(monkeypatch,config,pool,facts,original_request)
+    healthy['value']=True
+    descriptor=inputs.prepare_update(config,DAYS[-1],tmp_path/'inputs',deadline=time.monotonic()+20)
+    request=json.loads(Path(descriptor['path']).read_bytes())
+    calls=0
+    def check():
+        nonlocal calls
+        calls+=1
+        if calls>=3:raise InterruptedError('cancel during added source-proof traversal')
+    from integrations.guanheng.market_snapshot_prepare import prepare_market_snapshot
+    output=tmp_path/'cancelled-snapshot'
+    with pytest.raises(InterruptedError):
+        prepare_market_snapshot(json.loads(Path(request['base_configuration']['path']).read_bytes()),
+            request['prepared_native']['path'],request['universe']['path'],request['basic_capture'],output,
+            supplement_facts=request['supplement_facts'],check=check)
+    assert calls>=3
+    assert not output.exists()

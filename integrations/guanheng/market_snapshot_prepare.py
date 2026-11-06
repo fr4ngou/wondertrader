@@ -93,7 +93,7 @@ def load_snapshot_basics(members,basic_capture):
     return basics,basic_result['rows_sha256']
 
 
-def prepare_market_snapshot(base_config,native_import,universe,basic_capture,output,*,daily_facts=None,security_reference=None,calendar=None,additional_archives=(),maximum_history_rows=2000):
+def prepare_market_snapshot(base_config,native_import,universe,basic_capture,output,*,daily_facts=None,security_reference=None,calendar=None,additional_archives=(),maximum_history_rows=2000,supplement_facts=None,check=lambda: None):
     """独占新输出，返回原服务配置；调用方负责现有服务的统一版本切换。
 
     universe必须是同次QAB原请求绑定的定日股票池。basic_capture是已完成的
@@ -146,6 +146,14 @@ def prepare_market_snapshot(base_config,native_import,universe,basic_capture,out
         from .day_facts import DayFactsStore
         facts=DayFactsStore(daily_facts);facts.close()
         value['provenance']['daily_facts_sha256']=daily_facts['sha256']  # 固定定日补充事实目录，随资料及价格一起换代。
+    if supplement_facts is not None:
+        from .market_supplement_store import MarketSupplementStore
+        supplement=MarketSupplementStore(supplement_facts,observation_date=value['observation_date'])
+        try:
+            supplement.verify_sources(check=check)
+        finally:
+            supplement.close()
+        value['provenance']['supplement_facts_sha256']=supplement_facts['sha256']  # 固定独立事实目录原件，与价格共同绑定。
     if security_reference is not None or calendar is not None:
         from .security_reference import SecurityReference
         reference=SecurityReference(security_reference,calendar);reference.close()
@@ -157,6 +165,7 @@ def prepare_market_snapshot(base_config,native_import,universe,basic_capture,out
     path=output/'snapshot.json';path.write_bytes(canonical(value))
     config=dict(mode='source-market-snapshot',base=base,snapshot=dict(path=str(path.absolute()),sha256=sha(path)))
     if daily_facts is not None:config['daily_facts']=deepcopy(daily_facts)
+    if supplement_facts is not None:config['supplement_facts']=deepcopy(supplement_facts)
     if security_reference is not None:config['security_reference']=deepcopy(security_reference)
     if calendar is not None:config['calendar']=deepcopy(calendar)
     target=output/'source.json';target.write_bytes(canonical(config))

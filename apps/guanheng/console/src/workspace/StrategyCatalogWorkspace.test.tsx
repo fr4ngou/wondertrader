@@ -29,3 +29,13 @@ test('读取失败后手动恢复，空目录明确展示',async()=>{
  fireEvent.click(screen.getByRole('button',{name:'重新读取策略'}))
  expect(await screen.findByText('当前没有登记策略。')).toBeVisible()
 })
+test('切换原版研究条目展示归一化模型且不读取当前账户详情',async()=>{
+ const original={strategy_id:'resonance-original-351f9d5-stable',strategy_version:'0.1.0a1',display_name:'共振原版（原组合对照）',description:'原stable组合对照',historical_versions:[]}
+ const fetch=vi.fn().mockResolvedValue(Response.json({...catalog,strategies:[...catalog.strategies,original]}));vi.stubGlobal('fetch',fetch);mount()
+ await screen.findByText('运行归属：resonance-regime-v1')
+ fireEvent.change(screen.getByLabelText('选择策略'),{target:{value:original.strategy_id+'@'+original.strategy_version}})
+ expect(await screen.findByText('原版研究与回测')).toBeVisible()
+ expect(screen.queryByText('运行归属：resonance-regime-v1')).toBeNull()
+ expect(screen.getByText(/初始归一化权益为 1/)).toBeVisible()
+ expect(fetch.mock.calls.every(call=>call[0]==='/v1/ui/strategy-catalog')).toBe(true)
+})

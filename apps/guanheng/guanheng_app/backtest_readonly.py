@@ -106,6 +106,14 @@ def router(root):
         return await read(request, lambda deadline: archive.visual(run_id, receipt_sha256, deadline,
             ledger=True, day=day, offset=offset, limit=limit), ('receipt_sha256', 'day', 'offset', 'limit'))
 
+    @routes.get('/archive/{run_id}/signals')
+    async def signals(request: Request, run_id: str, receipt_sha256: str = Query(pattern=r'^[a-f0-9]{64}$'),
+                      day: int | None = Query(default=None, ge=19000101, le=29991231),
+                      offset: int = Query(default=0, ge=0, le=65536), limit: int = Query(default=50, ge=1, le=50)):
+        """原版BUY/SELL信号分页，与组合次日模拟调仓分别读取。"""
+        return await read(request, lambda deadline: archive.visual(run_id, receipt_sha256, deadline,
+            signals=True, day=day, offset=offset, limit=limit), ('receipt_sha256', 'day', 'offset', 'limit'))
+
     @routes.get('/archive/{run_id}')
     @routes.get('/archive/{run_id}/{selection}')
     @routes.get('/archive/{run_id}/records/{index}')

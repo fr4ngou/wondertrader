@@ -16,6 +16,8 @@ E:\guanheng\wt\venv\Scripts\guanheng-wt-service.exe stop --service-config E:\gua
 
 成功启动返回`state=ready`；来源尚未具备时返回组件的实际等待状态。重复启动返回`changed=false`并保持同一控制身份。正常停止返回`state=stopped`，重复停止返回`changed=false`。停止完成后再次启动会生成新`control_id`并保持同一`instance_id`，旧代状态和关闭收据继续保留。
 
+纯历史服务升级使用原稳定CURRENT与同instance_id：先准备新安装、固定新history descriptor/Runtime/ServiceConfig及逐级SHA，沿旧service执行stop，确认正常closed且旧owner实际退出，再用支持该动作的新WT安装执行`guanheng-wt-service.exe adopt-bootstrap --service-config <新service.json>`。该动作仅接受前后均只含history/source_market的正常关闭代；运行中、故障/未知、跨实例或含交易/账户等组件时保留原CURRENT并明确失败。它复用原租约和启动链，不自动停止。默认start继续按前代配置恢复，更新bootstrap路径后直接start仍沿前代；采用后普通start沿新代恢复。数据请求和未物化INPUTS/REQUEST迁移须在旧owner退出后再次核查。
+
 `state=faulted`、`process_lost`、`start_timeout`或`stop_timeout`进入故障处理。保留公开`CURRENT.json`、本代控制目录、代际配置和业务原件，沿[故障处理规范](incidents.md)核查。服务入口不会自动重启故障代，也不会按进程名结束外部进程。
 
 固定公开路径`CURRENT.json`供观衡等只读消费者发现当前代。该文件严格为五字段协议，不存储环境、账户、凭证或启动命令。生产安装、配置变更和现场切换仍按[发布规范](release.md)执行。

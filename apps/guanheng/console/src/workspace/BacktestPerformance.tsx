@@ -9,6 +9,8 @@ import BacktestVisualChart, { reportDate, reportPct } from './BacktestVisualChar
 import BacktestDateDetail from './BacktestDateDetail'
 import './backtest-performance.css'
 import { performanceKey } from './useBacktestReports'
+import { ORIGINAL_NATIVE_REPORT_SCHEMA } from './originalBacktestApi'
+import OriginalNativeModel from './OriginalNativeModel'
 
 export const reportKey = (e: ArchiveEntry) => e.run_id + e.receipt_sha256
 /** 报告序号仅用于区分选项，本金取完成证明绑定的归属摘要或已核验绩效；标签不参与金融推断。 */
@@ -72,6 +74,8 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
       <div className="bt-report-meta">版本 {leftValue.strategy.version} · {reportDate(Math.floor(leftValue.configuration.start / 10000))} 至 {reportDate(Math.floor(leftValue.configuration.end / 10000))} · 初始本金 {backtestMoney(metrics.initial_capital_cny)} 元</div>
       <dl className="bt-metric-strip">{metricItems.map(([label, value], i) => <div key={label}><dt>{label}</dt><dd className={i === 0 ? 'bt-return' : ''}>{value}</dd>{rightValue ? <small>对比：{i === 0 ? reportPct(rightValue.metrics.total_return_pct) : i === 1 ? reportPct(rightValue.metrics.observed_max_drawdown_pct) : backtestMoney(i === 2 ? rightValue.metrics.last_nav_cny : rightValue.metrics.native_cumulative_fees_cny)}</small> : null}</div>)}</dl>
       {rightValue ? <p className="bt-comparison-note">对比本金 {backtestMoney(rightValue.metrics.initial_capital_cny)} 元 · 至 {reportDate(Math.floor(rightValue.configuration.end / 10000))}。{comparison.data?.differences.length ? `条件差异：${comparison.data.differences.map(k => differenceNames[k]).join('、')}。` : '所列输入和模型条件一致。'}</p> : null}
+      {leftValue.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA ? <OriginalNativeModel entry={entry} label="主报告" /> : null}
+      {right && rightValue?.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA ? <OriginalNativeModel entry={right} label="对比报告" /> : null}
       {!leftValue.observations.available ? <p role="status">暂无有效资金记录，绩效与曲线未知。</p> : <div className="bt-analysis-grid">
         <section className="bt-chart-panel" aria-label="收益与回撤">
           <div className="bt-chart-controls"><div className="bt-segments"><button aria-pressed={mode === 'return'} onClick={() => setMode('return')}>收益率</button><button aria-pressed={mode === 'nav'} onClick={() => setMode('nav')}>净值</button></div>

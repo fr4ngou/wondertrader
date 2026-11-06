@@ -354,18 +354,21 @@ class BacktestPorter:
 
     def __init__(self, library: Path, library_sha256: str, abi_probe: Path, abi_probe_sha256: str, *,
                  symbols: tuple[str, ...], execution_symbols: tuple[str, ...], loader: Callable[[str, str], tuple[Bar, ...]],
-                 callbacks: Callbacks, max_bars: int = 32768):
+                 callbacks: Callbacks, max_bars: int = 32768, max_execution_symbols: int = 8):
         if os.name != "nt" or C.sizeof(C.c_void_p) != 8:
             raise AdmissionError("仅授Windows x64原生ABI")
         if type(symbols) is not tuple or not 1 <= len(symbols) <= 16 or any(type(s) is not str for s in symbols) or len(set(symbols)) != len(symbols):
             raise AdmissionError("读取证券必须为1..16个不同标识的tuple")
         for symbol in symbols:
             _symbol(symbol)
-        if (type(execution_symbols) is not tuple or len(execution_symbols) > 8
+        # 原8ETF族保留默认容量；独立原版9ETF显式选择其完整执行集合，仍由本Porter逐项核同。
+        if type(max_execution_symbols) is not int or not 1 <= max_execution_symbols <= 16:
+            raise AdmissionError("执行profile容量需要1..16的显式整数")
+        if (type(execution_symbols) is not tuple or len(execution_symbols) > max_execution_symbols
                 or any(type(s) is not str for s in execution_symbols)
                 or len(set(execution_symbols)) != len(execution_symbols)
                 or not set(execution_symbols) <= set(symbols)):
-            raise AdmissionError("执行证券必须为读取集合的显式不同子集，最多8个")
+            raise AdmissionError("执行证券必须为读取集合的显式不同子集且在profile容量内")
         if type(max_bars) is not int or not 1 <= max_bars <= 32768:
             raise AdmissionError("历史条数预算必须为1..32768")
         if not isinstance(callbacks, Callbacks) or not all(callable(c) for c in (loader, callbacks.on_init, callbacks.on_bar, callbacks.on_calculate)):

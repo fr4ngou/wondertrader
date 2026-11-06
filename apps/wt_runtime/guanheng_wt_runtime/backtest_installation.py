@@ -4,11 +4,11 @@ import re
 import time
 
 from .strategy_host import (HostError, InstallationBinding, INSTALL_SCHEMA,
-    RETAINED_REPORT_SCHEMA, PER_DATE_REPORT_SCHEMA, _BASES, _bytes, _check, _digest, _encode, _path,
+    RETAINED_REPORT_SCHEMA, PER_DATE_REPORT_SCHEMA, ORIGINAL_REPORT_SCHEMA, _BASES, _bytes, _check, _digest, _encode, _path,
     _tree, _write, verify_install)
 
 
-def write_binding(output, *, python, native_root, abi_probe, basefiles, seconds=60.0, replay_catalog=None):
+def write_binding(output, *, python, native_root, abi_probe, basefiles, seconds=60.0, replay_catalog=None, report_schema=None):
     """同步校验安装后独占写入新manifest，返回原InstallationBinding。
 
     调用方提供受管绝对路径及五种基础资料。seconds为包含全部读取与校验的总秒数；
@@ -40,7 +40,9 @@ def write_binding(output, *, python, native_root, abi_probe, basefiles, seconds=
         files, _ = _tree(root, 512*1024*1024, 8192, deadline)
         return {path.relative_to(root).as_posix(): artifact(path)['sha256'] for path in files}
 
-    value = dict(schema=INSTALL_SCHEMA, report_schema=RETAINED_REPORT_SCHEMA,
+    if report_schema is not None and (report_schema != ORIGINAL_REPORT_SCHEMA or replay_catalog is not None):
+        raise HostError('显式报告族需要独立原版WT且不能同时选择逐日目录')
+    value = dict(schema=INSTALL_SCHEMA, report_schema=report_schema or RETAINED_REPORT_SCHEMA,
         python=artifact(python), python_config=artifact(config),
         python_runtime=[artifact(path) for path in (runtime/'python.exe', *sorted(runtime.glob('python3*.dll')))],
         site_root=str(site), site_files=inventory(site), native_root=str(native_root),

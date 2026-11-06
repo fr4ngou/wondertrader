@@ -57,3 +57,5 @@ Native无failure，已写日志且写失败0；首次价格身份拒绝保留，
 ## 历史快照
 
 以下均为当时原件，运行身份以上方最新事实为准：[11月4日CURRENT](CURRENT-history-20261104.md)、[cash3前CURRENT](CURRENT-history-20261104-before-cash3.md)、[Runtime14前CURRENT](CURRENT-history-20261105-before-runtime14.md)、[11月4日NOW](NOW-history-20261104.md)。
+
+2026-11-06：市场补充事实每日接入、原版策略与WT回测已实现并通过限定调用链验收，正式安装采用按各发布证据登记。代码保留当前已发行价格先行/请求恢复与执行恢复；原版信号使用WT原生撮合，原组合归一化对照独立。来源与无杠杆可执行资格分别说明。见[补充事实](../specs/market-supplement-facts.md)、[WT原版回测](../specs/original-native-backtest.md)。

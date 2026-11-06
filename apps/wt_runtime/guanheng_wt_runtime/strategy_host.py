@@ -27,6 +27,7 @@ INSTALL_SCHEMA = "nsh-wt-install-v1"
 # 报告业务schema由session唯一validator拥有；不保留旧DTO兼容分支。
 RETAINED_REPORT_SCHEMA = 'guanheng.retained-replay-report.v1'
 PER_DATE_REPORT_SCHEMA = 'guanheng.retained-per-date-replay-report.v1'
+ORIGINAL_REPORT_SCHEMA = 'guanheng.original-native-replay-report.v1'
 _BASES = ("sessions", "commodities", "contracts", "holidays", "fees")
 _PACKAGES = {
     'guanheng-wt-runtime': 'guanheng_wt_runtime',
@@ -246,7 +247,7 @@ def verify_install(data, expected, deadline):
         raise HostError("受信安装清单身份漂移")
     value = _json(data, 2 * 1024 * 1024, deadline)
     _keys(value, ("schema", "python", "python_config", "python_runtime", "site_root", "site_files", "native_root", "native_files", "library", "abi_probe", "basefiles", "report_schema"), ('replay_catalog',))
-    if value["schema"] != INSTALL_SCHEMA or value["report_schema"] not in (RETAINED_REPORT_SCHEMA, PER_DATE_REPORT_SCHEMA):
+    if value["schema"] != INSTALL_SCHEMA or value["report_schema"] not in (RETAINED_REPORT_SCHEMA, PER_DATE_REPORT_SCHEMA, ORIGINAL_REPORT_SCHEMA):
         raise HostError("安装schema未知")
     if (value['report_schema'] == PER_DATE_REPORT_SCHEMA) != ('replay_catalog' in value):
         raise HostError('逐日安装需要明确目录绑定；默认安装保持原报告族')
@@ -284,6 +285,8 @@ def verify_install(data, expected, deadline):
         required |= {'guanheng_wt_runtime/retained_per_date_replay.py',
             'guanheng_market_client/qmt_native_replay.py', 'integrations/guanheng/qmt_native_replay.py',
             'integrations/guanheng/qmt_native_adjustment.py'}
+    if value['report_schema'] == ORIGINAL_REPORT_SCHEMA:
+        required |= {'guanheng_wt_runtime/original_native_replay.py','guanheng_wt_runtime/original_native_cli.py'}
     _verify_packages(_path(value['site_root']), value['site_files'], deadline,
                      per_date=value['report_schema'] == PER_DATE_REPORT_SCHEMA)
     if not required <= set(value["site_files"]):
@@ -464,6 +467,9 @@ class StrategyHost:
             if report_schema == PER_DATE_REPORT_SCHEMA:
                 from .retained_per_date_replay import REPORT_SCOPE
                 scope = REPORT_SCOPE
+            elif report_schema == ORIGINAL_REPORT_SCHEMA:
+                from .original_native_replay import REPORT_SCOPE
+                scope = REPORT_SCOPE
             if (report_schema == PER_DATE_REPORT_SCHEMA
                     and payload['source']['manifest_sha256'] != install['replay_catalog']['manifest_sha256']):
                 raise HostError('会话与安装的逐日行情目录身份失配')
@@ -632,25 +638,31 @@ class StrategyHost:
         from guanheng_strategy_core.contracts import canonical_bytes
         from .retained_replay import ORIGINAL_BT_SHA256, ABI_PROBE_SHA256
         per_date = request['report_schema'] == PER_DATE_REPORT_SCHEMA
+        original = request['report_schema'] == ORIGINAL_REPORT_SCHEMA
         payload = request['session']['session'] if per_date else request['session']
-        need_input = _digest(canonical_bytes(payload))
-        if per_date:
-            need_input = _digest(_encode((need_input, request['session']['source'])))
-            if report.get('per_date_source') != request['session']['source']:
-                raise HostError('逐日报告来源未绑定本次完整窗口身份')
-        if (report['input_sha256'] != need_input or report['policy'] != payload['policy']
-                or report['historical_model'] != (None if per_date else payload['model'])
-                or report['configuration_sha256'] != _digest(canonical_bytes(payload['request']['configuration']))):
-            raise HostError('唯一策略报告未绑定本次配置、模型和策略资本')
-        expected_session = _digest(_encode((need_input, str(directory), request['backtest']['start'],
-            request['backtest']['end'], request['backtest']['name'], report['native_files'], ORIGINAL_BT_SHA256, ABI_PROBE_SHA256)))
-        if report['session_id'] != expected_session:
-            raise HostError('唯一策略报告原生会话身份失配')
-        expected_days = sorted({int(row['trade_date'].replace('-', ''))
-            for row in payload['request']['history']['observations']})[1:]
-        expected_days = [day for day in expected_days if day >= request["backtest"]["start"] // 10000]
-        if [record["trading_date"] for record in report["records"]] != expected_days:
-            raise HostError("会话闭合计算日期集合缺失或越界")
+        if original:
+            from .original_native_replay import verify_host_report
+            verify_host_report(report,payload,directory=directory,start=request['backtest']['start'],
+                end=request['backtest']['end'],name=request['backtest']['name'],basefiles=install['basefiles'])
+        else:
+            need_input = _digest(canonical_bytes(payload))
+            if per_date:
+                need_input = _digest(_encode((need_input, request['session']['source'])))
+                if report.get('per_date_source') != request['session']['source']:
+                    raise HostError('逐日报告来源未绑定本次完整窗口身份')
+            if (report['input_sha256'] != need_input or report['policy'] != payload['policy']
+                    or report['historical_model'] != (None if per_date else payload['model'])
+                    or report['configuration_sha256'] != _digest(canonical_bytes(payload['request']['configuration']))):
+                raise HostError('唯一策略报告未绑定本次配置、模型和策略资本')
+            expected_session = _digest(_encode((need_input, str(directory), request['backtest']['start'],
+                request['backtest']['end'], request['backtest']['name'], report['native_files'], ORIGINAL_BT_SHA256, ABI_PROBE_SHA256)))
+            if report['session_id'] != expected_session:
+                raise HostError('唯一策略报告原生会话身份失配')
+            expected_days = sorted({int(row['trade_date'].replace('-', ''))
+                for row in payload['request']['history']['observations']})[1:]
+            expected_days = [day for day in expected_days if day >= request["backtest"]["start"] // 10000]
+            if [record["trading_date"] for record in report["records"]] != expected_days:
+                raise HostError("会话闭合计算日期集合缺失或越界")
         if dict(report["native_files"]) != {name: install["basefiles"][name]["sha256"] for name in _BASES}:
             raise HostError("会话原生基础资料身份失配")
         files, _ = _tree(directory / "outputs", self.budgets.native_bytes, self.budgets.max_files, deadline)

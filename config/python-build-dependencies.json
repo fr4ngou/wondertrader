@@ -20,7 +20,8 @@
     "runtime_status.py",
     "security.py",
     "source_history.py",
-    "strategy_market.py"
+    "strategy_market.py",
+    "supplement_facts.py"
   ],
   "client_optional_dependencies": {
     "storage": [

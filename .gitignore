@@ -6,3 +6,5 @@ __pycache__/
 
 # 原生构建目录由固定源码和依赖重建，产物不进入源码提交。
 /build/
+
+/research/resonance-20261105/

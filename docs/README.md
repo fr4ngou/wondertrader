@@ -86,3 +86,5 @@ WonderTrader 官方文档地址：<https://wondertrader.github.io/#/>；源码�
 国信内置开发：[Python环境、API与性能手册](runbooks/guosen-qmt-python.md)、[148项函数/属性索引](modules/qmt-native-api-index.md)、[行情数据结构与读取边界](modules/market-data-contracts.md)。[官方更新核查](evidence/2026-10-28-guosen-qmt-official-runtime.md)与[本机版本证据](evidence/2026-10-28-qmt-installed-runtime.md)分别维护。
 
 - [共享内存当前报价](modules/qmt-shm-quotes.md)：WT受管报价、原历史组合及显式消费回收；[装配手册](runbooks/qmt-shm-quotes.md)。
+
+- [共振策略研究指引](research/README.md)：本地研究资料、原版复现、数据每日更新和WT回测。

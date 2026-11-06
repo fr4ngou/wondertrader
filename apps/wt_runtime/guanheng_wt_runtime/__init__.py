@@ -1,3 +1,3 @@
 """WT独立运行装配；金融和行情算法继续由原生组件负责。"""
 
-__version__ = "0.1.0a18+workingorders.2"
+__version__ = "0.1.0a19+originalnative.1"

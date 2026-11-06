@@ -14,7 +14,7 @@ from .strategy_host import (SCHEMA, HostError, _BASES, _bytes, _check, _digest, 
 
 
 def decode_session(value):
-    """只解析现有唯一1.2.1值合同，不接受模块或策略族选择。"""
+    """只解析现有唯一1.1.2值合同，不接受模块或策略族选择。"""
     from .retained_replay import RetainedReplayInput
     return RetainedReplayInput.from_dict(value)
 
@@ -66,7 +66,11 @@ def main(argv=None):
     # 所有安装、请求、基础资料身份核完后才导入并创建业务session；没有动态loader。
     from .strategy_porter import BacktestConfig
     from .strategy_host import PER_DATE_REPORT_SCHEMA
-    if request['report_schema'] == PER_DATE_REPORT_SCHEMA:
+    from .strategy_host import ORIGINAL_REPORT_SCHEMA
+    if request['report_schema'] == ORIGINAL_REPORT_SCHEMA:
+        from .original_native_replay import OriginalNativeInput, OriginalNativeSession
+        session = OriginalNativeSession(OriginalNativeInput.from_dict(request['session']))
+    elif request['report_schema'] == PER_DATE_REPORT_SCHEMA:
         # API代码来自安装清单覆盖的固定SDK；行情目录只提供原数据。
         from guanheng_market_client.qmt_native_replay import ReplayCatalog
         from .retained_per_date_replay import RetainedPerDateBacktestSession

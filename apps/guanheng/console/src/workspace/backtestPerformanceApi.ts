@@ -2,6 +2,7 @@ import { archiveConfiguration, fetchBacktestReadJson, tradingDate, validDigest, 
 import { boundedBacktestTree, invalidBacktest, isObject } from './backtestV2'
 import { HISTORICAL_REPORT_SCHEMA, HISTORICAL_SCOPE } from './backtestHistorical'
 import { PER_DATE_REPORT_SCHEMA, PER_DATE_SCOPE, RETAINED_REPORT_SCHEMA, RETAINED_SCOPE } from './backtestRetained'
+import { ORIGINAL_NATIVE_REPORT_SCHEMA, ORIGINAL_STRATEGY, ORIGINAL_WT_STRATEGY } from './originalBacktestApi'
 
 export const differenceNames = {
   window: '回放时间窗口', initial_capital: '初始本金', input: '历史或来源输入', strategy: '策略与版本',
@@ -11,7 +12,7 @@ export type Difference = keyof typeof differenceNames
 export type BacktestPerformance = {
   schema: 'nbw-performance-v1'; run_id: string; request_id: string; receipt_sha256: string; request_sha256: string
   report_sha256: string; installation_sha256: string; session_sha256: string; session_id: string
-  report_schema: 'nsb-report-v2' | 'nsb-v2-report-v1' | 'nsb-historical-report-v1' | typeof RETAINED_REPORT_SCHEMA | typeof PER_DATE_REPORT_SCHEMA; configuration: ArchiveEntry['configuration']
+  report_schema: 'nsb-report-v2' | 'nsb-v2-report-v1' | 'nsb-historical-report-v1' | typeof RETAINED_REPORT_SCHEMA | typeof PER_DATE_REPORT_SCHEMA | typeof ORIGINAL_NATIVE_REPORT_SCHEMA; configuration: ArchiveEntry['configuration']
   strategy: { id: string; version: string; algorithm_id: string | null }
   input: { history_sha256: string; market_manifest_source: string; capital_source: string; fee_reserve_cny: string | null
     fee_source: string | null; policy_sha256: string; configuration_sha256: string }
@@ -39,7 +40,7 @@ export function validatePerformance(value: unknown, entry: ArchiveEntry): Backte
   if (value.schema !== 'nbw-performance-v1' || !validId(value.run_id) || !validId(value.request_id)
     || value.run_id !== entry.run_id || value.request_id !== entry.request_id || value.receipt_sha256 !== entry.receipt_sha256
     || value.report_sha256 !== entry.report_sha256 || !text(value.scope)
-    || !['nsb-report-v2', 'nsb-v2-report-v1', 'nsb-historical-report-v1', RETAINED_REPORT_SCHEMA, PER_DATE_REPORT_SCHEMA].includes(String(value.report_schema))
+    || !['nsb-report-v2', 'nsb-v2-report-v1', 'nsb-historical-report-v1', RETAINED_REPORT_SCHEMA, PER_DATE_REPORT_SCHEMA, ORIGINAL_NATIVE_REPORT_SCHEMA].includes(String(value.report_schema))
     || ['receipt_sha256', 'request_sha256', 'report_sha256', 'installation_sha256', 'session_sha256', 'session_id'].some(k => !validDigest(value[k]))
     || !archiveConfiguration(value.configuration)) invalidBacktest()
   const configuration = value.configuration
@@ -49,6 +50,8 @@ export function validatePerformance(value: unknown, entry: ArchiveEntry): Backte
   if (Object.entries(entry.configuration).some(([k, v]) => configuration[k as keyof ArchiveEntry['configuration']] !== v)) invalidBacktest()
   keys(value.strategy, 'id version algorithm_id')
   if (!text(value.strategy.id, 256) || !text(value.strategy.version, 256) || value.strategy.algorithm_id !== null && !text(value.strategy.algorithm_id, 512)) invalidBacktest()
+  if (value.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA && (value.strategy.id !== ORIGINAL_WT_STRATEGY
+    || value.strategy.version !== '0.1.0a1' || value.strategy.algorithm_id !== ORIGINAL_STRATEGY)) invalidBacktest()
   keys(value.input, 'history_sha256 market_manifest_source capital_source fee_reserve_cny fee_source policy_sha256 configuration_sha256')
   const input = value.input
   if (['history_sha256', 'policy_sha256', 'configuration_sha256'].some(k => !validDigest(input[k]))
@@ -61,6 +64,7 @@ export function validatePerformance(value: unknown, entry: ArchiveEntry): Backte
     || typeof metrics.native_cumulative_fees_cny === 'string' && metrics.native_cumulative_fees_cny.startsWith('-')
     || !nullableNumber(metrics.total_return_pct) || !nullableNumber(metrics.observed_max_drawdown_pct)
     || metrics.observed_max_drawdown_pct !== null && metrics.observed_max_drawdown_pct < 0) invalidBacktest()
+  if (value.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA && Number(metrics.initial_capital_cny) !== 1_000_000) invalidBacktest()
   if (entry.summary && (value.strategy.id !== entry.summary.strategy.id || value.strategy.version !== entry.summary.strategy.version
     || metrics.initial_capital_cny !== entry.summary.initial_capital_cny)) invalidBacktest()
   keys(value.observations, 'total available missing last_trading_date')
