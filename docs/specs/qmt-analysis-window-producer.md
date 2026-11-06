@@ -76,3 +76,6 @@ HPR 原日期/SDK绝对D与分片保持，先准备后原v7回读；成功调用
 默认省略辅助配置时原窗口保持旧形状；Runtime新消费者接受旧窗口并清除请求中残留的当前视图。新生产者须和支持当前视图的V1/Runtime精确组合发布，旧消费者的严格窗口字段检查保持原拒绝行为，采用/回退沿Root统一角色恢复。
 
 本发行普通包依赖精确固定guanheng-wt-runtime==0.1.0a15+currentaux.1、guanheng-strategy-v1==0.1.0a13及guanheng-native-analysis-core==0.1.0a3+currentaux.1，依赖解析不得保留旧严格窗口消费者。
+
+
+当前与历史辅助富集保持原publication.input_sha256价格/因子身份，与NATIVE-READ.inputs.sha256一致；current_auxiliary.sha256、references.history_sha256、完整publication字节摘要及RetainedInput规范摘要分别承担辅助及完整业务修订。辅助不重命名或覆盖Native价格身份，Reader原严格校验保持。auxiliary.4.current.2仅修正AWP此职责，V1/Runtime/NativeAnalysisCore冻结。

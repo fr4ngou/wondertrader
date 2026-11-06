@@ -56,6 +56,8 @@ AWP在原发布协议上增加可选、独立的当前辅助视图，复用原�
 
 辅助值、统计日、知晓时刻、来源/派生版本及实际行情基准参与当前输入身份；纯轮询时间变化不构成新的业务数据修订。保留同日幂等和原周期/目标身份，重复读取相同事实不得重新开仓或重复记账；当天真实事实修订与真实行情变化沿原决策/执行收口处理。旧发布缺少当前视图时保留原行为和明确缺口，新增模型字段逐项中文注释，不引入新账本或人工上线卡点。
 
+身份所有权保持分离：发布对象顶层input_sha256继续绑定原NATIVE-READ价格/因子输入，必须与其inputs.sha256一致；辅助合并不改写该字段。历史辅助沿references中的历史摘要、当前辅助沿current_auxiliary.sha256保留身份；完整publication_sha256及纯核RetainedInput规范输入同时覆盖实际辅助内容。验收须经过已安装GuanhengRealtimeReader的原生身份校验，纯Python窗口解码不替代这一消费者。
+
 验收先用已取得真实原件跑通AWP发布→已安装唯一纯核→Runtime结果→公开诊断：记录实际知晓截止、行情基准日、逐角色实际消费值/身份，核历史行完全保留及原公式不变。主链通过后补截止前后、历史重放隔离、旧输入兼容、同日重复/重启恢复回归。上线采用沿原100万元含持仓基准、金融状态和未知委托核查，新的自然计算消费收据与既有模拟成交证据分别登记。
 
 历史补充的装配接缝：可选`producer.auxiliary_history_snapshot={path,sha256}`绑定不可变官方事实快照，沿原`AuxiliaryPublication`消费。快照协议`guanheng.auxiliary-history-publications.v1`包含`qualification=official_observed`、`historical_first_available=unknown`、`publications`、原件交付摘要和实际生成时刻；每事实保留kind、statistic_date、symbol、value、received_at、source_sha256，available_at固定为空。有限离线导出由已核历史来源模块产生，生产者核完整字节、固定协议、容量、字段及时间，并把引用纳入原配置身份。此接缝只填当前持续来源缺少的(kind,symbol,statistic_date)，当前来源完整事实及修订保持优先；研究材料拒绝进入。原派生、真实时钟和AWP发布共用唯一实现，不构造伪交易所响应或新行情行。覆盖状态分别列出导入事实与当前来源，快照不授持续来源已经更新的资格。
@@ -79,6 +81,14 @@ v1读取合同采用可选新增字段：新浏览器接纳旧响应缺字段及
 浏览器所需的角色/证券映射、必需市场字段、辅助字段及分支结构由V1现有协议常量生成`strategyDiagnosticWire.generated.ts`，绑定诊断与角色声明源码SHA256；维护入口`python -B scripts/generate-strategy-diagnostic-wire.py`，`--check`核对当前源码身份。浏览器按此元数据核完整字段/分支集合、原角色归属、依赖顺序及日期范围，保留原验证器对历史可替换物理证券的读取语义，不手写另一套角色依赖或信号计算。覆盖首尾日期必须有序且落入所属输入/评估范围，角色计算日与完整依赖日落入实际评估范围。
 
 显式absent原因与原`decision_at`一致：无决策时间仅接受not_calculated，有决策时间仅接受not_recorded；反向矛盾同坏诊断独立降级为unavailable/invalid_diagnostics。缺少旧可选元数据仍沿同一事实补齐。运行摘要与策略详情共同采用这份归一化，核心资金、持仓及状态准入保持。
+
+### SDO-R4-current 当前辅助消费公开读取
+
+两个原策略入口共享可选`current_auxiliary`，协议`guanheng.current-auxiliary-consumption.v1`，附带独立`current_auxiliary_state/reason`。读取层只取本轮V1a13结果，复用冻结`CurrentAuxiliaryView.from_dict/qualify`和原角色分支声明；校验原摘要、决策截止、行情基准、字段归属及已发布分区，不调用派生、生效日投影、信号机或重新计算目标。公开字段逐项保留decision_at、market_basis_date、data_revision、derivation_version、historical_rows_unchanged、required_fields、available_fields、consumed_fields、historical_effective_fields。每个原值保留symbol、field、value、statistic_date、known_by、source_dates、sources；输出没有运行路径或账户正文。
+
+旧结果/未计算分别为absent/not_recorded、absent/not_calculated；附加字段无效为unavailable/invalid_current_auxiliary，告警只含固定事件与异常类型。错误仅降级当前附加信息，原历史diagnostics、资金、持仓、阶段和时间保持。浏览器沿同一可选语义独立归一化，类型、日期、知晓上界、有限值和完整字段归属严格核验；角色依赖及当前字段/派生版本由原V1生成元数据绑定源码SHA，不另写策略规则。历史逐行覆盖0保持0，不能将当前消费覆盖回历史。
+
+已确认页面保持原卡片、段落与CSS；仅在原计算/运行状态行表达“当前辅助：必需7/7已消费（齐备）”，可用派生总数16及行情基准日放该行title，避免把7/16表达为缺9项。实际缺失如实表达，已在历史生效的值与本次当前消费分别表达。逐角色详细原值经两个公开投影及共同浏览器消费者交付，不新增表格或卡片。App118采用冻结V1a13读取快照、其原Corea8精确公共依赖及原read10非execution路径；生产V1/Runtime不改。验收覆盖真实main003纯核结果、实际新代自然结果、正式路由、浏览器原状态行、坏附加字段隔离、旧缺字段及五份真实旧/新归档读取兼容。部署由原运行owner执行。
 
 ## SDO-R5 有界持久日志
 

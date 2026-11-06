@@ -26,3 +26,14 @@ Root独占集成与部署。先核本模块源码CAS及四wheel；新独立安�
 回退需Root沿同一正常关闭与恢复入口整体切回原四包及匹配发布配置，保留当前金融状态和未知委托核查，避免把新顶层字段交旧严格消费者。禁止清除slot/ID、改接收时间、重建金融账或重放未知。
 
 本模块安装与重放使用明确隔离flat-cycle及100万元资金模型，未读取账户、未启动服务、未调用Source/交易。现场新自然计算、含实际持仓的执行、AppHTTP/页面展示和上线收据由Root采用后验收；离线模型证据不授这些资格。
+
+
+## auxiliary.4.current.2 原价格输入身份修正
+
+Root实际Reader主路径发现：此前AWP同时把历史富集及当前辅助摘要写入publication.input_sha256，而PublishedDaily严格将该字段与NATIVE-READ.inputs.sha256比较。该字段属于原Native价格/因子输入；辅助属于独立current_auxiliary/history reference及完整规范输入身份。AWP本次删除两处覆盖，Reader、V1、Runtime、NativeAnalysisCore与原资金/周期保持。
+
+固定实际证据根为`E:/workspace/wondertrader-qa/awp-price-identity-20261106-001`。FROZEN.json绑定实际旧窗口：publication输入为141a529a0f89cf38dc86a30eaab516687f68d37b196f2a2f56bcfeee422046cd，原Native输入为38b6d4fce5998dcef99d28fc38f9be987c1f63cabdf0910be73d48c1ec9b6bc0。74份完整Native原件另存NATIVE-FROZEN.json。真实原GuanhengRealtimeReader DLL对冻结旧窗口报daily publication native identity；新AWP原原子发布后保留Native输入，原DLL读8证券9268条实际日线、尾日20261105，见READER.json。Reader试验使用固定parser-startup正式安装DLL，路径与二进制SHA完整记录；全部投影缓存写入本QA根。
+
+新普通安装AWP→原发布→Runtime→唯一V1数学→原NSQ目标完成6743事实/16值/7字段消费，见main/RESULT.json。当前辅助修订模型和显式历史知晓时间测试模型（5292行富集）各保持原价格输入；current_auxiliary.sha256及references.history_sha256表达其各自修订，完整RetainedInput纯核摘要三种输入逐一不同，见REGRESSION.json。历史回归所用提前知晓时间为显式测试模型，不授真实历史可知资格。
+
+新版本仅AWP `0.1.0a13+auxiliary.4.current.2`；轮子SHA为573110f35950b4d145e5e2f3bf82c2465dca30ddf9e6ad3ec5b51f54e9674ca9。BUILD.json及build/INSTALL.lock声明精确依赖；POSTFLIGHT.json核轮子RECORD、安装成员和其他三包全部成员未变。Root新独立Runtime21普通安装此AWP并保留Runtime20其余精确依赖，按原同账交接与一致AWP/Reader路径采用；保留100万元含持仓基准及未知委托责任。回退保留已冻结旧轮子及失败原件，通过原正常关闭/恢复入口处理；旧AWP current.1仍有本节已证实Reader阻断，采用时须同步考虑最后兼容发布。现场消费、实际执行及公开页面验收由Root独占。

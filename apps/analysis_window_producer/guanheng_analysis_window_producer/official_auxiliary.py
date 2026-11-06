@@ -318,18 +318,16 @@ def enrich_window(window, root, *, cache=None, seed_root=None, history_snapshot=
         identity = hashlib.sha256(json.dumps(updated['history'], sort_keys=True, separators=(',', ':'),
                                             allow_nan=False).encode()).hexdigest()
         updated['references'].append(dict(report, history_sha256=identity))
-        updated['input_sha256'] = hashlib.sha256((window['input_sha256']+identity).encode()).hexdigest()
         updated['qualification'] = ('current-visible native price analysis; auxiliary facts actually received; '
                                     'historical first visibility unknown')
     # 独立当前视图只携带已取得的事实；历史行保留原逐bar收盘因果。
     # 身份由数据、依赖及实际行情基准构成，周期轮询时间不制造事实修订。
     current = build_current_auxiliary(publications, [date.fromisoformat(day) for day in days])
     updated['current_auxiliary'] = current.to_dict()
-    updated['input_sha256'] = hashlib.sha256(
-        (updated['input_sha256'] + ':current-auxiliary:' + current.sha256).encode()).hexdigest()
     report['current_auxiliary'] = dict(schema=current.schema, sha256=current.sha256,
         basis_date=current.basis_date.isoformat(), values=len(current.values))
-    # 报告在AWP状态中展示；原市场来源SHA保持，纯核输入身份包含独立当前事实。
+    # input_sha256专属于原Native价格/因子输入，Reader须与NATIVE-READ收据逐值核对。
+    # 辅助修订由current.sha256、历史reference及完整publication/纯核规范输入摘要承担。
     return updated, report
 
 
