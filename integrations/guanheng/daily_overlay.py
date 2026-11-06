@@ -93,6 +93,7 @@ class DailyOverlayMarket:
             _require(type(self._max_file) is int and 1024 <= self._max_file <= 268435456)
             _require(type(self._max_bars) is int and 1 <= self._max_bars <= 1000000)
             self._entries = {}
+            self._archive_descriptor = None  # 本实例已准入的固定清单；仅提供静态选源身份，不缓存另一份行情。
             archive = config['archive']
             if archive is not None:
                 _require(set(archive) == {'path','sha256'})
@@ -106,6 +107,7 @@ class DailyOverlayMarket:
                 version2=manifest['schema']=='guanheng.daily-native-archive.v2'
                 if version2:_hash(manifest['helper_sha256'])
                 self._archive_root = path.parent
+                self._archive_descriptor = dict(path=str(path),sha256=archive['sha256'])
                 for entry in manifest['entries']:
                     _require(set(entry) == ({'symbol','path','sha256','rows','first','last','provenance','source_rows_sha256','price_range_quality'}if version2 else {'symbol','path','sha256','rows','first','last','provenance'}))
                     _require(type(entry['symbol']) is str and re.fullmatch(r'(SSE|SZSE|BSE)\.[0-9]{6}',entry['symbol']))
@@ -159,6 +161,22 @@ class DailyOverlayMarket:
         bars = [dict(symbol=security,date=int(bar.occurred_at.strftime('%Y%m%d')),
                      **{k:getattr(bar,k) for k in ('open','high','low','close','volume','amount')}) for bar in history.bars]
         return bars, content
+
+    def static_archive_identity(self, symbol, adjustment, *, snapshot_id=None):
+        """同创建线程查询实际首层archive身份；不解码/请求来源，不含动态Writer尾部。
+
+        dataset派生投影及未明确支持的base返回None，调用者沿原market读取；命中
+        不可复用层时保持该层优先级，不下探到更旧来源授资格。
+        """
+        _require(threading.get_ident()==self._owner and not self._closed)
+        if snapshot_id is not None:return None
+        key=(symbol,adjustment)
+        if key in self._entries:
+            if self._shape!='segments':return None
+            from .source_archive_identity import archive_entry_identity
+            return archive_entry_identity(self._archive_descriptor,self._entries[key])
+        reader=getattr(self._base,'static_archive_identity',None)
+        return reader(symbol,adjustment)if callable(reader)else None
 
     def _archive(self, key):
         security=key[0];entry = self._entries[key]

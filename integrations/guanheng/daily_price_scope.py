@@ -23,9 +23,12 @@ def prepare_price_scope(configuration,day,stock_universe,current,directory,*,dea
     from guanheng_qmt_shm.security_reference_source import SecurityReferenceSource
     required={'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows'}
     if (type(configuration)is not dict or not required<=set(configuration)
-            or set(configuration)-required-{'index_fallback','strategy_history'}
+            or set(configuration)-required-{'index_fallback','strategy_history','unit_evidence'}
             or configuration.get('index_fallback')not in(None,'official-publishers')):
         raise ValueError('daily price scope configuration invalid')
+    if configuration.get('unit_evidence')is not None:
+        from .daily_data_inputs import validate_unit_evidence_descriptor
+        validate_unit_evidence_descriptor(configuration['unit_evidence'])
     if configuration.get('strategy_history')is not None:
         from .daily_strategy_history import validate_strategy_history
         validate_strategy_history(configuration['strategy_history'])

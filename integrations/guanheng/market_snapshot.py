@@ -158,6 +158,13 @@ class SnapshotSourceMarket:
                 code='IoError';reason='security reference or daily history read failed';data={}
         return validate_response(dict(api_version=API_VERSION,status=dict(code=code,reason=reason),data=data),request)
 
+    def static_archive_identity(self,symbol,adjustment,*,snapshot_id=None):
+        """当前固定快照的只读archive选源；未知/冲突身份交原查询失败路径处理。"""
+        self._check_owner()
+        if snapshot_id is not None and snapshot_id not in self._snapshot_ids:return None
+        reader=getattr(self._base,'static_archive_identity',None)
+        return reader(symbol,adjustment)if callable(reader)else None
+
     def close(self):
         if self._closed:return
         self._check_owner()

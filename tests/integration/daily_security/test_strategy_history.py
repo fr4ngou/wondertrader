@@ -193,7 +193,12 @@ def test_front_chooses_complete_hot_reference_and_retains_unselected_and_incompl
     def prepare(rows,metadata,out,*a,**kwargs):
         captured.update(rows=rows,provenance=kwargs['provenance']);return write(out/'archive.json',{'synthetic':True})
     monkeypatch.setattr(front,'prepare_daily_archive',prepare)
-    previous=write(tmp_path/'old.json',{'entries':[{'symbol':s,'provenance':[{'metadata':{'adjustment':'front_ratio'}}]}for s in old]})
+    entries=[]
+    for symbol in old:
+        path=tmp_path/(symbol+'.dsb');path.write_bytes(b'synthetic Native boundary file')
+        entries.append(dict(symbol=symbol,path=path.name,sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+            rows=len(old[symbol]),first=min(old[symbol]),last=max(old[symbol]),provenance=[{'metadata':{'adjustment':'front_ratio'}}]))
+    previous=write(tmp_path/'old.json',{'entries':entries})
     inputs=write(tmp_path/'inputs.json',{'cache':{'directory':'ordinary','sha256':'a'*64}})
     result=front.prepare_front_archive(inputs,None,[previous],tmp_path/'front',{'path':'unused','sha256':'a'*64},
         deadline=time.monotonic()+5,maximum_history_rows=10000,cancelled=lambda:False,

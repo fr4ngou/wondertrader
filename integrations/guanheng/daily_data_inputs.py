@@ -4,6 +4,7 @@ from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
+import re
 import time
 from types import SimpleNamespace
 import uuid
@@ -12,6 +13,26 @@ from .daily_data_update import _save, _load, _descriptor
 from .market_generation import read_fixed, read_generation
 from .daily_gap_plan import load_gap_plan, MAX_PROTECTED_SLOTS
 from ..guanheng_market_client import strict_json
+
+
+def validate_unit_evidence_descriptor(value):
+    """只核可选证据引用形状；原件及业务来源由价格阶段沿原总D核验。"""
+    if (type(value)is not dict or set(value)!={'path','sha256'}
+            or type(value['path'])is not str or not Path(value['path']).is_absolute()
+            or type(value['sha256'])is not str or re.fullmatch(r'[0-9a-f]{64}',value['sha256'])is None):
+        raise ValueError('daily price unit evidence descriptor invalid')
+
+
+def fixed_unit_evidence_configuration(configuration, original):
+    """已有任务拥有原证据选择；只固定此新增可选字段，其余配置仍由入口严格核同。"""
+    if type(configuration)is not dict or type(original)is not dict:
+        raise ValueError('daily input original configuration invalid')
+    selected=deepcopy(configuration)
+    scope=selected.get('price_scope');prior=original.get('price_scope')
+    if type(scope)is dict and type(prior)is dict:
+        if 'unit_evidence'in prior:scope['unit_evidence']=deepcopy(prior['unit_evidence'])
+        else:scope.pop('unit_evidence',None)
+    return selected
 
 
 def observe_prior_plans(plans, owner, *, deadline, cancelled):
@@ -75,7 +96,10 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     intent = root / 'INPUTS.json'
     bound = dict(configuration=configuration, day=day, previous_requests=list(previous_requests))
     if intent.exists():
-        if strict_json(read_fixed(intent, maximum=16777216)) != bound:
+        original=strict_json(read_fixed(intent, maximum=16777216))
+        configuration=fixed_unit_evidence_configuration(configuration,original.get('configuration')if type(original)is dict else None)
+        bound=dict(bound,configuration=configuration)
+        if original != bound:
             raise ValueError('daily input original configuration differs')
     else:
         _save(intent, bound)
@@ -306,6 +330,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             template['price_maintenance']['cache_seed']=inputs['price_cache_seed']  # 同名单/闭合日的已完成原缓存，目录及原UUID保持。
         if configuration['price_scope'].get('index_fallback')is not None:
             template['price_maintenance']['index_fallback']=configuration['price_scope']['index_fallback']  # 显式官方指数来源；读侧仍只读WT。
+        if configuration['price_scope'].get('unit_evidence')is not None:
+            template['price_maintenance']['unit_evidence']=deepcopy(configuration['price_scope']['unit_evidence'])  # 固定本任务的证据原件SHA；旧INPUTS沿原选择。
         if configuration['price_scope'].get('strategy_history')is not None:
             template['price_maintenance']['strategy_history']=configuration['price_scope']['strategy_history']  # 额外策略窗口，不改变全市场authorized_from。
             template['price_maintenance']['strategy_history_previous_requests']=list(dict.fromkeys((*previous_requests,*prior_price_requests)))  # 固定旧工作流身份，后继续核不重发。

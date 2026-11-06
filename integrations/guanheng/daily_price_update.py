@@ -50,6 +50,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
 
     调用者持同一发布租约；本函数串行持有和关闭读取实例。失败保留价格输入原槽
     和不可变输出尝试；成功阶段按完整描述符恢复，最终CURRENT由原run_update发布。
+    可选unit_evidence属于固定request；每次实际构建加载一次，各capture资格同时供原价/前复权使用。
     """
     root=Path(directory).absolute();root.mkdir(exist_ok=True)
     binding=dict(request=request,native=native,base_configuration=base_configuration)
@@ -62,6 +63,10 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
     def check():
         if cancelled():raise InterruptedError('daily price update stopped')
         if time.monotonic()>=deadline:raise TimeoutError('daily price update deadline')
+    unit_evidence=None
+    if request.get('unit_evidence')is not None:
+        from .analysis_price_units import load_unit_evidence
+        unit_evidence=load_unit_evidence(request['unit_evidence'],deadline=deadline,cancelled=cancelled)
     check();scope=_load(request['scope']);universe=_load(scope['universe'])
     inputs=None
     if universe['securities']:
@@ -94,6 +99,15 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
             deadline=deadline,cancelled=cancelled,environ=environ)
         strategy_observation=_load(strategy_history)
         strategy_capture=strategy_observation['cache'];strategy_coverage=strategy_observation['coverage']
+    unit_options={}
+    if unit_evidence is not None and inputs is not None:
+        from .analysis_price_units import qualify_capture_units
+        selected={}
+        for capture in (_load(inputs)['cache'],strategy_capture):
+            if capture is not None and capture['sha256']not in selected:
+                check()
+                selected[capture['sha256']]=qualify_capture_units(capture,unit_evidence,deadline=deadline,cancelled=cancelled)
+        unit_options['unit_evidence_by_capture']=selected  # 本次调用内一次核每份capture；不写入第二状态或请求队列。
     if inputs is not None:
         market=create_native_source_market(base)
         try:
@@ -103,7 +117,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
             archive=prepare_directory(root,'price-archive','archive.json',lambda output:
                 materialize_price_archive(inputs,market,request['previous_archives'],output,request['helper'],reader,
                     deadline=deadline,maximum_history_rows=limit,cancelled=cancelled,
-                    additional_captures=(strategy_capture,)if strategy_capture is not None else()),restore)
+                    additional_captures=(strategy_capture,)if strategy_capture is not None else(),**unit_options),restore)
         finally:market.close()
     # 即使本次无额外证券，也保持已有补充价格；旧整档遮蔽股票新尾日的情况在有补充输入时统一收敛。
     additional=[archive]if archive is not None else request['previous_archives']
@@ -121,7 +135,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
             def build_front(output):
                 prepare_front_archive(inputs,market,request['previous_archives'],output,request['helper'],
                     deadline=deadline,maximum_history_rows=limit,cancelled=cancelled,strategy_capture=strategy_capture,
-                    strategy_coverage=strategy_coverage)
+                    strategy_coverage=strategy_coverage,**unit_options)
                 return restore_front(output)
             front=prepare_directory(root,'price-front','RESULT.json',build_front,restore_front)
             front_value=_load(front)

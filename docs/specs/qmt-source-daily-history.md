@@ -290,3 +290,23 @@ Native仍只生成两份完整补充档：原价按旧日优先，普通/策略�
 ## UDI-R59 证券非交易例外原件
 
 `guanheng.price-trading-exceptions.v1`包含records；每行symbol/date/no_trade及evidence列表。evidence逐项绑定官方HTTP原件绝对path、sha256、bytes、url、status=200、received_at；Data owner核原字节与身份，事实由明确披露归一，不能仅由行情缺日推断。适用于特定证券特定日，市场日历仍保持当日开市；不把ETF停牌伪装为股票日事实，不填假bar或前填价格。原Source条目及原HPR身份保持。该事实只决定缺口计划的无交易排除，历史首次可知及金融资格另验。
+
+## UDI-R60 自动价格维护的单位证据选择
+
+`price_scope.unit_evidence`为可选的绝对`path`/原字节`sha256`描述符，指向[QAB-R6](qmt-analysis-batch-source.md#qab-r6-显式来源单位证据)明确证据。省略或None保持原metadata和原选源行为。配置准入只核描述符形状；价格阶段在同一owner、租约、总截止和取消下加载一次原件，并对实际采用的每份唯一capture做一次来源资格核验，再由raw/front档案逐证券复用相同资格。无独立来源请求、线程或发布者；amount保持unknown。
+
+日线全事实和price-first两条入口均把所选描述符固定进原price_maintenance请求。已有INPUTS所存unit_evidence属于该原任务；入口沿其原选择（原缺字段仍缺），新任务才采用live配置。其它配置和请求字段的差异继续拒绝，旧INPUTS、REQUEST、capture_id、全部slot及Source UUID保持原字节。证据损坏和取消/截止明确失败；合法不匹配来源或合成来源维持unknown。任务完成结果继续沿原不可变阶段恢复，不将新配置注入旧已完成请求。
+
+raw逐证券只给本次实际新增记录使用对应capture的metadata；旧日优先和未选完整集保持。front按同一参考完整覆盖规则选择整证券，新metadata绑定其实际来源。首次以完整当前QAB替换旧ETF原价另有明确采用和六字段差异记录，本自动接线不隐式改旧价格或重写旧unknown段。已采用known完整基准后的日常新增段可沿同业务profile接续，指数公开仍unknown；Original只按实际已发布provenance解释语义点位。
+
+front对原Native Reader已完整核读的旧记录复用原 `prepare_daily_archive.reusable_files` 接缝：规范行摘要只作筛选，原文件路径/字节SHA仍固定；原Helper逐完整WTSBar核同后才链接或复制未变DSB。实际数值改变按原Helper写读，完整参考及新来源metadata随实际capture版本推进。未选证券继续保留旧metadata；文件复用保留旧DSB字节，不把它描述为本次重新编码。Source/未知责任和证券完整集保持原合同，此原生文件复用与单位证据选择分别验收。
+
+验收包含完整已存真实capture的原生Helper写读链、默认无证据行为、新增raw/front单位和amount未知、同业务/foreign资格、全档未选证券保留、旧INPUTS选择和UUID不变、price-first与全事实双入口、原证据坏例及总D取消。候选源码、归档主路径、普通安装和正式CURRENT采用分别记录；既有Data版本保持只读。
+
+## UDI-R61 固定选源下的调用内核读复用
+
+`DailyOverlayMarket.static_archive_identity(symbol,adjustment,snapshot_id=None)`由原Reader owner查询实际首层命中的静态archive；返回只读`StaticArchiveIdentity`或None，不解码DSB、不发来源请求。身份绑定symbol、价格口径、原文件绝对path/SHA、完整rows/first/last、全部provenance规范摘要及原清单SHA。固定Snapshot包装只沿已准入身份委托；冲突snapshot、dataset派生投影、没有此能力的base返回None并走原查询，命中不可复用层时保持其优先级。动态CURRENT实例不授此固定来源资格。
+
+原价owner已经通过原Native Reader完整核读旧DSB时，可在本次同线程/同截止内构造`PreloadedArchiveRows`并交`merge_original_price_rows.preloaded_previous_rows`。它包含原静态身份、date到原行及metadata映射、规范行摘要和原连续provenance；没有持久缓存、守护线程、第二行情owner或跨调用复用。merge再次询问当前Reader首层选源，只有身份全同、完整范围/行摘要/逐段metadata核同且原文件SHA再次核同才复用原核读事实。其余证券沿原market读取，包括本轮新股票Native、不同优先级层、不同口径/文件/范围或来源分段。旧档只补缺失日期，原market优先级保持。
+
+前复权文件复用同样要求该静态身份与旧entry全同；同count异数据、不同首层及不能证明选源时不提供旧文件复用hint，沿原Helper写读。原Helper仍比较全部WTSBar字段，规范六数值摘要只作筛选。所有原文件、旧清单和原Source责任保持；取消、截止、坏来源、文件变化及未知状态保持明确失败。验收包含完整普通DLL主链、同档消重、新股票优先反例、raw/front同count异数据、部分范围/来源不符、文件变化、动态来源fallback及关闭后的owner拒绝。

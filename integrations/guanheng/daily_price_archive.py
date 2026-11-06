@@ -10,16 +10,19 @@ from .market_generation import read_fixed
 from .native_history import NativeHistory,source_file_metadata
 from ..guanheng_market_client.daily_contract import source_daily_security
 from ..guanheng_market_client.source_history import validate_source_metadata
+from .source_archive_identity import archive_entry_identity,PreloadedArchiveRows
 
 
 def materialize_price_archive(inputs,market,previous_archives,output,helper,native_reader,*,deadline,
-                              maximum_history_rows=10000,cancelled=lambda:False,additional_captures=()):
+                              maximum_history_rows=10000,cancelled=lambda:False,additional_captures=(),
+                              unit_evidence_by_capture=None):
     """调用方持原发布租约并关闭market；本函数关闭其独有Native文件Reader。
 
     inputs绑定已完成价格回读。previous_archives按最新成功版本优先排列，旧原价
     补充文件只填尚无记录的日期；market为本轮新股票Native已组合的读取视图。
     合并后每证券保留完整旧档与逐段来源，避免旧整文件遮蔽新尾日。未变股票
     不进入此补充写入集合。源空值不转0，不在本阶段产生HPR/行情请求。
+    unit_evidence_by_capture由同一调用方按manifest SHA持有本次已核资格，None沿旧声明；不持久另建状态。
     """
     def check():
         if cancelled():raise InterruptedError('daily price archive stopped')
@@ -29,7 +32,7 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
         raise ValueError('daily price archive input differs')
     cache=prepared['cache'];manifest=load_price_capture(cache)
     fallback=capture_metadata(manifest,cache['sha256'],'none')
-    additions={};reusable_files={};reader=None
+    additions={};reusable_files={};preloaded={};reader=None
     try:
         for descriptor in previous_archives:
             check();document=_load(descriptor);root=Path(descriptor['path']).parent
@@ -56,7 +59,7 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                     path=str(path),  # 本轮原Reader已经完整核读的旧DSB绝对位置，旧根只读。
                     sha256=entry['sha256'],  # 已核旧文件字节身份，采用前再次完整核验。
                     rows_sha256=price_rows_identity(original_rows)))  # 仅为筛选；原Helper还会比对本次全部WTSBar字段。
-                values=additions.setdefault(entry['symbol'],{});covered=0
+                values=additions.setdefault(entry['symbol'],{});entry_rows={};covered=0
                 for part in parts:
                     validate_source_metadata(part['metadata'],period='1d')
                     if part['offset']!=covered or part['count']<1 or part['metadata']['adjustment']!='none':
@@ -64,19 +67,29 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                     for bar in history.bars[covered:covered+part['count']]:
                         row=dict(date=int(bar.occurred_at.strftime('%Y%m%d')),
                             **{k:getattr(bar,k)for k in ('open','high','low','close','volume','amount')})
+                        entry_rows[row['date']]=(row,part['metadata'])
                         values.setdefault(row['date'],(row,part['metadata']))
                     covered+=part['count']
                 if covered!=entry['rows']:raise ValueError('daily price prior provenance count differs')
+                identity=archive_entry_identity(descriptor,entry)
+                if not entry_rows or min(entry_rows)!=identity.first or max(entry_rows)!=identity.last:
+                    raise ValueError('daily price prior range differs')
+                resolver=getattr(market,'static_archive_identity',None)
+                if callable(resolver)and resolver(entry['symbol'],'none')==identity:
+                    preloaded[entry['symbol']]=PreloadedArchiveRows(identity,entry_rows,price_rows_identity(original_rows),tuple(parts))
         for current_capture in (cache,*additional_captures):
             current_manifest=manifest if current_capture==cache else load_price_capture(current_capture)
             current_metadata=capture_metadata(current_manifest,current_capture['sha256'],'none')
+            qualified=(unit_evidence_by_capture or{}).get(current_capture['sha256'])
             for _,items in price_batches(current_capture,current_manifest,deadline=deadline,cancelled=cancelled):
                 for qmt,item in items.items():
+                    metadata=(capture_metadata(current_manifest,current_capture['sha256'],'none',symbol=qmt,
+                        unit_evidence=qualified)if qualified is not None else current_metadata)
                     code,exchange=qmt.split('.');symbol={'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[exchange]+'.'+code
                     values=additions.setdefault(symbol,{})
                     for day,bar in sorted(item['data'].items()):
                         if original_price_quality(bar)!='qualified':continue  # 旧成功日及普通捕获优先，热窗口只填缺日。
-                        values.setdefault(int(day),(dict(date=int(day),**bar),current_metadata))
+                        values.setdefault(int(day),(dict(date=int(day),**bar),metadata))
         if prepared.get('supplemental_prices')is not None:
             from .official_index_prices import load_official_index_prices
             supplement=load_official_index_prices(prepared['supplemental_prices'])
@@ -99,7 +112,8 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                 provenance[symbol][-1]['count']+=1;rows[symbol].append(bar)
         result=merge_original_price_rows(market,rows,fallback,output,helper['path'],helper['sha256'],
             deadline=deadline,addition_provenance=provenance,retain_unchanged=True,
-            maximum_history_rows=maximum_history_rows,cancelled=cancelled,reusable_files=reusable_files)
+            maximum_history_rows=maximum_history_rows,cancelled=cancelled,reusable_files=reusable_files,
+            preloaded_previous_rows=preloaded)
         if result is None:
             # 合法空补充集也是已完成的不可变档案；不加载Helper、不制造任何价格条目。
             check();output=Path(output);output.mkdir(parents=False,exist_ok=False)

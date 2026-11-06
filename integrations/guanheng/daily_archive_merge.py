@@ -6,7 +6,11 @@ import time
 
 from ..guanheng_market_client import API_VERSION
 from ..guanheng_market_client.source_history import validate_source_metadata
-from .daily_archive_prepare import prepare_daily_archive
+from .daily_archive_prepare import prepare_daily_archive,price_rows_identity
+from .source_archive_identity import PreloadedArchiveRows
+from .market_generation import read_fixed
+from pathlib import Path
+import hashlib,json
 
 
 def read_price_history(market,symbol,adjustment,*,deadline,maximum_history_rows,cancelled,snapshot_id=None):
@@ -54,7 +58,7 @@ def read_price_history(market,symbol,adjustment,*,deadline,maximum_history_rows,
 
 def merge_original_price_rows(market, additions, metadata, output, helper, helper_sha256, *, deadline, snapshot_id=None,
                               addition_provenance=None, retain_unchanged=False, maximum_history_rows=2000,
-                              cancelled=lambda:False,reusable_files=None):
+                              cancelled=lambda:False,reusable_files=None,preloaded_previous_rows=None):
     """同一市场owner线程读取完整旧档，只填不存在的日期；返回新档或None。
 
     additions为symbol到合格原始日线行，metadata属于这些新行；前复权独立保持。
@@ -82,8 +86,31 @@ def merge_original_price_rows(market, additions, metadata, output, helper, helpe
     provenance = {}
     for symbol, rows in additions.items():
         check()
-        merged=read_price_history(market,symbol,'none',deadline=deadline,maximum_history_rows=maximum_history_rows,
-            cancelled=cancelled,snapshot_id=snapshot_id)
+        prior=(preloaded_previous_rows or{}).get(symbol)
+        resolver=getattr(market,'static_archive_identity',None)
+        if (isinstance(prior,PreloadedArchiveRows)and callable(resolver)
+                and resolver(symbol,'none',snapshot_id=snapshot_id)==prior.identity):
+            identity=prior.identity
+            if (identity.rows>maximum_history_rows or not prior.rows or len(prior.rows)!=identity.rows or min(prior.rows)!=identity.first
+                    or max(prior.rows)!=identity.last
+                    or price_rows_identity([r for _,(r,_)in sorted(prior.rows.items())])!=prior.rows_sha256):
+                raise ValueError('preloaded archive rows differ')
+            parts=list(prior.provenance)
+            digest=hashlib.sha256(json.dumps(parts,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode('utf8')).hexdigest()
+            if digest!=identity.provenance_sha256:raise ValueError('preloaded archive provenance differs')
+            ordered=[pair for _,pair in sorted(prior.rows.items())];covered=0
+            for part in parts:
+                count=part['count']
+                if (part['offset']!=covered or type(count)is not int or not 1<=count<=len(ordered)-covered
+                        or any(meta!=part['metadata']for _,meta in ordered[covered:covered+count])):
+                    raise ValueError('preloaded archive provenance differs')
+                covered+=count
+            if covered!=len(ordered):raise ValueError('preloaded archive provenance differs')
+            read_fixed(Path(identity.path),maximum=268435456,identity=identity.sha256);check()
+            merged=dict(prior.rows)  # 同一原选源完整行的调用内浅映射；后续只新增日期，不改原行。
+        else:
+            merged=read_price_history(market,symbol,'none',deadline=deadline,maximum_history_rows=maximum_history_rows,
+                cancelled=cancelled,snapshot_id=snapshot_id)
         inserted = 0
         seen = set()
         sources = [metadata] * len(rows)

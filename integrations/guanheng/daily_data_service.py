@@ -92,11 +92,14 @@ def validate_configuration(value):
     scope=value.get('price_scope')
     if scope is not None:
         if (type(scope)is not dict or not {'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows'}<=set(scope)
-                or set(scope)-{'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows','index_fallback','strategy_history'}
+                or set(scope)-{'baseline_reference','reference_connection','scope','authorized_from','maximum_history_rows','index_fallback','strategy_history','unit_evidence'}
                 or scope.get('index_fallback')not in(None,'official-publishers')
                 or type(scope['maximum_history_rows'])is not int or not 2000<=scope['maximum_history_rows']<=1000000):
             raise ValueError('daily service price scope invalid')
         datetime.strptime(scope['authorized_from'],'%Y%m%d')
+        if scope.get('unit_evidence')is not None:
+            from .daily_data_inputs import validate_unit_evidence_descriptor
+            validate_unit_evidence_descriptor(scope['unit_evidence'])
         if scope.get('strategy_history')is not None:
             from .daily_strategy_history import validate_strategy_history
             validate_strategy_history(scope['strategy_history'])

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .daily_data_update import _save,_load,_descriptor
 from .daily_price_scope import prepare_price_scope
+from .daily_data_inputs import fixed_unit_evidence_configuration
 from .daily_price_update import prepare_price_update,compact_price_base
 from .market_generation import GenerationPublisher,encode,read_fixed,read_generation
 from .market_snapshot_prepare import compose_static_archive,_catalog
@@ -46,7 +47,10 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
     inputs=root/'inputs';inputs.mkdir(exist_ok=True)
     intent=inputs/'INPUTS.json';bound=dict(configuration=configuration,day=day,previous_requests=list(previous_requests))
     if intent.exists():
-        if strict_json(read_fixed(intent,maximum=16777216))!=bound:raise ValueError('daily price refresh input differs')
+        original=strict_json(read_fixed(intent,maximum=16777216))
+        configuration=fixed_unit_evidence_configuration(configuration,original.get('configuration')if type(original)is dict else None)
+        bound=dict(bound,configuration=configuration)
+        if original!=bound:raise ValueError('daily price refresh input differs')
     else:_save(intent,bound)
     protected=set(configuration['template']['protected_slots']);previous_archives=[];retired_archives=[]
     for path in previous_requests:
@@ -83,6 +87,8 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
         replaced_archives=retired_archives)  # 新整档包含的旧补充层；活动Reader替换，旧原件永久保留原引用。
     if configuration['price_scope'].get('index_fallback')is not None:
         maintenance['index_fallback']=configuration['price_scope']['index_fallback']
+    if configuration['price_scope'].get('unit_evidence')is not None:
+        maintenance['unit_evidence']=deepcopy(configuration['price_scope']['unit_evidence'])  # 原INPUTS选择进入原维护请求，恢复不注入live后继。
     if configuration['price_scope'].get('strategy_history')is not None:
         maintenance['strategy_history']=configuration['price_scope']['strategy_history']
         maintenance['strategy_history_previous_requests']=list(previous_requests)
