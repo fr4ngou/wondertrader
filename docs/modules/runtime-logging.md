@@ -30,6 +30,8 @@ stdout/stderr重定向覆盖整个Runner和运行异常处理，在正常及异�
 
 ## 当前覆盖与采用边界
 
+分钟collection/history的父运行器已随[program021/data-service006](../releases/2026-11-06-minute-counter-quality-live.md)采用Runtime18，两个ProcessEventLog系列均实际落盘。其他仍使用旧wrapper的独立角色继续保留原状态/失败收据；本次采集更新不授予全角色日志已升级资格。
+
 | 调用链 | 当前已核覆盖 | 仍需完成 |
 |---|---|---|
 | QMT通信 | 请求/结果、原身份、终态及部分错误在原Journal/回执中 | 业务失败与运行日志的完整关联核查 |
