@@ -198,7 +198,7 @@ class RetainedStrategy:
             _need(type(rule) is dict and rule.get('name') in ('WtExeFact.WtStockMinImpactExeUnit',
                                               'WtExeFact.WtStockMinImpactBorrowedExeUnit')
                   and type(rule.get('min_order')) in (int,float) and rule['min_order'] == 100
-                  and rule.get('is_cancel_unmanaged_order') is False, 'retained_cash_executor')
+                  and type(rule.get('is_cancel_unmanaged_order')) is bool, 'retained_cash_executor')
         self.seconds, self.max_age = parameters['evaluation_seconds'], parameters['broker_max_age_seconds']
         _need(type(self.seconds) in (int,float) and math.isfinite(self.seconds) and .1 <= self.seconds <= 5,
               'evaluation_budget')

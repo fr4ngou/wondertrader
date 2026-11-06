@@ -2262,7 +2262,9 @@ struct StandardQmtTrader::Impl {
    // 普通WT日志/通知只携有限引用；账户及SDK错误正文继续留在Host原通信事实。
    const auto reason=std::string("qmt_source_order_error; sequence=")+std::to_string(observation.sequence)
     +"; derived_event_sha256="+observation.derived_event_sha256;
-   Status status{ErrorCode::IoError,reason};note(status);
+   // orderError是已验证事件流里的券商业务诊断；沿WT原onTraderError记录并继续消费。
+   // 它不证明原委托已终结，也不代表通信失败，不能写入实例first_error而让宿主退出。
+   // 账户/原命令关联仍留在Host；订单状态只由原查询及完整order/deal回报更新。
    std::unique_ptr<wtp::WTSError,ObjectRelease> error(wtp::WTSError::create(wtp::WEC_UNKNOWN,reason.c_str()));
    require(bool(error),"qmt_standard_event_error_allocation");
    deliver_event(observation,chain.deadline,[&]{spi->onTraderError(error.get());});return;

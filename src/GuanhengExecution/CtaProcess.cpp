@@ -1134,6 +1134,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                     diagnostic.AddMember("session_fault",session?static_cast<unsigned>(session->status().fault):0,a);
                     diagnostic.AddMember("native_error",native_error,a);
                     diagnostic.AddMember("reason_sha256",rj::Value(reason.c_str(),a),a);
+                    // 原插件的有界错误原因只保留在受控Native收据，供定位真实读取失败；不进入公开状态。
+                    diagnostic.AddMember("private_reason",rj::Value(observed.plugin.reason,a),a);
                     // 固定枚举/计数区分提交等待与owner队列首错，不复制账户、订单或来源正文。
                     rj::Value plugin_state(rj::kObjectType);
                     plugin_state.AddMember("phase",observed.plugin.phase,a); // 原Standard生命周期枚举。

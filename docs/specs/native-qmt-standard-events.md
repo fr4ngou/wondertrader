@@ -300,6 +300,8 @@ gap后的空页、源ACK推进、短暂正常状态或新页gap字段变化均�
 
 owned/external/unresolved/conflict沿STQ-P7。真实外部或未恢复归属的金融观察保留原金融批次和空身份槽；不能据它们恢复自有未决命令，也不创建整批查询资格门。conflict/运输错误/原D失败不给该处理的可发布数组。orderError没有官方独立完整token保证，保留账户/源诊断；仅有明确原命令关联与确定失败事实时才对原委托发确定拒绝。
 
+已通过原页校验的orderError沿WT原onTraderError通知，并登记原诊断事件的交付结果；它属于券商业务诊断，不写入Standard实例first_error，不触发交易通道退出。原订单及未决调用身份保持，查询和完整order/deal回报继续提供状态事实。页运输失败、身份冲突、回调异常和原D耗尽仍沿原故障路径处理。
+
 首次stop沿P9冻结原close D。停止新事件页/补查和新业务入队，owner收回Candidate，worker保留已开始I/O及晚回调owner并真实drain/join。stop/detach之后的金融completion不再调用SPI；已开始的SPI允许按原生命周期返回并登记处置。回调内stop只登记，不能自join。未交付/unknown原事件仍在Host，停止不隐式撤单、不推进源ACK、不清持久事实。关闭超时保留真实owner/DLL，不以线程标记代替回调结束。
 
 状态诊断至少区分页取得、映射/补查、身份未决、重复抑制、SPI开始/返回/异常、停止抑制及原D耗尽。输出有限来源B摘要/session/sequence、kind、处置、原页/查询/lookup诊断引用；账户/原正文进入受控记录，普通日志不展开敏感数据。源持久、源ACK、C++handled与SPI returned分别展示，不能合并为“交易已完成”。
