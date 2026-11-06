@@ -25,12 +25,12 @@ def original_price_quality(bar):
     return 'qualified'
 
 
-def capture_profile(manifest, capture_sha256, adjustment):
-    """原导入profile保持字段、值与顺序；原价与供应商前复权分别标识。"""
+def capture_profile(manifest, capture_sha256, adjustment, *, symbol=None, unit_evidence=None):
+    """默认原profile字节合同保持；显式同capture证据按证券授单位，不改原数值。"""
     if adjustment not in ('none','front_ratio'):
         raise ValueError('analysis capture adjustment invalid')
     request=manifest['request']
-    return dict(
+    profile=dict(
         provider='Qmt',  # 原QAB提供者，不推造其他供应商来源。
         instance_id='qmt-batch-source:'+capture_sha256[:32],  # 捕获内容身份，区别WT进程实例。
         session_id=request['capture_id'],  # 原持久捕获UUID。
@@ -46,11 +46,19 @@ def capture_profile(manifest, capture_sha256, adjustment):
         price_unit='unknown',  # 无本批独立价格单位证明。
         volume_unit='unknown',  # 缺量不填0，原真实0仍由原件保存。
         amount_unit='unknown')  # 缺金额不填0，原真实0仍由原件保存。
+    if unit_evidence is not None and symbol is not None:
+        from .analysis_price_units import capture_price_units
+        units=capture_price_units(manifest,capture_sha256,symbol,unit_evidence)
+        if units.semantic_price_unit!='unknown':
+            profile.update(
+                dataset_version='qmt.batch-native-day.v2:'+unit_evidence.evidence.profile_id+':'+unit_evidence.evidence.sha256,
+                price_unit=units.price_unit,volume_unit=units.volume_unit,amount_unit=units.amount_unit)
+    return profile
 
 
-def capture_metadata(manifest, capture_sha256, adjustment):
+def capture_metadata(manifest, capture_sha256, adjustment, *, symbol=None, unit_evidence=None):
     """把同一原profile映射到公开来源元数据；内容SHA绑定整份已验证捕获。"""
-    profile=capture_profile(manifest,capture_sha256,adjustment)
+    profile=capture_profile(manifest,capture_sha256,adjustment,symbol=symbol,unit_evidence=unit_evidence)
     value={key:profile[key]for key in ('dataset_version','source_license','adjustment','factor_version',
         'timezone','value_semantics','price_unit','volume_unit','amount_unit','minute_boundary')}
     value.update(

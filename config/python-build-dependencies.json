@@ -20,6 +20,7 @@
     "runtime_status.py",
     "security.py",
     "source_history.py",
+    "source_units.py",
     "strategy_market.py",
     "supplement_facts.py"
   ],

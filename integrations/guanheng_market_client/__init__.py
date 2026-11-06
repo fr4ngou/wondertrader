@@ -16,7 +16,7 @@ import time
 from urllib.parse import urlsplit
 
 
-__version__ = "0.20.0"
+__version__ = "0.21.0"
 API_VERSION = "guanheng.market.v1"
 MAX_REQUEST_BYTES = 262144
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
