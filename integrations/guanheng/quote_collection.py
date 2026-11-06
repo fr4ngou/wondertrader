@@ -6,6 +6,7 @@ import threading
 import time
 
 from .datakit import NativeDataKitSession
+from .quote_counter_observation import QuoteCounterObservation
 
 
 class QuoteCollection:
@@ -30,6 +31,7 @@ class QuoteCollection:
         self._receiver_factory = receiver_factory
         self._clock, self._wall_clock = clock, wall_clock
         self._coverage = coverage  # 可选纯时间投影；成功交付后更新，管理线程读取独立有界快照。
+        self._counter_observation = QuoteCounterObservation(settings['symbols'])  # 原锁拥有；原计数修订不改变交付数据。
         self._guard = threading.Lock()
         self._owner = None
         self._operation = None
@@ -126,6 +128,7 @@ class QuoteCollection:
             source = max(row["time"] for row in ticks.values())
             with self._guard:
                 native = self._native
+                self._counter_observation.observe(ticks, kind)
                 self._received_batches += 1
                 self._received_ticks += len(ticks)
                 self._observed_wall_time = observed
@@ -284,13 +287,14 @@ class QuoteCollection:
                 "close_deadline": self._close_deadline,
                 "native_close_started": self._native_close_started,
                 "closed_complete": self._closed_complete,
+                "source_counter_observation": self._counter_observation.snapshot(),  # 原来源计数的有界摘录，不授分钟质量资格。
             }
         received = {} if receiver is None else receiver.status()
         heartbeat = received.get("heartbeat")
         if heartbeat is not None:
             from guanheng_qmt_shm_agent.quote_stream_contract import COUNTER_FIELDS
             heartbeat = {key: heartbeat[key] for key in COUNTER_FIELDS}
-        # 只投影合同字段；凭证、配置、原异常文本、报价正文不进入状态。
+        # 只投影合同字段；市场计数仅保上述16条摘录，凭据、配置、账户和完整报价不进入状态。
         failure = received.get("failure")
         cleanup = received.get("cleanup_failure")
         result.update(

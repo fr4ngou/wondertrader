@@ -32,6 +32,14 @@ stop_seconds在部署启动前按证券规模和实际归档/回收时间确定�
 
 ## 正常停止与恢复
 
+### 累计计数修订与分钟质量
+
+同代采集`status.json`的`collection.source_counter_observation`记录原QST到达顺序中的累计量、累计额或源时间回退；`counts`分别累计原因，`recent`最多16条，保留完整市场代码、原两笔时间及原计数字段。单位沿来源profile，摘录不含凭据、账户或完整报价。诊断只观察，不丢弃/修改报价，不构造午间offset，不给负额钳零。每证券只保原固定集合的一笔副本；状态文件仍沿原64KiB预算原子替换，无追加日志、队列或新线程。
+
+分钟维护逐行检查实际量额。`invalid_counter_count=0`表示已读行未发现负量额，`null`表示Reader失败尚未知。闭合日即使标签齐全，也以`invalid_counters`进入原恢复队列；当日仍以`awaiting_closed_day`等待原历史准入。`recovered`只来自原官方完整日收据和原生回读，原Writer坏文件保留。原Source缓存为空时沿原HPR补充后再读；`CallReturned`只表示调用返回，零行继续Pending，不能标全覆盖。已发布恢复日保留原选择，不因原坏文件仍在而无限重下。
+
+诊断与官方历史对照时保留源接口和时点区别：全推订阅回调、最新`get_full_tick`和历史1m分别取得原件；收盘后的最新快照不能单独证明盘中原回调值。先按原ID接续，再沿现有Importer/标准Reader采用完整官方分钟，数据覆盖与原价/量额语义各自核实。
+
 ### MCC完整候选
 
 `scripts/minute_collection.py`提供`stage-program`、`prepare-source`、`prepare-config`、`prepare-update`、`verify`、`adopt-source`、`rollback-source`、`run-role`、`stop-role`、`accept-minutes`及`accept-coverage`。准备命令只在新E盘根生成程序、完整Source和配置；`verify`核完整文件集、原/新CAS及同一producer/Reader引用。`adopt-source`和`rollback-source`供Root停止对应GH行后显式调用，按完整正文before/after CAS采用或恢复；独立交易/v9保持。

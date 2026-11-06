@@ -20,6 +20,8 @@ source-collected配置拥有base、collection、native_reader、max_bars和max_f
 
 ## 读取、合并及生命周期
 
+`minute_counter_quality`将实际负量/负额定义为独立来源质量失败；`NativeHistory`在原C回调后保留该固定类别，继续拒绝不合格行。标准Reader原样返回的分钟也沿同一检查。`CollectedSourceMarket.source_batches`仅将这类已确认失败排除出本次原生来源候选，保留其他有效历史，原文件及值不修改；来源为空时给明确Unavailable，使原`SourcePreparingMarket`继续已有官方读取/补齐。身份、格式、非有限值、文件和ABI故障保持原失败语义，禁止将异常通配为质量缺口。完整闭合日仍以原收据、交易标签、原生回读及最终选择核资格。
+
 一次查询在原Writer目录使用普通只读句柄复制有界文件并复核大小/摘要，将稳定内容写入本次私有临时副本；冻结路径租约只作用于副本。原Reader解码后再次核原DSB身份，变化或形成中返回Unavailable，后继请求重新捕获。临时副本在原ABI返回后释放，不保留第二套长期行情库。
 
 同一进程每次检查当前文件，原归档第一次出现或追加后无需重新登记证券或重启服务。来源缺文件时返回base及显式补齐来源的实际范围；现有文件不稳定或损坏时明确不可用。归档、base及supplements沿原select_sources合并最近N根，同值去重、异值冲突，保留每段原metadata及provenance；coverage保持Unknown。未登记证券的补齐来源跳过，已登记但读取失败保持不可用；日线继续由base原生day历史提供。

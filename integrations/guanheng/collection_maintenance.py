@@ -160,24 +160,29 @@ class MinuteCollectionMaintenance:
                             # 可确认的单次查询失败只影响该证券观察；close失败由批次finally向外收束。
                             self.rows[key] = dict(symbol=symbol, date=day, state='reader_unavailable',
                                 error_type=type(error).__name__, expected_count=None, native_count=None,
+                                invalid_counter_count=None,  # Reader失败时未取得量额质量；区别成功观察的0。
                                 missing_count=None, first_missing=None, last_missing=None,
                                 unexpected_count=None, observed_at=self.wall_clock(), recovered_count=None)
                             continue
+                        from .minute_counter_quality import negative_counter_count
+                        invalid_count = negative_counter_count(result['bars'])
                         old = self.rows.get(key)
                         restored = old is not None and old['state'] == 'recovered'
                         state = ('recovered' if restored else 'awaiting_market_session' if not result['expected_minutes']
-                                 else 'observed_complete' if not result['missing_minutes']
-                                 else 'awaiting_closed_day' if day == now.date().isoformat() else 'missing')
+                                 else 'observed_complete' if not result['missing_minutes'] and not invalid_count
+                                 else 'awaiting_closed_day' if day == now.date().isoformat()
+                                 else 'invalid_counters' if invalid_count else 'missing')
                         self.rows[key] = dict(
                             symbol=symbol, date=day, state=state,  # 本次原Reader观察与完整恢复证明分别表达。
                             expected_count=len(result['expected_minutes']), native_count=len(result['bars']),
                             missing_count=len(result['missing_minutes']),  # 全部缺口可按原Reader重建；投影不复制万证券分钟清单。
+                            invalid_counter_count=invalid_count,  # 原Reader负量/负额分钟数；原行及标签保持，官方恢复资格单独核。
                             first_missing=next(iter(result['missing_minutes']), None),
                             last_missing=result['missing_minutes'][-1] if result['missing_minutes'] else None,
                             unexpected_count=len(result['unexpected_minutes']),
                             observed_at=self.wall_clock(),  # 原Reader查询完成的本机epoch秒。
                             recovered_count=old.get('recovered_count') if restored else None)
-                        if state == 'missing' and key not in self.queued and key not in self.retry_at:
+                        if state in ('missing', 'invalid_counters') and key not in self.queued and key not in self.retry_at:
                             self.jobs.append(key); self.queued.add(key)
             finally:
                 reader.close()

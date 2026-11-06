@@ -173,6 +173,9 @@ class CollectedSourceMarket:
             self._active_reader = None
         if not rows:
             return None
+        from .minute_counter_quality import require_minute_counters
+        for row in rows:
+            require_minute_counters(row['volume'], row['amount'], row['minute'])
         bars = [dict(symbol=security, **row) for row in rows]
         profile_sha = hashlib.sha256(encode_json(self._minute_native)).hexdigest()
         content = hashlib.sha256(encode_json(dict(symbol=security, bars=bars,
@@ -208,7 +211,16 @@ class CollectedSourceMarket:
         query = request['request']
         security = query['exchange'] + '.' + query['code']
         original = self._base.call(request)
-        recent = self._read(security, query) if security in self._symbols else None
+        from .minute_counter_quality import NegativeMinuteCounter
+        try:
+            recent = self._read(security, query) if security in self._symbols else None
+        except NegativeMinuteCounter:
+            # 原件保留且严格拒绝；这一来源的量额不合格由原官方准备链补读。
+            # 文件身份、格式、ABI及普通读取异常继续沿原失败路径，不能归为可补缺口。
+            recent = None
+            if original['status']['code'] != 'Ok':
+                original = dict(api_version=API_VERSION, status=dict(code='Unavailable',
+                    reason='原WT分钟存在负量或负额，等待官方来源恢复'), data={})
         batches = [recent] if recent is not None else []
         if original['status']['code'] == 'Ok':
             batches.append(original['data'])

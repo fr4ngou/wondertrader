@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .qmt_dat_layout import local_dat_counters_valid
+from .minute_counter_quality import NegativeMinuteCounter
 from ..guanheng_market_client.daily_contract import source_daily_symbol, source_daily_security, source_price_basis
 
 from .price_quality import price_range_status, summarize_source_bars, validate_price_quality
@@ -509,6 +510,7 @@ class NativeHistory:
         if size != path.stat().st_size - 20:
             raise ValueError("DSB 压缩体长度不符")
         bars, counts, failures = [], [], []
+        first_negative_minute = None  # 暂存首个负量额位置；整文件校验完成前不授质量fallback。
 
         @COUNT_CALLBACK
         def count(value):
@@ -518,6 +520,7 @@ class NativeHistory:
 
         @BAR_CALLBACK
         def receive(pointer, length, last):
+            nonlocal first_negative_minute
             try:
                 if failures:
                     return
@@ -528,7 +531,8 @@ class NativeHistory:
                     values = [getattr(row, field) for field in ("open", "high", "low", "close", "vol", "money")]
                     if any(not math.isfinite(v) for v in values):
                         raise ValueError("历史值必须为有限数")
-                    if min(row.open, row.high, row.low, row.close) <= 0 or min(row.vol, row.money) < 0:
+                    negative_minute = metadata.period == '1m' and min(row.vol, row.money) < 0
+                    if min(row.open, row.high, row.low, row.close) <= 0 or (not negative_minute and min(row.vol, row.money) < 0):
                         raise ValueError("历史价格或量额不合格")
                     if isinstance(metadata, SourceHistoryMetadata) and not local_dat_counters_valid(metadata.dataset_version, row.vol, row.money):
                         raise ValueError("QMT DAT历史计数字段存在旧符号回绕或超出布局")
@@ -554,7 +558,11 @@ class NativeHistory:
                         stamp = day.replace(hour=hour, minute=minute, tzinfo=shanghai_time(day))
                     if bars and stamp <= bars[-1].occurred_at:
                         raise ValueError("历史时间重复或倒序")
-                    bars.append(market_bar_type(symbol=security, period=metadata.period, occurred_at=stamp,
+                    if negative_minute and first_negative_minute is None:
+                        first_negative_minute = 199000000000 + row.time
+                    # 不合格行只暂存原值，以完整核验后续行和计数/身份；质量异常前不会返回。
+                    row_type = SourceHistoryBar if negative_minute else market_bar_type
+                    bars.append(row_type(symbol=security, period=metadata.period, occurred_at=stamp,
                         open=row.open, high=row.high, low=row.low, close=row.close,
                         volume=row.vol, amount=row.money))
             except Exception as exc:
@@ -573,7 +581,7 @@ class NativeHistory:
             self.max_bars, self.max_file_bytes, {"1m": 21, "5m": 22, "1d": 23}[metadata.period], receive, count, logger)
         if (failures or returned == 0 or counts != [returned] or returned != len(bars)
                 or (metadata.expected_count is not None and returned != metadata.expected_count)):
-            reason = failures[0] if failures else (native_reasons[0] if native_reasons else "记录或回调不完整")
+            reason = str(failures[0]) if failures else (native_reasons[0] if native_reasons else "记录或回调不完整")
             raise ValueError("原生历史读取失败：" + reason)
         if digest(path) != metadata.content_id:
             raise ValueError("历史读取期间文件发生修订")
@@ -582,6 +590,9 @@ class NativeHistory:
             raise ValueError("预期时点必须带时区且唯一")
         if expected and not calendar_version:
             raise ValueError("确认覆盖需要预期交易时点的版本依据")
+        if first_negative_minute is not None:
+            # 结构、全部行、ABI计数、内容身份和调用方标签均已验证，才授纯量额质量分类。
+            raise NegativeMinuteCounter(first_negative_minute)
         actual = {b.occurred_at for b in bars}
         missing = tuple(sorted(set(expected) - actual))
         coverage = ("gaps" if missing else "complete") if expected else "unknown"
