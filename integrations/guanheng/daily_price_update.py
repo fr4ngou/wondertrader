@@ -82,6 +82,18 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         base=base['base']
     base=compact_price_base(base,request.get('replaced_archives',()))
     reader=_catalog(base)['native_reader'];limit=request['maximum_history_rows'];archive=None
+    strategy_history=None;strategy_capture=None;strategy_coverage=None
+    if request.get('strategy_history')is not None:
+        if not set(request['strategy_history']['symbols'])<=set(scope['securities']):
+            raise ValueError('strategy history outside declared price identities')
+        from .daily_strategy_history import prepare_strategy_history
+        strategy_history=prepare_strategy_history(dict(policy=request['strategy_history'],day=scope['observation_date'],
+            reference=scope['reference'],calendar=request['calendar'],connections=request['connections'],
+            protected_slots=request['protected_slots'],source_kind=request['source_kind'],snapshot_id=request['snapshot_id'],
+            previous_requests=request.get('strategy_history_previous_requests',())),root/'sh',
+            deadline=deadline,cancelled=cancelled,environ=environ)
+        strategy_observation=_load(strategy_history)
+        strategy_capture=strategy_observation['cache'];strategy_coverage=strategy_observation['coverage']
     if inputs is not None:
         market=create_native_source_market(base)
         try:
@@ -90,7 +102,8 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
                 return result
             archive=prepare_directory(root,'price-archive','archive.json',lambda output:
                 materialize_price_archive(inputs,market,request['previous_archives'],output,request['helper'],reader,
-                    deadline=deadline,maximum_history_rows=limit,cancelled=cancelled),restore)
+                    deadline=deadline,maximum_history_rows=limit,cancelled=cancelled,
+                    additional_captures=(strategy_capture,)if strategy_capture is not None else()),restore)
         finally:market.close()
     # 即使本次无额外证券，也保持已有补充价格；旧整档遮蔽股票新尾日的情况在有补充输入时统一收敛。
     additional=[archive]if archive is not None else request['previous_archives']
@@ -107,7 +120,8 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
                 return descriptor
             def build_front(output):
                 prepare_front_archive(inputs,market,request['previous_archives'],output,request['helper'],
-                    deadline=deadline,maximum_history_rows=limit,cancelled=cancelled)
+                    deadline=deadline,maximum_history_rows=limit,cancelled=cancelled,strategy_capture=strategy_capture,
+                    strategy_coverage=strategy_coverage)
                 return restore_front(output)
             front=prepare_directory(root,'price-front','RESULT.json',build_front,restore_front)
             front_value=_load(front)
@@ -192,4 +206,6 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         maximum_history_rows=limit,  # 显式每证券历史容量，公开单次查询仍为2000。
         counts=counts,  # 逐组Source应有/实际Native覆盖及真实尾日分布。
         securities=coverage)  # 每证券来源成员、实际尾日及缺口原因。
+    if strategy_history is not None:
+        result['strategy_history']=strategy_history  # 显式长窗口来源/缺口观察；未配置时保持原协议形状。
     _save(final,result);return _descriptor(final)

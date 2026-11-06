@@ -414,12 +414,12 @@
       "source": "integrations/guanheng/daily_batch_source.py"
     },
     "integrations/guanheng/daily_data_inputs.py": {
-      "sha256": "5d7f31d57a7eddf89a56e5dac4b18faece99d27c2b58ab019730f1e12d4b3b7d",
-      "source": "integrations/guanheng/daily_data_inputs.py"
+      "source": "integrations/guanheng/daily_data_inputs.py",
+      "sha256": "aaf7f1f690d682bdcb6d0a569895d1c7be8a743eccbd4c8168e5742e721fd260"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "57a597eddba9b829d4d09cc9dd50086d19e1c589c46efe462bd67fa5a5c4c0ad",
-      "source": "integrations/guanheng/daily_data_service.py"
+      "source": "integrations/guanheng/daily_data_service.py",
+      "sha256": "21361c78a4b2de76fd8e6ac581374c6047ab76539a741149aefb42165282a9ee"
     },
     "integrations/guanheng/daily_data_stages.py": {
       "sha256": "db5e1e843cd549178540cd2ffdedb3fcca27b164cc18ba109e70b4f5f937a1ad",
@@ -430,48 +430,60 @@
       "source": "integrations/guanheng/daily_data_update.py"
     },
     "integrations/guanheng/daily_front_archive.py": {
-      "sha256": "f638c1ce6b6a18eb310a91db3d45df605a0b8085e4fe419e7b5f231f56107d58",
-      "source": "integrations/guanheng/daily_front_archive.py"
+      "source": "integrations/guanheng/daily_front_archive.py",
+      "sha256": "5819e3088f45f38654f16ccb4464af84d8ae976baf5363ab2f652ca77cc61569"
+    },
+    "integrations/guanheng/daily_gap_plan.py": {
+      "source": "integrations/guanheng/daily_gap_plan.py",
+      "sha256": "fd3421ca58c83a75be773a5e5c726b2d3838432ac00f13eed709ff6157d172bc"
     },
     "integrations/guanheng/daily_gap_update.py": {
-      "sha256": "2c10666f13d61872b5e61f1d4490f424c743111271b2443de2e65ef3363c6308",
-      "source": "integrations/guanheng/daily_gap_update.py"
+      "source": "integrations/guanheng/daily_gap_update.py",
+      "sha256": "e5f43c5e1cc19e4ec1257a44a751177de5aa13a596c23112a991a80bd18819a6"
     },
     "integrations/guanheng/daily_generation.py": {
       "sha256": "df72fc463661640eb7e6fd9e3b5b8d0cc4df5baf15e457b6d31381e403474ef4",
       "source": "integrations/guanheng/daily_generation.py"
     },
     "integrations/guanheng/daily_input_recovery.py": {
-      "sha256": "758b5a91dcc4c58153fca11b885d8a01f642b7a306a4711d9b7003b1f8acd714",
-      "source": "integrations/guanheng/daily_input_recovery.py"
+      "source": "integrations/guanheng/daily_input_recovery.py",
+      "sha256": "25ab5cf65e40d7c509d67543a91728ff485542d66abfc3d4e35947cba9c0da51"
     },
     "integrations/guanheng/daily_overlay.py": {
       "sha256": "1cf80048b839e07daec090beff559892c235d5df6b571c7f685d5057526b3cd2",
       "source": "integrations/guanheng/daily_overlay.py"
     },
     "integrations/guanheng/daily_price_archive.py": {
-      "sha256": "ac2752eb3baf7971671282a97a615beb7b75d9694178ad8e12b7873bf4efce31",
-      "source": "integrations/guanheng/daily_price_archive.py"
+      "source": "integrations/guanheng/daily_price_archive.py",
+      "sha256": "368d7ae026317a23fe6f014c846c05f0eb7b7410a65ca10bde6e5fc8f94bf703"
+    },
+    "integrations/guanheng/daily_price_capture.py": {
+      "source": "integrations/guanheng/daily_price_capture.py",
+      "sha256": "bfd0ecc33d5400ba9ee8adf8fe68a738f8db24299ab8631ae1c607fc638b9fcf"
     },
     "integrations/guanheng/daily_price_continuation.py": {
-      "sha256": "fd1cbc3f0d2fd646d7efcb337fa64a8e3cd3b1afdfd8d0ab46ec15e8a245ae1b",
-      "source": "integrations/guanheng/daily_price_continuation.py"
+      "source": "integrations/guanheng/daily_price_continuation.py",
+      "sha256": "9b48c8b577550e5387d1a473551d80cc9ea06cc55ef8826d9c50cf51a80f5ffd"
     },
     "integrations/guanheng/daily_price_inputs.py": {
-      "sha256": "acb0e7633a75ece7ccbbef781bc26dc68ee0e566d848f720fda2a2117bcce4ae",
-      "source": "integrations/guanheng/daily_price_inputs.py"
+      "source": "integrations/guanheng/daily_price_inputs.py",
+      "sha256": "24c832f7c393adbc072929cd036403d53fb87542e09e003c414b611f68d8eafe"
     },
     "integrations/guanheng/daily_price_refresh.py": {
-      "sha256": "dc140277ea7b6aa0394a42983efe62908a936d1072629e6082812779538b14d8",
-      "source": "integrations/guanheng/daily_price_refresh.py"
+      "source": "integrations/guanheng/daily_price_refresh.py",
+      "sha256": "390f08d682b811c0965e763657f185d1c348d4bde96d74a5f65d9baff0983763"
     },
     "integrations/guanheng/daily_price_scope.py": {
-      "sha256": "4dc2d20ccb0ab33dde3a0cda925efef3271d59d1198c444e40431e9182d32258",
-      "source": "integrations/guanheng/daily_price_scope.py"
+      "source": "integrations/guanheng/daily_price_scope.py",
+      "sha256": "730cca8d457329716356c90caa98e5e3d588ab2099707915b17e7968fbe001f3"
     },
     "integrations/guanheng/daily_price_update.py": {
-      "sha256": "8274ed93b324c9e8373e90fbc4acb2d0e6d3c54ee062382b8ebe9cdf26da47cd",
-      "source": "integrations/guanheng/daily_price_update.py"
+      "source": "integrations/guanheng/daily_price_update.py",
+      "sha256": "df7420a098acc463feab96dc68c901f3e0c6a4e2b3907303598657bf7aed7010"
+    },
+    "integrations/guanheng/daily_strategy_history.py": {
+      "source": "integrations/guanheng/daily_strategy_history.py",
+      "sha256": "9bbf721433d146a1ff76fb34e12c5557cde1aeb972205b3c029086a022459454"
     },
     "integrations/guanheng/datakit.py": {
       "sha256": "445f53ab005daff7f7a00b5c6096b0026b48e273bc219c6f892075562f04b2af",
@@ -548,6 +560,10 @@
     "integrations/guanheng/price_quality.py": {
       "sha256": "191cf1cf80ea5c740b2f87176e64174d284a3acbfbfe651c63fc59b3b8e130f8",
       "source": "integrations/guanheng/price_quality.py"
+    },
+    "integrations/guanheng/price_trading_exceptions.py": {
+      "source": "integrations/guanheng/price_trading_exceptions.py",
+      "sha256": "3b6823abaf2a7180f49734447f0cef258b12f5e951710fd1011303bf41ae174e"
     },
     "integrations/guanheng/qmt_analysis_import.py": {
       "sha256": "6b4aa5d61e362e6cc5103bb5ec01fdf96478beb01fca936a06581e43de22d458",
@@ -704,10 +720,6 @@
     "integrations/guanheng_market_client/supplement_facts.py": {
       "sha256": "094e631e3565500262d90a5a7b85332f88eb45ef69356150f8bd005ba084fec4",
       "source": "integrations/guanheng_market_client/supplement_facts.py"
-    },
-    "integrations/guanheng/daily_gap_plan.py": {
-      "source": "integrations/guanheng/daily_gap_plan.py",
-      "sha256": "f0219510edd3d3be335108a21ac4220aaf0e52aece5d6e7ab2e3232052617c52"
     }
   },
   "native": {
@@ -742,5 +754,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.25"
+  "version": "0.2.0a1+unified.26"
 }

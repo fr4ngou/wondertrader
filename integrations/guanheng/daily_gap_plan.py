@@ -118,7 +118,7 @@ def _validate(value, deadline, cancelled):
                 or type(row['symbol'])is not str or _SYMBOL.fullmatch(row['symbol'])is None
                 or not first<=_day(row['date'])<=last or row['reason']not in(
                     'before_listing','after_expiry','original_HPR_responsibility',
-                    'source_halted_requires_quantity_or_original_history')):
+                    'source_halted_requires_quantity_or_original_history','official_security_no_trade')):
             raise ValueError('daily gap plan exclusion invalid')
     _check(deadline, cancelled)
     return value

@@ -9,7 +9,7 @@ from .daily_archive_prepare import prepare_daily_archive
 
 
 def prepare_front_archive(inputs,market,previous_archives,output,helper,*,deadline,
-                          maximum_history_rows,cancelled):
+                          maximum_history_rows,cancelled,strategy_capture=None,strategy_coverage=None):
     """调用方持原租约并关闭market；本函数不触发HPR，原价完成独立于可选前复权。
 
     每证券采用同一当前供应商参考的完整实读日期，或完整保留其旧价格/参考。
@@ -18,7 +18,7 @@ def prepare_front_archive(inputs,market,previous_archives,output,helper,*,deadli
     """
     root=Path(output);root.mkdir(exist_ok=False)
     prepared=_load(inputs);cache=prepared['cache'];manifest=load_price_capture(cache)
-    metadata=capture_metadata(manifest,cache['sha256'],'front_ratio');values={}
+    metadata=capture_metadata(manifest,cache['sha256'],'front_ratio');values={};candidates={}
     def check():
         if cancelled():raise InterruptedError('front archive stopped')
         if time.monotonic()>=deadline:raise TimeoutError('front archive deadline')
@@ -26,25 +26,39 @@ def prepare_front_archive(inputs,market,previous_archives,output,helper,*,deadli
         for qmt,item in items.items():
             code,exchange=qmt.split('.');symbol={'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[exchange]+'.'+code
             values[symbol]=item
+            candidates[symbol]=[(item,metadata,'ordinary')]
+    if strategy_capture is not None:
+        if type(strategy_coverage)is not dict:raise ValueError('front strategy coverage required')
+        hot=load_price_capture(strategy_capture);hot_metadata=capture_metadata(hot,strategy_capture['sha256'],'front_ratio')
+        for _,items in price_batches(strategy_capture,hot,adjustment='front_ratio',deadline=deadline,cancelled=cancelled):
+            for qmt,item in items.items():
+                code,exchange=qmt.split('.');symbol={'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[exchange]+'.'+code
+                quality=strategy_coverage.get(symbol,{}).get('front_ratio',{})
+                if quality.get('missing_dates')!=[]or quality.get('actual_rows',0)<1:continue
+                values[symbol]=item;candidates.setdefault(symbol,[]).insert(0,(item,hot_metadata,'strategy_history'))
     retained_symbols=set()
     for archive in previous_archives:
         for entry in _load(archive)['entries']:
             if entry['provenance'][0]['metadata']['adjustment']=='front_ratio':retained_symbols.add(entry['symbol'])
     rows={};provenance={};states={}
     for symbol in sorted(set(values)|retained_symbols):
-        check();item=values.get(symbol);current={}
-        if item is not None:
-            current={int(day):(dict(date=int(day),**bar),metadata)for day,bar in item['data'].items()
-                     if original_price_quality(bar)=='qualified'}
+        check();item=values.get(symbol);current={};origin='retained'
         old=read_price_history(market,symbol,'front_ratio',deadline=deadline,
             maximum_history_rows=maximum_history_rows,cancelled=cancelled)
-        complete=bool(current)and set(old)<=set(current)
+        for option,source_metadata,source_origin in candidates.get(symbol,[]):
+            proposed={int(day):(dict(date=int(day),**bar),source_metadata)for day,bar in option['data'].items()
+                if original_price_quality(bar)=='qualified'}
+            if proposed and set(old)<=set(proposed):current=proposed;item=option;origin=source_origin;break
+            if not current:current=proposed
+        complete=bool(current)and origin!='retained'
         selected=current if complete else old
         states[symbol]=dict(
             source_state=item['status']if item is not None else'not_in_current_capture',  # 原SDK状态，未出现旧证券另列。
             captured_rows=len(current),  # 当前参考下实际合格行数，原零量不改变。
             retained_rows=len(old)if not complete else 0,  # 旧参考整体保留行数，不混入新锚定价格。
             reason='current_reference_complete'if complete else'current_reference_incomplete'if old else'front_unavailable')
+        if strategy_capture is not None:
+            states[symbol]['selected_capture']=origin  # 显式窗口启用时说明整证券参考来源，不按日期拼接。
         if not selected:continue
         rows[symbol]=[];parts=[]
         for _,(row,original)in sorted(selected.items()):

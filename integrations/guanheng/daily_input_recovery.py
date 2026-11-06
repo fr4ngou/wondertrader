@@ -33,6 +33,8 @@ def _slot_candidates(root, original):
     """仅枚举原数据owner可能创建的读取槽；生成器由外层owner显式关闭。"""
     captures = [root/'cache', root.parent/'work/readback',
                 root.parent/'work/prices/inputs/cache', root.parent/'work/prices/inputs/readback']
+    from .daily_strategy_history import strategy_read_slots
+    yield from strategy_read_slots((root.parent/'REQUEST.json',))  # 指定原hot工作流的未封存v8槽；不重建其UUID。
     for capture in captures:
         if not (capture/'manifest.json').exists():
             for slot in (capture/'slots').glob('*.json'):

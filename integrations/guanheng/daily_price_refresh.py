@@ -83,6 +83,11 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
         replaced_archives=retired_archives)  # 新整档包含的旧补充层；活动Reader替换，旧原件永久保留原引用。
     if configuration['price_scope'].get('index_fallback')is not None:
         maintenance['index_fallback']=configuration['price_scope']['index_fallback']
+    if configuration['price_scope'].get('strategy_history')is not None:
+        maintenance['strategy_history']=configuration['price_scope']['strategy_history']
+        maintenance['strategy_history_previous_requests']=list(previous_requests)
+        from .daily_strategy_history import strategy_slots
+        maintenance['protected_slots']=sorted(set(maintenance['protected_slots'])|strategy_slots(previous_requests))
     request=dict(schema='guanheng.daily-price-refresh.v1',day=day,protected_slots=sorted(protected),
                  price_maintenance=maintenance)  # 原公共日事实任务可发现此请求的HPR/批读责任。
     if request_path.exists():

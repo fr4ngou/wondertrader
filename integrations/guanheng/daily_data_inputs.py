@@ -114,6 +114,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             for item in template.get('additional_archives',[]):selected.setdefault((item['path'],item['sha256']),item)
             template['additional_archives']=list(selected.values())
     protected = set(template['protected_slots'])
+    from .daily_strategy_history import strategy_slots
+    protected.update(strategy_slots((*previous_requests,*prior_price_requests)))
     plans = [];scope_history=[]
     # 独立价格阶段属于同owner的原责任；不改已有INPUTS原意图，另从持久INDEX引用恢复保护。
     for request_path in (*previous_requests,*prior_price_requests):
@@ -135,6 +137,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         if phase.exists():
             price_plan=strict_json(read_fixed(phase,maximum=65536))['result']
             if price_plan is not None:prior_plans.append((price_plan,price_root/'gap-work'))
+        from .daily_strategy_history import strategy_prior_plans
+        prior_plans.extend(strategy_prior_plans((request_path,)))  # hot原HPR跨日也沿同一owner续核，后继计划保护其区间。
         for plan,gap_work in prior_plans:
             value=load_gap_plan(plan,deadline=deadline,cancelled=cancelled);pending=[]
             for task in value['tasks']:
@@ -302,6 +306,9 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             template['price_maintenance']['cache_seed']=inputs['price_cache_seed']  # 同名单/闭合日的已完成原缓存，目录及原UUID保持。
         if configuration['price_scope'].get('index_fallback')is not None:
             template['price_maintenance']['index_fallback']=configuration['price_scope']['index_fallback']  # 显式官方指数来源；读侧仍只读WT。
+        if configuration['price_scope'].get('strategy_history')is not None:
+            template['price_maintenance']['strategy_history']=configuration['price_scope']['strategy_history']  # 额外策略窗口，不改变全市场authorized_from。
+            template['price_maintenance']['strategy_history_previous_requests']=list(dict.fromkeys((*previous_requests,*prior_price_requests)))  # 固定旧工作流身份，后继续核不重发。
         by_plan={descriptor['sha256']:load_gap_plan(descriptor,deadline=deadline,cancelled=cancelled)
                  for descriptor,_,_ in plans}
         pending=set()

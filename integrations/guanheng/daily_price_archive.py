@@ -13,7 +13,7 @@ from ..guanheng_market_client.source_history import validate_source_metadata
 
 
 def materialize_price_archive(inputs,market,previous_archives,output,helper,native_reader,*,deadline,
-                              maximum_history_rows=10000,cancelled=lambda:False):
+                              maximum_history_rows=10000,cancelled=lambda:False,additional_captures=()):
     """调用方持原发布租约并关闭market；本函数关闭其独有Native文件Reader。
 
     inputs绑定已完成价格回读。previous_archives按最新成功版本优先排列，旧原价
@@ -67,13 +67,16 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                         values.setdefault(row['date'],(row,part['metadata']))
                     covered+=part['count']
                 if covered!=entry['rows']:raise ValueError('daily price prior provenance count differs')
-        for _,items in price_batches(cache,manifest,deadline=deadline,cancelled=cancelled):
-            for qmt,item in items.items():
-                code,exchange=qmt.split('.');symbol={'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[exchange]+'.'+code
-                values=additions.setdefault(symbol,{})
-                for day,bar in sorted(item['data'].items()):
-                    if original_price_quality(bar)!='qualified':continue  # 输入回执已逐日保存原准入原因，旧成功档继续保留。
-                    values.setdefault(int(day),(dict(date=int(day),**bar),fallback))
+        for current_capture in (cache,*additional_captures):
+            current_manifest=manifest if current_capture==cache else load_price_capture(current_capture)
+            current_metadata=capture_metadata(current_manifest,current_capture['sha256'],'none')
+            for _,items in price_batches(current_capture,current_manifest,deadline=deadline,cancelled=cancelled):
+                for qmt,item in items.items():
+                    code,exchange=qmt.split('.');symbol={'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[exchange]+'.'+code
+                    values=additions.setdefault(symbol,{})
+                    for day,bar in sorted(item['data'].items()):
+                        if original_price_quality(bar)!='qualified':continue  # 旧成功日及普通捕获优先，热窗口只填缺日。
+                        values.setdefault(int(day),(dict(date=int(day),**bar),current_metadata))
         if prepared.get('supplemental_prices')is not None:
             from .official_index_prices import load_official_index_prices
             supplement=load_official_index_prices(prepared['supplemental_prices'])

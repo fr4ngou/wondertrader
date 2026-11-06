@@ -115,11 +115,9 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
         capture_request=strict_json(read_fixed(request_file,maximum=16777216))
         output=root/name
         if not(output/'manifest.json').exists():
-            transport=BoundHistorySource(request['connections']['batch'],environ=environ,reuse_connections=True)
-            try:
-                DailyBatchAnalysisSource(transport,lifetime_ms=30000).capture(capture_request,output,deadline=deadline,
-                    on_result=lambda *args:check(),minimum_new_request_seconds=30)
-            finally:transport.close()
+            from .daily_price_capture import capture_price_window
+            capture_price_window(capture_request,output,request['connections']['batch'],deadline=deadline,
+                cancelled=cancelled,environ=environ)
         descriptor=dict(directory=str(output),sha256=_descriptor(output/'manifest.json')['sha256'])
         load_price_capture(descriptor)
         return descriptor

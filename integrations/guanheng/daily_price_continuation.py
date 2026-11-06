@@ -24,6 +24,9 @@ def requires_price_continuation(price_result,prior_pending_symbols=(),*,stock_pl
                                 stock_progress=None,deadline=None,cancelled=lambda:False):
     """股票和额外价格共用责任判断；stock_progress固定于股票回读前，不随恢复的新观察覆盖。"""
     reference_pending=False  # 名册来源恢复责任，与原价格/HPR责任分别核验后共同决定接续。
+    history=price_result.get('strategy_history')
+    if history is not None and _load(history)['continuation_required']:
+        return True  # 额外长窗口Source/预算待续核，即使本日短窗口已有价格也保持同日重试。
     scope=price_result.get('scope')
     if scope is not None:
         reference=_load(scope).get('reference_state',{})

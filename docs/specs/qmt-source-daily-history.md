@@ -274,3 +274,19 @@ captured状态中的合法unsupported类别、详情空值或正常无新证券�
 纯本地缺口计划可显式采用既存尝试中的合法完成marker；同冻结capture、snapshot、授权日期、必需价格窗口及全部保护路径须一致，并重新核每个原slot的请求UUID/operation/arguments/规范请求SHA。原`call_returned`和`not_executed`仍由原`inspect_saved_result`及原binding证明，已知状态不能降级；原unknown保持冻结保守状态。缺失/改变的原责任单独失败，不作为可重建半份计划吞掉。此恢复不重做QAB缺口计算，不创建或搬迁原Source请求槽。原槽核验与新计划采集共用相同只读函数，至多四项本地文件/纯资格核验并行、有界提交，保持输入顺序；Source/HPR执行并发沿原执行器。主线程观察原取消/截止，异常取消未启动项并join全部在途读取后返回。
 
 `daily-immutable-stage.v1`在显式纯本地恢复选择较早marker时，以可选`result_attempt`记录该原尝试UUID，`attempts`完整顺序及全部旧目录保持；旧无字段状态仍沿原最后尝试解释。其它阶段默认只恢复最后尝试，保留更晚可能拥有的Source/未知责任。已提交结果继续核其固定描述符，损坏不能回退另一结果。旧程序尚未获消费128MiB计划及`result_attempt`的资格；回滚读取已发布版本与待完成任务的程序恢复资格分别验收，继续此任务须保留支持该typed合同的owner。
+
+## UDI-R58 显式策略历史窗口
+
+`price_scope.strategy_history`为可选对象，必需字段`symbols`（升序唯一WT规范证券代码，须在本轮价格资料内）和`from`（YYYYMMDD）；可选`seconds`默认120，表示本轮额外来源观察预算，沿原总D与取消，不是交易或永久数据配额。可选`trading_exceptions`是Data-owned证券停牌事实描述符，按UDI-R59准入。原全市场authorized_from保持，省略本配置沿原行为。
+
+普通全市场价格输入准备成功后，同一数据owner在独立strategy-history根固定REQUEST，沿原DailyBatchAnalysisSource读取指定完整raw/front窗口。窗口行数来自已准入官方日历，Source认证profile的max_rows/max_calendar_days/max_data_bytes及原224字节预分片仍具约束；无法容纳时记录真实资源原因，保留已派发槽，后继原retry_seconds继续观察。未覆盖授权起点的日历不猜交易日；calendar_pending与来源Pending、资源不足、明确Source错误分别披露。来源预算不足不会删除请求或取消原执行责任。
+
+同日后继修订明确引用旧strategy-history REQUEST。相同证券/from/目标日/来源连接的未完成工作流沿原输入、capture_id、slot和UUID恢复；Source首次上下文保留。当前修订的calendar/reference/trading_exceptions独立绑定资格版本并重核覆盖，较早的停牌或上市资料不会吞掉后到纠正。每版纯缺口计划固定本版规范事实及生成前全部旧HPR保护；旧已派发责任继续原prior-plan观察，新版只推进本版仍缺且未被旧unknown覆盖的项。原目录内改变冻结输入明确拒绝，规范纠正沿原INDEX新修订采用。新观察预算不改变原slot截止。所有已发v8读取进入原input discovery，HPR进入原计划续核/保护。成功CURRENT继续服务；hot来源Pending或预算不足单列continuation并按同日原retry_seconds续核，不依赖次日09:00。损坏原件保持明确诊断，不能重写身份伪装恢复。
+
+每次HPR状态快照决定独立回读代；原pending代的请求先沿原ID收束，HPR晚到返回后创建新回读而保留旧manifest和旧时点。短目录使用128位摘要前缀并逐字核完整规范正文，碰撞明确拒绝；原slot/回执不改名。回读行数按本版日历实际需要计算，首个Source请求的max_rows及UUID保持。
+
+Native仍只生成两份完整补充档：原价按旧日优先，普通/策略捕获只填缺日；前复权逐证券按策略完整参考、普通完整参考、旧完整参考选择，策略捕获须覆盖本版授权交易日且当前参考须覆盖该证券全部旧日期。不同capture参考不按日期拼接；每证券provenance绑定实际采用捕获。未选证券保持原完整档。新hot不能作为partial顶层档替代生产者最近完整补充档合同，旧基准Native及所有原件继续保留。结果单列strategy_history状态、来源和缺口；回测/策略消费者自行解释，无全策略270日门槛或来源资格提升。
+
+## UDI-R59 证券非交易例外原件
+
+`guanheng.price-trading-exceptions.v1`包含records；每行symbol/date/no_trade及evidence列表。evidence逐项绑定官方HTTP原件绝对path、sha256、bytes、url、status=200、received_at；Data owner核原字节与身份，事实由明确披露归一，不能仅由行情缺日推断。适用于特定证券特定日，市场日历仍保持当日开市；不把ETF停牌伪装为股票日事实，不填假bar或前填价格。原Source条目及原HPR身份保持。该事实只决定缺口计划的无交易排除，历史首次可知及金融资格另验。

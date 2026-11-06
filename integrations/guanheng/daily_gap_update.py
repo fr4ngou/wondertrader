@@ -23,7 +23,7 @@ def _day(value):
 
 def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=(), daily_facts=None,
                      authorized_from, authorized_to, deadline, required_adjustments=('none','front_ratio'),
-                     required_from=None, cancelled=lambda:False):
+                     required_from=None, cancelled=lambda:False, trading_exceptions=None):
     """输入为完成QAB根、已准入资料/股票池和授权日期，输出只表示需补缓存。
 
     capture含directory/sha256；保护slot按原业务身份读取，旧结果/消费状态不改。
@@ -112,6 +112,8 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
                 reason = 'after_expiry'
             elif any(start <= label <= end for start, end, _ in blocked.get(symbol, ())):
                 reason = 'original_HPR_responsibility'
+            elif (item['identity'],iso)in(trading_exceptions or {}):
+                reason = 'official_security_no_trade'
             else:
                 state = daily_facts.security_state(iso, item['identity']) if daily_facts is not None else None
                 if state is not None and state['qualification'] == 'qualified' and state['tradestatus'] == '0':
