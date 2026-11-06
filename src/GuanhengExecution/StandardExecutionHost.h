@@ -16,6 +16,8 @@ struct StandardPluginFunctions {
     decltype(&stopStandardQmtTrader) stop = nullptr;
     void (*destroy)(wtp::ITraderApi*&) = nullptr;
     SubmissionFunctions submission;
+    decltype(&standardQmtAttributionVersion) attribution_version=nullptr; // 显式选择时核插件能力。
+    decltype(&configureStandardQmtAttribution) attribution_configure=nullptr; // createTrader前同owner一次注册。
     decltype(&closeStandardQmtSubmissions) close_submissions=nullptr;
     decltype(&inspectStandardQmtRecovery) recovery=nullptr;
     decltype(&inspectStandardQmtWorkingChildren) working_children=nullptr; // 原插件已知活动子单只读计数。
@@ -56,6 +58,8 @@ public:
     StandardExecutionHost(const StandardExecutionHost&) = delete;
     StandardExecutionHost& operator=(const StandardExecutionHost&) = delete;
     // 仅New阶段调用；false表示未完成启动，仍须由owner close。配置对象保持至close确认。
+    // 仅New且同owner一次注册；调用方持有回调至close确认，未选择保持原行为。
+    bool configure_attribution(AttributionObserver);
     bool initialize(wtp::WTSVariant* trader, wtp::WTSVariant* executer,
         StandardPluginFunctions functions, ExecutionQueueLimits limits);
     // 仅交接目标/行情；不向目标转发原Engine给桥设置的_stub。

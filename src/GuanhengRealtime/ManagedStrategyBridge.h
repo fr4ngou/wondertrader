@@ -1,5 +1,6 @@
 #pragma once
 #include "RealtimeBridge.h"
+#include "../GuanhengCommon/AccountAttributionProtocol.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,6 +53,9 @@ typedef struct GhMsQuote {
 
 // 配置线程在原工厂首次create前注册；同策略ID只注册一次，函数/user保持至进程退出。
 GH_RT_API uint32_t GH_RT_CALL gh_ms_abi_version(void);
+// 可选归属回调；原Factory首次create前同配置线程注册一次，持有至完整退出。
+GH_RT_API uint32_t GH_RT_CALL gh_ms_attribution_abi_version(void);
+GH_RT_API int32_t GH_RT_CALL gh_ms_attribution_configure(GhAttributionCallbackV1,void* user);
 // 可选只读绑定能力1：execution_count=0仅授读取，任何target setter继续拒绝。
 GH_RT_API uint32_t GH_RT_CALL gh_ms_read_only_abi_version(void);
 // layout 1=Config/2=Status/3=Event/4=Bar/5=Facts/6=Position/7=Target/8=Quote，未知为0。

@@ -118,6 +118,7 @@ public:
     std::unique_ptr<BrokerQueryLocalExecuter> local;
     std::shared_ptr<OwnerExecCommand> bridge;
     StandardPluginFunctions functions;
+    AttributionObserver attribution; // 创建线程冻结配置，callback寿命随原插件/Local。
     wtp::ITraderApi* api = nullptr;
     ExecutionHostPhase phase = ExecutionHostPhase::New;
     ExecutionHostFault fault = ExecutionHostFault::None;
@@ -154,6 +155,10 @@ StandardExecutionHost::~StandardExecutionHost() {
     // 未确认关闭时保留整棵SPI/执行对象，外层监督器在原进程截止回收；不能造成悬空回调。
     if (close() != 0) impl_.release();
 }
+bool StandardExecutionHost::configure_attribution(AttributionObserver observer){
+ auto& x=*impl_;if(!x.on_owner()||x.phase!=ExecutionHostPhase::New||x.initialized||x.attribution||!observer)return false;
+ x.attribution=observer;return true;
+}
 bool StandardExecutionHost::initialize(wtp::WTSVariant* trader, wtp::WTSVariant* executer,
     StandardPluginFunctions functions, ExecutionQueueLimits limits) {
     auto& x = *impl_;
@@ -180,10 +185,15 @@ bool StandardExecutionHost::initialize(wtp::WTSVariant* trader, wtp::WTSVariant*
         }
         const auto instance=trader->getString("instance_id");
         if(instance.empty() || functions.find(instance.c_str())!=nullptr) { x.fail(ExecutionHostFault::InvalidConfiguration);return false; }
+        if(x.attribution&&(!functions.attribution_version||!functions.attribution_configure
+            ||functions.attribution_version()!=1||functions.attribution_configure(x.attribution.callback,x.attribution.user)!=0)){
+            x.fail(ExecutionHostFault::InvalidConfiguration);return false;
+        }
         x.functions = functions;
         x.adapter.reset(new BrokerQueryAdapter());
         // 先构造不运行的原执行器和桥，验证完整队列预算；此阶段尚未建立插件或I/O。
         x.local.reset(new BrokerQueryLocalExecuter(&x.factory, x.name.c_str(), x.data, *x.adapter));
+        if(x.attribution)x.local->configure_attribution(x.attribution,x.name,instance);
         if (!x.local->init(executer)) { x.fail(ExecutionHostFault::Initialize); return false; }
         x.local->setStub(&x.stub);
         auto bridge = std::make_shared<OwnerExecCommand>(x.name.c_str(), *x.local,

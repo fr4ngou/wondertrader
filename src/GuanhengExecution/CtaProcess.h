@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <wchar.h>
+#include "GuanhengCommon/AccountAttributionProtocol.h"
 
 #if defined(GH_CTA_RUNTIME_BUILD)
 #define GH_CTA_RUNTIME_API __declspec(dllexport)
@@ -53,6 +54,11 @@ typedef struct GhCtaPendingOrder {
 } GhCtaPendingOrder;
 #pragma pack(pop)
 GH_CTA_RUNTIME_API uint32_t __cdecl gh_cta_runtime_abi_version(void);
+// 可选归属ABI1，layout(1)=EventV1、layout(2)=ReplyV1；未知0。
+GH_CTA_RUNTIME_API uint32_t __cdecl gh_cta_attribution_abi_version(void);
+GH_CTA_RUNTIME_API uint64_t __cdecl gh_cta_attribution_layout(uint32_t id);
+// run前同配置线程一次注册，冻结后拒绝；callback/user保留至所有Native owner及worker退出。
+GH_CTA_RUNTIME_API int32_t __cdecl gh_cta_attribution_configure(GhAttributionCallbackV1,void* user);
 // 每进程只运行一次。argv为原9项宽字符CLI，0=完整成功；失败仍沿原收据/Job核资源。
 // 参数及health不抛异常、不跨线程保存原生对象；未确认关闭由本子进程退出保留原责任。
 GH_CTA_RUNTIME_API int32_t __cdecl gh_cta_run(uint32_t argc, const wchar_t* const* argv,

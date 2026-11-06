@@ -2,6 +2,7 @@
 #include "Includes/ITraderApi.h"
 #include "Includes/WTSMarcos.h"
 #include "StandardSubmission.h"
+#include "GuanhengCommon/AccountAttributionProtocol.h"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -82,6 +83,8 @@ struct StandardQmtRecoveryV1 {
 class StandardQmtTrader final : public wtp::ITraderApi {
 public:
  StandardQmtTrader();~StandardQmtTrader() override;
+ // 同创建线程、仅Created阶段一次配置；随后值冻结至worker退出。
+ bool configure_attribution(AttributionObserver);
  bool init(wtp::WTSVariant*) override;
  void registerSpi(wtp::ITraderSpi*) override;
  void connect() override;void disconnect() override;void release() override;
@@ -128,6 +131,9 @@ private:
 extern "C" {
 // 可选P/A刷新能力；默认关闭，显式配置由产品宿主在创建API前核版本。
 GH_QMT_STANDARD_EXPORT std::uint32_t standardQmtObservationRefreshVersion() noexcept;
+// 显式选择的独立归属能力；先注册后createTrader，默认无回调。
+GH_QMT_STANDARD_EXPORT std::uint32_t standardQmtAttributionVersion() noexcept;
+GH_QMT_STANDARD_EXPORT int configureStandardQmtAttribution(GhAttributionCallbackV1,void*) noexcept;
 GH_QMT_STANDARD_EXPORT wtp::ITraderApi* findStandardQmtTrader(const char* instance_id);
 GH_QMT_STANDARD_EXPORT int pumpStandardQmtTrader(wtp::ITraderApi*,std::uint32_t max_events);
 GH_QMT_STANDARD_EXPORT int waitStandardQmtTrader(wtp::ITraderApi*,std::uint32_t flags,std::uint32_t timeout_ms);

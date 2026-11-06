@@ -1,10 +1,16 @@
+#include "GuanhengCommon/AccountAttributionHooks.h"
 #include "StandardQmtTrader.h"
 #include "Includes/WTSMarcos.h"
 using guanheng::StandardQmtTrader;
+namespace {guanheng::AttributionRegistration attribution;}
 extern "C" {
 EXPORT_FLAG std::uint32_t standardQmtObservationRefreshVersion() noexcept {return 1;}
+EXPORT_FLAG std::uint32_t standardQmtAttributionVersion() noexcept {return 1;}
+EXPORT_FLAG int configureStandardQmtAttribution(GhAttributionCallbackV1 callback,void* user) noexcept
+{try{return attribution.configure(callback,user);}catch(...){return -1;}}
 EXPORT_FLAG wtp::ITraderApi* createTrader()
-{try{return new StandardQmtTrader();}catch(...){return nullptr;}}
+{try{auto observer=attribution.freeze();auto p=std::make_unique<StandardQmtTrader>();
+ if(observer&&!p->configure_attribution(observer))return nullptr;return p.release();}catch(...){return nullptr;}}
 EXPORT_FLAG void deleteTrader(wtp::ITraderApi*& api)
 {
  // 关闭超时或错线程时保留原API和DLL所有权，后继由同owner继续实际排空。

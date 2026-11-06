@@ -107,6 +107,7 @@ if(GH_STANDARD_CONTEXT_MAIN)
 endif()
 
 # 单独产品目录显式选择标准工厂，不改变旧Factory.cpp或旧插件的缺省含义。
+install(FILES "${GH_FIXED_OWN_ROOT}/src/GuanhengCommon/AccountAttributionProtocol.h" DESTINATION include/GuanhengCommon)
 install(TARGETS GuanhengStandardTrader RUNTIME DESTINATION app/traders)
 install(TARGETS GuanhengBrokerQueryContext ARCHIVE DESTINATION lib)
 install(FILES "${GH_FIXED_OWN_ROOT}/src/GuanhengExecution/BrokerQueryContext.h"

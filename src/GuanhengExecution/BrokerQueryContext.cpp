@@ -1,4 +1,6 @@
+#include "GuanhengCommon/AccountAttributionHooks.h"
 #include "BrokerQueryContext.h"
+#include "TraderQMT/StandardOrderPrice.h"
 #include "Includes/WTSVariant.hpp"
 #include "Includes/WTSTradeDef.hpp"
 #include "Includes/WTSContractInfo.hpp"
@@ -218,20 +220,54 @@ void BrokerQueryLocalExecuter::replay_account() {
         WtLocalExecuter::on_account("CNY",value[0],value[1],value[2],value[3],value[4],
             value[5],value[6],value[7],value[8],value[9]);
 }
+void BrokerQueryLocalExecuter::configure_attribution(AttributionObserver observer,const std::string& execution_id,const std::string& instance_id){
+    require(observer&&!attribution_&&!execution_id.empty()&&!instance_id.empty(),"account_attribution_registration");
+    attribution_=observer;attribution_execution_id_=execution_id;attribution_instance_id_=instance_id;
+}
 void BrokerQueryLocalExecuter::set_position(const wtp::wt_hashmap<std::string,double>& values) {
     if(adapter_.query_first())adapter_.assert_owner();
+    if(attribution_){
+        rapidjson::Document event;event.SetObject();auto& a=event.GetAllocator();
+        attribution_text(event,"execution_id",attribution_execution_id_,a);rapidjson::Value rows(rapidjson::kArrayType);
+        std::map<std::string,double> ordered(values.begin(),values.end());
+        for(const auto& item:ordered){rapidjson::Value row(rapidjson::kObjectType);attribution_text(row,"symbol",item.first,a);
+            attribution_number(row,"quantity",item.second,a);rows.PushBack(row,a);}
+        event.AddMember("targets",rows,a);attribution_notify(attribution_,GH_ATTR_COMMIT,2,event);
+    }
     WtLocalExecuter::set_position(values);
     // 新单元此时尚无首tick；在其首次计算前交付初始化时已查询的账户原值。
     replay_account();
 }
 void BrokerQueryLocalExecuter::on_position_changed(const char* code,double quantity) {
     if(adapter_.query_first())adapter_.assert_owner();
+    if(attribution_){rapidjson::Document event;event.SetObject();auto& a=event.GetAllocator();
+        attribution_text(event,"execution_id",attribution_execution_id_,a);attribution_text(event,"symbol",code,a);
+        attribution_number(event,"quantity_delta",quantity,a);attribution_notify(attribution_,GH_ATTR_DELTA,2,event);}
     WtLocalExecuter::on_position_changed(code,quantity);replay_account();
 }
 wtp::OrderIDs BrokerQueryLocalExecuter::submit(const char* code, double price, double quantity, bool force, bool buy) {
     if (!adapter_.query_first()) return buy ? WtLocalExecuter::buy(code, price, quantity, force) : WtLocalExecuter::sell(code, price, quantity, force);
     adapter_.assert_owner();
     std::array<double,10> account;
+    std::string canonical_price;
+    if(attribution_){
+        require(code&&std::strlen(code)<64,"account_attribution_symbol_invalid");
+        const auto* commodity=getCommodityInfo(code);
+        canonical_price=standard_order_price_text(price,commodity?commodity->getPriceTick():0);
+        rapidjson::Document event;event.SetObject();auto& a=event.GetAllocator();
+        attribution_text(event,"execution_id",attribution_execution_id_,a);attribution_text(event,"instance_id",attribution_instance_id_,a);
+        attribution_text(event,"symbol",code,a);attribution_text(event,"side",buy?"buy":"sell",a);
+        attribution_text(event,"limit_price_cny",canonical_price,a);attribution_number(event,"requested_quantity",quantity,a);
+        const bool known=adapter_.account_observation(account);event.AddMember("account_known",known,a);
+        if(known)attribution_number(event,"account_available_cny",account[3],a);else event.AddMember("account_available_cny",rapidjson::Value(),a);
+        GhAttributionReplyV1 reply{sizeof(reply),1,-1,0,0};
+        require(attribution_call(attribution_,GH_ATTR_AUTHORIZE,2,0,0,event,reply)==0,"account_attribution_authorize_failed");
+        if(reply.decision==1&&reply.authorized_quantity==0){observation_=SubmissionViewV1{};observation_.decision=SubmissionDecision::BlockedAttribution;return {};}
+        const auto approved=reply.authorized_quantity;
+        require(reply.decision==0&&std::isfinite(approved)&&approved>0&&approved<=quantity&&std::floor(approved)==approved
+            &&(!buy||std::fmod(approved,100.)==0),"account_attribution_quantity_invalid");
+        quantity=approved;
+    }
     if(buy&&(!adapter_.account_observation(account)||account[3]<=0||!std::isfinite(price)||!std::isfinite(quantity)
         ||price<=0||quantity<=0||static_cast<long double>(price)*quantity>account[3])){
         observation_=SubmissionViewV1{};observation_.decision=SubmissionDecision::BlockedFunds;
@@ -244,9 +280,23 @@ wtp::OrderIDs BrokerQueryLocalExecuter::submit(const char* code, double price, d
             "qmt_query_context_security");
     std::strcpy(key.exchange, security._exchg); std::strcpy(key.code, security._code); key.side = buy ? 0 : 1;
     QueryFirstSubmission gate(adapter_.context_api(), adapter_.submission_functions(), true);
+    auto group_event=[&](const SubmissionTokenV1& token){
+        rapidjson::Document event;event.SetObject();auto& a=event.GetAllocator();
+        attribution_text(event,"execution_id",attribution_execution_id_,a);attribution_text(event,"instance_id",attribution_instance_id_,a);
+        attribution_uint(event,"native_generation",token.generation,a);attribution_uint(event,"group_id",token.group_id,a);
+        attribution_text(event,"symbol",code,a);attribution_text(event,"side",buy?"buy":"sell",a);
+        attribution_number(event,"quantity",quantity,a);attribution_text(event,"limit_price_cny",canonical_price,a);
+        return event;
+    };
+    auto before=[&](const SubmissionTokenV1& token){if(attribution_){auto event=group_event(token);attribution_notify(attribution_,GH_ATTR_GROUP,2,event);}};
+    auto after=[&](const SubmissionTokenV1& token,const SubmissionViewV1& view,SubmissionOutcome outcome){if(attribution_){
+        auto event=group_event(token);auto& a=event.GetAllocator();attribution_uint(event,"accepted_children",view.accepted_children,a);
+        attribution_uint(event,"decision",static_cast<uint32_t>(view.decision),a);attribution_uint(event,"outcome",static_cast<uint32_t>(outcome),a);
+        attribution_notify(attribution_,GH_ATTR_GROUP_END,2,event);
+    }};
     auto result=gate.invoke(key, observation_, [&] {
         return buy ? WtLocalExecuter::buy(code, price, quantity, force) : WtLocalExecuter::sell(code, price, quantity, force);
-    });
+    },before,after);
     adapter_.remember_submission(code,buy,result);return result;
 }
 wtp::OrderIDs BrokerQueryLocalExecuter::buy(const char* code, double price, double quantity, bool force) {

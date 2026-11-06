@@ -1,3 +1,4 @@
+#include "GuanhengCommon/AccountAttributionHooks.h"
 // 显式配置的受管CTA产品入口；金融状态及执行算法由原WT拥有。
 #include "CtaProcess.h"
 #include "CtaExecutionSession.h"
@@ -52,6 +53,7 @@ struct PublishedBroker {
     std::uint32_t completed_queries=0;
 };
 std::shared_ptr<const PublishedBroker> broker_current;
+guanheng::AttributionRegistration attribution_registration;
 struct BrokerPublicationLifetime {
     ~BrokerPublicationLifetime(){std::atomic_store(&broker_current,std::shared_ptr<const PublishedBroker>{});}
 };
@@ -821,6 +823,7 @@ void bootstrap_takeover(const rj::Value& input,const std::string& input_sha,cons
 }
 namespace {
 int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* health_user){
+    const auto attribution=attribution_registration.value();
     if(argc!=9)return 2;
     BrokerPublicationLifetime broker_lifetime;
     fs::path config_path,control;std::string id,expected_sha;
@@ -963,6 +966,10 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             trader->append("observation_refresh_ms",observation_refresh_ms);
         }
         guanheng::StandardPluginFunctions functions;
+        if(attribution){
+            functions.attribution_version=plugin.get<decltype(functions.attribution_version)>("standardQmtAttributionVersion");
+            functions.attribution_configure=plugin.get<decltype(functions.attribution_configure)>("configureStandardQmtAttribution");
+        }
         functions.find=plugin.get<decltype(functions.find)>("findStandardQmtTrader");
         find_event_chain=functions.find;
         inspect_event_chain=reinterpret_cast<decltype(inspect_event_chain)>(GetProcAddress(plugin.module,"inspectStandardQmtEventChain"));
@@ -984,6 +991,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         environment.reset(new guanheng::ExecutionEnvironment(base,reference_session.c_str(),&hot));
         const auto& queue=member(cfg,"queue");keys(queue,{"commands","bytes","targets","delay_ms"});
         execution.reset(new guanheng::StandardExecutionHost("qmt","cta",base,policy,factory,*environment));
+        if(attribution)need(execution->configure_attribution(attribution));
         need(execution->initialize(trader.get(),executer.get(),functions,
             {number(queue,"commands",1,1024),number(queue,"bytes",1,64*1024*1024),number(queue,"targets",1,4096),number(queue,"delay_ms",1,30000)}));
         while(execution->status().phase!=guanheng::ExecutionHostPhase::Ready){
@@ -1014,9 +1022,15 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         }
         stage="strategies";const auto& strategies=member(cfg,"strategies");need(strategies.IsArray()&&strategies.Size()>0&&strategies.Size()<=64);
         factories.reserve(strategies.Size());parameters.reserve(strategies.Size());unowned.reserve(strategies.Size());
+        std::set<HMODULE> attribution_factories; // 同一实际DLL仅注册一次，多个ctx继续共用原Factory。
         for(const auto& item:strategies.GetArray()){
             keys(item,{"id","module","factory","name","parameters"});check_start();
             StrategyFactory owner;owner.library.reset(new Library(installed(root,text(item,"module"))));
+            if(attribution&&attribution_factories.insert(owner.library->module).second){
+                const auto version=owner.library->get<decltype(&gh_ms_attribution_abi_version)>("gh_ms_attribution_abi_version");
+                const auto configure=owner.library->get<decltype(&gh_ms_attribution_configure)>("gh_ms_attribution_configure");
+                need(version()==1&&configure(attribution.callback,attribution.user)==0);
+            }
             owner.value=owner.library->get<FuncCreateStraFact>("createStrategyFact")();need(owner.value!=nullptr);
             factories.push_back(std::move(owner));need(text(item,"factory")==factories.back().value->getName());
             parameters.push_back(load_variant(member(item,"parameters")));
@@ -1262,6 +1276,11 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
 } // namespace
 extern "C" {
 uint32_t __cdecl gh_cta_runtime_abi_version(void){return 1;}
+uint32_t __cdecl gh_cta_attribution_abi_version(void){return 1;}
+uint64_t __cdecl gh_cta_attribution_layout(uint32_t id){return id==1?sizeof(GhAttributionEventV1):id==2?sizeof(GhAttributionReplyV1):0;}
+int32_t __cdecl gh_cta_attribution_configure(GhAttributionCallbackV1 callback,void* user){
+    try{return attribution_registration.configure(callback,user);}catch(...){return -1;}
+}
 uint32_t __cdecl gh_cta_broker_abi_version(void){return 1;}
 uint64_t __cdecl gh_cta_broker_layout(uint32_t id){return id==1?sizeof(GhCtaBrokerFacts):id==2?sizeof(GhCtaBrokerPosition):0;}
 int32_t __cdecl gh_cta_broker_read(GhCtaBrokerFacts* facts,GhCtaBrokerPosition* rows,uint32_t capacity,uint32_t* written){
@@ -1303,6 +1322,6 @@ int32_t __cdecl gh_cta_run(uint32_t argc,const wchar_t* const* argv,GhCtaHealth 
     for(uint32_t i=0;i<argc;++i)if(!argv[i])return 2;
     static std::atomic<bool> entered{false};bool expected=false;
     if(!entered.compare_exchange_strong(expected,true))return 2;
-    try{return run_process(static_cast<int>(argc),argv,health,user);}catch(...){return 2;}
+    try{attribution_registration.freeze();return run_process(static_cast<int>(argc),argv,health,user);}catch(...){return 2;}
 }
 }

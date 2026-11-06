@@ -8,6 +8,7 @@
 #include <thread>
 #include <map>
 #include <vector>
+#include "GuanhengCommon/AccountAttributionProtocol.h"
 
 namespace guanheng {
 // 复制原SPI已验证的成交事实；数量、金额及原编号保持，不归约账户或策略账本。
@@ -106,11 +107,15 @@ public:
     wtp::OrderIDs sell(const char*, double, double, bool force_close = false) override;
     void on_trade(std::uint32_t,const char*,bool,double,double) override;
     const SubmissionViewV1& last_submission() const noexcept { return observation_; }
+    // 仅原Local创建后/运行前登记一次，调用方保持回调至原worker/owner退出。
+    void configure_attribution(AttributionObserver,const std::string& execution_id,const std::string& instance_id);
 private:
     wtp::OrderIDs submit(const char*, double, double, bool, bool buy);
     // 最新原CNY回调的值复制；只重放观察，金额不随提交/成交自行增减。
     void replay_account();
     BrokerQueryAdapter& adapter_;
     SubmissionViewV1 observation_;
+    AttributionObserver attribution_; // 可选通知/准入，默认不进入新行为。
+    std::string attribution_execution_id_,attribution_instance_id_; // 原执行与插件身份的独立完整值。
 };
 }

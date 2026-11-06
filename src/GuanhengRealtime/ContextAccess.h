@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include "RealtimeBridge.h"
 #include "../Includes/ICtaStraCtx.h"
 #include "../Includes/WTSDataDef.hpp"
@@ -72,7 +73,8 @@ inline std::vector<GhRtBar> cta_bars(wtp::ICtaStraCtx& ctx,const std::string& co
 }
 inline std::vector<GhRtTarget> cta_set_targets(wtp::ICtaStraCtx& ctx,const std::set<std::string>& reads,
     const std::set<std::string>& executions,const GhRtTarget* rows,uint32_t count,std::atomic<uint64_t>& setters,
-    uint32_t max_targets=GH_RT_MAX_TARGETS){
+    uint32_t max_targets=GH_RT_MAX_TARGETS,
+    const std::function<void(const std::map<std::string,double>&)>& before_set={}){
     cta_require(rows&&count==executions.size()&&count&&count<=max_targets,GH_RT_CAPACITY);
     std::map<std::string,double> wanted;
     for(uint32_t i=0;i<count;++i){const auto code=cta_text(rows[i].symbol,sizeof(rows[i].symbol));const auto q=rows[i].quantity;
@@ -80,6 +82,7 @@ inline std::vector<GhRtTarget> cta_set_targets(wtp::ICtaStraCtx& ctx,const std::
             &&std::floor(q)==q&&std::fmod(q,100.0)==0&&wanted.emplace(code,q).second);
     }
     for(const auto& item:wanted)cta_price(ctx,item.first);
+    if(before_set)before_set(wanted); // 完整预验后交自有归属接缝；原RT默认无回调。
     try{
         for(const auto& item:wanted){setters.fetch_add(1);ctx.stra_set_position(item.first.c_str(),item.second,"gh_rt",0,0);}
         const auto actual=cta_targets(ctx,reads);std::vector<GhRtTarget> out;

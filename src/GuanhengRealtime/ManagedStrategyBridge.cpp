@@ -1,3 +1,4 @@
+#include "GuanhengCommon/AccountAttributionHooks.h"
 #include "ManagedStrategyBridge.h"
 #include "ContextAccess.h"
 #include "../Includes/CtaStrategyDefs.h"
@@ -18,6 +19,7 @@ struct Binding {
 };
 struct Owner {
     std::mutex mutex;DWORD controller=0;bool frozen=false;
+    AttributionRegistration attribution; // 可选同次固定归属回调，不保存分配账。
     std::map<std::string,std::unique_ptr<Binding>> bindings;
     std::atomic<uint32_t> configured{0},created{0},destroyed{0},active{0};
     std::atomic<int32_t> failure{0};
@@ -130,7 +132,7 @@ public:
             auto& o=owner();std::lock_guard<std::mutex> guard(o.mutex);
             cta_require(name&&std::strcmp(name,"Core")==0&&id,GH_RT_STATE);
             auto at=o.bindings.find(id);cta_require(at!=o.bindings.end()&&!at->second->created&&!o.failure.load(),GH_RT_STATE);
-            auto result=std::make_unique<Strategy>(id,*at->second);at->second->created=true;o.frozen=true;o.created.fetch_add(1);
+            o.attribution.freeze();auto result=std::make_unique<Strategy>(id,*at->second);at->second->created=true;o.frozen=true;o.created.fetch_add(1);
             return result.release();
         }catch(...){owner().fail(GH_RT_NATIVE);return nullptr;}
     }
@@ -162,6 +164,12 @@ extern "C" {
 GH_RT_API ICtaStrategyFact* createStrategyFact(){return &factory();}
 GH_RT_API void deleteStrategyFact(ICtaStrategyFact*& value){if(value==&factory())value=nullptr;}
 uint32_t GH_RT_CALL gh_ms_abi_version(void){return GH_MS_ABI_VERSION;}
+uint32_t GH_RT_CALL gh_ms_attribution_abi_version(void){return 1;}
+int32_t GH_RT_CALL gh_ms_attribution_configure(GhAttributionCallbackV1 callback,void* user){return api([&]()->int32_t{
+    auto& o=owner();std::lock_guard<std::mutex> lock(o.mutex);
+    cta_require(!borrowed&&!o.frozen&&(!o.controller||o.controller==GetCurrentThreadId()),GH_RT_STATE);
+    cta_require(o.attribution.configure(callback,user)==0,GH_RT_STATE);o.controller=GetCurrentThreadId();return GH_RT_OK;
+});}
 uint32_t GH_RT_CALL gh_ms_read_only_abi_version(void){return 1;}
 uint64_t GH_RT_CALL gh_ms_layout(uint32_t id){
     switch(id){case 1:return sizeof(GhMsConfig);case 2:return sizeof(GhMsStatus);case 3:return sizeof(GhRtEvent);
@@ -217,7 +225,19 @@ int32_t GH_RT_CALL gh_ms_bars(uint64_t epoch,const char* code,const char* period
 int32_t GH_RT_CALL gh_ms_set_targets(uint64_t epoch,const GhRtTarget* targets,uint32_t count,GhRtTarget* out,uint32_t capacity){
     return api([&]()->int32_t{
         auto& b=access(epoch,true);cta_require(out&&capacity>=count&&capacity<=b.binding->max_targets,GH_RT_CAPACITY);
-        const auto values=cta_set_targets(*b.ctx,b.binding->reads,b.binding->executions,targets,count,owner().setters,b.binding->max_targets);
+        const auto values=cta_set_targets(*b.ctx,b.binding->reads,b.binding->executions,targets,count,owner().setters,b.binding->max_targets,
+            [&](const std::map<std::string,double>& wanted){
+                const auto observer=owner().attribution.value();if(!observer)return;
+                rapidjson::Document event;event.SetObject();auto& a=event.GetAllocator();
+                attribution_text(event,"strategy_id",b.binding->strategy_id,a);
+                attribution_uint(event,"ctx_id",b.ctx->id(),a);attribution_uint(event,"owner_token",token(),a);
+                attribution_uint(event,"epoch",epoch,a);attribution_uint(event,"date",b.ctx->stra_get_date(),a);
+                attribution_uint(event,"time",b.ctx->stra_get_time(),a);attribution_uint(event,"trading_date",b.ctx->stra_get_tdate(),a);
+                rapidjson::Value rows(rapidjson::kArrayType);
+                for(const auto& item:wanted){rapidjson::Value row(rapidjson::kObjectType);
+                    attribution_text(row,"symbol",item.first,a);attribution_number(row,"quantity",item.second,a);rows.PushBack(row,a);}
+                event.AddMember("targets",rows,a);attribution_notify(observer,GH_ATTR_TARGETS,1,event,epoch);
+            });
         std::copy(values.begin(),values.end(),out);return GH_RT_OK;
     });
 }

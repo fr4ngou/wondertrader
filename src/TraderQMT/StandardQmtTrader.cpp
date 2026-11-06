@@ -1,4 +1,6 @@
+#include "GuanhengCommon/AccountAttributionHooks.h"
 #include "StandardQmtTrader.h"
+#include "StandardOrderPrice.h"
 #include "EventDeliveryIndex.h"
 #include "GuanhengQmtBootstrap/QmtAccountIdentity.h"
 #include "StandardEventBudget.h"
@@ -11,6 +13,7 @@
 #include "Includes/WTSContractInfo.hpp"
 #include "Includes/WTSError.hpp"
 #include "Includes/IBaseDataMgr.h"
+#include "Share/CodeHelper.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -23,6 +26,7 @@
 #include <deque>
 #include <limits>
 #include <iterator>
+#include <optional>
 #include <new>
 #include <map>
 #include <mutex>
@@ -122,34 +126,14 @@ bool valid_day(unsigned day)
  unsigned days[]={31,28,31,30,31,30,31,31,30,31,30,31};
  if(year%4==0&&(year%100!=0||year%400==0))days[1]=29;return date>0&&date<=days[month-1];
 }
-std::string price_text(double value,double tick)
-{require(std::isfinite(value)&&value>0,"qmt_standard_price_invalid");
- char buffer[128];const auto out=std::to_chars(buffer,buffer+sizeof(buffer),value,std::chars_format::general);
- require(out.ec==std::errc{},"qmt_standard_price_encoding_failed");const std::string original(buffer,out.ptr);
- // 原股票执行器以整数档位乘double tick，2.885可产生2.8850000000000002。
- // 仅消除已落在WT合约档位附近的浮点运算误差；真实离档价格保持原文，由Source原规则核验。
- if(!std::isfinite(tick)||tick<=0)return original;
- const double steps=std::round(value/tick),canonical=steps*tick;
- const double tolerance=4*std::numeric_limits<double>::epsilon()*(std::max)(value,std::fabs(canonical));
- if(!std::isfinite(steps)||steps<1||steps>9007199254740991.0||!std::isfinite(canonical)
-  ||tolerance>=tick/4||std::fabs(value-canonical)>tolerance)return original;
- const auto encoded_tick=std::to_chars(buffer,buffer+sizeof(buffer),tick,std::chars_format::general);
- require(encoded_tick.ec==std::errc{},"qmt_standard_price_encoding_failed");const std::string text(buffer,encoded_tick.ptr);
- const auto e=text.find_first_of("eE"),dot=text.find('.');const auto end=e==std::string::npos?text.size():e;
- int exponent=0;
- if(e!=std::string::npos){const char* first=text.data()+e+1;if(*first=='+')++first;
-  const auto parsed=std::from_chars(first,text.data()+text.size(),exponent);
-  if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+text.size())return original;}
- const int precision=(std::max)(0,(dot!=std::string::npos?static_cast<int>(end-dot-1):0)-exponent);
- if(precision>18)return original;
- const auto normalized=std::to_chars(buffer,buffer+sizeof(buffer),canonical,std::chars_format::fixed,precision);
- require(normalized.ec==std::errc{},"qmt_standard_price_encoding_failed");return {buffer,normalized.ptr};}
+
 struct OrderValue {
  QmtTradeInsert insert;std::string broker;double price=0;bool net=false;
+ std::string standard_symbol; // 仅显式归属时复制的原完整标准代码，worker不借用WT合约。
  wtp::WTSDirectionType direction=wtp::WDT_LONG;
  wtp::WTSOffsetType offset=wtp::WOT_OPEN;
  std::size_t payload()const {
-  std::size_t n=0;for(const auto* s:{&insert.exchange,&insert.code,&insert.entrust_id,&insert.user_tag,&insert.limit_price,&broker})n=add_size(n,s->size());return n;
+  std::size_t n=0;for(const auto* s:{&insert.exchange,&insert.code,&insert.entrust_id,&insert.user_tag,&insert.limit_price,&broker,&standard_symbol})n=add_size(n,s->size());return n;
  }
 };
 OrderValue copy_order(const wtp::WTSEntrust& value)
@@ -168,7 +152,8 @@ OrderValue copy_order(const wtp::WTSEntrust& value)
  auto volume=value.getVolume();require(std::isfinite(volume)&&volume>0&&volume<=9007199254740991.0
   &&std::floor(volume)==volume,"qmt_standard_volume_invalid");q.quantity=static_cast<std::uint64_t>(volume);out.price=value.getPrice();
  const auto contract=value.getContractInfo();const auto commodity=contract?contract->getCommInfo():nullptr;
- q.limit_price=price_text(out.price,commodity?commodity->getPriceTick():0);return out;
+ q.limit_price=standard_order_price_text(out.price,commodity?commodity->getPriceTick():0);
+ return out;
 }
 struct ObjectRelease {void operator()(wtp::WTSObject* value)const{if(value)value->release();}};
 }
@@ -206,7 +191,8 @@ struct StandardQmtTrader::Impl {
  enum class Kind { Prepare,Login,Query,Resolve,Insert,Cancel,EventPage,EventQuery,EventResolve,AuditOriginal };
  enum class QueryStep {None,Prepare,Create,ReceiptSaved,SubmitEntered,Returned};
  struct Task {
-  Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0,read_generation=0; // 读取票据只跨线程传值，由worker拥有客户端。
+  Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0,read_generation=0;
+  std::uint64_t group_id=0; // 原owner入队时复制的QueryFirst组，worker不借用活动组。
   Clock::time_point deadline;OrderValue order;
   Clock::time_point queued_at{}; // 实际进入原任务队列的 steady_clock 时刻；仅用于诊断。
   std::unique_ptr<QmtAccountIdentityPlan> plan;
@@ -216,6 +202,7 @@ struct StandardQmtTrader::Impl {
   std::size_t event_index=0,charge=0;std::string pending_key;
  };
  struct Completion {
+  std::uint64_t group_id=0; // 原Task复制的提交组；原异步结果不回查活动group。
   Kind kind=Kind::Prepare;unsigned stage=0;std::uint64_t generation=0,id=0,read_generation=0; // 读取票据只跨线程传值，由worker拥有客户端。
   Clock::time_point deadline;Status status;OrderValue order;
   std::int64_t queue_wait_ms=0,running_ms=0; // 原任务实际排队/worker处理毫秒数；纯数值旁证。
@@ -235,7 +222,10 @@ struct StandardQmtTrader::Impl {
   std::uint64_t event_bootstrap_cursor=0; // 首次Prepare在四查询前取得的Host已持久前沿；不是该小页末序号。
   std::size_t event_bootstrap_reserve=0; // 本次小页沿原ContextBanks.chain预留；保留到原完成值退役。
   bool event_bootstrap_ready=false; // 前沿0也是已核证据，与尚未取得前沿明确区分。
-  std::size_t charge=0;bool insert_failure_confirmed=false,business_rejected=false,delivery_fault=false;std::string command_id,capacity_reason;AuditSummary audit;
+  std::size_t charge=0;bool insert_failure_confirmed=false,business_rejected=false,delivery_fault=false;
+  bool attribution_binding_failed=false; // 原prepared回调未确认；原UUID/receipt保留且实际dispatch未进入。
+  int enqueue_return_code=0; // 原入口明确负返回时完整保留；0为已入队完成值，不生成替代命令。
+  std::string command_id,capacity_reason;AuditSummary audit;
  };
  // worker在任何业务I/O前取得槽；槽内纯值即使后续抛异常也归实例所有。
  // 只有一个producer，owner只取已commit的头部。额外一个槽仅供无在途值的fatal诊断。
@@ -287,6 +277,7 @@ struct StandardQmtTrader::Impl {
  StandardQmtPhase phase=StandardQmtPhase::Created;
  wtp::ITraderSpi* spi=nullptr;
  bool pumping=false,in_callback=false,joined=false,close_started=false;
+ AttributionObserver attribution; // Created时冻结；owner和worker只读取不可变函数/user。
  std::atomic<bool> initialized{false},connected{false},logged_in{false},stop_requested{false},writes_blocked{false};
  std::atomic<bool> worker_stop{false},worker_live{false};
  std::atomic<std::uint64_t> entrust_sequence{0};
@@ -986,6 +977,10 @@ struct StandardQmtTrader::Impl {
   // 不把整段超时再次当作启动核查前的等待；后继审计保留原有限节奏。
   p.inflight_task=0;p.next_due=Clock::now()+std::chrono::milliseconds(query_first&&!p.own.terminal()?0:request_ms);
   observe_submission(c.command_id,p.own);
+  if(c.attribution_binding_failed){
+   // 已确定未进入submit；原UUID及完整receipt仍由原pending保有，禁止自动核查删除未派发原件。
+   p.next_due=Clock::time_point::max();hard_fault=true;writes_blocked=true;return;
+  }
   if(!stop_requested&&(finished(p)||(c.insert_failure_confirmed&&c.trade.phase==QmtTradePhase::NotSent))){
    if(!retain_submission_receipt(c.command_id,p,c.insert_failure_confirmed&&c.trade.phase==QmtTradePhase::NotSent))return;
    const auto released=p.charge;pending.erase(found);completion_charge=add_size(completion_charge,released);
@@ -1110,6 +1105,102 @@ struct StandardQmtTrader::Impl {
   return true;
  }
 
+ // 源数值允许原合法零值；有限double完整往返文本，不对真实源成交做tick重定价。
+ static std::string source_decimal(double value){
+  require(std::isfinite(value),"account_attribution_source_number");char text[128];
+  const auto out=std::to_chars(text,text+sizeof(text),value,std::chars_format::general);
+  require(out.ec==std::errc{},"account_attribution_source_encoding");return {text,out.ptr};
+ }
+ rapidjson::Document child_event(const Task& task)const
+ {
+  rapidjson::Document out(rapidjson::kObjectType);auto& a=out.GetAllocator();const auto& order=task.order;
+  attribution_text(out,"instance_id",instance_id,a);attribution_uint(out,"native_generation",generation,a);
+  attribution_uint(out,"group_id",task.group_id,a);attribution_text(out,"symbol",order.standard_symbol,a);
+  attribution_text(out,"entrust_id",order.insert.entrust_id,a);attribution_text(out,"user_tag",order.insert.user_tag,a);
+  attribution_text(out,"side",order.insert.buy?"buy":"sell",a);attribution_uint(out,"quantity",order.insert.quantity,a);
+  attribution_text(out,"limit_price_cny",order.insert.limit_price,a);return out;
+ }
+ // 原身份解析及canonical摘要已完成；只复制白名单，无账户/凭证/原lookup正文。
+ void source_facts(const QmtAccountIdentityResult& mapped,unsigned stage,Clock::time_point until)
+ {
+  if(!attribution||(stage!=1&&stage!=2))return;
+  require(mapped.batch.array&&mapped.identity_views.size()==mapped.batch.array->size(),"account_attribution_source_shape");
+  const bool canonical=!mapped.batch.canonical_records.empty();
+  require(canonical?mapped.batch.canonical_records.size()==mapped.batch.array->size():mapped.batch.result_sha.size()==64,
+   "account_attribution_source_proof");
+  for(unsigned i=0;i<mapped.batch.array->size();++i){
+   if(Clock::now()>=until)throw AttributionDeadline{};
+   rapidjson::Document view;require(parse_bounded_qmt_json(mapped.identity_views[i],view,identity_budget.max_identity_view_bytes)
+    &&view.IsObject(),"account_attribution_source_identity");
+   rapidjson::Document out(rapidjson::kObjectType);auto& a=out.GetAllocator();
+   attribution_text(out,"instance_id",instance_id,a);attribution_uint(out,"native_generation",generation,a);
+   attribution_text(out,"source_kind",canonical?"derived-facts":"query-result",a);
+   attribution_text(out,"source_sha256",canonical?mapped.batch.canonical_records[i].derived_facts_sha256:mapped.batch.result_sha,a);
+   attribution_uint(out,"output_index",i,a);
+   if(canonical)attribution_text(out,"canonical_key_sha256",signed_http_sha256(mapped.batch.canonical_records[i].canonical_key),a);
+   else out.AddMember("canonical_key_sha256",rapidjson::Value(),a);
+   for(const char* key:{"classification","entrust_id","user_tag","order_id","ref_order","trade_id","request_id","result_sha256","lookup_sha256","sequence","derived_page_sha256","derived_event_sha256"})
+    if(view.HasMember(key))out.AddMember(rapidjson::Value(key,a),rapidjson::Value(view[key],a),a);
+   std::string tag,entrust;if(view.HasMember("user_tag")&&view["user_tag"].IsString())tag=qmt_host_codec::text(view["user_tag"]);
+   if(view.HasMember("entrust_id")&&view["entrust_id"].IsString())entrust=qmt_host_codec::text(view["entrust_id"]);
+   std::string command;std::uint64_t group=0;
+   {std::lock_guard<std::mutex> lock(mutex);for(const auto& row:identities)
+    if((!entrust.empty()&&row.first==entrust)||(!tag.empty()&&row.second.tag==tag)){
+     require(command.empty()||command==row.second.command_id,"account_attribution_source_identity_ambiguous");
+     command=row.second.command_id;group=row.second.group_id;
+    }}
+   if(command.empty())out.AddMember("command_id",rapidjson::Value(),a);else attribution_text(out,"command_id",command,a);
+   attribution_uint(out,"group_id",group,a);
+   auto details=[&](auto* row){
+    const auto contract=row->getContractInfo();require(contract!=nullptr,"account_attribution_contract_missing");
+    attribution_text(out,"symbol",CodeHelper::rawFlatCodeToStdCode(row->getCode(),row->getExchg(),contract->getProduct()),a);
+    const bool buy=row->isNet()?row->isBuy():((row->getDirection()==wtp::WDT_LONG&&row->getOffsetType()==wtp::WOT_OPEN)
+     ||(row->getDirection()==wtp::WDT_SHORT&&row->getOffsetType()!=wtp::WOT_OPEN));
+    attribution_text(out,"side",buy?"buy":"sell",a);attribution_number(out,"quantity",row->getVolume(),a);
+    attribution_text(out,"price_cny",source_decimal(row->getPrice()),a);
+   };
+   if(stage==2){auto row=mapped.batch.array->at<wtp::WTSTradeInfo>(i);details(row);
+    attribution_text(out,"amount_cny",source_decimal(row->getAmount()),a);
+    attribution_uint(out,"trading_date",row->getTradeDate(),a);attribution_uint(out,"trade_time",row->getTradeTime(),a);
+    out.AddMember("fee_cny",rapidjson::Value(),a);
+   }else{auto row=mapped.batch.array->at<wtp::WTSOrderInfo>(i);details(row);
+    attribution_number(out,"filled_quantity",row->getVolTraded(),a);attribution_number(out,"remaining_quantity",row->getVolLeft(),a);
+    attribution_uint(out,"order_state",static_cast<unsigned>(row->getOrderState()),a);out.AddMember("terminal",!row->isAlive(),a);
+    attribution_uint(out,"trading_date",row->getOrderDate(),a);
+   }
+   attribution_notify_until(attribution,stage==2?GH_ATTR_FILL:GH_ATTR_ORDER,2,out,until);
+  }
+  if(Clock::now()>=until)throw AttributionDeadline{};
+ }
+ // 原Insert完成值；SDKReturned只是命令返回，只有确定未进入可给零成交，不能充当券商订单终态。
+ void insert_result(const Completion& result)
+ {
+  if(!attribution||result.kind!=Kind::Insert)return;
+  rapidjson::Document out(rapidjson::kObjectType);auto& a=out.GetAllocator();const auto& order=result.order;
+  attribution_text(out,"instance_id",instance_id,a);attribution_uint(out,"native_generation",generation,a);
+  attribution_uint(out,"group_id",result.group_id,a);attribution_text(out,"entrust_id",order.insert.entrust_id,a);
+  attribution_text(out,"user_tag",order.insert.user_tag,a);attribution_text(out,"symbol",order.standard_symbol,a);
+  attribution_text(out,"side",order.insert.buy?"buy":"sell",a);attribution_uint(out,"quantity",order.insert.quantity,a);
+  attribution_text(out,"limit_price_cny",order.insert.limit_price,a);
+  if(result.command_id.empty())out.AddMember("command_id",rapidjson::Value(),a);else attribution_text(out,"command_id",result.command_id,a);
+  if(result.trade.receipt.command_body.empty())out.AddMember("command_sha256",rapidjson::Value(),a);
+  else attribution_text(out,"command_sha256",signed_http_sha256(result.trade.receipt.command_body),a);
+  attribution_text(out,"source_kind",result.trade.source_result_json.empty()?"native-insert-result":"source-command-result",a);
+  if(result.trade.source_result_json.empty())out.AddMember("source_sha256",rapidjson::Value(),a);
+  else attribution_text(out,"source_sha256",signed_http_sha256(result.trade.source_result_json),a);
+  attribution_uint(out,"phase",static_cast<unsigned>(result.trade.phase),a);
+  const char* phases[]={"NotSent","Queued","Dispatching","DefinitelyNotCalled","SdkReturned","Unknown"};
+  const auto phase=static_cast<unsigned>(result.trade.phase);require(phase<6,"account_attribution_result_phase");
+  attribution_text(out,"phase_name",phases[phase],a);
+  attribution_uint(out,"status_code",static_cast<unsigned>(result.status.code),a);
+  const bool not_entered=result.insert_failure_confirmed&&(result.trade.phase==QmtTradePhase::NotSent
+    ||result.trade.phase==QmtTradePhase::DefinitelyNotCalled);
+  out.AddMember("dispatch_not_entered",not_entered,a);
+  if(not_entered)attribution_uint(out,"filled_quantity",0,a);else out.AddMember("filled_quantity",rapidjson::Value(),a);
+  out.AddMember("attribution_binding_failed",result.attribution_binding_failed,a);
+  out.AddMember("enqueue_return_code",result.enqueue_return_code,a);
+  attribution_notify(attribution,GH_ATTR_INSERT_RESULT,2,out);
+ }
  void run_write(Task& task,Completion& result,QmtHostTradeClient& client)
  {
   SignedHttpDeadline end(task.deadline);result.insert_failure_confirmed=true;
@@ -1173,6 +1264,25 @@ struct StandardQmtTrader::Impl {
     std::memcpy(submission_owner->second.command_id,id.data(),36);submission_owner->second.command_id[36]=0;
    }
    result.charge=add_size(result.charge,reserve);
+  }
+  if(attribution&&task.kind==Kind::Insert){
+   try{
+    auto event=child_event(task);auto& a=event.GetAllocator();
+    attribution_text(event,"command_id",id,a);
+    attribution_text(event,"command_sha256",signed_http_sha256(receipt.command_body),a);
+    attribution_notify_until(attribution,GH_ATTR_PREPARED,3,event,task.deadline);
+   }catch(const AttributionDeadline&){
+    result.trade.receipt=receipt;result.trade.phase=QmtTradePhase::NotSent;
+    result.status=failure(ErrorCode::Timeout,"account_attribution_deadline");
+    result.insert_failure_confirmed=true;result.attribution_binding_failed=true;
+    hard_fault=true;writes_blocked=true;return;
+   }catch(...){
+    result.trade.receipt=receipt;result.trade.phase=QmtTradePhase::NotSent;
+    result.status=failure(ErrorCode::Unavailable,"account_attribution_pre_dispatch_rejected");
+    result.insert_failure_confirmed=true;result.attribution_binding_failed=true;
+    // 原worker故障围栏阻止下一写；不能把本地pre-dispatch失败升级成一次真实外部调用。
+    hard_fault=true;writes_blocked=true;return;
+   }
   }
   if(write_wait_stopped(task.kind)){
    std::lock_guard<std::mutex> lock(mutex);auto found=pending.find(id);uncharge(found->second.charge);pending.erase(found);
@@ -1629,7 +1739,7 @@ struct StandardQmtTrader::Impl {
      diagnostic_worker_stage=task.stage;diagnostic_worker_task=task.id;
      diagnostic_worker_wait_ms=std::chrono::duration_cast<std::chrono::milliseconds>(diagnostic_worker_started-task.queued_at).count();
      slot.queue_wait_ms=diagnostic_worker_wait_ms;
-     slot.kind=task.kind;slot.stage=task.stage;slot.id=task.id;slot.generation=task.generation;
+     slot.kind=task.kind;slot.stage=task.stage;slot.id=task.id;slot.generation=task.generation;slot.group_id=task.group_id;
      slot.deadline=task.deadline;slot.charge=task.charge;slot.event_index=task.event_index;slot.read_generation=task.read_generation;slot.resume_read=task.resume_read;}
     Completion& result=*reserved;result.order=task.order;
     if(!communication_responsibility(result))
@@ -2139,24 +2249,24 @@ struct StandardQmtTrader::Impl {
  }
  void settle_completed_event_chain()
  {std::lock_guard<std::mutex> lock(mutex);settle_completed_event_chain_locked(Clock::now());}
- template<class F> void deliver_event(const QmtEventDeliveryObservation& observation,Clock::time_point until,F&& call)
+ template<class F> bool deliver_event(const QmtEventDeliveryObservation& observation,Clock::time_point until,F&& call)
  {
-  if(Clock::now()>=until){fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return;}
+  if(Clock::now()>=until){fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return false;}
   auto admitted=event_index->reserve(observation);
-  if(!admitted.status.ok()){fail(admitted.status);return;}
+  if(!admitted.status.ok()){fail(admitted.status);return false;}
   if(admitted.disposition==QmtEventDeliveryDisposition::Duplicate){
-   if(Clock::now()>=until)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));else advance_event();return;
+   if(Clock::now()>=until)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));else advance_event();return false;
   }
   if(admitted.disposition!=QmtEventDeliveryDisposition::Deliver){
-   fail(failure(ErrorCode::SubmissionUnknown,"qmt_standard_event_delivery_unresolved"));return;
+   fail(failure(ErrorCode::SubmissionUnknown,"qmt_standard_event_delivery_unresolved"));return false;
   }
   if(stop_requested||event_detached||!spi||Clock::now()>=until){
    require(event_index->finish(admitted.ticket,QmtEventDeliveryOutcome::Suppressed),"qmt_standard_event_suppression_failed");
-   if(!stop_requested&&!event_detached)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return;
+   if(!stop_requested&&!event_detached)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return false;
   }
   bool started=false,returned=false;
   try {
-   callback([&]{
+   callback([&]()->void{
     // callback退当前名额后才进入此lambda；所有可抛构造在start前已经结束。
     if(stop_requested||event_detached||!spi||Clock::now()>=until)return;
     require(event_index->start(admitted.ticket),"qmt_standard_event_delivery_start_failed");started=true;
@@ -2166,9 +2276,9 @@ struct StandardQmtTrader::Impl {
   }catch(...){if(started&&!returned)event_index->finish(admitted.ticket,QmtEventDeliveryOutcome::Unknown);throw;}
   if(!started){
    require(event_index->finish(admitted.ticket,QmtEventDeliveryOutcome::Suppressed),"qmt_standard_event_suppression_failed");
-   if(!stop_requested&&!event_detached)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return;
+   if(!stop_requested&&!event_detached)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return false;
   }
-  advance_event();
+  advance_event();return true;
  }
  QmtEventDeliveryObservation event_observation(const QmtAccountIdentityResult& mapped)
  {
@@ -2397,10 +2507,11 @@ struct StandardQmtTrader::Impl {
   if(!mapped.status.ok()){fail(mapped.status);return;}
   auto observation=event_observation(mapped);remember(mapped.batch,result.stage);
   const auto until=event_chain->deadline;
-  deliver_event(observation,until,[&]{
+  const bool delivered=deliver_event(observation,until,[&]{
    if(observation.is_trade)spi->onPushTrade(mapped.batch.array->at<wtp::WTSTradeInfo>(0));
    else spi->onPushOrder(mapped.batch.array->at<wtp::WTSOrderInfo>(0));
   });
+  if(delivered)source_facts(mapped,result.stage,until);
  }
  // 首次截止前冻结纯POD旁证；捕获失败不覆盖原错误、不改变停止/原D。
  void capture_event_chain_deadline()
@@ -2496,6 +2607,11 @@ struct StandardQmtTrader::Impl {
 
 };
 
+bool StandardQmtTrader::configure_attribution(AttributionObserver observer)
+{
+ auto& x=*impl_;if(!owner()||x.phase!=StandardQmtPhase::Created||!observer||x.attribution)return false;
+ x.attribution=observer;return true;
+}
 StandardQmtTrader::StandardQmtTrader():impl_(new Impl)
 {
  require(impl_->generation!=0,"qmt_standard_generation_exhausted");
@@ -2714,8 +2830,25 @@ int StandardQmtTrader::orderInsert(wtp::WTSEntrust* value)
  if(x.query_first){std::lock_guard<std::mutex> lock(x.mutex);if(!owner()||!x.submission.open||x.in_callback||x.pumping)return StandardQmtUnavailable;}
  try {
   Impl::Task task;task.kind=Impl::Kind::Insert;task.deadline=x.deadline();task.order=copy_order(*value);task.charge=task.order.payload();
+  std::optional<Impl::Completion> rejected; // 只在已选归属时复制入口事实；不新增队列或金融责任表。
+  if(x.attribution){
+   const auto contract=value->getContractInfo();require(contract!=nullptr,"account_attribution_child_contract");
+   task.order.standard_symbol=CodeHelper::rawFlatCodeToStdCode(value->getCode(),value->getExchg(),contract->getProduct());
+   task.charge=task.order.payload();
+   {std::lock_guard<std::mutex> lock(x.mutex);task.group_id=x.submission.id;}
+   require(x.query_first&&task.group_id&&!task.order.standard_symbol.empty(),"account_attribution_child_group_missing");
+   rejected.emplace();rejected->kind=Impl::Kind::Insert;rejected->generation=x.generation;
+   rejected->group_id=task.group_id;rejected->order=task.order;
+   auto event=x.child_event(task);attribution_notify(x.attribution,GH_ATTR_WT_CHILD,2,event);
+  }
   const auto rc=x.enqueue(std::move(task),true);
   if(rc<0&&x.query_first){std::lock_guard<std::mutex> lock(x.mutex);if(x.submission.open)x.submission.failed=true;}
+  if(rc<0&&rejected){
+   // enqueue明确拒绝，worker未取得此child；按原WT身份证明未入队，不创建command UUID。
+   rejected->enqueue_return_code=rc;rejected->insert_failure_confirmed=true;
+   rejected->status=failure(rc==StandardQmtCapacity?ErrorCode::Backpressure:ErrorCode::Unavailable,"qmt_standard_enqueue_rejected");
+   x.insert_result(*rejected);
+  }
   return rc;
  }catch(...){x.hard_fault=true;x.writes_blocked=true;std::lock_guard<std::mutex> lock(x.mutex);if(x.ingress_error.ok())x.ingress_error=x.events_enabled?fixed_failure(ErrorCode::InvalidInput):failure(ErrorCode::InvalidInput,"qmt_standard_write_ingress_invalid");x.cv.notify_all();return StandardQmtInvalid;}
 }
@@ -2790,6 +2923,7 @@ int StandardQmtTrader::pump(std::uint32_t limit)
      &&command.IsObject()&&command.HasMember("command_id"))x.last_command=qmt_host_codec::text(command["command_id"]);
    }
    if(result.generation!=x.generation){x.fail(failure(ErrorCode::Conflict,"qmt_standard_completion_generation"));break;}
+   x.insert_result(result);
    if(result.kind==Impl::Kind::EventPage&&x.settle_event_read(result))continue;
    if(Clock::now()>=result.deadline){
     const auto error=failure(write&&!result.insert_failure_confirmed?ErrorCode::SubmissionUnknown:ErrorCode::Timeout,"qmt_standard_completion_deadline");
@@ -2871,6 +3005,7 @@ int StandardQmtTrader::pump(std::uint32_t limit)
     x.callback([&]{if(result.stage==0)x.spi->onRspPosition(mapped.batch.array.get());
      else if(result.stage==1)x.spi->onRspOrders(mapped.batch.array.get());
      else if(result.stage==2)x.spi->onRspTrades(mapped.batch.array.get());else x.spi->onRspAccount(mapped.batch.array.get());});
+    x.source_facts(mapped,result.stage,result.deadline);
     if(result.stage==0)x.position_query_applied(mapped.batch,result.id);
     x.observation_refresh_applied(result.id);
     // 只有完整查询交给原SPI并返回，才公开本次事实的序号。活动单覆盖整个账户。
@@ -2911,7 +3046,8 @@ int StandardQmtTrader::pump(std::uint32_t limit)
   x.maintain_event_deadline();
   if(x.stop_requested)x.retire_candidates();
   return static_cast<int>(delivered);
- }catch(const EventCapacity&){x.fail(fixed_failure(ErrorCode::Backpressure));x.retire_candidates();return StandardQmtFailure;}
+ }catch(const AttributionDeadline&){x.fail(fixed_failure(ErrorCode::Timeout));x.retire_candidates();return StandardQmtFailure;}
+ catch(const EventCapacity&){x.fail(fixed_failure(ErrorCode::Backpressure));x.retire_candidates();return StandardQmtFailure;}
  catch(const EventOperationFailure& e){x.fail(fixed_failure(e.code));x.retire_candidates();return StandardQmtFailure;}
  catch(const std::exception& e){x.fail(x.events_enabled?fixed_failure(ErrorCode::IoError):failure(ErrorCode::IoError,e.what()));x.retire_candidates();return StandardQmtFailure;}
  catch(...){x.fail(x.events_enabled?fixed_failure(ErrorCode::SubmissionUnknown):failure(ErrorCode::SubmissionUnknown,"qmt_standard_callback_or_mapping_unknown"));x.retire_candidates();return StandardQmtFailure;}

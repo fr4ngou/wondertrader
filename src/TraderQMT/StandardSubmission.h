@@ -6,7 +6,8 @@ namespace guanheng {
 // 仅自有query_first提交门；不表示券商挂单数量或已完成启动恢复。
 enum class SubmissionDecision : std::uint32_t {
  Admitted=0,BlockedAwait,BlockedBusy,WrongOwner,Stopped,Capacity,ModeMismatch,Invalid,Fault,
- BlockedFunds=9 // 自有Local在提交组创建前缺少已知足额CNY观察；未产生新命令。
+ BlockedFunds=9, // 自有Local在提交组创建前缺少已知足额CNY观察；未产生新命令。
+ BlockedAttribution=10 // 显式ASA准入暂缓；无原group、child或dispatch，原目标仍待执行。
 };
 enum class SubmissionObservation : std::uint32_t {
  None=0,AwaitBrokerObservation,Unknown,ObservedActive,TerminalNeedsReconciliation,Fault
