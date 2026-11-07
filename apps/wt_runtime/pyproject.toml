@@ -11,7 +11,7 @@ classifiers = ["Private :: Do Not Upload"]
 dependencies = ["guanheng-market-client==0.21.0"]
 
 [project.optional-dependencies]
-execution = ["guanheng-strategy-v1==0.1.0a13", "guanheng-strategy-native==0.1.0a2", "guanheng-strategy-original==0.2.0a1"]
+execution = ["guanheng-strategy-v1==0.1.0a13", "guanheng-strategy-native==0.1.0a2", "guanheng-strategy-original==0.2.0a2"]
 
 [project.scripts]
 guanheng-wt = "guanheng_wt_runtime.__main__:main"
