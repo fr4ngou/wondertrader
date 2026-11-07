@@ -9,14 +9,14 @@
 | 主题 | 最近记录及适用范围 | 依据 |
 |---|---|---|
 | 系统职责 | WT 独立拥有 QMT 通信、采集/历史、策略和交易；观衡独立部署、只读消费。 | [架构](../architecture/overview.md)、[ADR-0016](../architecture/adr/0016-independent-wt-runtime-and-observer.md) |
-| 观衡交付 | App125 / SDK20普通安装并在18143采用D归档；实际列表3704ms、完整报告2911ms（含350ms延迟），悬停HTTP为0、点击30ms。冷读取仍需数秒。 | [后继发布](../releases/2026-11-07-observer125-data-update-and-d-archive.md) |
+| 观衡交付 | App126/SDK21/read15已普通安装并在18143采用，稳定入口已核。正式列表3671ms、完整报告2890ms（含350ms延迟）、悬停0HTTP、点击18ms；双策略估值普通安装主链通过。 | [后继发布](../releases/2026-11-07-observer126-parallel-readiness.md) |
 | 目标记录 | 1160 行原始设置归约为 42 条首次/变化记录；目标、持仓和成交分别归属。原目标、历史权重、算法版本及原因缺字段时保持未知。 | [目标规格](../specs/strategy-target-history.md)、[后验真](../evidence/2026-11-07-native-target-cash-gapplan-postflight.md) |
 | 原版回测 | 原版 a2 完成 1415 日、407 笔实际 WT 回测及独立复算，负现金日为 0；原 a1 及失败证据保留。历史 PIT、OHLC 撮合和未成交排队限制沿原模型；回测报告与正式运行策略采用分别核实。 | [发布记录](../releases/2026-11-07-native-target-cash-gapplan-live.md)、[回测规格](../specs/original-native-backtest.md) |
 | 归档存储 | 受控STORAGE为active，D盘9run/252文件；E原件保留，前后SHA及九报告投影一致，ACL沿原基线。C候选从未采用，清理自动审查拒绝后已停。 | [运行手册](../runbooks/native-backtest.md#正式归档的唯一位置)、[后继发布](../releases/2026-11-07-observer125-data-update-and-d-archive.md) |
-| 日更恢复 | Data27/18代受控环境已采用，四角色ready，原16请求/15输入保留，任务和正式临时根在D；下一自然09:00另验。 | [Data27采用](../releases/2026-11-07-data27-units-environment.md) |
-| 数据日期 | 完整004日期11月6日，snapshot59b0af7a…；raw7948/front7895，正式HTTP20包29648记录核同。ETF/分析指数单位已核，原指数价与金额未知保持；辅助缺口可见。 | [Data27采用](../releases/2026-11-07-data27-units-environment.md) |
+| 日更恢复 | Data27/18代今日自然价格已发布；证券资料源已原位恢复并真实读取通过。完整输入被历史五字段保护合同拒绝，统一读取层修复继续，补充事实未宣称完成。 | [后继范围](../releases/2026-11-07-observer126-parallel-readiness.md) |
+| 数据日期 | 自然价格CURRENT d22074fd…、snapshot b59b2fd…对应11月6日；完整004及原件保持，辅助事实缺口沿原日期保留。 | [后继范围](../releases/2026-11-07-observer126-parallel-readiness.md) |
 | 来源缺口 | 11月6日总份额7事实/2深市缺口，融资与官方成交额各1缺口；QMT代理单位unknown。全目录5758事实/412缺口，supplement_complete=false；09:00修订未在本轮触发。 | [后继发布](../releases/2026-11-07-observer125-data-update-and-d-archive.md) |
-| 金融运行 | 原金融Runtime/Native保持退出；原版另100万元零持仓并行已确认，初始化已独审。完整双策略正式采用待验，成交时点及589680处理待选择。 | [最新采用边界](../releases/2026-11-07-data27-units-environment.md) |
+| 金融运行 | 原金融保持退出；R24/Native已普通安装验真，当前589680过滤目标冲突阻断启用。新增100万元与旧持仓归属已确认，待执行模型选择、匹配WT回测和原责任复核。 | [采用边界](../releases/2026-11-07-observer126-parallel-readiness.md) |
 | 研究资格 | 原版、因子及金融条件研究已有资料和限定验证；原作者收益、完整 PIT、真实挖掘效果与正式生产采用分别核实。 | [研究入口](../research/resonance-research-guide.md)、[原版规格](../specs/original-resonance-reference.md) |
 | 开发规则 | 根因回归、控制过度设计、语义复用及随完整切片验证已写入规范；规则工具化程度按各入口的实际实现登记。 | [规范整合证据](../evidence/2026-11-07-development-principles.md) |
 | AI 知识治理 | AKN 方案已设计；当前快照治理切片已采用，结果见本轮证据。本地 CI 已执行文档检查；任务选择、项目 skill 及新会话行为实验仍待实施。 | [AKN](../specs/agent-project-knowledge.md)、[本轮证据](../evidence/2026-11-07-roadmap-snapshots.md) |
