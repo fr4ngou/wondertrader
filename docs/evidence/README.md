@@ -1,5 +1,7 @@
 # 验证证据
 
+- [R24同账户实际资金与份额独立复核](2026-11-07-shared-account-r24-independent-review.md)：原生责任、实际费用缺口、缩仓、内部划转和恢复反例。
+
 - [开发原则与缺陷预防规范整合](2026-11-07-development-principles.md)：根因回归、语义复用与模块边界。
 - [文档完整性分类及恢复](2026-11-07-documentation-health.md)：旧分支缺失原件、历史材料归属和研究索引修复；后继收尾见正文。
 - [AI 原生知识方案重整](2026-11-07-ai-native-documentation-plan.md)：设计依据和待实施行为场景。

@@ -2,7 +2,7 @@
 
 类型：当前状态快照。所有者角色：相应模块与任务维护者。记录核对日期：2026-11-07。
 
-本页按主题维护最近可核实结论及缺口。运行信息来自下列发布和后验真记录；本轮实际核实App125、四角色数据组及日更发布，金融进程和账户未重新现场复核。目标与约束见 [TARGET](TARGET.md)，活动任务及续接见 [NOW](NOW.md)。更新方式沿[当前快照维护](../development/documentation.md#当前快照维护)。
+本页按主题维护最近可核实结论及缺口。运行信息来自下列发布和后验真记录；本轮实际核实App126、四角色数据组及自然价格发布，金融R24核验为隔离运行。目标与约束见 [TARGET](TARGET.md)，活动任务及续接见 [NOW](NOW.md)。更新方式沿[当前快照维护](../development/documentation.md#当前快照维护)。
 
 ## 最近可核实结论
 
@@ -13,10 +13,10 @@
 | 目标记录 | 1160 行原始设置归约为 42 条首次/变化记录；目标、持仓和成交分别归属。原目标、历史权重、算法版本及原因缺字段时保持未知。 | [目标规格](../specs/strategy-target-history.md)、[后验真](../evidence/2026-11-07-native-target-cash-gapplan-postflight.md) |
 | 原版回测 | 原版 a2 完成 1415 日、407 笔实际 WT 回测及独立复算，负现金日为 0；原 a1 及失败证据保留。历史 PIT、OHLC 撮合和未成交排队限制沿原模型；回测报告与正式运行策略采用分别核实。 | [发布记录](../releases/2026-11-07-native-target-cash-gapplan-live.md)、[回测规格](../specs/original-native-backtest.md) |
 | 归档存储 | 受控STORAGE为active，D盘9run/252文件；E原件保留，前后SHA及九报告投影一致，ACL沿原基线。C候选从未采用，清理自动审查拒绝后已停。 | [运行手册](../runbooks/native-backtest.md#正式归档的唯一位置)、[后继发布](../releases/2026-11-07-observer125-data-update-and-d-archive.md) |
-| 日更恢复 | Data27/18代今日自然价格已发布；证券资料源已原位恢复并真实读取通过。完整输入被历史五字段保护合同拒绝，统一读取层修复继续，补充事实未宣称完成。 | [后继范围](../releases/2026-11-07-observer126-parallel-readiness.md) |
-| 数据日期 | 自然价格CURRENT d22074fd…、snapshot b59b2fd…对应11月6日；完整004及原件保持，辅助事实缺口沿原日期保留。 | [后继范围](../releases/2026-11-07-observer126-parallel-readiness.md) |
-| 来源缺口 | 11月6日总份额7事实/2深市缺口，融资与官方成交额各1缺口；QMT代理单位unknown。全目录5758事实/412缺口，supplement_complete=false；09:00修订未在本轮触发。 | [后继发布](../releases/2026-11-07-observer125-data-update-and-d-archive.md) |
-| 金融运行 | 原金融保持退出；R24/Native已普通安装验真，当前589680过滤目标冲突阻断启用。新增100万元与旧持仓归属已确认，待执行模型选择、匹配WT回测和原责任复核。 | [采用边界](../releases/2026-11-07-observer126-parallel-readiness.md) |
+| 日更恢复 | Data28/Source19沿同一任务越过历史五字段计划校验并实际进入辅助事实回读；四个只读服务自然自启通过。完整辅助事实尚待确认。 | [日更发布](../releases/2026-11-07-data28-natural-recovery.md) |
+| 数据日期 | 11月6日自然价格CURRENT d22074fd…已发布；已核历史原价单位在合并中被旧档覆盖，前复权保留资格。 | [日更发布](../releases/2026-11-07-data28-natural-recovery.md) |
+| 来源缺口 | 已发布辅助事实仍有2只深市份额、融资和官方成交额各1项缺口；全目录5758事实/412缺口。自然后继以最新日更发布为准。 | [前次事实发布](../releases/2026-11-07-observer125-data-update-and-d-archive.md)、[日更发布](../releases/2026-11-07-data28-natural-recovery.md) |
+| 金融运行 | R24已普通安装，尚未启用。独立复现未知费用阻断退出、组合缩仓冲突、过期价格内部划转。100万元为新策略独立额度；保留原分析，待核替代ETF、次日收盘限价及相同口径WT回测。 | [独立复核](../evidence/2026-11-07-shared-account-r24-independent-review.md) |
 | 研究资格 | 原版、因子及金融条件研究已有资料和限定验证；原作者收益、完整 PIT、真实挖掘效果与正式生产采用分别核实。 | [研究入口](../research/resonance-research-guide.md)、[原版规格](../specs/original-resonance-reference.md) |
 | 开发规则 | 根因回归、控制过度设计、语义复用及随完整切片验证已写入规范；规则工具化程度按各入口的实际实现登记。 | [规范整合证据](../evidence/2026-11-07-development-principles.md) |
 | AI 知识治理 | AKN 方案已设计；当前快照治理切片已采用，结果见本轮证据。本地 CI 已执行文档检查；任务选择、项目 skill 及新会话行为实验仍待实施。 | [AKN](../specs/agent-project-knowledge.md)、[本轮证据](../evidence/2026-11-07-roadmap-snapshots.md) |
