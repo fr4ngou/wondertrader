@@ -85,7 +85,9 @@ class OriginalLiveStrategy:
         return own,broker
 
     def _initialize(self,context):
-        context.bars(self.main,'m1',1,main=True);own,broker=self._view(context,min(self.start_deadline,time.monotonic()+self.seconds))
+        context.bars(self.main,'m1',1,main=True)
+        deadline=min(self.start_deadline,time.monotonic()+self.seconds)
+        own,broker=self._view(context,deadline)
         _need(own is not None,'original_initial_allocation')
         text=context.load_quantity_state()
         if self.state_mode=='new':
@@ -121,14 +123,30 @@ class OriginalLiveStrategy:
         self.initialized=True
         self.publish(self.id,dict(
             status='initialized',  # ctx及自有分配已核初始化；不宣布成交或信号齐备。
+            definition=self._definition(),  # 原ctx已核九证券声明；ASA暂缺时也保留证券范围。
             strategy_id=self.id,  # 独立原版线上策略身份。
             strategy_version=ORIGINAL_LIVE_VERSION,  # 本次线上执行模型版本，不改a1/a2历史报告。
             initial_capital_cny='1000000',  # 用户明确新增的模型资本基准，CNY；不复制账户available。
             capital_source='ASA:explicit-new-allocation',  # 独立分配由唯一ASA拥有。
-            allocation_observation=allocation_projection(own),  # 自有份额/现金/周期及原账户来源，CNY十进制文本。
+            owned_valuation=self._valuation(context,own,deadline),  # 本策略原价估值，费用未齐只发布参考值。
+            allocation_observation=allocation_projection(own,include_read_projection=True),  # 自有份额/现金/周期及原账户来源，CNY十进制文本。
             model='signals-from-activation',  # 历史held仅展示，首次从最新合格闭合信号激活。
             execution_qualified=False),  # 本投影不授金融综合资格，执行owner另核真实权限。
             deadline=time.monotonic()+self.seconds)
+
+    def _valuation(self,context,own,deadline):
+        """附加观察局限于已有Native借用；预算仅取原profile声明。"""
+        from .owned_valuation import owned_valuation
+        return owned_valuation(context,own,self.ticks,baseline_cny=self.parameters['initial_capital_cny'],
+            baseline_source='original-profile.initial_capital_cny',max_age=self.parameters['quote_max_age_seconds'],
+            deadline=deadline)
+
+    def _definition(self):
+        """只读已核ctx证券池，不从账户持仓或信号推断交易所。"""
+        return dict(
+            strategy_id=self.id,  # 本次真实ctx策略身份。
+            strategy_version=ORIGINAL_LIVE_VERSION,  # 原线上执行模型版本。
+            symbols=[c+{'SSE':'.SH','SZSE':'.SZ'}[self.mapping[c].split('.')[0]] for c in self.codes])  # 已核映射的完整九证券，含零持仓。
 
     def callback(self,context):
         if context.event.kind==1:self._initialize(context);return
@@ -155,6 +173,7 @@ class OriginalLiveStrategy:
                 _need(dict(context.set_targets(tuple(desired.items())))==desired,'original_target_readback');self._announced=True
         read=self.signals.latest();small=None if read.value is None else read.value.projection()
         candidate=dict(
+            definition=self._definition(),  # 原ctx的真实版本/证券池声明，独立于行情/归属是否就绪。
             strategy_id=self.id,  # 当前独立策略身份。
             strategy_version=ORIGINAL_LIVE_VERSION,  # 线上模型版本，不冒充冻结回测版本。
             sequence=self.sequence,  # 当前回调观察序号。
@@ -163,7 +182,8 @@ class OriginalLiveStrategy:
             signal=small,  # 后台不可变小投影；无最后成功值时为None。
             signal_ready=read.ready,  # 本轮发布/计算是否成功，逐路由资格另列。
             signal_reason=read.reason,  # 固定等待/失败分类，缺省None。
-            allocation_observation=None if own is None else allocation_projection(own),  # 仅本策略实际归属；陈旧时None。
+            owned_valuation=self._valuation(context,own,deadline),  # 同回调实际自有数量/现金和原价；不影响目标计算。
+            allocation_observation=None if own is None else allocation_projection(own,include_read_projection=True),  # 仅本策略实际归属；陈旧时None。
             account_observation=asdict(broker),  # 原全账户来源与clock单列，不作每ctx仓位。
             execution_qualified=False)  # 此观察不代替金融owner的实际准入。
         candidate['signal_revision_after_consumption']=small is not None and self._last_date==small['decision_date'] and self._consumed_sha!=small['signal_sha256']

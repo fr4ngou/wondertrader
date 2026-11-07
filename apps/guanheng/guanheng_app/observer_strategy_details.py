@@ -1,6 +1,7 @@
 """账户、策略与实例的只读页面投影；原金融值和生命周期各归原发布者。"""
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+import re
 import hashlib
 import os
 from pathlib import Path
@@ -94,7 +95,7 @@ def project_execution(runtime, strategy, report=None):
         started_at=started_at, duration_seconds=duration)
 
 
-def observe_details(settings, configuration, deadline):
+def observe_details(settings, configuration, deadline, strategy_id=None):
     from .wt_business_observation import read_business, observe_account
     from .strategy_runtime_projection import project_strategy
     from .account_publication import observe_published_account
@@ -107,31 +108,32 @@ def observe_details(settings, configuration, deadline):
         runtime = read_runtime_snapshot(configuration, deadline).value if configuration else None
     except (ValueError, OSError, TimeoutError):
         runtime_error = True
-    account = None
-    account_reason = None
-    try:
-        operation = observe_published_account if settings.account_source == 'wt_account_publication' else observe_account
-        account = operation(configuration, deadline).model_dump(mode='json')
-    except (ValueError, OSError, TimeoutError):
-        account_reason = '账户结果本次读取失败，请核对WT账户发布；策略状态单独显示。'
-
     strategy, report, lifecycle = None, None, {}
     strategy_reason = None
     if runtime and 'execution' in runtime['components']:
         try:
             strategies, _reference, _state = read_business(configuration, deadline)
             if strategies is not None:
-                strategy = project_strategy(dict(schema='guanheng.configured-cta-observation.v1', strategies=strategies),runtime_state=_state)
-                report = strategies.get('resonance-regime-v1') if strategy else None
+                strategy = project_strategy(dict(schema='guanheng.configured-cta-observation.v1', strategies=strategies),runtime_state=_state,strategy_id=strategy_id)
+                report = strategies.get(strategy['strategy_id']) if strategy else None
                 lifecycle = _execution_lifecycle(_reference, deadline)
         except (ValueError, OSError, TimeoutError, KeyError, TypeError):
             strategy_reason = '策略计算结果本次读取失败，账户数据保持独立。'
+    account,account_reason=None,None
+    if not(strategy and strategy.get('position_basis')=='strategy-allocated'):
+        try:
+            operation=observe_published_account if settings.account_source=='wt_account_publication'else observe_account
+            account=operation(configuration,deadline).model_dump(mode='json')
+        except (ValueError,OSError,TimeoutError):
+            account_reason='账户结果本次读取失败，请核对WT账户发布；策略状态单独显示。'
     execution = project_execution(runtime, strategy, dict(report or {}, **lifecycle))
     if runtime_error:
         execution.update(state='unavailable', label='策略状态暂不可用', reason='本次WT运行状态读取失败，请重新读取。')
     budget = _missing('当前没有可读取的WT策略预算；账户可用资金归账户所有。')
     if strategy and strategy.get('capital_baseline'):
         budget = dict(value=strategy['capital_baseline']['total_cny'], reason=None)
+    elif strategy and strategy.get('owned_valuation') and strategy['owned_valuation'].get('baseline_cny') is not None:
+        budget=dict(value=strategy['owned_valuation']['baseline_cny'],reason=None)
     elif report and (report.get('outcome') or {}).get('state'):
         # project_strategy已通过原NSQ构造器核验同一state；预算仅复制原policy值。
         try:
@@ -141,13 +143,13 @@ def observe_details(settings, configuration, deadline):
         except (InvalidOperation, TypeError, KeyError):
             pass
     return dict(schema_version='guanheng.strategy-details.v1', read_only=True,
-        observed_at=datetime.now(timezone.utc).isoformat(), strategy=strategy_definition(strategy['strategy_id'],strategy['strategy_version'])if strategy else strategy_definition('resonance-regime-v1',None),
+        observed_at=datetime.now(timezone.utc).isoformat(), strategy=strategy_definition(strategy['strategy_id'],strategy['strategy_version'])if strategy else strategy_definition(strategy_id or 'resonance-regime-v1',None),
         # 本轮已解析的公开运行身份摘要；未配置为null，只用于隔离跨代展示缓存。
         runtime_scope_id=hashlib.sha256(repr((str(configuration.path), configuration.control_id,
             configuration.instance_id, configuration.configuration_sha256)).encode('utf8')).hexdigest()
             if isinstance(configuration, RuntimeObservationConfig) else None,
-        assignment=dict(scope='current-account-inventory', label='现有持仓归属此策略',
-            reason='按用户确认展示当前账户持仓；历史开仓和成交记录不迁移。'),
+        assignment=dict(scope='strategy-allocated'if strategy and strategy.get('position_basis')=='strategy-allocated'else'current-account-inventory', label=('ASA已确认策略归属'if strategy.get('ownership')is not None else'等待确认策略归属')if strategy and strategy.get('position_basis')=='strategy-allocated'else'账户聚合持仓',
+            reason='策略持仓沿ASA自有账；账户聚合在券商账户页独立查看，市值与浮盈缺归属时保持未知。'if strategy and strategy.get('position_basis')=='strategy-allocated'else'以下账户聚合观察保留原范围；历史成交归属缺少证据时保持未知。'),
         execution=execution, account=account, account_reason=account_reason,
         calculation=strategy, calculation_reason=strategy_reason, budget_cny=budget,
         capital_baseline=None if strategy is None else strategy.get('capital_baseline'),
@@ -221,14 +223,18 @@ def router(settings, configuration, invalid):
     @routes.get('/v1/ui/strategy-details')
     @routes.get('/v1/ui/wt-instances')
     async def read(request: Request):
-        if request.query_params or request.headers.get('content-length', '0') != '0' or request.headers.get('transfer-encoding'):
-            raise HTTPException(422, '详情读取不接受额外参数')
         multi = request.url.path.endswith('wt-instances')
+        params=list(request.query_params.multi_items())
+        strategy_id=request.query_params.get('strategy_id')
+        if (request.headers.get('content-length','0')!='0' or request.headers.get('transfer-encoding')
+                or (bool(params) if multi else any(k!='strategy_id' for k,v in params) or len(params)>1
+                    or strategy_id is not None and not re.fullmatch(r'[A-Za-z0-9_.+@-]{1,64}',strategy_id))):
+            raise HTTPException(422,'详情查询参数无效')
         if invalid:
             raise HTTPException(503, 'WT详情读取配置无效，请由维护人员核对实例目录。')
         deadline, future = monotonic() + 2, None
         try:
-            operation = (lambda: observe_instances(instances, deadline)) if multi else (lambda: observe_details(settings, configuration, deadline))
+            operation = (lambda: observe_instances(instances, deadline)) if multi else (lambda: observe_details(settings, configuration, deadline,strategy_id))
             future = request.app.state.reader.submit(lambda _remaining: operation(), deadline)
             wrapped = asyncio.wrap_future(future)
             wrapped.add_done_callback(lambda done: None if done.cancelled() else done.exception())

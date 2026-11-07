@@ -95,3 +95,13 @@ BUY首次prepared在该最终事务再次核资金与全部原预留，覆盖原
 先验证人工初始化、同向部分成交、单次最低费用拆分、内部净额守恒、冻结份额拒绝、目标改变后的晚成交及重启幂等。随后覆盖重复/冲突、未知费用、派发前资金不足、prepared越界、终态释放、账户对账、租约/截止/线程和持久格式异常。模块测试不授Native挂钩、原UUID派发路径、模拟账户运行或交易资格；该接线由原宿主另验。
 
 本模块所需外部证明仍由原金融owner提供：初始化的旧现金/库存及新增预算、跨代稳定账户/基准身份、完整一致的P/A及递增观察水位、真实费用或明确未知、settlement_day、共同价资格、group后继已结束证明。模块不从行情/账户全量推算这些缺失归属。
+
+
+## ASA-12 观衡只读归属投影
+
+`strategy_observation(strategy_id, deadline=...)`沿原owner_check和同一SQLite事务读取，不调用 `_save`，不新增持久账或金融命令。StrategyObservation附加可缺字段：book_scope_sha256（原BookIdentity规范摘要）、observed_at（owner读取UTC时刻，仅展示不参与经济DTO相等性）、targets（原已提交意图的完整数量，未提交None）、fills（真实D已有allocations的本策略部分，旧发布None、完整空tuple）、fills_truncated（最近2000条展示截断）。原字段、原状态格式及所有交易算法保持。
+
+每条OwnedFillObservation保留原fill_id/证券/方向、已记账分配数量及金额、原价、原交易日及可缺的真实executed_at、原来源SHA。费用使用原 `_split` 与原allocations次序；原fee未知仍为None，内部转移不加入实际成交。UI公开成交ID由策略和原D身份摘要化，不公开原订单号。投影的2000条是发布容量，原历史不删除、不限制后续交易；观衡明确显示截断。NAV/价格估值及投资收益不由此接口创建，相关公开读取和兼容约束见[LSP-5](live-strategy-performance.md#lsp-5-同账户多策略归属读取)。
+
+
+`allocation_projection`缺省严格保留原五字段，供既有金融输入指纹使用。仅原两个profile的三处报告发布显式传 `include_read_projection=True`，追加展示字段；读取clock及最近D窗口不会进入原金融指纹。该分流由LSP源码回归核验，不改变原策略数学、目标、权限或金融账。

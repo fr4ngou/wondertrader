@@ -13,7 +13,7 @@ export type StrategyDetails = CapitalFields & {
     /** 本轮WT实际版本；null保持未提供，不从App发行推断。 */ strategy_version: string | null
     /** 原中文展示名称。 */ display_name: string
   }
-  assignment: { scope: 'current-account-inventory'; label: string; reason: string }
+  assignment: { scope: 'current-account-inventory' | 'strategy-allocated'; label: string; reason: string }
   execution: { state: string; label: string; reason: string; started_at: OptionalFact; duration_seconds: OptionalFact }
   account: AccountOverview | null; account_reason: string | null
   calculation: StrategyRuntime['strategy']; calculation_reason: string | null
@@ -42,7 +42,7 @@ export function validateStrategyDetails(v: unknown): StrategyDetails {
   if (!object(v) || v.schema_version !== 'guanheng.strategy-details.v1' || v.read_only !== true
     || !text(v.observed_at) || !Number.isFinite(Date.parse(v.observed_at)) || !object(v.strategy)
     || !text(v.strategy.strategy_id) || !(v.strategy.strategy_version === null || text(v.strategy.strategy_version) && /^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$/.test(v.strategy.strategy_version)) || !text(v.strategy.display_name)
-    || !object(v.assignment) || v.assignment.scope !== 'current-account-inventory' || !text(v.assignment.label) || !text(v.assignment.reason)
+    || !object(v.assignment) || !['current-account-inventory','strategy-allocated'].includes(String(v.assignment.scope)) || !text(v.assignment.label) || !text(v.assignment.reason)
     || !object(v.execution) || !['unconfigured','not_started','disabled','new','starting','ready','stopping','closed','faulted','unavailable'].includes(String(v.execution.state))
     || !text(v.execution.label) || !text(v.execution.reason) || !timeFact(v.execution.started_at) || !numericFact(v.execution.duration_seconds, true)
     || !numericFact(v.budget_cny, true) || !object(v.returns) || !numericFact(v.returns.cumulative_pct)
@@ -56,6 +56,6 @@ export function validateStrategyDetails(v: unknown): StrategyDetails {
   validateCapitalFields(v)
   return { ...v, calculation } as StrategyDetails
 }
-export async function fetchStrategyDetails(signal: AbortSignal) {
-  return validateStrategyDetails(await fetchReadJson<unknown>('/v1/ui/strategy-details', '策略详情', signal, 'workspace', 4000))
+export async function fetchStrategyDetails(signal: AbortSignal, strategyId?: string) {
+  return validateStrategyDetails(await fetchReadJson<unknown>('/v1/ui/strategy-details' + (strategyId ? '?' + new URLSearchParams({strategy_id: strategyId}) : ''), '策略详情', signal, 'workspace', 4000))
 }

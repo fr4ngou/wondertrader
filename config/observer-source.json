@@ -249,6 +249,7 @@
       "apps/guanheng/console/src/workspace/operationsApi.test.ts",
       "apps/guanheng/console/src/workspace/operationsApi.ts",
       "apps/guanheng/console/src/workspace/originalNativeIdentity.ts",
+      "apps/guanheng/console/src/workspace/ownedValuation.test.tsx",
       "apps/guanheng/console/src/workspace/personal-watchlist.css",
       "apps/guanheng/console/src/workspace/publishedStrategyFacts.test.ts",
       "apps/guanheng/console/src/workspace/reading.test.ts",

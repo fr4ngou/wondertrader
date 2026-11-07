@@ -17,13 +17,24 @@ export type LiveDeal = {
   /** 实际成交单价，元。 */ price_cny: string
   /** 实际成交份额。 */ quantity: number
   /** 原成交金额，元。 */ amount_cny: string
-  /** 仅按账户证券范围筛选，尚无策略归属证据。 */ attribution: 'account-universe-only'
+  /** 原ASA分配费用，元；未知为null，旧账户投影可缺。 */ fee_cny?: string | null
+  /** 仅按账户证券范围筛选，尚无策略归属证据。 */ attribution: 'account-universe-only' | 'strategy-allocated'
 }
 export type LiveDay = {
   /** 真实来源日期，缺日不补行。 */ date: string
   /** 原净值估值时间；仅成交日可空。 */ observed_at: string | null
   /** 原策略净值，元；缺少时为空。 */ nav_cny: string | null
+  /** 原owner未扣未知费用的参考净值，元。 */ reference_nav_cny?: string | null
+  /** 参考现金原owner时刻，与实际现金后继观察分别保留。 */ reference_cash_observed_at?: string | null
+  /** 只扣已知费用的ledger参考现金，元。 */ reference_cash_cny?: string | null
+  /** 参考估值原时刻，缺省兼容旧发布。 */ reference_observed_at?: string | null
+  /** 本日最后合格估值资格。 */ valuation_state?: 'actual' | 'reference-fee-pending'
+  /** 原配置资本参考变化额，不当投资损益。 */ reference_change_cny?: string | null
+  /** 相对配置资本参考率%，不当投资收益。 */ reference_return_pct?: string | null
+  /** 原配置资本，元。 */ valuation_baseline_cny?: string | null
   /** 原发布现金，元。 */ cash_cny: string | null
+  /** ASA现金原观察时刻，与NAV时刻独立；旧响应可缺。 */ cash_observed_at?: string
+  /** 现金观察对应运行scope，与NAV分别保留。 */ cash_runtime_scope_id?: string
   /** 原发布市值，元。 */ market_value_cny: string | null
   /** 原资本变化，元；不推断投资收益。 */ pnl_cny: string | null
   /** 投资收益口径尚缺，保持空。 */ return_pct: null
@@ -49,6 +60,11 @@ export type LivePerformance = {
     /** 原进程实存核查。 */ process_state: 'alive' | 'exited' | 'unknown'
   }
   /** 净值实际覆盖，不表示交易日连续。 */ coverage: {
+    /** 本窗口参考点数，旧发布可缺。 */ reference_point_count?: number
+    /** 本轮估值资格，历史最近点仍保留原资格。 */ valuation_state?: string | null
+    /** 本轮缺失/等待固定原因。 */ valuation_reason?: string | null
+    /** 参考首日，无点为空。 */ reference_from?: string | null
+    /** 参考最后日，无点为空。 */ reference_to?: string | null
     /** 首个实际净值日期。 */ from: string | null
     /** 最后实际净值日期。 */ to: string | null
     /** 实际净值点数，区别成交日期数。 */ point_count: number
@@ -56,12 +72,18 @@ export type LivePerformance = {
     /** 观察积累方式。 */ history_state: string
     /** 未覆盖历史和收益归因说明。 */ reason: string
     /** 仅当前有界展示截断，历史原件继续保存。 */ deals_truncated: boolean
+    /** 持仓/成交归属；旧发布缺失按账户范围显示。 */ attribution?: 'strategy-allocated' | 'account-universe-only'
     /** 通过原现金原点和基准核实的稳定历史归属；缺证据时按运行代隔离。 */ history_scope_id?: string | null
   }
   /** WT原本金基准，缺少时为空。 */ baseline: { total_cny: string; baseline_at: string; scope_id: string } | null
   /** 当前资本原发布；收益率保持未知。 */ summary: {
-    /** 实际策略净值，元。 */ nav_cny: string
-    /** 原基准变化，元。 */ pnl_cny: string
+    /** 未扣未知费用的参考净值，元。 */ reference_nav_cny?: string | null
+    /** 原估值资格，旧发布可缺。 */ valuation_state?: 'actual' | 'reference-fee-pending' | null
+    /** 配置资本参考变化额，元。 */ reference_change_cny?: string | null
+    /** 配置资本参考率%，不代表投资收益。 */ reference_return_pct?: string | null
+    /** 原配置资本，元。 */ baseline_cny?: string | null
+    /** 实际策略净值，元；参考资格时为空。 */ nav_cny: string | null
+    /** 原基准变化，元；ASA缺投资损益资格时为空。 */ pnl_cny: string | null
     /** 未授投资收益归因。 */ return_pct: null
     /** 净值来源时间。 */ observed_at: string
     /** 原报价时刻，缺少时不改称实时价格。 */ price_observed_at: string | null
@@ -90,27 +112,43 @@ export function validateLivePerformance(value: unknown, id: string, version: str
     || !(value.coverage.from === null || date(value.coverage.from)) || !(value.coverage.to === null || date(value.coverage.to))
     || !text(value.coverage.reason) || typeof value.coverage.deals_truncated !== 'boolean'
     || !Array.isArray(value.daily) || value.daily.length > 366 || !Array.isArray(value.markers) || value.markers.length > 2000) return invalid()
+  if (value.coverage.attribution !== undefined && !['account-universe-only','strategy-allocated'].includes(String(value.coverage.attribution))) return invalid()
   const current = value.current
   if (current.is_current && (!current.key_matches || current.strategy_id !== id || current.strategy_version !== version || current.process_state !== 'alive')) return invalid()
   if (value.state === 'not_current' && (value.summary !== null || value.baseline !== null || value.daily.length || value.markers.length || current.is_current)) return invalid()
-  if (value.summary !== null && (!object(value.summary) || !money(value.summary.nav_cny) || !money(value.summary.pnl_cny)
+  if (value.summary !== null && (!object(value.summary) || !(money(value.summary.nav_cny) || value.summary.nav_cny === null && value.summary.valuation_state === 'reference-fee-pending' && money(value.summary.reference_nav_cny)) || !(money(value.summary.pnl_cny) || value.summary.pnl_cny === null && ['actual','reference-fee-pending'].includes(String(value.summary.valuation_state)))
     || value.summary.return_pct !== null || !text(value.summary.return_reason))) return invalid()
+  if (object(value.summary)) {
+    const s=value.summary
+    if (['reference_nav_cny','reference_change_cny','reference_return_pct','baseline_cny'].some(k=>s[k]!==undefined&&s[k]!==null&&!money(s[k]))) return invalid()
+    if (s.valuation_state !== undefined && s.valuation_state !== null && !['actual','reference-fee-pending'].includes(String(s.valuation_state))) return invalid()
+    if (s.valuation_state === 'reference-fee-pending' && (s.nav_cny !== null || !money(s.reference_nav_cny))) return invalid()
+    if (s.valuation_state === 'actual' && (!money(s.nav_cny) || s.reference_nav_cny != null)) return invalid()
+  }
   if (value.baseline !== null && (!object(value.baseline) || !money(value.baseline.total_cny) || !text(value.baseline.baseline_at))) return invalid()
   const deal = (d: unknown) => object(d) && text(d.id) && date(d.date) && text(d.time) && text(d.symbol)
-    && ['BUY', 'SELL', 'UNKNOWN'].includes(String(d.side)) && money(d.price_cny) && count(d.quantity) && d.attribution === 'account-universe-only'
+    && ['BUY', 'SELL', 'UNKNOWN'].includes(String(d.side)) && money(d.price_cny) && count(d.quantity) && ['account-universe-only','strategy-allocated'].includes(String(d.attribution))
   let last = ''
   for (const d of value.daily) {
     if (!object(d) || !date(d.date) || String(d.date) <= last || !Array.isArray(d.positions) || !Array.isArray(d.deals)
       || !['available', 'empty', 'unavailable'].includes(String(d.positions_state)) || !['available', 'empty', 'partial', 'unavailable'].includes(String(d.deals_state))
       || ![d.nav_cny, d.cash_cny, d.market_value_cny, d.pnl_cny].every(m => m === null || money(m)) || d.return_pct !== null
       || d.positions.some(p => !object(p) || !text(p.symbol) || !count(p.quantity) || !count(p.sellable) || !text(p.observed_at))
-      || d.deals.some(t => !deal(t) || !money(t.amount_cny))) return invalid()
+      || ['reference_nav_cny','reference_cash_cny','reference_change_cny','reference_return_pct','valuation_baseline_cny'].some(k => d[k] !== undefined && d[k] !== null && !money(d[k]))
+      || d.valuation_state !== undefined && !['actual','reference-fee-pending'].includes(String(d.valuation_state))
+      || d.cash_observed_at !== undefined && (!text(d.cash_observed_at) || !Number.isFinite(Date.parse(String(d.cash_observed_at))))
+      || d.cash_runtime_scope_id !== undefined && (typeof d.cash_runtime_scope_id !== 'string' || !/^[a-f0-9]{64}$/.test(d.cash_runtime_scope_id))
+      || d.deals.some(t => !deal(t) || !money(t.amount_cny) || t.fee_cny !== undefined && t.fee_cny !== null && !money(t.fee_cny))) return invalid()
+    if (d.valuation_state === 'reference-fee-pending' && (d.nav_cny !== null || !money(d.reference_nav_cny) || !text(d.reference_observed_at))) return invalid()
+    if (d.valuation_state === 'actual' && (!money(d.nav_cny) || d.reference_nav_cny != null)) return invalid()
     last = String(d.date)
   }
   if (value.markers.some(d => !deal(d))) return invalid()
   const points = value.daily.filter(d => d.nav_cny !== null)
   if (value.coverage.point_count !== points.length || value.coverage.from !== (points[0]?.date ?? null)
     || value.coverage.to !== (points.at(-1)?.date ?? null)) return invalid()
+  const references = value.daily.filter(d => d.reference_nav_cny != null)
+  if (value.coverage.reference_point_count !== undefined && value.coverage.reference_point_count !== references.length) return invalid()
   return value as LivePerformance
 }
 

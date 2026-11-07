@@ -195,7 +195,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
             wrapped=asyncio.wrap_future(future)
             wrapped.add_done_callback(lambda done:None if done.cancelled()else done.exception())
             published=await asyncio.wait_for(asyncio.shield(wrapped),max(0,deadline-monotonic()))
-            return JSONResponse(content=strategy_catalog((published['strategy'],)),headers={'Cache-Control':'no-store'})
+            return JSONResponse(content=strategy_catalog(published.get('strategies',[published['strategy']])),headers={'Cache-Control':'no-store'})
         except Exception:
             raise HTTPException(503,'策略目录本次读取失败，请重新读取')from None
         finally:

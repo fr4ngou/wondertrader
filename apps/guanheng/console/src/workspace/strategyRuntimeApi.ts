@@ -4,6 +4,8 @@ import { diagnosticWire } from './strategyDiagnosticWire.generated'
 import { projectCurrentAuxiliary, type CurrentAuxiliaryFields } from './currentAuxiliary'
 
 export const runtimeLabels = {
+  waiting_allocation: '等待确认策略归属',
+  initialized: '策略已初始化', waiting: '等待策略所需事实', holding: '保持当前目标', targets_ready: '目标已准备',
   initializing: '正在准备目标', selling: '正在调整卖出目标', buying: '正在调整买入目标',
   converged: '理论持仓已达到本阶段目标', waiting_basis: '等待完整资金与价格',
   waiting_sellable: '等待持仓可卖', waiting_pending: '等待原生未决目标处理',
@@ -65,9 +67,9 @@ export type RuntimePosition = {
   /** 原WT理论持仓份数；未取得为null。 */ theoretical_quantity: number | null
   /** 原WT理论可卖份数；未取得为null。 */ theoretical_sellable: number | null
   /** 原WT未决目标份数；无原观察为null。 */ pending_target: number | null
-  /** 原NSQ阶段目标份数；尚未生成阶段为null。 */ stage_target: number | null
-  /** 券商该次查询的实际持仓份数；未知为null。 */ broker_quantity: number | null
-  /** 券商该次查询的可卖份数；未知为null。 */ broker_sellable: number | null
+  /** 原NSQ阶段或ASA已提交目标份数；尚未提交为null。 */ stage_target: number | null
+  /** ASA自有或旧券商查询的实际份数；口径由position_basis区分，未知为null。 */ broker_quantity: number | null
+  /** 同次ASA自有或旧券商查询的可卖份数；未知为null。 */ broker_sellable: number | null
 }
 export type StrategyRuntime = {
   /** 原公开运行结果协议版本，新增诊断采用可选字段兼容旧响应。 */ schema_version: 'guanheng.strategy-runtime.v1'
@@ -86,6 +88,7 @@ export type StrategyRuntime = {
     /** 券商持仓原接收时刻，带时区ISO时间；未知为null。 */ broker_observed_at: string | null
     /** 原兼容字段固定false，实际执行观察资格由下一字段表达。 */ broker_position_qualified: false
     /** 原执行观察是否通过准入，旧响应可缺失。 */ execution_position_qualified?: boolean
+    /** ASA自有归属与旧账户范围分开，旧响应可缺。 */ position_basis?: 'strategy-allocated'
     /** 原策略证券的理论及券商事实，均保留各自缺失值。 */ positions: RuntimePosition[]
     /** V1统一诊断；未计算/旧生产者未记录为null，旧公开响应可缺失。 */ diagnostics?: StrategyDiagnostics | null
     /** 附加诊断自身的可用性，独立于已核资金、持仓及策略状态；旧响应可缺失。 */ diagnostics_state?: 'available' | 'absent' | 'unavailable'
@@ -247,7 +250,7 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
     || s.status_label !== runtimeLabels[s.status as keyof typeof runtimeLabels] || s.broker_position_qualified !== false
     || Object.hasOwn(s, 'execution_position_qualified') && typeof s.execution_position_qualified !== 'boolean'
     || !(s.decision_at === null || time(s.decision_at)) || !(s.broker_observed_at === null || time(s.broker_observed_at))
-    || !Array.isArray(s.positions) || s.positions.length > 8) return invalid()
+    || !Array.isArray(s.positions) || s.positions.length > 64) return invalid()
   const seen = new Set<string>()
   for (const row of s.positions) {
     if (!record(row) || typeof row.symbol !== 'string' || !/^\d{6}\.(SH|SZ)$/.test(row.symbol) || seen.has(row.symbol)
@@ -257,10 +260,11 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
       || typeof row.broker_sellable === 'number' && (typeof row.broker_quantity !== 'number' || row.broker_sellable > row.broker_quantity)) return invalid()
     seen.add(row.symbol)
   }
+  if (s.position_basis !== undefined && s.position_basis !== 'strategy-allocated') return invalid()
   validateCapitalFields(s)
   return { ...data, strategy: { ...s, ...projectDiagnosticFields(s, seen), ...projectCurrentAuxiliary(s, seen) } } as StrategyRuntime
 }
 
-export async function fetchStrategyRuntime(signal: AbortSignal): Promise<StrategyRuntime> {
-  return validateStrategyRuntime(await fetchReadJson<unknown>('/v1/ui/strategy-runtime', '策略运行结果', signal, 'status'))
+export async function fetchStrategyRuntime(signal: AbortSignal, strategyId?: string): Promise<StrategyRuntime> {
+  return validateStrategyRuntime(await fetchReadJson<unknown>('/v1/ui/strategy-runtime' + (strategyId ? '?' + new URLSearchParams({strategy_id:strategyId}) : ''), '策略运行结果', signal, 'status'))
 }

@@ -73,15 +73,19 @@ def announce_shared_hold(context,strategy_id,symbols,observation,allocation,*,so
     return tuple(vector)
 
 
-def allocation_projection(observation):
-    """ASA精确Decimal以CNY十进制文本发布；数量及来源/周期字段沿唯一DTO。"""
+def allocation_projection(observation, *, include_read_projection=False):
+    """ASA Decimal以CNY文本投影；缺省保留原金融五字段，报告端显式附加只读观察。"""
     def encode(value):
         if isinstance(value,Decimal):return format(value,'f')
         if isinstance(value,dict):return {k:encode(v) for k,v in value.items()}
         if isinstance(value,tuple):return tuple(encode(v) for v in value)
         if isinstance(value,list):return [encode(v) for v in value]
         return value
-    return encode(asdict(observation))
+    value=encode(asdict(observation))
+    if not include_read_projection:
+        # 原金融指纹仅含原五字段；展示clock/D窗口不会触发策略重新决策。
+        for key in ('book_scope_sha256','observed_at','targets','fills','fills_truncated'):value.pop(key,None)
+    return value
 
 
 def read_unit_evidence(descriptor,*,deadline):

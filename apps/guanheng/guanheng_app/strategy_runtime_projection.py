@@ -16,6 +16,7 @@ _LABELS = {
     'waiting_cash': '等待可用资金', 'waiting_fee': '等待费用信息',
     'supersession_required': '等待原目标处理完成', 'blocked': '本轮目标暂未执行',
     'waiting_broker_position': '等待更新券商持仓', 'waiting_actual_cycle': '等待确认实际开仓信息',
+    'waiting_allocation': '等待确认策略归属',
     'waiting_market_input': '等待策略所需行情', 'observing': '分析运行中',
 }
 
@@ -77,6 +78,30 @@ def _diagnostics(result, symbols, outcome):
 def published_identity(identity, report):
     """从本轮WT结果取版本/集合；等待计算时只保留实际发布的持仓/周期证券。"""
     _require(type(report)is dict)
+    from .strategy_allocation_projection import project_allocation
+    allocation=project_allocation(identity,report)
+    if allocation is not None:
+        _require(report.get('strategy_id',identity)==identity and report.get('strategy_version',allocation['strategy_version'])==allocation['strategy_version'])
+        declaration=report.get('definition')
+        if declaration is not None:
+            _require(type(declaration)is dict and declaration.get('strategy_id')==identity
+                and declaration.get('strategy_version')==allocation['strategy_version']
+                and type(declaration.get('symbols'))is list
+                and set(declaration['symbols'])=={p['symbol']for p in allocation['positions']})
+        return strategy_definition(identity,allocation['strategy_version']),tuple(sorted(p['symbol'] for p in allocation['positions']))
+    if report.get('strategy_id')==identity and report.get('strategy_version') is not None:
+        # 原版等待期可未取得ASA；仅复制原发布的声明/目标集合，不填账户P。
+        declaration=report.get('definition')
+        if declaration is not None:
+            _require(type(declaration)is dict and declaration.get('strategy_id')==identity
+                and declaration.get('strategy_version')==report['strategy_version'] and type(declaration.get('symbols'))is list)
+            symbols=tuple(sorted(declaration['symbols']))
+            _require(len(symbols)<=64 and len(set(symbols))==len(symbols)
+                and all(type(s)is str and re.fullmatch(r'[0-9]{6}\.(SH|SZ)',s)for s in symbols))
+        else:
+            native=report.get('desired_targets') or {}
+            symbols=tuple(sorted(_native_security(c) for c in native))
+        return strategy_definition(identity,report['strategy_version']),symbols
     result=report.get('core_result')
     version=None
     declaration=report.get('definition')
@@ -109,16 +134,23 @@ def published_identity(identity, report):
     return definition,symbols
 
 
-def project_strategy(value, *, runtime_state='ready'):
+def project_strategy(value, *, runtime_state='ready', strategy_id=None):
     """仅复制业务白名单，不重算策略、数量、费用或券商资金。输入来自原发布边界。"""
     _require(type(value) is dict and set(value) == {'schema', 'strategies'}
              and value['schema'] == 'guanheng.configured-cta-observation.v1')
     strategies = value['strategies']
-    _require(type(strategies) is dict and len(strategies) <= 1)
-    if not strategies:
-        return None
-    identity,report = next(iter(strategies.items()))
+    _require(type(strategies) is dict and len(strategies) <= 32)
+    if not strategies: return None
+    # 旧无参数单策略接口保留；多策略旧summary明确选择既有策略，绝不按map顺序选。
+    if strategy_id is None:
+        strategy_id=next(iter(strategies)) if len(strategies)==1 else 'resonance-regime-v1'
+    if strategy_id not in strategies: return None
+    identity,report = strategy_id,strategies[strategy_id]
     definition,symbols = published_identity(identity,report)
+    from .strategy_allocation_projection import project_allocation
+    allocation=project_allocation(identity,report)
+    if 'allocation_observation'in report or report.get('status')=='waiting_allocation' or report.get('strategy_id')==identity and report.get('strategy_version') is not None:
+        return _allocated_strategy(identity,report,definition,symbols,allocation)
     codes={('SSE'if s.endswith('.SH')else'SZSE')+'.ETF.'+s[:6]:s for s in symbols}
     _require(type(report) is dict and report.get('status') in _LABELS
              and type(report.get('sequence')) is int and report['sequence'] > 0
@@ -212,3 +244,48 @@ def project_strategy(value, *, runtime_state='ready'):
                 current_auxiliary_state=current_state,  # 当前附加信息独立可用性，不影响资金与持仓。
                 current_auxiliary_reason=current_reason)  # 当前未记录/无效的稳定原因；可用时None。
 
+
+
+def _allocated_strategy(identity,report,definition,symbols,allocation):
+    """新/旧profile共用ASA归属投影；执行目标与实际份额分列，账户资金不混入。"""
+    labels=dict(_LABELS,initialized='策略已初始化',waiting='等待策略所需事实',holding='保持当前目标',targets_ready='目标已准备')
+    status=report.get('status')
+    _require(status in labels)
+    legacy=None
+    if report.get('core_result') is not None:
+        retained=dict(report)
+        for key in ('allocation_observation','strategy_id','strategy_version'):retained.pop(key,None)
+        legacy=project_strategy(dict(schema='guanheng.configured-cta-observation.v1',strategies={identity:retained}))
+    own={p['symbol']:p for p in allocation['positions']} if allocation else {}
+    targets=None if allocation is None else allocation['targets']
+    rows=[]
+    for symbol in symbols:
+        p=own.get(symbol)
+        rows.append(dict(symbol=symbol,target_weight=None,theoretical_quantity=None,theoretical_sellable=None,
+            pending_target=None,stage_target=None if targets is None else targets.get(symbol),
+            broker_quantity=None if p is None else p['quantity'],broker_sellable=None if p is None else p['sellable']))
+    from .strategy_current_auxiliary_projection import project_current_auxiliary
+    auxiliary,auxiliary_state,auxiliary_reason=project_current_auxiliary(None,symbols)
+    extra=dict(diagnostics=None,diagnostics_state='absent',diagnostics_reason='not_calculated',
+        current_auxiliary=auxiliary,current_auxiliary_state=auxiliary_state,current_auxiliary_reason=auxiliary_reason)
+    if legacy is not None:
+        for key in extra:extra[key]=legacy[key]
+        weights={p['symbol']:p['target_weight'] for p in legacy['positions']}
+        for row in rows:row['target_weight']=weights[row['symbol']]
+    from .strategy_valuation_projection import project_owned_valuation
+    valuation,valuation_state,valuation_reason=project_owned_valuation(identity,report,allocation)
+    return dict(strategy_id=identity,display_name=definition['display_name'],strategy_version=definition['strategy_version'],
+        owned_valuation=valuation,valuation_state=valuation_state,valuation_reason=valuation_reason,  # 原profile自有估值及独立缺失分类；App不估价。
+        status=status,status_label=labels[status],decision_at=None if legacy is None else legacy['decision_at'],
+        broker_observed_at=None if allocation is None else allocation['observed_at'],
+        broker_position_qualified=False,execution_position_qualified=False,positions=rows,
+        capital_baseline=None,capital=None,  # 原ASA无价格/NAV合同；账户PnL不能代替策略估值。
+        ownership=allocation,  # 原ASA自有现金/实际D/完整目标，与账户P/A单独标识。
+        position_basis='strategy-allocated',  # 同代码实际份额已由ASA唯一账本归属。
+        **extra)
+
+
+def project_strategies(value, *, runtime_state='ready'):
+    """同轮逐ID准入；任一策略格式失败明确报错，不退回其他身份。"""
+    _require(type(value)is dict and type(value.get('strategies'))is dict)
+    return [project_strategy(value,runtime_state=runtime_state,strategy_id=identity) for identity in value['strategies']]

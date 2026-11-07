@@ -285,6 +285,7 @@ class RetainedStrategy:
             strategy_id=self.id,  # 本次WT绑定的策略身份，来自已准入运行配置。
             strategy_version=STRATEGY_VERSION,  # 本次实际安装并调用的kernel版本，非App依赖版本。
             symbols=list(self.execution))  # 本次已准入执行证券，业务SH/SZ代码；不含猜测持仓或目标权重。
+        if self.allocation is not None:value=dict(value,owned_valuation=getattr(self,'_owned_valuation',None))
         return self.publish(self.id,dict(value,definition=definition),preview=preview,deadline=deadline)
 
     def binding(self):
@@ -387,6 +388,12 @@ class RetainedStrategy:
         reason = self.allocation.observe_context(context,deadline=deadline,max_age_seconds=self.max_age)
         self.allocation_observation = self.allocation.strategy_observation(self.id,deadline=deadline)
         _need(self.allocation_observation.strategy.strategy_id==self.id,'retained_allocation_scope')
+        from .owned_valuation import owned_valuation
+        baseline=self.inputs.capital_baseline
+        self._owned_valuation=owned_valuation(context,None if reason else self.allocation_observation,self.native_price_ticks,
+            baseline_cny=baseline['total_cny']if baseline else self.inputs.policy.initial_capital_cny,
+            baseline_source='retained.capital_baseline.total_cny'if baseline else'retained.policy.initial_capital_cny',
+            max_age=self.max_age,deadline=deadline,baseline_at=baseline.get('baseline_at')if baseline else None)  # 不可变展示值；不进入原金融输入指纹。
         return reason
 
     def _broker_rows(self, broker):
@@ -460,6 +467,10 @@ class RetainedStrategy:
             # 身份交接独立于资金展示和首轮调度；正常关闭后即可沿本代身份恢复。
             context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
         self.initialized = True
+        if self.allocation is not None:
+            self._publish(dict(status='waiting_market_input',reason='awaiting_first_strategy_calculation',sequence=self.sequence,
+                allocation_observation=allocation_projection(self.allocation_observation,include_read_projection=True)),
+                deadline=self.start_deadline)  # 只发布ASA初始估值；不重复KV/目标或金融调用。
         if self.allocation is None and self.inputs.capital_baseline is not None and self.capital_market is not None:
             self._publish_initial_capital(context, broker)
         print('CTA retained strategy initialized',flush=True)
@@ -860,7 +871,7 @@ class RetainedStrategy:
                          broker_position_qualified=False,recovery_mode=self.recovery,
                          restored_state_id=self.restored_state_id,restored_sequence=self.restored_sequence)
         candidate['broker_trades']=None if trades is None else asdict(trades)
-        if self.allocation_observation is not None:candidate['allocation_observation']=allocation_projection(self.allocation_observation)
+        if self.allocation_observation is not None:candidate['allocation_observation']=allocation_projection(self.allocation_observation,include_read_projection=True)
         candidate['cycle_metadata']=dict(metadata)
         if self.inputs.capital_baseline is not None:
             candidate['capital_baseline'] = self.inputs.capital_baseline

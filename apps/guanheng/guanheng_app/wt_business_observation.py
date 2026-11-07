@@ -11,7 +11,7 @@ from guanheng_market_client.runtime_status import read_status_snapshot
 from .contracts.account import AccountOverviewV3,AccountGroupV3,NativeAccountSource,AccountRow,AccountField
 from .account_projection import FIELD_MAP,unknown
 from .wt_runtime_observation import RuntimeObservationConfig,read_runtime_snapshot,resolve_runtime_configuration
-from .strategy_runtime_projection import project_strategy
+from .strategy_runtime_projection import project_strategy, project_strategies
 from .managed_local_process import _read,_json,_inspect
 
 
@@ -56,7 +56,7 @@ def read_business(configuration,deadline):
         _need(item.get('control_id')==control and item.get('config_sha256')==digest
               and type(item.get('pid')) is int and item['pid']==pid)
     strategies=value['strategies']
-    _need(type(strategies) is dict and set(strategies)<= {'resonance-regime-v1'})
+    _need(type(strategies) is dict and len(strategies)<=32 and all(type(s)is str and re.fullmatch(r'[A-Za-z0-9_.+@-]{1,64}',s) for s in strategies))
     after=read_runtime_snapshot(configuration,deadline).value
     _need(after['pid']==before['pid'] and after['components'].get('execution',{}).get('business_observation')==reference
           and after['components']['execution'].get('pid')==pid)
@@ -140,13 +140,14 @@ def observe_account(configuration,deadline):
     return result
 
 
-def observe_strategy(configuration,deadline):
+def observe_strategy(configuration,deadline,strategy_id=None):
     configuration=resolve_runtime_configuration(configuration,deadline)
     strategies,_reference,state=read_business(configuration,deadline)
-    projected=project_strategy(dict(schema='guanheng.configured-cta-observation.v1',strategies=strategies),runtime_state=state) if strategies is not None else None
+    projected=project_strategy(dict(schema='guanheng.configured-cta-observation.v1',strategies=strategies),runtime_state=state,strategy_id=strategy_id) if strategies is not None else None
+    all_strategies=project_strategies(dict(schema='guanheng.configured-cta-observation.v1',strategies=strategies),runtime_state=state) if strategies is not None else []
     _check(deadline)
     result=dict(state='available' if projected else 'waiting' if configuration else 'unconfigured',
-                strategy=projected,runtime_state=state)
+                strategy=projected,strategies=all_strategies,runtime_state=state)
     if configuration and strategies is None:
         runtime=read_runtime_snapshot(configuration,deadline).value
         if 'execution' not in runtime['components']:
@@ -169,13 +170,17 @@ def router(settings):
     @routes.get('/v1/ui/account/overview')
     @routes.get('/v1/ui/strategy-runtime')
     async def read(request:Request):
-        if request.query_params or request.headers.get('content-length','0')!='0' or request.headers.get('transfer-encoding'):
-            raise HTTPException(422,'业务观察只读取已配置WT，不接受额外参数')
+        strategy=request.url.path.endswith('strategy-runtime')
+        params=list(request.query_params.multi_items());selected=request.query_params.get('strategy_id')
+        if ((bool(params)if not strategy else len(params)>1 or any(k!='strategy_id'for k,v in params)
+                or selected is not None and not re.fullmatch(r'[A-Za-z0-9_.+@-]{1,64}',selected))
+                or request.headers.get('content-length','0')!='0' or request.headers.get('transfer-encoding')):
+            raise HTTPException(422,'业务观察查询参数无效')
         future=None;deadline=monotonic()+2
         try:
             if invalid:raise ValueError('invalid WT reading configuration')
             strategy=request.url.path.endswith('strategy-runtime')
-            if strategy:operation=observe_strategy
+            if strategy:operation=lambda config,cutoff:observe_strategy(config,cutoff,selected)
             elif settings.account_source=='wt_account_publication':
                 from .account_publication import observe_published_account
                 operation=observe_published_account

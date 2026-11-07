@@ -16,7 +16,7 @@ export default function StrategyRuntimeSummary() {
   const data = query.data
   const strategy = data?.strategy
   const active = strategy?.positions.filter(p => [p.broker_quantity, p.broker_sellable].some(n => n !== null && n > 0))
-  const positionsComplete = strategy?.positions.every(p => p.broker_quantity !== null && p.broker_sellable !== null)
+  const positionsComplete = strategy && (strategy.position_basis !== 'strategy-allocated' || strategy.positions.length > 0) && strategy.positions.every(p => p.broker_quantity !== null && p.broker_sellable !== null)
   return <section className="surface-card strategy-runtime-summary" aria-label="策略运行结果">
     <div className="operations-heading"><h2>策略运行结果</h2><button disabled={query.isFetching} onClick={() => void query.refetch()}>{query.isFetching ? '正在读取…' : '刷新策略结果'}</button></div>
     {query.isError ? <p role="alert">{query.error.message}{data ? '。当前保留上次成功结果和原数据时间。' : ''}</p> : null}
@@ -29,7 +29,7 @@ export default function StrategyRuntimeSummary() {
       <p role="status" title={currentAuxiliaryPresentation(strategy).title}><span>{strategyRuntimeLabel(strategy)}</span>；{currentAuxiliaryPresentation(strategy).label}</p>
       {strategy.status === 'waiting_market_input' ? <p>请维护人员在WT入口核对策略所需行情；实际持仓保留原查询时间。</p> : null}
       <p>决策时间（北京时间）：{clock(strategy.decision_at)}</p>
-      <p>持仓接收时间（北京时间）：{clock(strategy.broker_observed_at)}</p>
+      <p>{strategy.position_basis === 'strategy-allocated' ? '归属观察时间' : '持仓接收时间'}（北京时间）：{clock(strategy.broker_observed_at)}</p>
       {!positionsComplete ? <p role="status">实际持仓信息尚未完整取得。</p> : null}
       {active?.length ? <div className="account-table-scroll runtime-table" role="region" aria-label="策略实际持仓" tabIndex={0}>
         <table><thead><tr><th>证券</th><th>实际持仓（份）</th><th>可卖（份）</th></tr></thead>
@@ -38,8 +38,8 @@ export default function StrategyRuntimeSummary() {
             <td>{shares(p.broker_quantity)}</td><td>{shares(p.broker_sellable)}</td>
           </tr>)}</tbody></table>
       </div> : null}
-      {active?.length === 0 && positionsComplete ? <p>当前券商查询没有持仓。</p> : null}
-      <p className="portfolio-data-note">实际持仓以券商查询为准；委托与成交见交易记录。</p>
+      {active?.length === 0 && positionsComplete ? <p>{strategy.position_basis === 'strategy-allocated' ? '当前策略自有持仓为空。' : '当前券商查询没有持仓。'}</p> : null}
+      <p className="portfolio-data-note">{strategy.position_basis === 'strategy-allocated' ? '实际份额沿ASA已确认归属；全账户查询单独查看，委托和目标分别保留原口径。' : '实际持仓以券商查询为准；委托与成交见交易记录。'}</p>
     </> : null}
     {data ? <p className="portfolio-data-note">结果读取时间（北京时间）：{clock(data.observed_at)}</p> : null}
   </section>

@@ -16,8 +16,8 @@ def strategy_definition(identity, version):
     original_wt=identity==ORIGINAL_WT_ID
     return dict(strategy_id=identity,  # WT或归档发布的策略身份；仅用于展示归属。
         strategy_version=version,  # 同一来源发布的版本；None保持缺失，不读取App计算包版本。
-        display_name='共振原版（WT回测）' if original_wt else '共振市场状态 ETF 策略' if known else identity,  # 稳定中文展示描述，不授运行资格。
-        description='固定原版BUY/SELL信号通过WT框架回放，人民币本金、整手和费用口径按该份报告。' if original_wt else '结合八只 ETF 的日线走势与实际持仓周期，计算目标仓位和止损。' if known else 'WT已发布的策略结果。',  # 稳定业务说明；不作为可执行版本登记。
+        display_name=('共振原版（线上独立归属）'if version=='0.2.0a1'else'共振原版（WT回测）') if original_wt else '共振市场状态 ETF 策略' if known else identity,  # 稳定中文展示描述，不授运行资格。
+        description=('固定原版信号驱动WT独立策略，持仓、现金和实际成交沿ASA归属账；执行及数据资格按本轮发布。'if version=='0.2.0a1'else'固定原版BUY/SELL信号通过WT框架回放，人民币本金、整手和费用口径按该份报告。') if original_wt else '结合八只 ETF 的日线走势与实际持仓周期，计算目标仓位和止损。' if known else 'WT已发布的策略结果。',  # 稳定业务说明；不作为可执行版本登记。
         historical_versions=[])  # 历史版本由已保存报告选择器汇合，不维护版本允许清单。
 
 

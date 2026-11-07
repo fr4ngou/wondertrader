@@ -31,3 +31,35 @@ NAP的原账户绑定在原ready/完整正文/Runtime前后根核验成功后通
 顶层为schema_version、read_only、observed_at、state、reason、requested、current、coverage、baseline、summary、daily、markers。current.scope_id是完整身份摘要；baseline.scope_id是本次基准原件摘要。coverage使用实际来源首尾日期、点数及basis=actual-published-observations。daily含date、observed_at、nav_cny/cash_cny/market_value_cny/pnl_cny/return_pct及独立positions/deals和状态；positions/deals可用性不由NAV存在性推定。金额和份额单位分别为元、份；日期ISO、时间保留原交易时刻及上海时区解释。
 
 验收覆盖真实普通安装发布文件→新模块→原读池HTTP→策略页面、双身份匹配、跨scope/基准隔离、原时间和每日缺口、实际成交去重/未知归属、空/失败、并发/独占/取消、停止/来源异常及有界读取。源码、普通安装、真实来源和页面交付分别登记。
+
+
+## LSP-5 同账户多策略归属读取
+
+状态：accepted / source-validated，普通安装及实际采用另验。原配置CTA结果按 `strategy_id` 逐项验证和选择；目录汇集同轮全部身份，原单策略无参数查询保持兼容。多策略无选择的旧summary只保留旧策略，不将任意map顺序当选择。显式ID不存在时返回空选择，禁止退回其他策略。原版线上身份与原版WT回测身份分别保留来源版本。
+
+有 `allocation_observation` 的发布使用ASA原 `strategy_observation` 同一只读事务：自有份额、可卖、现金、原已提交目标、实际D分配和账本身份摘要。新增DTO字段均可缺，旧字段消费者保持兼容。实际D投影数量/金额/费用复用原持久allocations及原费用分配函数，内部转移不标实际柜台成交。发布只保留最近2000条且显式 `fills_truncated`，原账本不删。原成交时刻缺失时保持成交组partial，不能以App刷新时间生成买卖点；费用未知保持None。原owner读取时刻只表明当前归属账被观察，不表明任何价格估值。
+
+App按账本摘要+策略ID/版本隔离展示历史，当前进程身份仍逐代核实。同ETF两个策略分别复制各自持仓与原D分配，`attribution=strategy-allocated`。缺ASA成交投影时该策略成交保持unavailable，不能按NAP的同代码补入。旧单策略NAP路径保持 `account-universe-only`，界面明确账户聚合、策略归属未确认。账户页及详情的账户组保留原范围，并单列来源说明；策略详情持仓优先ASA。
+
+ASA现金以独立cash_observed_at/cash_runtime_scope_id保留原归属观察时间及运行来源，NAV的observed_at仍只用于估值；ASA现金可独立显示；缺原策略估值/连续资金流时NAV、PnL、收益率和曲线保持未知，不能用账户现金、账户PnL或初始额度制造NAV。目标沿原已提交ASA意图或原WT分策略signals文件；缺意图不补零。原版九证券沿来源完整集合展示，读取器不施加旧八证券合同。
+
+验收：两个真实profile的原发布文件可读；共用ETF自有持仓与成交互不污染；原版9证券；单策略旧接口及NAP语义；按id切换、缺源降级、目标/持仓/现金独立于净值、原成交时间和费用未知、原账本无新增写入；页面保持既有布局及选择器。
+
+原版profile报告通过已核ctx映射发布definition（ID、线上版本、完整九证券）；归属或行情暂缺仍保留真实声明。旧发布缺声明时保持证券范围未知。Retained共享归属等待态waiting_allocation有独立中文标签；此时缺ASA不得复制全账户库存。详情assignment.scope在ASA路径为strategy-allocated，账户组自身仍为全账户。
+
+
+## LSP-6 ASA自有组合估值与参考曲线
+
+状态：accepted / implementation（v3）；v2冻结保留。估值唯一owner为Native策略profile，在原回调借用内只读当前ASA快照和原context.quote/tick，调用shared owned_valuation；观衡只复制原结果。估值不改资金账、费用、目标、原金融指纹或策略准入，不创建线程、来源查询或另一报价owner。估值错误只降级展示。
+
+每个正持仓均需同一回调已核原价CNY/份，tick精度及报价上海时刻沿原quote_value。报价不足/过期/未来/错误维度为unavailable，现金空仓无需报价即可估值。自有真实现金与所有实际费用已知时state=actual，nav=cash+持仓原价市值。费用未确认时actual现金/NAV保持null；可发布state=reference-fee-pending和reference_nav=原ledger_cash+市值，明确只扣已知费用、尚未扣未知费用；不能把未知费用填0或模型费。市值按每份原价乘自有份额求和；金额最终ROUND_HALF_UP到分，独立于Decimal上下文。
+
+基准仅取原已配置资本声明（原版initial_capital_cny，旧策略capital_baseline.total_cny或原policy.initial_capital_cny），不取账户总资产。相对配置资本变化额/率属于reference_change_cny/reference_return_pct，明确不是现金流调整后的投资收益；return_pct保持null。现金owner时刻、每证券报价clock、估值计算clock及基准来源/SHA分别保留。报价历史截至估值clock准入，App读后不重新赋价；估值未知时保留最后已核点及原时间，并显示本轮原因。
+
+曲线沿原布局区分实际NAV实线与“参考净值（手续费待确认）”虚线；日观察仅保留该日最后合格估值及资格，引用与实际字段分列。actual point_count继续仅统计实际点，reference_point_count和对应日期范围单列；参考线不冒充实际净值历史。v3历史key含ASA账、策略ID/版本、估值schema及基准声明SHA，与v2纯持仓/账户delta历史隔离；新费用事实补齐后同日参考点可由更晚实际估值替换。
+
+验收：真实ASA+两个实际profile本地quote getter整链（无Source/金融）验证100w空仓首点、持仓缺价/过期、未知费用参考线、后补费用实际NAV、共同ETF自有估值隔离、原金融指纹五字段原字节及原目标/账/权限不变；原NAP单策略兼容；已有浏览器曲线/悬停/切换及资格中文标签。
+
+本次线上角色费用范围沿ASA-5：coordinator只入原Source fee_cny及已确认实际FeeFact，未知None；Native fees/fee_bound仅预留。纯ASA独立模拟输入和模型费不授此角色实际净值资格，QA合成费用明确为实际费用替身；本切片不改变费用持久格式或状态机。
+
+ASA详情先固定所选策略快照，整条ASA详情分支跳过NAP；账户聚合沿券商账户页独立读取。NAP失败/耗D不改变ASA归属或现有总D，缺归属标“等待确认策略归属”。原默认单策略仍读取原账户分组。

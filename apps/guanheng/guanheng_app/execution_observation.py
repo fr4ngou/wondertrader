@@ -1,7 +1,7 @@
 """消费原CTA发布的业务结果；金融事实和执行状态保持各原owner所有。"""
 from .execution_process import ManagedPythonExecutionProcess, _RETAINED_PYTHON_PACKAGES
 from .managed_local_process import _json, _read, _require
-from .strategy_runtime_projection import project_strategy
+from .strategy_runtime_projection import project_strategy, project_strategies
 
 
 
@@ -23,8 +23,9 @@ class ObservedPythonExecutionProcess(ManagedPythonExecutionProcess):
         except FileNotFoundError:
             result = dict(state='waiting', strategy=None)
         else:
-            projected = project_strategy(_json(raw))
-            result = dict(state='available' if projected else 'waiting', strategy=projected)
+            value=_json(raw)
+            projected = project_strategy(value)
+            result = dict(state='available' if projected else 'waiting', strategy=projected,strategies=project_strategies(value))
         with self._condition:
             _require(identity == (self._control_id, self._host_pid, self.config.configuration_sha256)
                      and directory == self._directory and self.status()['ready'])

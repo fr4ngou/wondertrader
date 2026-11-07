@@ -252,12 +252,32 @@ class StrategyView:
 
 
 @dataclass(frozen=True)
+class OwnedFillObservation:
+    fill_id: str  # 原实际成交身份；公开UI另作不可逆摘要，不暴露原订单号。
+    symbol: str  # 原实际成交标准WT证券；只列本策略获分配的部分。
+    side: str  # 原成交buy/sell；内部转移不进入此集合。
+    quantity: int  # 本策略获分配的实际份额，非账户总成交量。
+    price_cny: Decimal  # 原实际成交每份价格，元，保持0.001元精度。
+    amount_cny: Decimal  # 原已记账分配金额，元，沿原分配的分舍入。
+    fee_cny: Decimal | None  # 原已确认分配费用；未知为None，零须原明确给出。
+    trading_day: str  # 原成交上海交易日，ISO日期。
+    executed_at: str | None  # 原实际成交时刻，带时区；缺少保持None。
+    source_sha256: str  # 原实际成交来源SHA，不改用本次读取时间。
+
+
+@dataclass(frozen=True)
 class StrategyObservation:
     strategy: StrategyView  # 本策略真实归属份额/资金，非账户P复制。
     account_revision: int  # 原完整账户观察的持久水位。
     account_source_sha256: str  # 原账户观察依据，用于来源核同。
     trading_day: str  # 原账户上海交易日。
     opening_cycles: dict[str, OpeningCycle | None]  # 按标准证券区分原实际开仓周期/未知/空仓。
+    book_scope_sha256: str | None = None  # 原ASA账本身份摘要；旧DTO缺失时按运行代隔离展示历史。
+    observed_at: str | None = field(default=None, compare=False)  # 原owner读取UTC时刻；不参与经济事实相等性，不授估值clock。
+    targets: dict[str, int] | None = None  # 原已提交完整目标份额；None表示尚无意图，区别全零。
+    fills: tuple[OwnedFillObservation, ...] | None = None  # 仅原实际D已记账分配；旧DTO未知为None，完整空为()。
+    fills_truncated: bool = False  # 仅发布最近2000条展示投影；原账本全部原件保留。
+
 
 
 def _need(ok, reason):
@@ -1200,7 +1220,26 @@ class AccountAllocation:
                 else:
                     cycle = strategy['cycles'].get(symbol)
                     cycles[symbol] = OpeningCycle(symbol, None, None, None, 'unknown') if cycle is None else OpeningCycle(**{k:cycle[k]for k in fields})
-            return StrategyObservation(view, state['account']['revision'], state['account']['source_sha256'], state['account']['day'], cycles)
+            # 从原已记账allocation投影数量/金额/费用，绝不按账户证券反推归属。
+            from collections import deque
+            allocated, allocated_count = deque(maxlen=2000), 0
+            for identity, fill in state['fills'].items():
+                self._check(deadline)
+                parts = [(a['strategy'], a['quantity']) for a in fill['allocations']]
+                fees = [None] * len(parts) if fill['fee'] is None else _split(fill['fee'], parts)
+                for part, fee in zip(fill['allocations'], fees):
+                    if part['strategy'] != strategy_id: continue
+                    allocated_count += 1
+                    economics = fill['economics']
+                    allocated.append(OwnedFillObservation(identity, economics['symbol'], economics['side'],
+                        part['quantity'], Decimal(economics['price_milli']) / 1000,
+                        _cny(part['amount_cents']), None if fee is None else _cny(fee),
+                        economics['trading_day'], fill['executed_at'], fill['source_sha256']))
+            intent = strategy['intent']
+            return StrategyObservation(view, state['account']['revision'], state['account']['source_sha256'],
+                state['account']['day'], cycles, hashlib.sha256(_wire(asdict(self.identity)).encode('ascii')).hexdigest(),
+                datetime.now(timezone.utc).isoformat(), None if intent is None else dict(intent['targets']),
+                tuple(allocated), allocated_count > 2000)
 
     def view(self, strategy_id, *, deadline):
         _text(strategy_id)
