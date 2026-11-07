@@ -10,7 +10,7 @@
 .strategy-selected { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
 .strategy-selected h2 { margin: 0; font-size: 17px; }
 .strategy-selected span { color: var(--muted); font-size: 13px; }
-.strategy-view-tabs { display: flex; gap: 24px; margin: 22px 0; border-bottom: 1px solid var(--line); }
+.strategy-view-tabs { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 22px 0; border-bottom: 1px solid var(--line); }
 .strategy-view-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; padding: 10px 16px; }
 .strategy-view-tabs button[aria-pressed=true] { color: var(--accent); border-bottom-color: var(--accent); }
 .strategy-description { line-height: 1.8; }

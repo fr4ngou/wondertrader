@@ -20,7 +20,7 @@ export default function StrategyTargetHistory({strategy}: {strategy: StrategyDef
     {query.isError ? <p role="alert">{query.error.message}{data ? '；当前保留上次成功记录及原时间。' : ''}<button onClick={refresh}>重新读取最新记录</button></p> : null}
     {data ? <>
       {data.source ? <p className="live-strategy-note">{data.source.changed_count} 次目标变化 · {data.source.initial_count} 条首次记录 · 已归并 {data.source.unchanged_count} 次同目标重复设置。读取于 {absoluteChinaTime(data.observed_at)}</p> : null}
-      <p className="live-strategy-attribution">{data.reason}</p>
+      {data.state === 'available' ? <p className="live-strategy-attribution">{data.reason}</p> : null}
       {data.source?.incomplete_tail ? <p role="status">最新一条原生记录尚未写完，将在刷新后继续读取。</p> : null}
       {data.items.length ? <div className="live-table-scroll target-history-table" role="region" aria-label="目标份数变化" tabIndex={0}>
         <table><thead><tr><th>目标时间</th><th>证券</th><th>原目标（份）</th><th>新目标（份）</th><th>变动（份）</th><th>记录</th></tr></thead>
