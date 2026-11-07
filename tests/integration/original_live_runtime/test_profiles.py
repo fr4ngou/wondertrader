@@ -135,6 +135,21 @@ def test_fixed_dispatch_packages_and_identity():
     for rows in ([new],[old,old],[old,new,new],[old,new,dict(third,id=ORIGINAL_ID.upper())]):
         with pytest.raises(ValueError):_python_packages({'strategies':rows, 'executer':account} if len(rows)>1 else {'strategies':rows})
 
+@pytest.mark.parametrize('count', [1, 4, 64, 65])
+def test_shared_profile_count_follows_native_capacity(count):
+    rows = [
+        dict(id=f'original-{i}', parameters=dict(python_strategy=dict(schema=ORIGINAL_PROFILE)))
+        for i in range(count)
+    ]
+    account = dict(shared_account={'path': 'E:/frozen.json', 'sha256': 'a'*64})
+    native = dict(strategies=rows, executer=account)
+    if count == 65:
+        with pytest.raises(ValueError, match='strategy_profiles'):
+            _python_packages(native)
+    else:
+        assert _python_packages(native) == SHARED_PACKAGES
+
+
 def test_retained_optional_allocation_own_positions_and_cycle():
     from guanheng_wt_runtime.execution_configured import RetainedStrategy
     owner=RetainedStrategy.__new__(RetainedStrategy);owner.id=RETAINED_ID;owner.allocation=Allocation()

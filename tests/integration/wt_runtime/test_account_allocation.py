@@ -683,6 +683,118 @@ def test_unqualified_opposing_symbol_waits_while_independent_symbol_continues(tm
     assert store.preview_group(plan_id,other,'buy',100,D('2'),D('5'),deadline=deadline()).quantity==100
 
 
+def four_strategy_book(root, *, other_owns=0, unallocated=0):
+    other = 'SZSE.ETF.159780'
+    identity = BookIdentity(SHA, uid(), 'b'*64)
+    store = AccountAllocation(root, identity, owner_check=lambda: None)
+    owned = (OwnedPosition(CODE, other_owns, other_owns),) if other_owns else ()
+    universe = (CODE, other)
+    seeds = (
+        StrategySeed('old', '1', D('100'), (OwnedPosition(CODE, 100, 100),), 0, universe),
+        StrategySeed('alpha', '1', D('405'), (), 1, universe),
+        StrategySeed('beta', '1', D('205'), owned, 2, universe),
+        StrategySeed('gamma', '1', D('1000'), (), 3, universe),
+    )
+    total = 100+other_owns+unallocated
+    snapshot = AccountSnapshot(1, DAY, D('2000'), (OwnedPosition(CODE, total, total),), SHA)
+    store.initialize(seeds, D('0'), snapshot, deadline=deadline())
+    return store, identity, snapshot, other
+
+
+def test_four_strategies_stale_previews_cannot_reuse_reserved_cash(tmp_path):
+    store, _, snapshot, other = four_strategy_book(tmp_path)
+    store.observe_account(replace(snapshot, revision=2, available_cny=D('610')), deadline=deadline())
+    complete_target(store, 'old', other, 100, 0)
+    complete_target(store, 'alpha', other, 200, 100)
+    complete_target(store, 'beta', other, 100, 0)
+    complete_target(store, 'gamma', other, 0, 200)
+    plan = uid()
+    store.plan(plan, (), execution_targets={CODE: 400, other: 300}, deadline=deadline())
+    alpha_group = GroupBinding(uid(), CODE, 'buy', 200, D('2'), D('5'))
+    stale_group = GroupBinding(uid(), other, 'buy', 200, D('2'), D('5'))
+    for group in (alpha_group, stale_group):
+        assert store.preview_group(plan, group.symbol, 'buy', group.quantity, group.limit_price_cny,
+                                   group.fee_bound_cny, deadline=deadline()).quantity == 200
+    store.bind_group(plan, alpha_group, deadline=deadline())
+    with pytest.raises(AllocationError, match='authorization_changed'):
+        store.bind_group(plan, stale_group, deadline=deadline())
+    assert view(store, 'gamma').reserved_cash_cny == 0
+    fresh = replace(stale_group, quantity=100)
+    assert store.preview_group(plan, other, 'buy', 200, D('2'), D('5'), deadline=deadline()).quantity == 100
+    store.bind_group(plan, fresh, deadline=deadline())
+    assert view(store, 'alpha').reserved_cash_cny == D('405')
+    assert view(store, 'alpha').spendable_cash_cny == 0
+    assert view(store, 'beta').spendable_cash_cny == D('205')
+    assert view(store, 'gamma').reserved_cash_cny == D('205')
+    assert store.preview_group(plan, CODE, 'buy', 100, D('2'), D('5'), deadline=deadline()).quantity == 0
+    assert pos(store, 'old').quantity == 100
+
+
+def test_four_strategies_wt_risk_sell_never_consumes_unallocated_shares(tmp_path):
+    store, _, _, other = four_strategy_book(tmp_path, other_owns=100, unallocated=50)
+    complete_target(store, 'old', other, 0, 0)
+    complete_target(store, 'alpha', other, 100, 0)
+    complete_target(store, 'beta', other, 100, 0)
+    complete_target(store, 'gamma', other, 0, 0)
+    # 相反目标净差为零，原生执行路径禁用内部转移。
+    flat = store.plan(uid(), (), execution_targets={CODE: 250}, deadline=deadline())
+    assert flat.orders == () and flat.internal_transfers == ()
+    assert pos(store, 'old').quantity == 100 and view(store, 'alpha').positions == ()
+    # WT风控将账户目标缩为100，按旧退出与次一实际持有者分配150份。
+    plan, group = uid(), uid()
+    reduced = store.plan(plan, (), execution_targets={CODE: 100}, deadline=deadline())
+    assert reduced.orders[0].quantity == 150 and reduced.internal_transfers == ()
+    assert store.preview_group(plan, CODE, 'sell', 250, D('2'), D('0'), deadline=deadline()).quantity == 150
+    store.bind_group(plan, GroupBinding(group, CODE, 'sell', 150, D('2'), D('0')), deadline=deadline())
+    command = PreparedCommand(group, uid(), uid(), SHA, 150, D('2'))
+    bind(store, command, deadline=deadline())
+    store.apply_fill(replace(fill(command, 150, fee='0'), side='sell'), deadline=deadline())
+    close(store, group, command, 'filled')
+    assert pos(store, 'old').quantity == 0
+    assert pos(store, 'beta').quantity == 50
+    assert view(store, 'alpha').positions == () and view(store, 'gamma').positions == ()
+    remainder = uid()
+    store.plan(remainder, (), execution_targets={CODE: 0}, deadline=deadline())
+    assert store.preview_group(remainder, CODE, 'sell', 100, D('2'), D('0'), deadline=deadline()).quantity == 50
+
+
+def test_four_strategies_restart_retains_unknown_order_and_late_fill_owner(tmp_path):
+    store, identity, _, other = four_strategy_book(tmp_path)
+    complete_target(store, 'old', other, 100, 0)
+    complete_target(store, 'alpha', other, 100, 0)
+    complete_target(store, 'beta', other, 0, 0)
+    complete_target(store, 'gamma', other, 0, 0)
+    plan, group = uid(), uid()
+    store.plan(plan, (), execution_targets={CODE: 200, other: 0}, deadline=deadline())
+    store.bind_group(plan, GroupBinding(group, CODE, 'buy', 100, D('2'), D('5')), deadline=deadline())
+    command = PreparedCommand(group, uid(), uid(), SHA, 100, D('2'))
+    bind(store, command, deadline=deadline())
+    store.apply_terminal(TerminalFact(uid(), group, command.command_id, 'unknown', SHA), deadline=deadline())
+    complete_target(store, 'alpha', other, 0, 0, revision=2)
+    complete_target(store, 'beta', other, 100, 0, revision=2)
+    complete_target(store, 'gamma', other, 0, 100, revision=2)
+
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
+    assert reopened.lookup_prepared(command.wt_order_id, deadline=deadline()).command_id == command.command_id
+    assert view(reopened, 'alpha').reserved_cash_cny == D('205')
+    next_plan = uid()
+    pending = reopened.plan(next_plan, (), execution_targets={CODE: 200, other: 100}, deadline=deadline())
+    assert pending.blocked_reasons == {CODE: 'pending_group'}
+    assert reopened.preview_group(next_plan, CODE, 'buy', 100, D('2'), D('5'), deadline=deadline()).quantity == 0
+    assert reopened.preview_group(next_plan, other, 'buy', 100, D('2'), D('5'), deadline=deadline()).quantity == 100
+
+    late = fill(command, 100)
+    reopened.apply_fill(late, deadline=deadline())
+    close(reopened, group, command, 'filled')
+    reopened.apply_fill(late, deadline=deadline())
+    assert pos(reopened, 'alpha').quantity == 100
+    assert view(reopened, 'alpha').ledger_cash_cny == D('200')
+    assert view(reopened, 'alpha').reserved_cash_cny == 0
+    assert view(reopened, 'beta').positions == ()
+    assert view(reopened, 'gamma').ledger_cash_cny == D('1000')
+    assert pos(reopened, 'old').quantity == 100
+
+
 def test_explicit_seed_cycle_internal_transfer_and_real_flat_clear(tmp_path):
     seed=OpeningCycle(CODE,'legacy-original-cycle','2026-10-30T07:00:00Z','b'*64,'initial_inventory')
     store,_=book(tmp_path,old=100,sellable=100,old_cash='0',old_cycles=(seed,))
