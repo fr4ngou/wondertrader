@@ -1,5 +1,7 @@
 # 验证证据
 
+- [同账户策略配置通用化及行情复核](2026-11-07-generic-account-configuration.md)：三策略独立资金、归属回调、实际WT派单及当前行情范围。
+
 - [R25共享账户实际执行验证](2026-11-07-shared-account-r25-execution.md)：确定卖出、WT风控后目标、同账户占款与原指令闭环。
 
 - [R24同账户实际资金与份额独立复核](2026-11-07-shared-account-r24-independent-review.md)：原生责任、实际费用缺口、缩仓、内部划转和恢复反例。

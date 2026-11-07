@@ -21,14 +21,17 @@ STAMP = '2026-11-06T07:00:00+00:00'
 def end(): return monotonic()+10
 
 
-def setup(root, *, day=DAY, following=NEXT, now=STAMP):
+def setup(root, *, day=DAY, following=NEXT, now=STAMP, include_third=False):
     identity = BookIdentity(SHA, str(uuid4()), 'b'*64)
     book = AccountAllocation(root, identity, owner_check=lambda: None)
-    book.initialize((StrategySeed('old', '1.2.2', D('10000'), (OwnedPosition(CODE, 10000, 10000),), 0, (CODE,)),
-                     StrategySeed('new', '0.2.0a1', D('1050'), (), 1, (CODE,))), D('0'),
+    seeds = [StrategySeed('old', '1.2.2', D('10000'), (OwnedPosition(CODE, 10000, 10000),), 0, (CODE,)),
+             StrategySeed('new', '0.2.0a1', D('1050'), (), 1, (CODE,))]
+    if include_third:
+        seeds.append(StrategySeed('third', '0.2.0a1', D('250000.05'), (), 2, (CODE,)))
+    book.initialize(tuple(seeds), D('0'),
                     AccountSnapshot(1, day, D('2000000'), (OwnedPosition(CODE, 10000, 10000),), SHA), deadline=end())
     coordinator = AttributionCoordinator(book, control_id=str(uuid4()), account_scope_sha256=SHA,
-        strategy_ids=('old', 'new'), fee_bound=lambda *args: D('5'), settlement_day=lambda day: following,
+        strategy_ids=tuple(seed.strategy_id for seed in seeds), fee_bound=lambda *args: D('5'), settlement_day=lambda day: following,
         utcnow=lambda: datetime.fromisoformat(now))
     return book, coordinator, AttributionBridge(coordinator, callback_seconds=5)
 
@@ -43,8 +46,9 @@ def send(bridge, kind, body, *, epoch=0):
     return result, reply
 
 
-def targets(coordinator, bridge, *, known_at=STAMP):
-    for sid, quantity, epoch in [('old', 10000, 1), ('new', 1000, 2)]:
+def targets(coordinator, bridge, *, known_at=STAMP, buyer='new'):
+    for epoch, sid in enumerate(coordinator.strategy_ids, start=1):
+        quantity = {'old': 10000, buyer: 1000}.get(sid, 0)
         coordinator.prepare_intent(sid, epoch, source_sha256=SHA, known_at=known_at,
             buy_price_caps={}, common_prices=(), deadline=end())
         result, reply = send(bridge, 1, dict(strategy_id=sid, targets=[dict(symbol=CODE, quantity=quantity)]), epoch=epoch)
@@ -53,10 +57,11 @@ def targets(coordinator, bridge, *, known_at=STAMP):
     assert result == 0, bridge.failure
 
 
-def prepared(coordinator, bridge, *, known_at=STAMP):
-    targets(coordinator, bridge, known_at=known_at)
+def prepared(coordinator, bridge, *, known_at=STAMP, buyer='new'):
+    targets(coordinator, bridge, known_at=known_at, buyer=buyer)
     auth = dict(execution_id='one-native-owner', instance_id='qmt', symbol=CODE, side='buy',
-                requested_quantity=200, limit_price_cny='10.01', account_known=True, account_available_cny=2000000)
+                requested_quantity=200 if buyer == 'new' else 100, limit_price_cny='10.01',
+                account_known=True, account_available_cny=2000000)
     result, reply = send(bridge, 4, auth)
     assert result == 0 and reply.authorized_quantity == 100, bridge.failure
     group = dict(instance_id='qmt', native_generation=1, group_id=1, symbol=CODE,
@@ -80,9 +85,11 @@ def test_prepared_binding_is_durable_before_native_ack_and_old_inventory_stays_o
     assert book.view('new', deadline=end()).spendable_cash_cny == D('44.00')
 
 
-def test_terminal_before_fill_then_replay_and_cross_source_fill_idempotence(tmp_path):
-    book, coordinator, bridge = setup(tmp_path)
-    command = prepared(coordinator, bridge)
+@pytest.mark.parametrize(('buyer', 'initial_cash'), [('new', '1050'), ('third', '250000.05')])
+def test_terminal_before_fill_then_replay_and_cross_source_fill_idempotence(tmp_path, buyer, initial_cash):
+    book, coordinator, bridge = setup(tmp_path, include_third=buyer == 'third')
+    command = prepared(coordinator, bridge, buyer=buyer)
+    assert book.view(buyer, deadline=end()).spendable_cash_cny == D(initial_cash)-D('1006.00')
     source = dict(command, source_kind='query-result', source_sha256='d'*64, trading_date=20261106)
     order = dict(source, terminal=True, order_state=53, filled_quantity=20, remaining_quantity=0, price_cny='10.01')
     assert send(bridge, 9, order)[0] == 0, bridge.failure
@@ -92,13 +99,16 @@ def test_terminal_before_fill_then_replay_and_cross_source_fill_idempotence(tmp_
     assert send(bridge, 8, fill)[0] == 0, bridge.failure
     coordinator.replay_pending(deadline=end())
     assert book.pending_events(deadline=end()) == ()
-    assert book.view('new', deadline=end()).positions[0].quantity == 20
-    assert book.view('new', deadline=end()).ledger_cash_cny == D('849.80')
-    assert book.view('new', deadline=end()).unknown_fee_count == 1
+    assert book.view(buyer, deadline=end()).positions[0].quantity == 20
+    assert book.view(buyer, deadline=end()).ledger_cash_cny == D(initial_cash)-D('200.20')
+    assert book.view(buyer, deadline=end()).unknown_fee_count == 1
     assert book.view('old', deadline=end()).positions[0].quantity == 10000
+    if buyer == 'third':
+        other = book.view('new', deadline=end())
+        assert other.ledger_cash_cny == D('1050') and not other.positions
     # 同一原成交在实时源及下一份查询中出现，数量/本金只入账一次，全部证明保留。
     assert send(bridge, 8, dict(fill, source_kind='derived-facts', source_sha256='e'*64))[0] == 0, bridge.failure
-    assert book.view('new', deadline=end()).positions[0].quantity == 20
+    assert book.view(buyer, deadline=end()).positions[0].quantity == 20
     # 已关闭原单同经济终态重观测仍可消费，不产生新命令或回退状态。
     assert send(bridge, 9, dict(order, source_sha256='f'*64))[0] == 0, bridge.failure
     assert book.pending_events(deadline=end()) == ()
