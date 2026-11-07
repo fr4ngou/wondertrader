@@ -71,6 +71,12 @@ def target_quantities(
     return tuple(result)
 
 
+def _known_exit_targets(target, starts):
+    """零权重可以直接退出。其他证券保持已确认份数，等待可靠净值后再定量。"""
+    return tuple(Quantity(start.symbol, 0 if rational(weight.weight) == 0 else start.shares)
+                 for start, weight in zip(starts, target.weights, strict=True))
+
+
 def _cash_required(targets, starts, basis):
     if basis.fee_reserve_cny is None:
         return None
@@ -116,13 +122,18 @@ class StageState:
             raise QuantityError("state: invalid stage sequence")
         object.__setattr__(self, "starts", rows(self.starts, Quantity, "starts"))
         object.__setattr__(self, "targets", rows(self.targets, Quantity, "targets"))
-        computed = target_quantities(self.target, self.policy, self.basis)
         if self.target.allocation_date is None:
             raise QuantityError("state: initializing target cannot freeze")
         if tuple(row.symbol for row in self.starts) != self.target.universe or (
             tuple(row.symbol for row in self.targets) != self.target.universe
         ):
             raise QuantityError("state: incomplete frozen universe")
+        if not self.basis.native_nav_verified:
+            if (self.phase != "selling" or self.targets != _known_exit_targets(self.target, self.starts)
+                    or self.targets == self.starts):
+                raise QuantityError("state: unverified NAV permits only known exits")
+            return
+        computed = target_quantities(self.target, self.policy, self.basis)
         if self.phase in ("selling", "awaiting_buy"):
             expected = tuple(Quantity(row.symbol, min(row.shares, start.shares))
                              for row, start in zip(computed, self.starts, strict=True))
@@ -203,8 +214,7 @@ def _text_budget(values, limits):
     visit(values)
 
 
-def _observe(target, policy, observation, basis):
-    _complete(target, policy, basis)
+def _observe_positions(target, observation, basis):
     if type(observation) is not Observation or not observation.verified:
         raise QuantityError("observation: verified separate actual/pending facts required")
     if observation.observed_at != basis.observed_at:
@@ -213,6 +223,11 @@ def _observe(target, policy, observation, basis):
         raise QuantityError("observation: coherent native capture identity differs")
     if tuple(row.symbol for row in observation.positions) != target.universe:
         raise QuantityError("observation: incomplete execution universe")
+
+
+def _observe(target, policy, observation, basis):
+    _complete(target, policy, basis)
+    _observe_positions(target, observation, basis)
 
 
 def _pending(observation, state):
@@ -256,6 +271,39 @@ def _current_stage(state, observation):
             return Outcome("waiting_sellable", "native_sellable_insufficient", state)
         return Outcome("selling", "frozen_sell_ready", state, state.targets)
     return Outcome("buying", "frozen_buy_ready", state, state.targets)
+
+
+def advance_known_sells(target, policy, observation, basis, state, *, limits=Limits()):
+    """共享账户费用未确认时只推进已定量卖出。重新定量及新买入仍须原完整依据。"""
+    _observe_positions(target, observation, basis)
+    _text_budget((target, policy, observation, basis, state), limits)
+    if state is not None:
+        if target.universe != state.target.universe:
+            return Outcome("supersession_required", "universe_handoff_required", state)
+        if datetime.fromisoformat(observation.observed_at) < datetime.fromisoformat(state.basis.observed_at):
+            return Outcome("blocked", "observation_precedes_frozen_basis", state)
+        pending = _pending(observation, state)
+        if pending is not None:
+            return pending
+        if state.phase == "selling":
+            current = _current_stage(state, observation)
+            if current is not None:
+                return current
+    else:
+        pending = _pending(observation, None)
+        if pending is not None:
+            return pending
+    if target.allocation_date is not None:
+        starts = tuple(Quantity(row.symbol, row.actual) for row in observation.positions)
+        targets = _known_exit_targets(target, starts)
+        if targets != starts:
+            # 原CTA完整setter的每个目标必须整手。未变动的碎份没有可表示的原生保持目标。
+            if any(row.shares % policy.lot for row in targets):
+                return Outcome("waiting_basis", "known_exit_vector_unrepresentable", state)
+            sequence = 1 if state is None else state.sequence + 1
+            selling = StageState(target, policy, basis, "selling", sequence, starts, targets)
+            return _current_stage(selling, observation)
+    return Outcome("waiting_basis", "account_cash_unavailable", state)
 
 
 def advance(

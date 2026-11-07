@@ -30,6 +30,28 @@ class TargetHandoffTests(unittest.TestCase):
             (NativePosition('510000.SH', 5000, 5000), NativePosition('510001.SH', 0, 0)),
             True, self.basis.native_observation_id)
 
+    def test_missing_actual_fee_keeps_frozen_sell_then_allows_zero_weight_exit(self):
+        from guanheng_strategy_native.planner import advance_known_sells
+        basis = replace(self.basis, native_nav_verified=False)
+        partially_sold = replace(self.observation,
+            positions=(NativePosition('510000.SH', 6000, 6000), NativePosition('510001.SH', 0, 0)))
+        pending = replace(partially_sold,
+            positions=(NativePosition('510000.SH', 6000, 5000, 5000), NativePosition('510001.SH', 0, 0)))
+        self.assertEqual(advance_known_sells(self.new, self.policy, pending, basis, self.state).status,
+                         'waiting_pending')
+        result = advance_known_sells(self.new, self.policy, partially_sold, basis, self.state)
+        self.assertEqual(result.submit_targets, self.state.targets)
+        waiting = advance_known_sells(self.new, self.policy, self.observation, basis, self.state)
+        self.assertEqual((waiting.status, waiting.submit_targets), ('waiting_basis', ()))
+
+        exit_target = replace(self.new, weights=(Weight('510000.SH', '0'), Weight('510001.SH', '0.3')))
+        own_positions = replace(self.observation,
+            positions=(NativePosition('510000.SH', 5000, 5000), NativePosition('510001.SH', 1700, 1700)))
+        result = advance_known_sells(exit_target, self.policy, own_positions, basis, None)
+        self.assertEqual(result.submit_targets,
+            (Quantity('510000.SH', 0), Quantity('510001.SH', 1700)))
+        self.assertFalse(result.state.basis.native_nav_verified)
+
     def test_settled_sell_accepts_latest_target_without_buying_old_target(self):
         outcome, _ = advance_retained(self.new, self.policy, self.observation, self.basis, self.state)
         self.assertEqual(outcome.status, 'selling')

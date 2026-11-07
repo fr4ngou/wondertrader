@@ -938,6 +938,14 @@ class RetainedStrategy:
             basis,observed,execution = self._execution_capture(broker,basis,observed,pending)
             if not self.execution_enabled:
                 outcome,previous_status=None,None
+            elif self.allocation is not None and not basis.native_nav_verified:
+                # 实际手续费等待与已确定的库存退出分开，保留原卖出阶段及未决订单身份。
+                from guanheng_strategy_native.planner import advance_known_sells
+                outcome = advance_known_sells(decision.target, self.inputs.policy, execution, basis, state)
+                previous_status = None
+                state = outcome.state
+                if outcome.submit_targets:
+                    exits = self._exit_values(result['next_exits'])
             elif self.inputs.capital_baseline is not None and not basis.native_nav_verified:
                 # 当前现金约束缺失属于来源等待。原NSQ只接受已核basis；保留
                 # 上一阶段与未决责任，下一轮取得新来源后再交原核推进。

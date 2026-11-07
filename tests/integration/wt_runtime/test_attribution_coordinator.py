@@ -104,14 +104,37 @@ def test_terminal_before_fill_then_replay_and_cross_source_fill_idempotence(tmp_
     assert book.pending_events(deadline=end()) == ()
 
 
-def test_wait_before_both_strategy_intents_and_reject_conflicting_native_merge(tmp_path):
+def test_wait_for_complete_targets_then_use_wt_risk_cut_and_filter(tmp_path):
     book, coordinator, bridge = setup(tmp_path)
-    result, reply = send(bridge, 4, dict(symbol=CODE, side='buy', requested_quantity=100, limit_price_cny='2'))
-    assert result == 0 and reply.decision == 1
+    order = dict(instance_id='qmt', symbol=CODE, side='sell', requested_quantity=9000, limit_price_cny='2')
+    assert send(bridge, 4, order)[1].decision == 1
     targets(coordinator, bridge)
-    result, reply = send(bridge, 2, dict(targets=[dict(symbol=CODE, quantity=999900)]))
-    assert result == -1 and str(bridge.failure) == 'attribution_merged_targets_conflict'
+    assert send(bridge, 2, dict(targets=[dict(symbol=CODE, quantity=5500)]))[0] == 0
+    assert send(bridge, 4, order)[1].authorized_quantity == 4500
+    assert send(bridge, 4, dict(order, side='buy'))[1].authorized_quantity == 0
+    # 过滤省略与明确目标为零含义不同。旧缓存即使还发起执行也不能被当作当前许可。
+    assert send(bridge, 2, dict(targets=[]))[0] == 0
+    assert send(bridge, 4, order)[1].authorized_quantity == 0
+    assert send(bridge, 2, dict(targets=[dict(symbol=CODE, quantity=0)]))[0] == 0
+    assert send(bridge, 4, order)[1].authorized_quantity == 9000
     assert book.view('old', deadline=end()).positions[0].quantity == 10000
+
+
+def test_opposite_targets_never_transfer_without_broker_fill(tmp_path):
+    from guanheng_wt_runtime.account_allocation import CommonPrice
+    book, coordinator, bridge = setup(tmp_path)
+    quote = CommonPrice(CODE, D('2'), STAMP, SHA, ('old', 'new'), True)
+    for sid, quantity, epoch in [('old', 9000, 1), ('new', 1000, 2)]:
+        coordinator.prepare_intent(sid, epoch, source_sha256=SHA, known_at=STAMP,
+            buy_price_caps={}, common_prices=(quote,), deadline=end())
+        assert send(bridge, 1, dict(strategy_id=sid, targets=[dict(symbol=CODE, quantity=quantity)]),
+                    epoch=epoch)[0] == 0
+    assert send(bridge, 2, dict(targets=[dict(symbol=CODE, quantity=10000)]))[0] == 0
+    for side in ('buy', 'sell'):
+        order = dict(instance_id='qmt', symbol=CODE, side=side, requested_quantity=1000, limit_price_cny='2')
+        assert send(bridge, 4, order)[1].authorized_quantity == 0
+    assert book.view('old', deadline=end()).positions[0].quantity == 10000
+    assert book.view('new', deadline=end()).positions == ()
 
 
 def test_source_binary_tail_is_normalized_but_material_precision_is_preserved_for_review():

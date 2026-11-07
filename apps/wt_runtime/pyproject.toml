@@ -4,14 +4,14 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-wt-runtime"
-version = "0.1.0a24+parallel.1"
+version = "0.1.0a25+parallel.2"
 description = "Independent WonderTrader runtime and QMT process ownership"
 requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = ["guanheng-market-client==0.21.0"]
 
 [project.optional-dependencies]
-execution = ["guanheng-strategy-v1==0.1.0a13", "guanheng-strategy-native==0.1.0a2", "guanheng-strategy-original==0.2.0a2", "guanheng-qmt-shm-host==0.1.0a24+deploymentidentity.1"]
+execution = ["guanheng-strategy-v1==0.1.0a13", "guanheng-strategy-native==0.1.0a3", "guanheng-strategy-original==0.2.0a2", "guanheng-qmt-shm-host==0.1.0a24+deploymentidentity.1"]
 
 [project.scripts]
 guanheng-wt = "guanheng_wt_runtime.__main__:main"

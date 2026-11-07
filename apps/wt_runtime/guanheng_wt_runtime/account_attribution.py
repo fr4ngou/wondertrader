@@ -207,7 +207,7 @@ class AttributionCoordinator:
 
     def __init__(self, allocation, *, control_id, account_scope_sha256, strategy_ids,
                  fee_bound, settlement_day, clock=monotonic, utcnow=lambda: datetime.now(timezone.utc),
-                 trading_day_qualified=None, account_observation_day=None):
+                 trading_day_qualified=None, account_observation_day=None, execution_scale=1.0):
         _need(type(control_id) is str and str(UUID(control_id)) == control_id, 'attribution_control')
         _need(type(account_scope_sha256) is str and len(account_scope_sha256) == 64
               and all(c in '0123456789abcdef' for c in account_scope_sha256), 'attribution_account_scope')
@@ -216,11 +216,17 @@ class AttributionCoordinator:
         _need(callable(fee_bound) and callable(settlement_day), 'attribution_fact_providers')
         _need(account_observation_day is None or callable(account_observation_day), 'attribution_fact_providers')
         self.allocation, self.strategy_ids = allocation, strategy_ids
+        _need(type(execution_scale) in (int, float) and math.isfinite(execution_scale)
+              and execution_scale > 0, 'attribution_execution_scale')
+        self._execution_scale = float(execution_scale)  # 与原Local配置同源的数量倍数。
         self._control, self._scope = control_id, account_scope_sha256
         self._fee_bound, self._settlement = fee_bound, settlement_day
         self._clock, self._utcnow = clock, utcnow
         self._lock, self._metadata, self._plan = RLock(), {}, None
         self._seen_strategies, self._merged, self._armed = set(), {}, False
+        self._native_targets = {}  # 原Local保留的每证券原目标。全量提交中省略的证券不授新准入。
+        self._has_commit = False  # 本代两份策略意图齐备后收到过原WT全量提交。
+        self._execution_targets = {}  # 本轮在Local按其配置倍数取整后的标准ETF目标。
         self._account_fingerprint, self._last_mutating_fill_ms = None, 0
         self._inbox_cursor = 0  # 原inbox分页水位，仅观察调度；unknown原件不阻塞后页。
         self._order_sources = {}  # 当前原O投影，原始每次证明保存在唯一ASA inbox。
@@ -359,36 +365,34 @@ class AttributionCoordinator:
     def _current_plan(self, deadline):
         intents = self.allocation.current_targets(deadline=deadline)
         observations = {sid: self.allocation.view(sid, deadline=deadline) for sid in self.strategy_ids}
-        prices = {}
-        for metadata in self._metadata.values():
-            for price in metadata[4]:
-                previous = prices.get(price.symbol)
-                if previous is None or price.known_at > previous.known_at:
-                    prices[price.symbol] = price
-        # 计划本身的写水位不作为重建原因；真实意图、库存、未结组或共同价变化才重评。
+        # 已绑定组、成交、占款或WT目标变化后重评。原意图继续提供策略归属和买入上界。
         fingerprint = repr((intents, tuple((sid, v.positions, v.pending_groups, v.ledger_cash_cny,
                             v.reserved_cash_cny, v.unknown_fee_count) for sid, v in observations.items()),
-                            tuple(sorted(prices.items()))))
+                            tuple(sorted(self._execution_targets.items()))))
         if self._plan is None or self._plan[0] != fingerprint:
             plan_id = self._identity(self._control, 'plan', fingerprint)
-            result = self.allocation.plan(plan_id, tuple(prices.values()), deadline=deadline)
+            result = self.allocation.plan(plan_id, (), deadline=deadline,
+                                          execution_targets=self._execution_targets)
             self._plan = fingerprint, result.plan_id
         return self._plan[1]
 
-    def _verify_merged(self, deadline):
-        # 初始恢复可能先回放原WT执行目标；两个ctx均给出本代完整意图前保持暂缓。
+    def _accept_execution_targets(self, deadline):
+        # 原生提交携带风控、过滤、路由后的目标。这里只确认支持的策略范围和Local账户数量单位。
         self._armed = False
-        if self._seen_strategies != set(self.strategy_ids):
+        if not self._has_commit or self._seen_strategies != set(self.strategy_ids):
             return
         intents = self.allocation.current_targets(deadline=deadline)
-        expected = {}
-        for sid in self.strategy_ids:
-            intent = intents[sid]
-            _need(intent is not None, 'attribution_intent_missing')
-            for target in intent.targets:
-                expected[target.symbol] = expected.get(target.symbol, 0) + target.quantity
-        _need({s: q for s, q in expected.items() if q} == {s: q for s, q in self._merged.items() if q},
-              'attribution_merged_targets_conflict')
+        _need(all(intents[sid] is not None for sid in self.strategy_ids), 'attribution_intent_missing')
+        symbols = {target.symbol for sid in self.strategy_ids for target in intents[sid].targets}
+        effective = {}
+        for symbol, quantity in self._merged.items():
+            if symbol in symbols:
+                scaled = quantity * self._execution_scale
+                _need(math.isfinite(scaled) and 0 <= scaled <= 2**53-1, 'attribution_quantity')
+                # 原WT Local的std::round正数中点向上，不能用Python银行家舍入。
+                whole = int(scaled)
+                effective[symbol] = whole + int(scaled - whole >= 0.5)
+        self._execution_targets = effective
         self._armed = True
 
     def _command(self, body, deadline):
@@ -536,16 +540,19 @@ class AttributionCoordinator:
                     rows = body['targets']
                     _need(type(rows) is list and len({row['symbol'] for row in rows}) == len(rows), 'attribution_targets')
                     self._merged = {row['symbol']: self._quantity(row['quantity']) for row in rows}
+                    self._native_targets.update(self._merged)
+                    self._has_commit = self._seen_strategies == set(self.strategy_ids)
                 else:
                     symbol, delta = body['symbol'], body['quantity_delta']
                     _need(type(delta) in (int, float) and math.isfinite(delta)
                           and delta == int(delta), 'attribution_quantity')
-                    self._merged[symbol] = self._quantity(self._merged.get(symbol, 0)+delta)
-                self._verify_merged(deadline)
+                    target = self._quantity(self._native_targets.get(symbol, 0) + delta)
+                    self._native_targets[symbol] = self._merged[symbol] = target
+                self._accept_execution_targets(deadline)
                 if self._armed:
                     self._current_plan(deadline)
             elif event.kind == 4:
-                if not self._armed:
+                if not self._armed or body['symbol'] not in self._execution_targets:
                     return 0
                 quantity, price = self._quantity(body['requested_quantity']), self._price(body['limit_price_cny'])
                 fee = self._fee_bound(body['symbol'], body['side'], quantity, price)

@@ -157,7 +157,7 @@ def create_runtime_attribution(native, configuration, control_directory, control
     coordinator = AttributionCoordinator(allocation, control_id=control_id,
         account_scope_sha256=identity.account_scope_sha256, strategy_ids=(old_seed.strategy_id, new_seed.strategy_id),
         fee_bound=fee_bound, settlement_day=settlement, trading_day_qualified=lambda day: day in days,
-        account_observation_day=observation_day)
+        account_observation_day=observation_day, execution_scale=native['executer']['scale'])
     bridge = AttributionBridge(coordinator, callback_seconds=value['callback_seconds'])
     allocation.bind(bridge)
     return coordinator, bridge

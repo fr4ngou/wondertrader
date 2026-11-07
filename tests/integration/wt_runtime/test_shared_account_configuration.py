@@ -42,7 +42,7 @@ def test_frozen_seed_creates_book_only_inside_native_borrow_and_preserves_millio
         account_scope_sha256=scope_sha,financial_book_id=str(uuid4()),baseline_sha256=old_basis['sha256']),
         financial_root=str(financial),initialization=save('initial.json',initial),calendar=calendar,
         fee_reserve_model=fee,callback_seconds=5))
-    native=dict(output_directory=str(financial),trader=dict(expected_account='SYNTHETIC',environment='simulation'),strategies=[
+    native=dict(output_directory=str(financial),executer=dict(scale=1.0),trader=dict(expected_account='SYNTHETIC',environment='simulation'),strategies=[
         dict(id=old_id,parameters=dict(python_strategy=dict(schema='guanheng.retained-cta.v1'))),
         dict(id=original_id,parameters=dict(python_strategy=dict(schema='guanheng.original-live-cta.v1',shared_account=shared,strategy_version='0.2.0a1')))])
     coordinator,bridge=create_runtime_attribution(native,SimpleNamespace(configuration=tmp_path/'execution.json'),

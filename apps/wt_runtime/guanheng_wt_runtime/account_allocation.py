@@ -727,8 +727,56 @@ class AccountAllocation:
                           for symbol, qty in sorted(item['targets'].items())), item['source_sha256'], item['known_at'])
             return result
 
-    def plan(self, plan_id, prices: tuple[CommonPrice, ...], *, deadline):
+    @classmethod
+    def _native_demands(cls, state, execution_targets, blocked):
+        """从WT账户净差分配原柜台买卖额度。内部净额不改变策略实际持仓。"""
+        strategies = state['strategies']
+        priority = cls._priority(state)
+        demands = {}
+        for symbol, target in sorted(execution_targets.items()):
+            if symbol in blocked:
+                continue
+            owners = [sid for sid in priority if symbol in strategies[sid]['universe']]
+            if not owners:
+                continue
+            positions = {sid: strategies[sid]['positions'].get(symbol, {}) for sid in owners}
+            actual = {sid: positions[sid].get('quantity', 0) for sid in owners}
+            sellable = {sid: positions[sid].get('sellable', 0) for sid in owners}
+            wanted = {sid: (strategies[sid]['intent']['targets'][symbol]
+                            if strategies[sid]['intent'] is not None else actual[sid])
+                      for sid in owners}
+            unallocated = state['unallocated_positions'].get(symbol, {}).get('quantity', 0)
+            net = target - sum(actual.values()) - unallocated
+            if net == 0:
+                continue
+            side = 'buy' if net > 0 else 'sell'
+            remaining = abs(net)
+            quantities = {}
+            for sid in owners:
+                gap = wanted[sid] - actual[sid] if net > 0 else min(actual[sid] - wanted[sid], sellable[sid])
+                quantities[sid] = min(remaining, max(0, gap))
+                remaining -= quantities[sid]
+            if net < 0:
+                # 组合风控可能要求额外减仓。只从已归属的库存分配，未分配库存不出售。
+                extra = min(remaining, max(0, sum(wanted.values()) - target))
+                for sid in owners:
+                    quantity = min(extra, sellable[sid] - quantities[sid])
+                    quantities[sid] += quantity
+                    extra -= quantity
+            rows = [{'strategy': sid, 'quantity': quantity}
+                    for sid, quantity in quantities.items() if quantity]
+            if rows:
+                demands[symbol] = {'side': side, 'remaining': rows}
+        return demands
+
+    def plan(self, plan_id, prices: tuple[CommonPrice, ...], *, deadline, execution_targets=None):
+        """实装双策略沿WT执行目标分配净差。无执行目标的独立归属演练沿原内部转移合同。"""
         _uuid(plan_id); _need(type(prices) is tuple, 'price_invalid')
+        if execution_targets is not None:
+            _need(type(execution_targets) is dict and not prices, 'execution_targets_invalid')
+            execution_targets = dict(execution_targets)
+            for symbol, quantity in execution_targets.items():
+                _symbol(symbol); _quantity(quantity)
         quotes = {}
         for price in prices:
             _need(type(price) is CommonPrice and type(price.qualified) is bool and type(price.participants) is tuple, 'price_invalid')
@@ -738,10 +786,20 @@ class AccountAllocation:
             quotes[price.symbol] = asdict(price)
         with self._transaction(deadline) as db:
             rev, state = self._load(db)
-            if not self._event(db, 'plan:'+plan_id, {'prices': quotes}):
+            inputs = {'prices': quotes}
+            if execution_targets is not None:
+                inputs['execution_targets'] = execution_targets
+            if not self._event(db, 'plan:'+plan_id, inputs):
                 return self._plan_view(state['plans'][plan_id])
             _need(plan_id not in state['plans'], 'storage_invalid')
             blocked = {g['symbol']: 'pending_group' for g in state['groups'].values() if not g['closed']}
+            if execution_targets is not None:
+                demands = self._native_demands(state, execution_targets, blocked)
+                plan = {'plan_id': plan_id, 'demands': demands, 'transfers': [], 'blocked_reasons': blocked,
+                        'intents': {sid: s['intent'] for sid, s in state['strategies'].items()}}
+                state['plans'][plan_id] = plan; state['active_plan'] = plan_id
+                self._save(db, rev, state)
+                return self._plan_view(plan)
             deltas = {}
             for sid in self._priority(state):
                 strategy = state['strategies'][sid]
