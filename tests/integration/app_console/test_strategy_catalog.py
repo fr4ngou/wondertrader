@@ -34,6 +34,7 @@ def test_registered_strategy_remains_visible_and_merges_with_runtime(monkeypatch
         assert entries[1]['strategy_version'] == '0.2.0a1'
         assert entries[1]['catalog_status'] == entries[2]['catalog_status'] == 'registered'
         assert entries[3]['strategy_version'] == '0.1.0a2'
+        assert entries[3]['display_name'] == entries[1]['display_name']
 
         published.append(original)
         entries = strategies()

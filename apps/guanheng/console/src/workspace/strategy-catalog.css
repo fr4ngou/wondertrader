@@ -3,9 +3,10 @@
 .strategy-catalog-workspace { min-width: 0; }
 .strategy-page-heading { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; margin-bottom: 24px; }
 .strategy-page-heading h1 { margin: 0; font-size: 28px; }
-.strategy-picker { min-width: 0; }
-.strategy-picker label { display: flex; align-items: center; gap: 14px; font-size: 14px; white-space: nowrap; }
-.strategy-picker select { min-width: 0; width: 340px; max-width: 100%; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel-solid); color: var(--ink); }
+.strategy-picker { min-width: 0; display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 190px); gap: 8px 14px; }
+.strategy-picker label { min-width: 0; display: grid; gap: 5px; font-size: 14px; }
+.strategy-picker select { min-width: 0; width: 100%; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel-solid); color: var(--ink); }
+.strategy-picker > :not(label) { grid-column: 1 / -1; margin: 0; }
 .strategy-backtest-link { margin-left: auto; border: 1px solid var(--accent); border-radius: 6px; padding: 10px 18px; color: var(--accent); text-decoration: none; }
 .strategy-selected { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
 .strategy-selected h2 { margin: 0; font-size: 17px; }
@@ -27,7 +28,7 @@
 @media (max-width: 700px) {
   .strategy-page-heading { gap: 16px; }
   .strategy-picker { width: 100%; order: 2; }
-  .strategy-picker label { align-items: flex-start; flex-direction: column; gap: 8px; }
-  .strategy-picker select { width: 100%; }
+  .strategy-picker { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
   .strategy-backtest-link { padding: 8px 12px; font-size: 13px; }
 }
+@media (max-width: 390px) { .strategy-picker { grid-template-columns: minmax(0, 1fr); } }

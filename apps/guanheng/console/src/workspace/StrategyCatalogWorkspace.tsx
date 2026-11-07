@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react'
 import StrategyDetails from './StrategyDetails'
 import { StrategyPicker, strategyKey, useStrategySelection } from './StrategyPicker'
 import { useLiveStrategyPerformance } from './liveStrategyApi'
+import { useBacktestArchiveSummaries } from './useBacktestReports'
 import './live-strategy.css'
 
 const LiveStrategyPerformance = lazy(() => import('./LiveStrategyPerformance'))
@@ -10,7 +11,8 @@ const StrategyTargetHistory = lazy(() => import('./StrategyTargetHistory'))
 
 /** 策略目录决定当前选择，运行详情按同一身份读取。 */
 export default function StrategyCatalogWorkspace() {
-  const selection = useStrategySelection()
+  const archive = useBacktestArchiveSummaries()
+  const selection = useStrategySelection(archive.data?.runs)
   const [params, setParams] = useSearchParams()
   const selected = selection.selected
   const live = useLiveStrategyPerformance(selected)
@@ -28,9 +30,10 @@ export default function StrategyCatalogWorkspace() {
     const next = new URLSearchParams(params); next.set('view', value); setParams(next)
   }
   return <section className="workspace-page strategy-catalog-workspace">
-    <header className="strategy-page-heading"><h1>策略</h1><StrategyPicker selection={selection} />
+    <header className="strategy-page-heading"><h1>策略</h1><StrategyPicker selection={selection} archivePending={archive.isPending} />
       {selected ? <Link className="strategy-backtest-link" to={'/backtests?' + new URLSearchParams({ strategy: strategyKey(selected) })}>查看该策略回测 →</Link> : null}
     </header>
+    {archive.isError ? <p role="status">历史版本目录暂不可用。<button onClick={() => void archive.refetch()}>重读历史版本</button></p> : null}
     {selected ? <>
       <div className="strategy-selected"><h2>{selected.display_name}</h2><span>{selected.strategy_version === null ? '版本未提供' : `版本 ${selected.strategy_version}`} </span>
         {online ? <span className="strategy-live-badge" role="status">线上运行 · 已核验</span>

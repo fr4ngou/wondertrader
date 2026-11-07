@@ -61,8 +61,20 @@ def _hash(value, check):
     return sha256(raw).hexdigest()
 
 
-def build_performance(*, receipt, receipt_sha256, request, session, report, admitted, check):
-    """归档传入已准入的原内层；原请求身份和逐记录公开投影分别保持。"""
+def _position_point(day, nav, cash_value):
+    """同日原估值的持仓占比、市值及现金；缺值或无可用长仓估值时保留空点。"""
+    if nav > 0 and cash_value is not None:
+        cash = _fraction(cash_value)
+        market = nav - cash
+        if market >= 0:
+            ratio = _percentage(market / nav * 100)
+            if ratio is not None:
+                return [day, ratio, _money(market), _money(cash)]
+    return [day, None, None, None]
+
+
+def build_performance(*, receipt, receipt_sha256, request, session, report, admitted, check, position_points=None):
+    """从已准入记录读取绩效；visuals 同轮收集日末仓位，保持原绩效响应契约。"""
     check()
     _require(admitted.record_count <= MAX_POINTS)
     initial = _fraction(session["policy"]["initial_capital_cny"])
@@ -73,17 +85,23 @@ def build_performance(*, receipt, receipt_sha256, request, session, report, admi
     for index in range(admitted.record_count):
         check()
         record = project_session_record(admitted, index, check=check)["record"]
+        day = record["trading_date"]
         capture = record["capture"]
         if capture is None:
-            points.append([record["trading_date"], None])
+            points.append([day, None])
+            if position_points is not None:
+                position_points.append([day, None, None, None])
             continue
-        nav = _fraction(capture["basis"]["nav_cny"])
+        basis = capture["basis"]
+        nav = _fraction(basis["nav_cny"])
         fee = _fraction(capture["funds"]["fees"])
         _require(fee >= 0)
-        points.append([record["trading_date"], _money(nav)])
+        points.append([day, _money(nav)])
+        if position_points is not None:
+            position_points.append(_position_point(day, nav, basis.get("cash_cny")))
         peak = max(peak, nav)
         drawdown = max(drawdown, (peak - nav) / peak * 100)
-        last, fees, last_date, available = nav, fee, record["trading_date"], available + 1
+        last, fees, last_date, available = nav, fee, day, available + 1
     retained = report['schema'] in RETAINED_REPORT_SCHEMAS
     algorithm=None
     if retained:

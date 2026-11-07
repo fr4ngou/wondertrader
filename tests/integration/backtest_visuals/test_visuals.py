@@ -1,9 +1,23 @@
 """报告可视化保护真实日期、缺口与原生成交/持仓语义。"""
+from fractions import Fraction
 from hashlib import sha256
 from pathlib import Path
 import pytest
 
 from guanheng_app.backtest_visuals import build_visuals, native_tables
+from guanheng_app.backtest_performance import _position_point
+
+
+@pytest.mark.parametrize('nav,cash,expected', [
+    (100, '25', [75, '75', '25']),
+    (100, '100', [0, '0', '100']),
+    (100, '-10', [110, '110', '-10']),
+    (100, None, [None, None, None]),
+    (0, '10', [None, None, None]),
+    (100, '110', [None, None, None]),
+])
+def test_position_point_preserves_empty_and_unknown(nav, cash, expected):
+    assert _position_point(20240102, Fraction(nav), cash) == [20240102, *expected]
 
 
 def test_return_gap_and_drawdown_use_initial_capital_without_filling():

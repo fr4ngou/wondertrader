@@ -1,7 +1,6 @@
 import { Component, lazy, Suspense, type ReactNode } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { fetchBacktestArchiveSummaries } from './backtestApi'
+import { useBacktestArchiveSummaries } from './useBacktestReports'
 import { reportKey, reportLabel } from './backtestPresentation'
 import BacktestSourceState from './BacktestSourceState'
 import { StrategyPicker, strategyKey, useStrategySelection } from './StrategyPicker'
@@ -29,13 +28,9 @@ class BacktestAnalysisBoundary extends Component<{ children: ReactNode }, { fail
 export default function BacktestWorkspace() {
   const [params, setParams] = useSearchParams()
   const runId = params.get('run')
-  const query = useQuery({ queryKey: ['native-backtest-archive-summaries'], queryFn: ({ signal }) => fetchBacktestArchiveSummaries(signal), retry: false,
-    staleTime: Infinity, refetchOnWindowFocus: false, refetchOnReconnect: false, enabled: true })
+  const query = useBacktestArchiveSummaries()
   const entries = [...(query.data?.runs ?? [])].sort((a, b) => b.configuration.end - a.configuration.end || a.run_id.localeCompare(b.run_id))
-  const saved = entries.flatMap(item => item.summary ? [{ strategy_id: item.summary.strategy.id, strategy_version: item.summary.strategy.version,
-    display_name: item.summary.strategy.id,
-    description: '已保存的历史回测结果。', historical_versions: [] }] : [])
-  const selection = useStrategySelection(saved)
+  const selection = useStrategySelection(entries, true)
   const strategy = selection.selected
   const reports: ReportItem[] = entries.flatMap(entry => {
     const summary = entry.summary
@@ -54,7 +49,7 @@ export default function BacktestWorkspace() {
   }
   function back() { const next = new URLSearchParams(params); next.delete('run'); next.delete('compare'); setParams(next) }
   return <section className="workspace-page bt-workspace">
-    <header className="strategy-page-heading"><h1>{runId ? '回测' : '回测记录'}</h1><StrategyPicker selection={selection} />
+    <header className="strategy-page-heading"><h1>{runId ? '回测' : '回测记录'}</h1><StrategyPicker selection={selection} archivePending={query.isPending} />
       {strategy ? <Link className="strategy-backtest-link" to={'/strategies?' + new URLSearchParams({ strategy: strategyKey(strategy) })}>查看策略 →</Link> : null}
       {!runId && strategy ? <button disabled={query.isFetching} onClick={() => void query.refetch()}>刷新列表</button> : null}
     </header>

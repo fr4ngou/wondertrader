@@ -49,6 +49,17 @@
 .bt-marker-key { display: flex; align-items: center; gap: 5px; font-size: 11px; }
 .bt-sell-symbol { transform: rotate(180deg); }
 .bt-visual-chart { height: 530px; width: 100%; }
+.bt-visual-chart-positions { height: 650px; }
+.bt-benchmarks { min-width: 0; margin: 0 0 12px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.bt-benchmarks legend { padding: 0 4px; font-weight: 600; font-size: 13px; }
+.bt-benchmarks legend span { margin-left: 5px; font-weight: 400; }
+.bt-benchmarks > div { display: flex; flex-wrap: wrap; gap: 0 15px; }
+.bt-benchmarks label { display: flex; align-items: center; gap: 5px; min-height: 32px; font-size: 13px; }
+.bt-benchmarks input { accent-color: var(--accent); }
+.bt-benchmarks p { margin: 3px 0; }
+.bt-day-valuation { margin: 0 0 12px; font-size: 13px; }
+.bt-day-valuation > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; padding: 4px 0; }
+.bt-day-valuation dd { margin: 0; font-variant-numeric: tabular-nums; }
 .bt-chart-caption { margin-bottom: 0; line-height: 1.6; }
 .bt-date-picker { display: grid; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 18px; }
 .bt-date-picker select { color: var(--ink); font-size: 21px; font-weight: 700; width: 100%; border: 0; border-bottom: 1px solid var(--line); padding-left: 0; border-radius: 0; }
@@ -86,3 +97,4 @@
 .bt-comparison-note { color: var(--muted); font-size: 12px; }
 @media(max-width:1100px) { .bt-report-toolbar { flex-wrap: wrap; } .bt-report-toolbar h1 { width: 100%; } .bt-analysis-grid { grid-template-columns: minmax(0,1fr) 280px; } .bt-chart-panel,.bt-date-detail { padding: 12px; } .bt-metric-strip > div { padding: 0 12px; } }
 @media(max-width:800px) { .bt-analysis-grid { grid-template-columns: minmax(0,1fr); } .bt-date-detail { min-height: 330px; } .bt-metric-strip { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px 0; padding: 18px 4px; } .bt-metric-strip > div:nth-child(2) { border: 0; } .bt-visual-chart { height: 450px; } .bt-report-toolbar label { flex: auto; width: 100%; } .bt-marker-toggle { margin-left: 0; } .bt-chart-controls { gap: 8px; } .bt-metric-strip dd { font-size: 22px; } }
+@media(max-width:800px) { .bt-visual-chart-positions { height: 560px; } .bt-benchmarks label { min-height: 40px; } }

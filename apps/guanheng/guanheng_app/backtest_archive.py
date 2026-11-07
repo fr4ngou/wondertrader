@@ -587,9 +587,11 @@ class BacktestArchive:
                 request, admitted, report, session, result, installation = self._originals(
                     read, directory, value, result_raw=result_raw, details=True)
                 trades, positions = native_tables(read, directory, value, result)
+                position_points = []
                 performance = build_performance(receipt=value, receipt_sha256=digest, request=request, session=session,
-                    report=report, admitted=admitted, check=read.check)
+                    report=report, admitted=admitted, check=read.check, position_points=position_points)
                 visuals=build_visuals(performance,trades,check=read.check)
+                visuals['position_points'] = position_points
                 proof=[('request.json',value['request_sha256'],16*1024*1024),
                     ('result.json',value['result_sha256'],32*1024*1024),
                     ('installation.json',value['installation_sha256'],2*1024*1024)]

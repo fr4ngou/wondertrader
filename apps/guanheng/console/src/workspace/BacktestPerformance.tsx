@@ -12,6 +12,7 @@ import './backtest-performance.css'
 import { performanceKey } from './useBacktestReports'
 import { ORIGINAL_NATIVE_REPORT_SCHEMA } from './originalNativeIdentity'
 import OriginalNativeModel from './OriginalNativeModel'
+import { BACKTEST_BENCHMARKS, useBacktestBenchmarks, type BenchmarkSymbol } from './backtestBenchmarks'
 
 function ExactDateTable({ value, label }: {
   /** 同一已核验报告的原精度日期净值。 */ value: Performance
@@ -41,6 +42,7 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
   const [markers, setMarkers] = useState(true)
   const [day, setDay] = useState<number | null>(null)
   const [detailSide, setDetailSide] = useState('left')
+  const [selectedBenchmarks, setSelectedBenchmarks] = useState<BenchmarkSymbol[]>([BACKTEST_BENCHMARKS[0].symbol])
   const right = entries.find(e => e.run_id === rightId && e.run_id !== entry.run_id)
   const comparison = useQuery({ queryKey: ['backtest-comparison', entry.run_id, entry.receipt_sha256, right?.run_id, right?.receipt_sha256],
     queryFn: ({ signal }) => fetchBacktestComparison(entry, right!, signal), enabled: ready && !!right, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
@@ -64,6 +66,10 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
     staleTime: Infinity, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false })
   const summaryMap = useMemo(() => new Map(summaries.data?.points.map(point => [point[0], point])), [summaries.data])
   const selectedDay = day ?? detailValue?.points.at(-1)?.[0] ?? null
+  const evaluationStart = leftValue && (entry.summary?.evaluation_start ?? Math.floor(leftValue.configuration.start / 10000))
+  const benchmarks = useBacktestBenchmarks(mode === 'return' ? selectedBenchmarks : [],
+    leftValue?.observations.available ? evaluationStart : undefined, leftValue?.points.at(-1)?.[0])
+  const dayPosition = detailVisual.data?.position_points?.find(point => point[0] === selectedDay)
   const metrics = leftValue?.metrics
   const metricItems = metrics ? [['总收益', reportPct(metrics.total_return_pct)], ['日末最大回撤', reportPct(metrics.observed_max_drawdown_pct)],
     ['期末净值（元）', backtestMoney(metrics.last_nav_cny)], ['累计费用（元）', backtestMoney(metrics.native_cumulative_fees_cny)]] : []
@@ -74,13 +80,28 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
     {current.isFetching ? <p role="status">正在读取报告…{leftValue ? '当前保留上次结果。' : ''}</p> : null}
     {current.isError ? <p role="alert">报告读取失败。{leftValue ? '当前保留上次结果及原读取时间。' : ''}请重新读取。</p> : null}
     {leftValue && metrics ? <>
-      <div className="bt-report-meta">版本 {leftValue.strategy.version} · {reportDate(entry.summary?.evaluation_start ?? Math.floor(leftValue.configuration.start / 10000))} 至 {reportDate(Math.floor(leftValue.configuration.end / 10000))} · 初始本金 {backtestMoney(metrics.initial_capital_cny)} 元</div>
+      <div className="bt-report-meta">版本 {leftValue.strategy.version} · {reportDate(evaluationStart!)} 至 {reportDate(Math.floor(leftValue.configuration.end / 10000))} · 初始本金 {backtestMoney(metrics.initial_capital_cny)} 元</div>
       <dl className="bt-metric-strip">{metricItems.map(([label, value], i) => <div key={label}><dt>{label}</dt><dd className={i === 0 ? 'bt-return' : ''}>{value}</dd>{rightValue ? <small>对比：{i === 0 ? reportPct(rightValue.metrics.total_return_pct) : i === 1 ? reportPct(rightValue.metrics.observed_max_drawdown_pct) : backtestMoney(i === 2 ? rightValue.metrics.last_nav_cny : rightValue.metrics.native_cumulative_fees_cny)}</small> : null}</div>)}</dl>
       {rightValue ? <p className="bt-comparison-note">对比本金 {backtestMoney(rightValue.metrics.initial_capital_cny)} 元 · 至 {reportDate(Math.floor(rightValue.configuration.end / 10000))}。{comparison.data?.differences.length ? `条件差异：${comparison.data.differences.map(k => differenceNames[k]).join('、')}。` : '所列输入和模型条件一致。'}</p> : null}
       {leftValue.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA ? <OriginalNativeModel entry={entry} label="主报告" /> : null}
       {right && rightValue?.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA ? <OriginalNativeModel entry={right} label="对比报告" /> : null}
       {!leftValue.observations.available ? <p role="status">暂无有效资金记录，绩效与曲线未知。</p> : <div className="bt-analysis-grid">
-        <section className="bt-chart-panel" aria-label="收益与回撤">
+        <section className="bt-chart-panel" aria-label="收益、回撤与日末仓位">
+          <fieldset className="bt-benchmarks">
+            <legend>对比基准 <span className="bt-muted">指数价格收益</span></legend>
+            <div>{BACKTEST_BENCHMARKS.map(index => <label key={index.symbol}>
+              <input type="checkbox" checked={selectedBenchmarks.includes(index.symbol)} onChange={event => {
+                const checked = event.target.checked
+                setSelectedBenchmarks(current => checked ? [...current, index.symbol] : current.filter(symbol => symbol !== index.symbol))
+              }} />{index.name}
+            </label>)}</div>
+            {mode === 'nav' ? <p className="bt-muted">指数基准显示于收益率图。</p> : benchmarks.results.map((query, index) => {
+              const item = benchmarks.indexes[index]
+              return query.isError ? <p className="bt-muted" key={item.symbol} role="status">{item.name}读取失败{query.data?.baseDay ? '，保留上次结果' : ''}。<button onClick={() => void query.refetch()}>重读{item.name}</button></p>
+                : query.isPending ? <p className="bt-muted" key={item.symbol} role="status">正在读取{item.name}…</p>
+                : !query.data?.baseDay ? <p className="bt-muted" key={item.symbol} role="status">{item.name}缺少评价期前的收盘基点。</p> : null
+            })}
+          </fieldset>
           <div className="bt-chart-controls"><div className="bt-segments"><button aria-pressed={mode === 'return'} onClick={() => setMode('return')}>收益率</button><button aria-pressed={mode === 'nav'} onClick={() => setMode('nav')}>净值</button></div>
             <label className="bt-marker-toggle"><input type="checkbox" checked={markers} onChange={e => setMarkers(e.target.checked)} />买卖标记</label>
             <span className="bt-marker-key"><Triangle size={10} fill="#e54351" color="#e54351" />买入 <Triangle size={10} fill="#008c63" color="#008c63" className="bt-sell-symbol" />卖出 <Circle size={9} fill="#8a55d9" color="#8a55d9" />多笔</span>
@@ -89,14 +110,18 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
           {visual.isFetching ? <p className="bt-muted" role="status">正在读取日收益、回撤和成交日…</p> : null}
           {visual.data && !visual.data.trades_available ? <p className="bt-muted" role="status">主报告的成交原件暂未适配，买卖标记未知。</p> : null}
           {right && rightVisual.data && !rightVisual.data.trades_available ? <p className="bt-muted" role="status">对比报告的成交原件暂未适配，买卖标记未知。</p> : null}
+          {visual.data && !visual.data.position_points?.some(point => point[1] !== null) ? <p className="bt-muted" role="status">主报告缺少可用日末仓位估值。</p> : null}
+          {right && rightVisual.data && !rightVisual.data.position_points?.some(point => point[1] !== null) ? <p className="bt-muted" role="status">对比报告缺少可用日末仓位估值。</p> : null}
           <BacktestVisualChart left={leftValue} right={rightValue} visual={visual.data} rightVisual={rightVisual.data} mode={mode} markers={markers}
-            onDay={setDay} selectedDay={selectedDay} summaries={summaryMap} summaryLabel={detailSide === 'right' ? '对比报告' : '主报告'} />
+            onDay={setDay} selectedDay={selectedDay} summaries={summaryMap} summaryLabel={detailSide === 'right' ? '对比报告' : '主报告'}
+            positions benchmarks={benchmarks.series} />
           <p className="bt-muted bt-chart-caption">悬停查看当日持仓与买卖，点击固定日期详情；滚轮缩放，左右键切日。</p>
           {summaries.isFetching ? <p className="bt-muted" role="status">正在准备持仓与买卖摘要…</p> : summaries.isError ? <p className="bt-muted">悬停摘要暂不可用，仍可点击读取日期详情。<button onClick={() => void summaries.refetch()}>重读摘要</button></p> : null}
         </section>
         <div className="bt-inspector-wrap">{right && rightValue ? <label className="bt-detail-source">日期明细所属报告<select aria-label="日期明细所属报告" value={detailSide} onChange={e => setDetailSide(e.target.value)}><option value="left">主报告</option><option value="right">对比报告</option></select></label> : null}
           <BacktestDateDetail key={detailEntry.run_id + detailEntry.receipt_sha256 + detailEntry.report_sha256} entry={detailEntry} day={selectedDay}
-            dates={detailDates} onDay={setDay} ready={detailVisual.isError || !!detailVisual.data && !summaries.isPending} />
+            dates={detailDates} onDay={setDay} position={dayPosition} showPosition
+            ready={detailVisual.isError || !!detailVisual.data && !summaries.isPending} />
         </div>
       </div>}
       <div className="bt-exact-values">

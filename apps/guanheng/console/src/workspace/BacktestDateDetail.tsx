@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { ArchiveEntry } from './backtestApi'
-import { fetchLedger, type Trade } from './backtestVisualApi'
+import { fetchLedger, type PositionPoint, type Trade } from './backtestVisualApi'
 import { backtestMoney } from './backtestMoney'
-import { reportDate } from './backtestPresentation'
+import { reportDate, reportPct } from './backtestPresentation'
 import { reportSymbol } from './backtestSymbols'
 export { reportSymbol } from './backtestSymbols'
 
@@ -11,12 +11,14 @@ const gainClass = (value: string) => Number(value) > 0 ? 'bt-gain' : Number(valu
 const side = (trade: Trade) => trade.side === 'buy' ? '买入' : trade.side === 'sell' ? '卖出' : `${trade.direction}/${trade.action}`
 
 /** 日期与完整成交共用原件投影；同条件刷新失败保留原值和读取时间。 */
-export default function BacktestDateDetail({ entry, day, dates, onDay, ready = true }: {
+export default function BacktestDateDetail({ entry, day, dates, onDay, ready = true, position, showPosition = false }: {
   /** 当前明细归属的报告身份。 */ entry: ArchiveEntry
   /** 所选真实交易日。 */ day: number | null
   /** 该报告存在的日期，不推定其他报告日期。 */ dates: number[]
   /** 选择日期回传。 */ onDay: (day: number) => void
   /** 图表/摘要已结束初次读取后再发详情，合并同报告原件冷加载。 */ ready?: boolean
+  /** 当前报告固定日期的同批日末仓位估值；缺失时保持未知。 */ position?: PositionPoint
+  /** 正式回测明细展示日末仓位，旧调用者沿原日期明细。 */ showPosition?: boolean
 }) {
   const [tab, setTab] = useState<'positions' | 'trades'>('positions')
   const [all, setAll] = useState(false)
@@ -36,6 +38,11 @@ export default function BacktestDateDetail({ entry, day, dates, onDay, ready = t
       {!validDay ? <option value="">请选择报告内日期</option> : null}
       {dateOptions}
     </select></label>
+    {showPosition && validDay && !all ? <dl className="bt-day-valuation">
+      <div><dt>日末仓位</dt><dd>{reportPct(position?.[1] ?? null)}</dd></div>
+      <div><dt>持仓市值</dt><dd>{position?.[2] == null ? '未知' : backtestMoney(position[2]) + ' 元'}</dd></div>
+      <div><dt>现金余额</dt><dd>{position?.[3] == null ? '未知' : backtestMoney(position[3]) + ' 元'}</dd></div>
+    </dl> : null}
     <div className="bt-segments" role="tablist" aria-label="日期明细">
       <button role="tab" aria-selected={!all && tab === 'positions'} onClick={() => { setTab('positions'); setAll(false); setPage(0) }}>持仓与盈亏</button>
       <button role="tab" aria-selected={!all && tab === 'trades'} onClick={() => { setTab('trades'); setAll(false); setPage(0) }}>当日交易</button>

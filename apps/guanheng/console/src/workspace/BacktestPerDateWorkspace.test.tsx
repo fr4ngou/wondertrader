@@ -14,6 +14,8 @@ vi.mock('./backtestApi', async original => ({ ...await original<typeof api>(), f
 vi.mock('./strategyCatalogApi', () => ({ fetchStrategyCatalog:vi.fn() }))
 vi.mock('./backtestPerformanceApi', async original => ({ ...await original<typeof performanceApi>(), fetchBacktestPerformance:vi.fn() }))
 vi.mock('./backtestVisualApi', () => ({ fetchVisuals:vi.fn(), fetchLedger:vi.fn(), fetchDaySummaries:vi.fn() }))
+vi.mock('../api', async original => ({ ...await original<typeof import('../api')>(),
+  fetchMarketChart: vi.fn(async (symbol: string) => ({ symbol, period: '1d', source_kind: 'wondertrader', candles: [] })) }))
 const clients: QueryClient[] = []
 afterEach(() => { cleanup(); clients.splice(0).forEach(c => c.clear()); vi.resetAllMocks(); vi.unstubAllGlobals() })
 test('400期逐日归档通过新日期选择器展示空仓，内部协议留在API', async () => {

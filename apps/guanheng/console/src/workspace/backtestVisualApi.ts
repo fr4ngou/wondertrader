@@ -1,6 +1,12 @@
 import { fetchBacktestReadJson, type ArchiveEntry, tradingDate } from './backtestApi'
 import { boundedBacktestTree, invalidBacktest, isObject } from './backtestV2'
 
+export type PositionPoint = [
+  /** 上海交易日 YYYYMMDD，与同报告曲线逐日对应。 */ day: number,
+  /** 日末持仓市值除以净值的百分数；null 表示未知。 */ percent: number | null,
+  /** 日末持仓市值，人民币十进制文本；已知空仓为 "0"。 */ marketValue: string | null,
+  /** 同一日末估值的现金余额，人民币十进制文本；允许负值。 */ cash: string | null,
+]
 export type Visuals = {
   /** 完成归档的运行身份，与请求一致。 */ run_id: string
   /** 完成收据SHA256，隔离报告切换。 */ receipt_sha256: string
@@ -8,6 +14,7 @@ export type Visuals = {
   /** 版本化只读投影。 */ schema: 'nbw-visuals-v1'
   /** 原生成交CSV已适配；false表示未知而非零成交。 */ trades_available: boolean
   /** 交易日、日收益%、回撤负百分比、买/卖/其他成交笔数；收益未知为null。 */ points: [number, number | null, number | null, number, number, number][]
+  /** 已核报告的仓位扩展；旧服务省略时保持未知。 */ position_points?: PositionPoint[]
 }
 export type Holding = {
   /** 上海交易日YYYYMMDD。 */ date: number
@@ -89,12 +96,22 @@ export async function fetchDaySummaries(entry: ArchiveEntry, signal?: AbortSigna
 export async function fetchVisuals(entry: ArchiveEntry, signal?: AbortSignal): Promise<Visuals> {
   const v = identity(await fetchBacktestReadJson<unknown>(`/v1/ui/backtest/archive/${entry.run_id}/visuals?receipt_sha256=${entry.receipt_sha256}`, '回测图表', signal), entry)
   boundedBacktestTree(v)
-  keys(v, 'schema run_id receipt_sha256 report_sha256 trades_available points')
+  keys(v, 'schema run_id receipt_sha256 report_sha256 trades_available points' + (Object.hasOwn(v, 'position_points') ? ' position_points' : ''))
   if (v.schema !== 'nbw-visuals-v1' || typeof v.trades_available !== 'boolean' || !Array.isArray(v.points) || v.points.length !== entry.record_count) invalidBacktest()
   let previous = 0
   for (const row of v.points) {
     if (!Array.isArray(row) || row.length !== 6 || !tradingDate(row[0]) || row[0] <= previous || !nullableNumber(row[1]) || !nullableNumber(row[2]) || row.slice(3).some(n => !count(n))) invalidBacktest()
     previous = row[0]
+  }
+  const positions = v.position_points
+  if (positions !== undefined) {
+    if (!Array.isArray(positions) || positions.length !== v.points.length) invalidBacktest()
+    for (const [index, point] of positions.entries()) {
+      if (!Array.isArray(point) || point.length !== 4 || point[0] !== v.points[index][0]) invalidBacktest()
+      const [, ratio, market, cash] = point
+      if (ratio === null ? market !== null || cash !== null
+        : !nullableNumber(ratio) || ratio < 0 || !decimal(market) || market.startsWith('-') || !decimal(cash)) invalidBacktest()
+    }
   }
   return v as Visuals
 }
