@@ -10,14 +10,18 @@ import time
 
 from .managed_local_process import ManagedLocalProcess, _identity, _inspect, _json, _read, _require, _sha
 
-from .strategy_profiles import RETAINED_PACKAGES, SHARED_PACKAGES, shared_profiles
+from .strategy_profiles import (RETAINED_PACKAGES, SHARED_PACKAGES, SOURCE_HANDOFF_PACKAGES,
+                                PACKAGE_DISTRIBUTIONS, shared_profiles, source_handoff)
 _RETAINED_PYTHON_PACKAGES = RETAINED_PACKAGES
 _PYTHON_PACKAGES = _RETAINED_PYTHON_PACKAGES
 
 
 def _python_packages(native):
     """固定单/双profile依赖；旧调用保持原包集合。"""
-    return SHARED_PACKAGES if shared_profiles(native) else RETAINED_PACKAGES
+    shared = shared_profiles(native)
+    if source_handoff(native):
+        return SOURCE_HANDOFF_PACKAGES
+    return SHARED_PACKAGES if shared else RETAINED_PACKAGES
 
 
 def _library_files(installation, *, clock=time.monotonic, deadline=float('inf')):
@@ -266,8 +270,9 @@ class PythonExecutionProcessConfig:
         site = Path(__file__).absolute().parent.parent
         packages = _python_packages(_json(_read(native.configuration, 256 * 1024)))
         for package in packages:
-            name = package.replace('_', '-')
+            name = PACKAGE_DISTRIBUTIONS[package]
             distribution = importlib.metadata.distribution(name)
+            _require(distribution.metadata['Name'].lower().replace('_', '-') == name)
             for item in distribution.files or ():
                 relative = str(item).replace('\\', '/')
                 if (relative.startswith(package + '/') and relative.endswith(('.py', '.json'))
@@ -330,8 +335,15 @@ class ManagedPythonExecutionProcess(ManagedExecutionProcess):
 def _python_inventory(site, identities, *, packages=_RETAINED_PYTHON_PACKAGES):
     """固定纯Python发行的完整源码集合；额外包目录不能遮蔽已绑定模块。"""
     seen, count = set(), 0
-    _require(packages in (RETAINED_PACKAGES, SHARED_PACKAGES))
+    _require(packages in (RETAINED_PACKAGES, SHARED_PACKAGES, SOURCE_HANDOFF_PACKAGES))
     for package in packages:
+        # 每个owner同时绑定真实发行METADATA；子进程不能通过省略元数据缩小原集合。
+        prefix = PACKAGE_DISTRIBUTIONS[package].replace('-', '_') + '-'
+        metadata = [Path(name) for name in identities
+                    if Path(name).parent.parent == site and Path(name).name == 'METADATA'
+                    and Path(name).parent.name.startswith(prefix)
+                    and Path(name).parent.name.endswith('.dist-info')]
+        _require(len(metadata) == 1)
         pending = [site / package]
         while pending:
             directory = pending.pop();_inspect(directory, directory=True)

@@ -464,7 +464,8 @@ def _normalized(binding):
     return result
 
 
-def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrade=False, strategy_extension=False):
+def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrade=False, strategy_extension=False,
+                       source_handoff=False):
     """同业务发行允许策略及数量实现升级；纯Core及解释器仍须逐件相同。
 
     strategy_upgrade仅由已核前后完整业务配置的transition路径传入。部署材料
@@ -472,6 +473,14 @@ def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrad
     资本、输入、策略参数或输出根。角色替换继续另核真实正常关闭及零库存。
     """
     before,after=_normalized(previous),_normalized(current)
+    from .strategy_profiles import SOURCE_OWNER_PACKAGES, PACKAGE_DISTRIBUTIONS
+    def source_key(key, package):
+        distribution = PACKAGE_DISTRIBUTIONS[package].replace('-', '_')
+        return (key.startswith('site/'+package+'/')
+                or key.startswith('site/'+distribution+'-') and key.endswith('.dist-info/METADATA'))
+    # 任一源码或发行元数据已出现即属于已绑定owner；其后完整清单保持不变。
+    first_source_owners = tuple(package for package in SOURCE_OWNER_PACKAGES
+                                if not any(source_key(key, package) for key in before))
     for key in before.keys()|after.keys():
         if before.get(key)!=after.get(key):
             _require(key.startswith('site/guanheng_wt_runtime/')
@@ -486,7 +495,10 @@ def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrad
                     or key.startswith('site/guanheng_strategy_native-') and key.endswith('.dist-info/METADATA'))
                 or strategy_extension and any(key.startswith('site/'+package+'/')
                     or key.startswith('site/'+package+'-') and key.endswith('.dist-info/METADATA')
-                    for package in ('guanheng_strategy_original','guanheng_market_client')))
+                    for package in ('guanheng_strategy_original','guanheng_market_client'))
+                # 已核显式Source续接只补齐此前未绑定的两个owner；既有源码/元数据仍逐字相同。
+                or source_handoff and key not in before and key in after and any(
+                    source_key(key, package) for package in first_source_owners))
 
 
 def load_transition(native, identities=None, *, binding=None, deadline=float('inf')):
@@ -522,12 +534,14 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
     if identities is not None:
         _require(binding is not None and digest(identities) == value['successor_python_code_identity'])
         # 上文已核显式发行材料和完整业务配置；换实现属于发行，不要求改零持仓角色。
+        from .strategy_profiles import source_handoff
+        source_owners = source_handoff(native, deadline=deadline)
         _compatible_python(old,binding,role_handoff=role_handoff,strategy_upgrade=True,
-            strategy_extension='strategy_extension_origin'in native)
+            strategy_extension='strategy_extension_origin'in native,source_handoff=source_owners)
     restored=state_origin(value,deadline=deadline)
     if restored is not None and identities is not None:
         _compatible_python(restored['binding'],binding,strategy_upgrade=True,
-            strategy_extension='strategy_extension_origin'in native)
+            strategy_extension='strategy_extension_origin'in native,source_handoff=source_owners)
     return value, digest(dict((restored['binding']if restored else old)['files']))
 
 

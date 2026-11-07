@@ -83,3 +83,11 @@ analysis_window 状态沿既有组件公共字段 state/ready/pending/forced，�
 同一 QMT 正文显式包含 analysis_read 时，交易配对为 `qmt.trade-product-pair.v3`。父端交易 Host owner 复用原 v1/v2 路径，并识别该 v3 的原 source_runtime=strategy_tick、分析 profile=v7、原两种分析操作及设置摘要；完整源码、配对、权限和私有设置仍由原 Host 子进程唯一验证。此版本识别不改变交易权限、命令身份或默认配对。
 
 显式包含 analysis_batch_read 时使用 `qmt.trade-product-pair.v4`，沿用同一 strategy_tick 运行方式及原进程生命周期。父端核验批量分析 profile=v8、唯一只读操作 market.market_data 及设置摘要；同时声明 analysis_read 时，继续按上述 v7 契约核验。v4 必须具备批量分析身份，原 v1/v2/v3 准入保持。完整批量设置仍由 Host 验证，新增身份识别只让 WT 托管已配置的组合通信，不增加交易权限。
+
+## 显式Source依赖的Python源码绑定
+
+OLS-7源码绑定：显式dependency_handoff的source_extension非null时，PythonExecutionProcessConfig与configured的隔离子加载使用同一固定集合，在原双profile七包后增加guanheng_qmt_shm和guanheng_qmt_shm_agent。选择器先核材料原字节SHA及固定结构，完整Source业务准入继续由本节原owner执行。省略材料或source_extension为null保持原单策略五包/双策略七包，无Source分支不要求安装这两个owner。
+
+import包guanheng_qmt_shm的真实发行名为guanheng-qmt-shm-host，guanheng_qmt_shm_agent对应guanheng-qmt-shm-agent。每个固定owner均绑定完整.py/.json源码和恰一份真实发行METADATA；父端核METADATA的Name，子端核原字节SHA及目录闭包。Host普通发行所声明的第三方依赖继续由原安装闭包提供，pip中仅存在Host/Agent不构成configured源码已绑定证明。额外源码、缺元数据、源/元数据字节变化沿原启动拒绝；不扩展模块选择、权限或交易能力。
+
+已完整核验的同业务恢复中，Source续接可把原绑定缺失的上述两个owner源码及对应真实METADATA补入；前代任一源码或METADATA已出现即视为已绑定owner；该owner新增源码、第二METADATA、补全半绑定、变更及移除均继续拒绝，其余Core、解释器及账户边界保持原约束。文件数、单文件/总字节及隔离启动边界保持原值，属于安装资源保护；它们不形成新的交易次数或标的配额。验收包含实际Native配置加载→Source原部署身份API→父端清点→真实-I-S子端核验，以及Host/Agent源码和元数据各自篡改拒绝。此读取验证不启动Native金融进程或Source SDK。
