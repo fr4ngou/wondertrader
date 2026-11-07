@@ -468,8 +468,8 @@ class StrategyHost:
                 from .retained_per_date_replay import REPORT_SCOPE
                 scope = REPORT_SCOPE
             elif report_schema == ORIGINAL_REPORT_SCHEMA:
-                from .original_native_replay import REPORT_SCOPE
-                scope = REPORT_SCOPE
+                from .original_native_contracts import scope_for_version
+                scope = scope_for_version(payload['strategy']['strategy_version'])
             if (report_schema == PER_DATE_REPORT_SCHEMA
                     and payload['source']['manifest_sha256'] != install['replay_catalog']['manifest_sha256']):
                 raise HostError('会话与安装的逐日行情目录身份失配')
@@ -633,7 +633,9 @@ class StrategyHost:
         if report["schema"] != request['report_schema'] or request['report_schema']!=install['report_schema']:
             raise HostError("会话报告schema未获本安装接线资格")
         counts = dict(report["callback_counts"])
-        if counts.get("init") != 1 or counts.get("calculate") != len(report["records"]) or counts.get("calc_done") != 0:
+        from .original_native_contracts import OPEN_VERSION
+        opening = request['report_schema'] == ORIGINAL_REPORT_SCHEMA and report['strategy_version'] == OPEN_VERSION
+        if counts.get("init") != 1 or (not opening and counts.get("calculate") != len(report["records"])) or counts.get("calc_done") != 0:
             raise HostError("会话report回调集合不完整")
         from guanheng_strategy_core.contracts import canonical_bytes
         from .retained_replay import ORIGINAL_BT_SHA256, ABI_PROBE_SHA256
@@ -672,4 +674,14 @@ class StrategyHost:
         if any(expected.get('outputs/'+request['backtest']['name']+'/'+name) != sha
                 for name, sha in report['native_outputs']):
             raise HostError('唯一策略报告原生输出绑定失配')
+        if opening:
+            from io import StringIO
+            from .original_opening_replay import reconcile_opening_trades, verify_opening_fees
+            mode = payload['fee_mode']
+            verify_opening_fees(mode, _bytes(directory / 'basefiles/fees.json', 1048576, deadline))
+            trades = directory / 'outputs' / request['backtest']['name'] / 'trades.csv'
+            raw_trades = _bytes(trades, 8 * 1048576, deadline)
+            if _digest(raw_trades) != expected[trades.relative_to(directory).as_posix()]:
+                raise HostError('开盘原生成交在核验期间改变')
+            reconcile_opening_trades(report, StringIO(raw_trades.decode('utf-8-sig')), mode, check=lambda: _check(deadline))
         return _encode(report).decode("ascii")

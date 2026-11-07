@@ -2,7 +2,7 @@ import { fetchReadJson as fetchBoundedJson } from '../api'
 import { boundedBacktestTree, V2_REPORT_SCHEMA, validateV2Summary, type V2Summary } from './backtestV2'
 import { HISTORICAL_REPORT_SCHEMA, validateHistoricalSummary } from './backtestHistorical'
 import { PER_DATE_REPORT_SCHEMA, RETAINED_REPORT_SCHEMA, isRetainedReport, retainedSymbols, validatePerDateWindow, validateRetainedSummary } from './backtestRetained'
-import { ORIGINAL_SIGNAL_ALGORITHM } from './originalNativeIdentity'
+import { ORIGINAL_CASH_EXECUTION, ORIGINAL_OPEN_EXECUTION, ORIGINAL_SIGNAL_ALGORITHM } from './originalNativeIdentity'
 
 /** 报告排队、原件核验及比较共用后端30秒，另留1秒HTTP余量。 */
 export function fetchBacktestReadJson<T>(input: RequestInfo | URL, context: string, signal?: AbortSignal): Promise<T> {
@@ -223,6 +223,7 @@ export async function fetchBacktestDay(ownerId: string, requestId: string, index
 
 export type ArchiveSelection = { runId: string; receiptSha: string; reportSha?: string }
 export type ArchiveSummary = {
+  /** 评价首日 YYYYMMDD。原版报告的运行开始还包含预热日。 */ evaluation_start?: number
   /** 完成证明绑定的原报告策略身份；名称和文件名均不参与归属推断。 */ strategy: {
     /** 原报告声明的策略业务ID。 */ id: string
     /** 该份报告实际使用的策略版本。 */ version: string
@@ -260,7 +261,7 @@ export type OriginalNativeMetadata = {
   /** 原版信号算法身份，不替代WT执行模型。 */ signal_algorithm_id: string
   /** 原参考报告规范JSON的SHA256。 */ reference_report_sha256: string
   /** 原完整输入规范JSON的SHA256。 */ source_snapshot_sha256: string
-  /** 原报告绑定的WT原生执行模型；现金约束版与旧a1分别说明。 */ execution_model: 'signal-close-to-next-WT-native-tick' | 'D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained'
+  /** 该报告绑定的WT原生执行模型。 */ execution_model: 'signal-close-to-next-WT-native-tick' | typeof ORIGINAL_CASH_EXECUTION | typeof ORIGINAL_OPEN_EXECUTION
   /** 原报告完整模型声明。 */ historical_model: Record<string, unknown>
   /** ISO评价首尾及额外前一真实交易日暖机。 */ evaluation_window: {
     /** 额外一前日，仅用于WT真实bar暖机。 */ warmup_date: string
@@ -311,7 +312,8 @@ function archiveIndex(value: unknown, summaries: boolean): ArchiveIndex | Archiv
     ids.add(entry.run_id)
     if (summaries && entry.summary !== null) {
       if (!object(entry.summary) || !object(entry.summary.strategy)) return invalid()
-      exactKeys(entry.summary, ['strategy', 'initial_capital_cny']); exactKeys(entry.summary.strategy, ['id', 'version'])
+      exactKeys(entry.summary, ['strategy', 'initial_capital_cny'], ['evaluation_start']); exactKeys(entry.summary.strategy, ['id', 'version'])
+      if (entry.summary.evaluation_start !== undefined && !tradingDate(entry.summary.evaluation_start)) return invalid()
       if (!boundedText(entry.summary.strategy.id, 256) || !entry.summary.strategy.id.length
         || !boundedText(entry.summary.strategy.version, 256) || !entry.summary.strategy.version.length
         || typeof entry.summary.initial_capital_cny !== 'string' || entry.summary.initial_capital_cny.length > 512
@@ -335,9 +337,9 @@ export async function fetchArchiveConfiguration(entry: ArchiveEntry, signal?: Ab
   if (value.original_native !== undefined) {
     const m = value.original_native
     if (!object(m) || m.signal_algorithm_id !== ORIGINAL_SIGNAL_ALGORITHM || !validDigest(m.reference_report_sha256) || !validDigest(m.source_snapshot_sha256)
-      || !['signal-close-to-next-WT-native-tick', 'D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained'].includes(String(m.execution_model))
+      || !['signal-close-to-next-WT-native-tick', ORIGINAL_CASH_EXECUTION, ORIGINAL_OPEN_EXECUTION].includes(String(m.execution_model))
       || !object(m.historical_model) || m.historical_model.execution !== m.execution_model
-      || m.execution_model === 'D-close-intent; WT-native-limit-next-tick; unfilled-intent-retained' && m.historical_model.cash !== 'actual-D-cash-reserves-all-buy-principal-and-fee-upper-bounds; no-unfilled-sale-credit'
+      || m.execution_model === ORIGINAL_CASH_EXECUTION && m.historical_model.cash !== 'actual-D-cash-reserves-all-buy-principal-and-fee-upper-bounds; no-unfilled-sale-credit'
       || !object(m.evaluation_window) || ['warmup_date', 'from', 'to'].some(k => typeof m.evaluation_window !== 'object' || !object(m.evaluation_window)
         || typeof m.evaluation_window[k] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(String(m.evaluation_window[k])) || !tradingDate(Number(String(m.evaluation_window[k]).replaceAll('-', ''))))
       || !(m.evaluation_window.warmup_date as string < (m.evaluation_window.from as string)) || m.evaluation_window.from as string > (m.evaluation_window.to as string)

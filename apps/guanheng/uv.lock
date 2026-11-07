@@ -98,7 +98,7 @@ wheels = [
 
 [[package]]
 name = "guanheng-app"
-version = "0.1.0a127+registration.1"
+version = "0.1.0a127+opening.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -209,7 +209,7 @@ requires-dist = [
 
 [[package]]
 name = "guanheng-wt-runtime"
-version = "0.1.0a11+read15.dualcta.1"
+version = "0.1.0a11+read15.dualcta.1.opening.1"
 source = { directory = "../../packages/observer-read-side/wt_runtime" }
 dependencies = [
     { name = "guanheng-market-client" },

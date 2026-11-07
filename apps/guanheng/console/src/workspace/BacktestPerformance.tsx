@@ -74,7 +74,7 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
     {current.isFetching ? <p role="status">正在读取报告…{leftValue ? '当前保留上次结果。' : ''}</p> : null}
     {current.isError ? <p role="alert">报告读取失败。{leftValue ? '当前保留上次结果及原读取时间。' : ''}请重新读取。</p> : null}
     {leftValue && metrics ? <>
-      <div className="bt-report-meta">版本 {leftValue.strategy.version} · {reportDate(Math.floor(leftValue.configuration.start / 10000))} 至 {reportDate(Math.floor(leftValue.configuration.end / 10000))} · 初始本金 {backtestMoney(metrics.initial_capital_cny)} 元</div>
+      <div className="bt-report-meta">版本 {leftValue.strategy.version} · {reportDate(entry.summary?.evaluation_start ?? Math.floor(leftValue.configuration.start / 10000))} 至 {reportDate(Math.floor(leftValue.configuration.end / 10000))} · 初始本金 {backtestMoney(metrics.initial_capital_cny)} 元</div>
       <dl className="bt-metric-strip">{metricItems.map(([label, value], i) => <div key={label}><dt>{label}</dt><dd className={i === 0 ? 'bt-return' : ''}>{value}</dd>{rightValue ? <small>对比：{i === 0 ? reportPct(rightValue.metrics.total_return_pct) : i === 1 ? reportPct(rightValue.metrics.observed_max_drawdown_pct) : backtestMoney(i === 2 ? rightValue.metrics.last_nav_cny : rightValue.metrics.native_cumulative_fees_cny)}</small> : null}</div>)}</dl>
       {rightValue ? <p className="bt-comparison-note">对比本金 {backtestMoney(rightValue.metrics.initial_capital_cny)} 元 · 至 {reportDate(Math.floor(rightValue.configuration.end / 10000))}。{comparison.data?.differences.length ? `条件差异：${comparison.data.differences.map(k => differenceNames[k]).join('、')}。` : '所列输入和模型条件一致。'}</p> : null}
       {leftValue.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA ? <OriginalNativeModel entry={entry} label="主报告" /> : null}

@@ -22,6 +22,12 @@ REPORT_SCHEMA='guanheng.original-native-replay-report.v1'
 STRATEGY_ID='resonance-original-wt-351f9d5-stable'
 STRATEGY_VERSION='0.1.0a2'
 LEGACY_VERSION='0.1.0a1'
+OPEN_VERSION='0.2.0a1'
+OPEN_SCOPE='WT-native-original-signals; opening-minute-limit; historical/PIT/broker/production-unqualified'
+OPEN_QUOTE, OPEN_MATCH, DAY_CLOSE = 931, 932, 1500
+OPEN_CODES = ('159352','159780','510050','510300','510500','512100','515080','588000','589680')
+OPEN_MAP = {code: '588230' if code == '589680' else code for code in OPEN_CODES}
+OPEN_INPUT_FIELDS = {'opening_bars', 'execution_map', 'fee_mode'}
 ALGORITHM_ID='resonance-original-351f9d5-stable'
 UPSTREAM_COMMIT='351f9d58152e10efd2447c997b8ee4db66b5ac6a'
 REPORT_SCOPE='WT-native-original-signals; daily-OHLC-next-tick; historical/PIT/broker/production-unqualified'
@@ -59,9 +65,27 @@ MODEL={**LEGACY_MODEL,
 }
 
 
+OPEN_MODEL={
+    'execution':'D+1 09:31 closed bar limit; WT CtaMocker 09:32 matching',
+    'allocation':LEGACY_MODEL['allocation'],
+    'sizing':'D+1 09:31 equal-weight plan; floor-100-shares; executable symbols',
+    'cash':'actual opening cash covers buy principal and fees; no unfilled sale credit',
+    'fills':'WT CtaMocker m1 OHLC; no order book or capacity model',
+    'fees':LEGACY_MODEL['fees'],
+    'historical_availability':'unknown',
+    'constraints':'WT-native-T+1; residual intents reconsidered on later opens',
+    'execution_map':OPEN_MAP,
+}
+
+
 def model_for_version(version):
-    _need(version in (STRATEGY_VERSION,LEGACY_VERSION))
-    return MODEL if version==STRATEGY_VERSION else LEGACY_MODEL
+    models={STRATEGY_VERSION:MODEL, LEGACY_VERSION:LEGACY_MODEL, OPEN_VERSION:OPEN_MODEL}
+    _need(type(version) is str and version in models)
+    return models[version]
+
+
+def scope_for_version(version):
+    return OPEN_SCOPE if version == OPEN_VERSION else REPORT_SCOPE
 
 
 def _encode(value, *, original=False):
@@ -109,7 +133,9 @@ def _native(code):return ('SSE' if code.startswith(('5','6')) else 'SZSE')+'.ETF
 def _normalize_input(value):
     """DLL装载前复制并准入；不联网、不重新运行或翻译原信号算法。"""
     value=_snapshot_json(value,maximum=MAX_BYTES)
-    _need(type(value) is dict and set(value)==set(INPUT_FIELDS) and value['schema']==INPUT_SCHEMA)
+    _need(type(value) is dict and value.get('schema')==INPUT_SCHEMA)
+    opening=type(value.get('strategy')) is dict and value['strategy'].get('strategy_version')==OPEN_VERSION
+    _need(set(value)==set(INPUT_FIELDS)|(OPEN_INPUT_FIELDS if opening else set()))
     _need(type(value['strategy']) is dict and value['strategy']==dict(strategy_id=STRATEGY_ID,
           strategy_version=value['strategy'].get('strategy_version'),algorithm_id=ALGORITHM_ID))
     model_for_version(value['strategy']['strategy_version'])
@@ -124,10 +150,14 @@ def _normalize_input(value):
     for day in calendar:_day(day)
     _need(value['evaluation_window']==dict(warmup_date=calendar[0],**{'from':calendar[1],'to':calendar[-1]}))
     original_days=[row['date'] for row in report.get('portfolio',{}).get('history',[])]
-    _need(original_days==calendar[1:])
+    if opening:
+        _validate_open_input(value, original_days)
+    else:
+        _need(original_days==calendar[1:])
     codes=sorted(history)
     _need(all(type(code) is str and re.fullmatch('[0-9]{6}',code) is not None for code in codes))
-    trades=report.get('trades_by_code');_need(type(trades) is dict and set(trades)==set(codes))
+    trades=report.get('trades_by_code')
+    _need(type(trades) is dict and set(trades)==set(OPEN_CODES if opening else codes))
     for code,rows in history.items():
         _need(type(rows) is list and 1<=len(rows)<=4096)
         days=[]
@@ -138,13 +168,12 @@ def _normalize_input(value):
             for name in ('volume','amount'):_number(row[name])
             _need(row['low']<=min(row['open'],row['close'])<=max(row['open'],row['close'])<=row['high'])
         _need(days==sorted(set(days)))
-        _need(type(trades[code]) is list and len(trades[code])<=4096)
-        previous=None
-        for signal in trades[code]:
-            _need(type(signal) is dict and set(signal)=={'action','date','price','reason'})
-            _need(signal['action'] in ('BUY','SELL') and signal['date'] in days)
-            _need(previous is None or signal['date']>previous);previous=signal['date']
-            _number(signal['price'],positive=True);_text(signal['reason'])
+        if not opening:
+            _validate_signals(trades[code], set(days))
+    if opening:
+        signal_dates=set(original_days)
+        for signals in trades.values():
+            _validate_signals(signals, signal_dates)
     main='510300' if '510300' in history else codes[0]
     _need([r['date'] for r in history[main]]==calendar)
     policy=value['policy']
@@ -154,6 +183,51 @@ def _normalize_input(value):
     _text(policy['capital_source']);_need(0<=_money(value['fee_reserve_cny'])<1000000)
     for key in ('fee_source','market_manifest_source','price_basis'):_text(value[key])
     return value
+
+
+def _validate_signals(signals, dates):
+    _need(type(signals) is list and len(signals)<=4096)
+    previous=None
+    for signal in signals:
+        _need(type(signal) is dict and set(signal)=={'action','date','price','reason'})
+        _need(signal['action'] in ('BUY','SELL') and signal['date'] in dates)
+        _need(previous is None or signal['date']>previous)
+        previous=signal['date']
+        _number(signal['price'],positive=True)
+        _text(signal['reason'])
+
+
+def _validate_open_input(value, original_days):
+    calendar=value['calendar']
+    index=original_days.index(calendar[0])
+    _need(original_days[index:index+len(calendar)]==calendar)
+    _need(value['execution_map']==OPEN_MAP)
+    _need(value['fee_mode'] in ('per-share', 'turnover'))
+    _need(value['fee_reserve_cny']==('0' if value['fee_mode']=='per-share' else '0.01'))
+    execution_codes=set(OPEN_MAP.values())
+    _need(set(value['history'])==set(value['opening_bars'])==execution_codes)
+    all_days=set(calendar)
+    required={(day, minute) for day in calendar[1:] for minute in (OPEN_QUOTE, DAY_CLOSE)}
+    for code, rows in value['opening_bars'].items():
+        _need(type(rows) is list and 0<len(rows)<=3*len(calendar))
+        _need([row['date'] for row in value['history'][code]]==calendar)
+        seen=set()
+        previous=None
+        for row in rows:
+            _need(type(row) is dict and set(row)=={'date','minute','open','high','low','close','volume','amount'})
+            key=(row['date'], row['minute'])
+            _need(key[0] in all_days and type(key[1]) is int and key[1] in (OPEN_QUOTE, OPEN_MATCH, DAY_CLOSE))
+            _need(previous is None or previous<key)
+            previous=key
+            seen.add(key)
+            for name in ('open','high','low','close'):
+                _number(row[name],positive=True)
+            _number(row['volume'],positive=key[1]!=DAY_CLOSE)
+            _number(row['amount'])
+            _need(row['low']<=min(row['open'],row['close'])<=max(row['open'],row['close'])<=row['high'])
+        _need(required<=seen and (calendar[0],DAY_CLOSE) in seen)
+        if code=='510300':
+            _need(all((day,OPEN_MATCH) in seen for day in calendar[1:]))
 
 
 def normalize_input(value):
@@ -188,7 +262,16 @@ def build_input(snapshot,report,*,fee_reserve_cny='5000',fee_source='explicit-WT
 
 
 def configuration_id(value):
-    return _digest({key:value[key] for key in ('strategy','policy','fee_reserve_cny','fee_source','price_basis')})
+    keys=('strategy','policy','fee_reserve_cny','fee_source','price_basis')
+    if value['strategy']['strategy_version']==OPEN_VERSION:
+        keys+=('execution_map','fee_mode')
+    return _digest({key:value[key] for key in keys})
+
+
+def opening_buy_bound(fee_mode, quantity, price):
+    if fee_mode=='per-share':
+        return quantity*(price+Fraction('0.01'))
+    return quantity*price*Fraction('1.0003')+Fraction('0.01')
 
 
 def verify_report_input(report,payload,*,check=None):
@@ -207,9 +290,27 @@ def verify_report_input(report,payload,*,check=None):
             if check:check()
             expected.setdefault(_day(signal['date']),[]).append(dict(code=code,**signal))
     _need([row['trading_date'] for row in report['records']]==[_day(d) for d in value['calendar'][1:]])
-    for row in report['records']:
+    opening=report['strategy_version']==OPEN_VERSION
+    for index,row in enumerate(report['records']):
         if check:check()
-        _need(row['signals']==expected.get(row['trading_date'],[]))
+        signal_day=_day(value['calendar'][index]) if opening else row['trading_date']
+        _need(row['signals']==expected.get(signal_day,[]))
+    if opening:
+        quotes={(_native(code),_day(bar['date'])):bar['close']
+                for code,rows in value['opening_bars'].items() for bar in rows if bar['minute']==OPEN_QUOTE}
+        matches={(_native(code),_day(bar['date']))
+                 for code,rows in value['opening_bars'].items() for bar in rows if bar['minute']==OPEN_MATCH}
+        closes={(_native(code),_day(bar['date'])):bar['close']
+                for code,rows in value['history'].items() for bar in rows}
+        for row in report['records']:
+            if check:check()
+            day=row['trading_date']
+            _need(all(price==closes[symbol,day] for symbol,price in row['capture']['prices']))
+            for order in row['cash_control']['orders']:
+                key=order['symbol'],day
+                _need(key in matches and _money(order['limit_price_cny'])==Fraction(str(quotes[key])))
+                expected_bound=opening_buy_bound(value['fee_mode'],order['quantity'],_money(order['limit_price_cny']))
+                _need(_money(order['buy_cost_bound_cny'])==(expected_bound if order['action']=='BUY' else 0))
     return value
 
 
@@ -242,12 +343,14 @@ def validate_report(value,*,check=None):
             'reference_report_sha256','source_snapshot_sha256','status','native_files','native_outputs',
             'callback_counts','records','source_qualified','execution_qualified','point_in_time_qualified',
             'execution_model','evaluation_window'} and report.get('schema')==REPORT_SCHEMA
-            and report.get('strategy_id')==STRATEGY_ID and report.get('strategy_version') in (STRATEGY_VERSION,LEGACY_VERSION)
-            and report.get('signal_algorithm_id')==ALGORITHM_ID and report.get('scope')==REPORT_SCOPE)
+            and report.get('strategy_id')==STRATEGY_ID and report.get('strategy_version') in (STRATEGY_VERSION,LEGACY_VERSION,OPEN_VERSION)
+            and report.get('signal_algorithm_id')==ALGORITHM_ID
+            and report.get('scope')==scope_for_version(report['strategy_version']))
         for name in ('session_id','input_sha256','configuration_sha256','reference_report_sha256','source_snapshot_sha256'):_hash(report.get(name))
         _need(report.get('source_qualified') is False and report.get('execution_qualified') is False and report.get('point_in_time_qualified') is False)
         model=model_for_version(report['strategy_version'])
-        constrained=report['strategy_version']==STRATEGY_VERSION
+        opening=report['strategy_version']==OPEN_VERSION
+        constrained=report['strategy_version']!=LEGACY_VERSION
         _need(report.get('historical_model')==model and report.get('execution_model')==model)
         policy=report['policy']
         _need(type(policy) is dict and set(policy)=={'initial_capital_cny','capital_source','currency','quantity_unit','multiplier','lot'}
@@ -265,20 +368,26 @@ def validate_report(value,*,check=None):
         _need(_day(window['warmup_date'])<_day(window['from'])<=_day(window['to']))
         _need(_day(window['from'])==records[0]['trading_date'] and _day(window['to'])==records[-1]['trading_date'])
         _need(report['status']==records[-1]['status'])
-        _need(dict(report['callback_counts']).get('calculate')==len(records) and dict(report['callback_counts']).get('init')==1)
-        previous=0
+        counts=dict(report['callback_counts'])
+        calculations=counts.get('calculate')
+        _need(counts.get('init')==1 and type(calculations) is int)
+        _need(3*len(records)<=calculations<=3*len(records)+1 if opening else calculations==len(records))
+        previous=_day(window['warmup_date']) if opening else 0
         for index,row in enumerate(records):
             if guarded:guarded()
             _need(type(row) is dict and set(row)==({'trading_date','minute','status','reason','capture','signals',
-                'submit_vector','readback','cash_deficit','result','outcome','previous_status'}|({'cash_control'} if constrained else set())))
+                'submit_vector','readback','cash_deficit','result','outcome','previous_status'}|
+                ({'cash_control'} if constrained else set())|({'opening'} if opening else set())))
             _text(row['status']);_text(row['reason'])
             _need(type(row['cash_deficit']) is bool and row['result'] is None
                   and row['outcome'] is None and row['previous_status'] is None)
+            signal_day=previous if opening else row['trading_date']
             day=row['trading_date'];_need(type(day) is int and day>previous and row['minute']==1500);previous=day
             _day(f'{day:08d}'[:4]+'-'+f'{day:08d}'[4:6]+'-'+f'{day:08d}'[6:])
             capture=row['capture']
             _need(type(capture) is dict and set(capture)=={'session_id','sequence','trading_date','minute',
-                'projection','positions','prices','funds','basis'} and capture['session_id']==report['session_id']
+                'projection','positions','prices','funds','basis'}|({'native_marks'} if opening else set())
+                and capture['session_id']==report['session_id']
                 and type(capture['sequence']) is int and capture['sequence']==index+1
                 and capture['trading_date']==day and capture['minute']==1500)
             basis=capture['basis']
@@ -291,8 +400,10 @@ def validate_report(value,*,check=None):
             funds=capture['funds'];_need(type(funds) is dict and set(funds)=={'net','realized','dynamic','fees'}
                 and all(type(funds[k]) in (int,float) and -1e20<=funds[k]<=1e20
                         and (type(funds[k]) is int or math.isfinite(funds[k])) for k in funds))
-            _need(_money(basis['pnl_cny'])==Fraction(repr(float(funds['net']))))
-            _need(funds['fees']>=0 and nav==1000000+Fraction(repr(float(funds['net']))))
+            net=Fraction(repr(float(funds['net'])))
+            _need(_money(basis['pnl_cny'])==nav-1000000 and funds['fees']>=0)
+            if not opening:
+                _need(nav==1000000+net)
             _need(math.isclose(funds['net'],funds['realized']+funds['dynamic']-funds['fees'],rel_tol=1e-9,abs_tol=1e-6))
             positions=capture['positions'];_need(type(positions) is list and 1<=len(positions)<=9)
             for position in positions:
@@ -313,12 +424,40 @@ def validate_report(value,*,check=None):
                 price=prices[position['symbol']]
                 if actual:_number(price,positive=True);market+=actual*Fraction(repr(float(price)))
             _need(cash==nav-market and row['cash_deficit']==(cash<0))
+            if opening:
+                native_marks=dict(capture['native_marks'])
+                held={pos['symbol']:_quantity(pos['total']) for pos in positions if pos['first_entry'] and pos['total']}
+                _need(len(capture['native_marks'])==len(native_marks) and set(native_marks)==set(held))
+                native_market=sum(held[symbol]*Fraction(str(_number(mark,positive=True)))
+                                  for symbol,mark in native_marks.items())
+                _need(abs(cash-(1000000+net-native_market))<=Fraction('0.005'))
+            order_positions=positions
+            order_cash=cash
+            if opening:
+                opening_state=row['opening']
+                _need(type(opening_state) is dict and set(opening_state)=={'cash_cny','positions'})
+                order_cash=_money(opening_state['cash_cny'])
+                _need(order_cash>=0 and type(opening_state['positions']) is list)
+                order_positions=opening_state['positions']
+                previous_positions=records[index-1]['capture']['positions'] if index else ()
+                previous_actual={p['symbol']:_quantity(p['total']) for p in previous_positions if p['first_entry']}
+                _need(len(order_positions)==len(symbols) and {p['symbol'] for p in order_positions}==symbols
+                      and symbols=={_native(code) for code in OPEN_MAP.values()})
+                for position in order_positions:
+                    _need(set(position)=={'symbol','total','valid','first_entry','last_entry'})
+                    total=_quantity(position['total'])
+                    valid=_quantity(position['valid'])
+                    _need(total==previous_actual.get(position['symbol'],0) and valid<=total and valid%100==0)
+                    _need(type(position['first_entry']) is int and type(position['last_entry']) is int
+                          and position['last_entry']>=position['first_entry']>=0
+                          and bool(position['first_entry'])==bool(total))
             if constrained:
                 _need(cash>=0)
                 control=row['cash_control']
                 _need(type(control) is dict and set(control)=={'available_cash_cny','reserved_buy_cost_cny','orders'})
                 available=_money(control['available_cash_cny']);reserved=_money(control['reserved_buy_cost_cny'])
-                _need(available==max(Fraction(0),cash-1) and 0<=reserved<=available
+                buffer=Fraction('0.01') if opening else 1
+                _need(available==max(Fraction(0),order_cash-buffer) and 0<=reserved<=available
                       and type(control['orders']) is list and len(control['orders'])<=9)
                 order_symbols=set();total_bound=Fraction(0)
                 for order in control['orders']:
@@ -330,13 +469,13 @@ def validate_report(value,*,check=None):
                     _need(bound>=0 and (order['action']=='BUY' or bound==0))
                     if order['action']=='BUY':
                         _need(bound>=order['quantity']*_money(order['limit_price_cny'])
-                              and _money(order['limit_price_cny'])==Fraction(repr(float(prices[order['symbol']]))))
+                              and (opening or _money(order['limit_price_cny'])==Fraction(repr(float(prices[order['symbol']])))))
                     total_bound+=bound
                 _need(reserved==total_bound)
             _need(type(row['submit_vector']) is list and len(row['submit_vector'])<=9)
             submitted=set()
             frozen={position['symbol']:(_quantity(position['total'])-_quantity(position['valid'])
-                    if position['first_entry'] else 0) for position in positions}
+                    if position['first_entry'] else 0) for position in order_positions}
             for target in row['submit_vector']:
                 _need(type(target) is dict and set(target)=={'symbol','quantity'} and target['symbol'] in symbols
                       and target['symbol'] not in submitted and _quantity(target['quantity'])%100==0
@@ -347,20 +486,23 @@ def validate_report(value,*,check=None):
                 projected=dict(pairs);_need(len(projected)==len(pairs) and set(projected)<=symbols)
                 for quantity in projected.values():_need(_quantity(quantity)%100==0)
             if constrained:
-                actual={p['symbol']:(_quantity(p['total']) if p['first_entry'] else 0) for p in positions}
+                actual={p['symbol']:(_quantity(p['total']) if p['first_entry'] else 0) for p in order_positions}
                 submitted={p['symbol']:_quantity(p['quantity']) for p in row['submit_vector']}
                 orders={p['symbol']:p for p in control['orders']}
                 _need(set(orders)=={s for s,q in submitted.items() if q!=actual[s]})
                 for symbol,order in orders.items():
                     change=submitted[symbol]-actual[symbol]
                     _need(order['quantity']==abs(change) and order['action']==('BUY' if change>0 else 'SELL'))
-                _need(row['readback']==capture['projection'] if orders else not row['readback'])
+                if opening:
+                    _need(not row['readback'])
+                else:
+                    _need(row['readback']==capture['projection'] if orders else not row['readback'])
             _need(type(row['signals']) is list and len(row['signals'])<=9)
             signal_codes=set()
             for signal in row['signals']:
                 _need(type(signal) is dict and set(signal)=={'code','date','action','price','reason'}
-                      and type(signal['code']) is str and _native(signal['code']) in symbols
-                      and signal['code'] not in signal_codes and _day(signal['date'])==day
+                      and type(signal['code']) is str and _native(OPEN_MAP.get(signal['code'],signal['code']) if opening else signal['code']) in symbols
+                      and signal['code'] not in signal_codes and _day(signal['date'])==signal_day
                       and signal['action'] in ('BUY','SELL'))
                 _number(signal['price'],positive=True);_text(signal['reason']);signal_codes.add(signal['code'])
         result=object.__new__(ValidatedOriginalNativeReport)

@@ -61,6 +61,8 @@ CLI路由/准入/信号/退出码测试位于`tests/integration/strategy_cli`，
 
 CLI独立解析 `--work-root`，由操作员核对STORAGE记录；Observer环境变量只配置读取应用。`--archive-label` 要求WT父责任在原期限内完成回收与原件校验，再于原run目录发布 `completed-archive.json`。回执 `archive.status=available` 和固定receipt SHA才授予正式归档资格，详见[NBC-R7](../specs/native-backtest-cli.md#nbc-r7-wt父责任层发布原完成证明)。archive为unknown时保留原运行核查，子result或stdout不足以补造父证明。
 
+原版 `0.2.0a1` 开盘报告使用[ONB-7 冻结会话](../specs/original-native-backtest.md#onb-7-次交易日开盘正式回测)。`--start` 为评价首日前一个交易日的 14:59，`--end` 为评价末日的 15:00。按份费率和成交额万三分别使用匹配的安装绑定、会话文件和可区分的 `--archive-label`。运行完成时 WT 直接在原运行目录发布完成证明；观衡的回测列表按策略版本归类，已打开的列表可用“刷新列表”重读。隔离脚本与归档外的试跑不进入正式列表。
+
 完整已完成run采用新根时，沿受控采用流程逐文件复制、核源前后与目标SHA，再用支持该报告族的普通安装归档owner核所有引用、摘要和详情投影。保持报告、完成证明、原安装绑定、相对输出和run身份原字节；源目录保留备份。当前D盘9run/252文件已逐件核验，见[采用记录](../releases/2026-11-07-observer125-data-update-and-d-archive.md)。进行中的旧E运行继续由原owner在原根完成，完成后再按完整原件采用流程处理。回测及延迟敏感数据按用户指定放D；C盘候选从未线上采用。
 
 ## 浏览器只读报告

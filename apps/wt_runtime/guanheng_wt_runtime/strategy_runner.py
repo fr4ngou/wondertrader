@@ -68,8 +68,13 @@ def main(argv=None):
     from .strategy_host import PER_DATE_REPORT_SCHEMA
     from .strategy_host import ORIGINAL_REPORT_SCHEMA
     if request['report_schema'] == ORIGINAL_REPORT_SCHEMA:
-        from .original_native_replay import OriginalNativeInput, OriginalNativeSession
-        session = OriginalNativeSession(OriginalNativeInput.from_dict(request['session']))
+        from .original_native_contracts import OPEN_VERSION
+        if request['session']['strategy']['strategy_version'] == OPEN_VERSION:
+            from .original_opening_replay import OpeningSession
+            session = OpeningSession(request['session'])
+        else:
+            from .original_native_replay import OriginalNativeInput, OriginalNativeSession
+            session = OriginalNativeSession(OriginalNativeInput.from_dict(request['session']))
     elif request['report_schema'] == PER_DATE_REPORT_SCHEMA:
         # API代码来自安装清单覆盖的固定SDK；行情目录只提供原数据。
         from guanheng_market_client.qmt_native_replay import ReplayCatalog

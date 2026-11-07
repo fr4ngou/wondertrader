@@ -293,6 +293,12 @@ class BacktestArchive:
         read.check()
         summary = dict(strategy=strategy,  # 完成证明绑定的原报告/输入策略身份，不取展示名称。
                        initial_capital_cny=_money(amount))  # 原模型初始本金，人民币十进制文本。
+        if report['schema'] == ORIGINAL_REPORT_SCHEMA:
+            # 展示评价首日，归档的运行开始时间继续包含 WT 预热交易日。
+            first_day = report['records'][0]['trading_date']
+            _require(type(first_day) is int and receipt['configuration']['start']//10000 <= first_day
+                     <= receipt['configuration']['end']//10000)
+            summary['evaluation_start'] = first_day
         if receipt['run_id'] not in self._summaries and len(self._summaries) >= MAX_RUNS:
             del self._summaries[next(iter(self._summaries))]
         self._summaries[receipt['run_id']] = identity, _wire(summary)
