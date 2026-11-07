@@ -46,7 +46,7 @@ def _day(value):
     return value
 
 
-def _validate(value, deadline, cancelled):
+def _validate(value, deadline, cancelled, *, historical_read=False):
     required = {'schema', 'capture', 'snapshot_id', 'authorized_from', 'authorized_to',
                 'protected_requests', 'tasks', 'exclusions'}
     if (type(value) is not dict or not required <= set(value)
@@ -75,9 +75,14 @@ def _validate(value, deadline, cancelled):
         _check(deadline,cancelled)
         if type(symbol)is not str or _SYMBOL.fullmatch(symbol)is None or not first<=_day(start)<=last:
             raise ValueError('daily gap plan per-security date invalid')
-    blocked={}
+    blocked={};protected=[]
     for row in value['protected_requests']:
         _check(deadline, cancelled)
+        # v1原writer只冻结这五项身份，没有保存执行结论；只读解码保持unknown。
+        # 新写入仍须显式六字段。精确旧形态之外的缺项/额外字段继续作为损坏拒绝。
+        if (historical_read and type(row)is dict and set(row)=={
+                'slot','request_id','operation_id','arguments','request_sha256'}):
+            row=dict(row,execution_state='unknown')
         if (type(row) is not dict or set(row) != {'slot', 'request_id', 'operation_id', 'arguments',
                                                   'request_sha256', 'execution_state'}
                 or type(row['slot']) is not str or not Path(row['slot']).is_absolute()
@@ -86,6 +91,7 @@ def _validate(value, deadline, cancelled):
                 or _HASH.fullmatch(row['request_sha256']) is None
                 or row['execution_state'] not in ('unknown', 'call_returned', 'not_executed')):
             raise ValueError('daily gap plan protected identity invalid')
+        protected.append(row)
         args=row['arguments']
         if row['operation_id']=='market.history_prepare'and args.get('period')=='1d'and row['execution_state']=='unknown':
             if (type(args.get('symbol'))is not str or _SYMBOL.fullmatch(args['symbol'])is None
@@ -121,7 +127,8 @@ def _validate(value, deadline, cancelled):
                     'source_halted_requires_quantity_or_original_history','official_security_no_trade')):
             raise ValueError('daily gap plan exclusion invalid')
     _check(deadline, cancelled)
-    return value
+    # 规范视图供全部消费者/恢复共用；原PLAN字节、描述符SHA及槽保持原身份。
+    return dict(value,protected_requests=protected)
 
 
 def read_protected_request(path, *, deadline, cancelled=lambda: False):
@@ -193,7 +200,7 @@ def inspect_gap_plan(path, *, expected_sha256=None, deadline=None, cancelled=lam
         raise ValueError('daily gap plan digest invalid')
     raw = read_fixed(path, maximum=MAX_GAP_PLAN_BYTES, identity=expected_sha256)
     _check(deadline, cancelled)
-    value = _validate(strict_json(raw), deadline, cancelled)
+    value = _validate(strict_json(raw), deadline, cancelled, historical_read=True)
     return dict(path=str(path), sha256=hashlib.sha256(raw).hexdigest()), value
 
 

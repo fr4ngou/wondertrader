@@ -34,6 +34,97 @@ def restore(directory,value):
         protected_slots=[row['slot']for row in value['protected_requests']],deadline=monotonic()+10)
 
 
+def legacy_marker(tmp_path):
+    """旧writer的精确五字段v1原件；执行结果未记录，绝不补造已返回资格。"""
+    slot,value=fixture(tmp_path)
+    del value['protected_requests'][0]['execution_state']
+    root=tmp_path/'legacy';root.mkdir()
+    raw=encode(value);path=root/'PLAN.json';path.write_bytes(raw)
+    return slot,value,dict(path=str(path),sha256=hashlib.sha256(raw).hexdigest())
+
+
+def test_historical_five_field_plan_load_restore_and_freeze_keep_unknown_identity(tmp_path):
+    slot,value,descriptor=legacy_marker(tmp_path)
+    raw=Path(descriptor['path']).read_bytes();slot_raw=slot.read_bytes()
+    loaded=plans.load_gap_plan(descriptor,deadline=monotonic()+5)
+    assert loaded['protected_requests'][0]==dict(value['protected_requests'][0],execution_state='unknown')
+    assert restore(Path(descriptor['path']).parent,value)==descriptor
+    from integrations.guanheng.daily_gap_update import freeze_gap_progress
+    freeze_gap_progress(descriptor,None,deadline=monotonic()+5)
+    assert Path(descriptor['path']).read_bytes()==raw and slot.read_bytes()==slot_raw
+    assert 'execution_state'not in value['protected_requests'][0]
+
+
+def test_new_writer_requires_explicit_execution_state_before_creating_marker(tmp_path):
+    _slot,value,_descriptor=legacy_marker(tmp_path)
+    with pytest.raises(ValueError,match='protected identity'):
+        plans.write_gap_plan(tmp_path/'new',value,deadline=monotonic()+5)
+    assert not (tmp_path/'new').exists()
+
+
+@pytest.mark.parametrize('change',['missing_identity','extra_key','invalid_state','overlap'])
+def test_legacy_decode_keeps_exact_identity_schema_and_unknown_protection(tmp_path,change):
+    _slot,value,descriptor=legacy_marker(tmp_path)
+    row=value['protected_requests'][0]
+    if change=='missing_identity':del row['request_sha256']
+    elif change=='extra_key':row['legacy_guess']=True
+    elif change=='invalid_state':row['execution_state']=None
+    else:row['arguments'].update(start_time='20261106',end_time='20261106')
+    raw=encode(value);Path(descriptor['path']).write_bytes(raw)
+    with pytest.raises(ValueError):
+        plans.load_gap_plan(dict(descriptor,sha256=hashlib.sha256(raw).hexdigest()),deadline=monotonic()+5)
+
+
+def test_historical_plan_does_not_upgrade_later_slot_result_and_checks_changed_request(tmp_path,monkeypatch):
+    slot,value,descriptor=legacy_marker(tmp_path)
+    original=plans.read_protected_request
+    def later(*args,**kwargs):return dict(original(*args,**kwargs),execution_state='call_returned')
+    monkeypatch.setattr(plans,'read_protected_request',later)
+    assert restore(Path(descriptor['path']).parent,value)==descriptor
+    assert plans.load_gap_plan(descriptor)['protected_requests'][0]['execution_state']=='unknown'
+    import json
+    changed=json.loads(slot.read_bytes());changed['request']['request_id']=str(uuid4())
+    slot.write_bytes(encode(changed))
+    with pytest.raises(plans.GapPlanReferenceError):restore(Path(descriptor['path']).parent,value)
+
+
+def test_prepare_update_consumes_historical_plan_and_preserves_all_original_identities(tmp_path,monkeypatch):
+    """自然后继先读原计划再完成UPDATE；只替换公开事实/来源边界，真实输入owner写QA根。"""
+    import importlib.util
+    import json
+    from integrations.guanheng import daily_data_inputs as inputs
+    fixture_path=Path(__file__).parents[1]/'market_supplement'/'test_daily_owner.py'
+    spec=importlib.util.spec_from_file_location('historical_plan_daily_owner_fixture',fixture_path)
+    dependency=importlib.util.module_from_spec(spec);spec.loader.exec_module(dependency)
+    config,pool,facts,original_request=dependency.owner_fixture(tmp_path)
+    config['inputs'].pop('supplement_facts')
+    dependency.patch_owner_dependencies(monkeypatch,config,pool,facts,original_request)
+    slot,value,descriptor=legacy_marker(tmp_path)
+    value.update(authorized_from='20261104',authorized_to='20261104')
+    value['tasks'][0].update(start_date='20261104',end_date='20261104',dates=['20261104'])
+    original=json.loads(slot.read_bytes());original['request']['arguments'].update(start_time='20261103',end_time='20261103')
+    slot.write_bytes(encode(original))
+    identity=plans.read_protected_request(slot,deadline=monotonic()+5);identity.pop('execution_state')
+    value['protected_requests']=[identity]
+    raw=encode(value);Path(descriptor['path']).write_bytes(raw);descriptor['sha256']=hashlib.sha256(raw).hexdigest()
+    previous=tmp_path/'previous';(previous/'work').mkdir(parents=True)
+    request=previous/'REQUEST.json';request.write_bytes(encode(dict(protected_slots=[str(slot)])))
+    (previous/'work/STATE.json').write_bytes(encode(dict(stages=dict(gap_plan=descriptor))))
+    before={path:path.read_bytes()for path in (slot,request,Path(descriptor['path']))}
+    observed=[];load=inputs.load_gap_plan
+    def read(*args,**kwargs):
+        result=load(*args,**kwargs);observed.append(result['protected_requests'][0]);return result
+    monkeypatch.setattr(inputs,'load_gap_plan',read)
+    result=inputs.prepare_update(config,pool['date'],tmp_path/'next-inputs',
+        previous_requests=[str(request)],deadline=monotonic()+20)
+    fixed=json.loads(Path(result['path']).read_bytes())
+    assert observed==[dict(identity,execution_state='unknown')]
+    assert str(slot)in fixed['protected_slots']
+    assert all(path.read_bytes()==raw for path,raw in before.items())
+    assert inputs.prepare_update(config,pool['date'],tmp_path/'next-inputs',
+        previous_requests=[str(request)],deadline=monotonic()+20)==result
+
+
 def test_large_plan_writer_descriptor_and_consumer_share_one_capacity(tmp_path):
     _slot,value=fixture(tmp_path)
     row=deepcopy(value['protected_requests'][0]);row['slot']=str(tmp_path/('long-reference-'+'x'*1000))

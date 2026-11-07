@@ -271,6 +271,8 @@ captured状态中的合法unsupported类别、详情空值或正常无新证券�
 
 `guanheng.daily-gap-plan.v1`由唯一typed计划owner负责写入、描述符、恢复、推进、回读前冻结及价格接续读取，独立原件字节预算128MiB。预算按原100000保护引用每项约1KiB及原16MiB任务/排除文档规划取整；这是文档/内存资源预算，不截断保护、任务、日期或排除项，不新增证券、交易或目标条数配额，通用小原件16MiB默认保持。正常计划的全部JSON及投影随本次操作释放，额外只保留至多四个各不超过原1MiB槽上限的读取在途；实际对象内存还包含Python解析开销，原总D在读取/解析前后及逐项校验间传递，不按子步骤重置。写前核schema、授权窗口、真实日期/升序、不重叠任务及原unknown HPR保护区间、价格口径和总字节；写后沿相同合同及原SHA回读，成功后才授阶段提交。范围/模式/摘要或资源错误明确失败，原CURRENT和原件保持。
 
+v1历史保护记录：同一v1的原writer曾只保存slot、request_id、operation_id、arguments、request_sha256五项，没有执行结果字段。唯一typed读取入口只对这组精确五字段在内存补为execution_state=unknown，向所有消费者提供一致六字段视图；原文件字节、描述符SHA、请求UUID、参数和槽保持，后到结果不改旧计划的保守结论。该unknown继续阻止重叠HPR派发；恢复仍逐项核原槽和请求身份，坏SHA、缺原槽、身份变化及其它缺项/额外字段继续失败。新writer必须显式保存合法execution_state，写前拒绝五字段输入，不能因历史读取规则产生新省略状态的计划。
+
 纯本地缺口计划可显式采用既存尝试中的合法完成marker；同冻结capture、snapshot、授权日期、必需价格窗口及全部保护路径须一致，并重新核每个原slot的请求UUID/operation/arguments/规范请求SHA。原`call_returned`和`not_executed`仍由原`inspect_saved_result`及原binding证明，已知状态不能降级；原unknown保持冻结保守状态。缺失/改变的原责任单独失败，不作为可重建半份计划吞掉。此恢复不重做QAB缺口计算，不创建或搬迁原Source请求槽。原槽核验与新计划采集共用相同只读函数，至多四项本地文件/纯资格核验并行、有界提交，保持输入顺序；Source/HPR执行并发沿原执行器。主线程观察原取消/截止，异常取消未启动项并join全部在途读取后返回。
 
 `daily-immutable-stage.v1`在显式纯本地恢复选择较早marker时，以可选`result_attempt`记录该原尝试UUID，`attempts`完整顺序及全部旧目录保持；旧无字段状态仍沿原最后尝试解释。其它阶段默认只恢复最后尝试，保留更晚可能拥有的Source/未知责任。已提交结果继续核其固定描述符，损坏不能回退另一结果。旧程序尚未获消费128MiB计划及`result_attempt`的资格；回滚读取已发布版本与待完成任务的程序恢复资格分别验收，继续此任务须保留支持该typed合同的owner。
