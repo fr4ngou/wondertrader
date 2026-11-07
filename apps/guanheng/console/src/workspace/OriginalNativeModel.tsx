@@ -11,6 +11,7 @@ export default function OriginalNativeModel({ entry, label }: {
   const query = useQuery({ queryKey: ['original-native-model', entry.run_id, entry.receipt_sha256, entry.report_sha256],
     queryFn: ({ signal }) => fetchArchiveConfiguration(entry, signal), retry: false, staleTime: Infinity })
   const model = query.data?.original_native
+  const feeSource = query.data?.fee_source
   const opening = model?.execution_model === ORIGINAL_OPEN_EXECUTION
   const cashConstrained = opening || model?.execution_model === ORIGINAL_CASH_EXECUTION
   const executionSummary = opening
@@ -25,7 +26,7 @@ export default function OriginalNativeModel({ entry, label }: {
     {model ? <><p>{executionSummary}冻结 SELL 的余量保留至可卖。采用真实 OHLC、100 份整手，费用来自该报告绑定的 WT 资料。</p>
       <p>评价区间 {model.evaluation_window.from} 至 {model.evaluation_window.to}；额外暖机日 {model.evaluation_window.warmup_date}。原始信号算法与执行模型、整手和费用分别核验。</p>
       <p>{cashConstrained ? '本报告采用 WT 原生限价撮合与策略现金约束。' : '旧版按 D 日净值和价格规划次日目标，CtaMocker 未自动限制股票现金购买力，次日跳空可能产生负现金。'}{model.cash_deficit_count ? <strong role="alert">本报告有 {model.cash_deficit_count} 个负现金日，首日 {reportDate(model.cash_deficit_dates[0])}，这会影响收益结果的可执行性。</strong> : '本报告核验的负现金日为 0。'}</p>
-      {opening ? <p>本次费用规则为 {query.data?.fee_source}。分钟撮合不含盘口队列或成交容量。</p> : null}
+      {opening ? <p>本次费用规则为 {typeof feeSource === 'string' ? feeSource : '报告未提供'}。分钟撮合不含盘口队列或成交容量。</p> : null}
       <p>来源及历史首次可知时点资格仍待核实，报告用于历史研究。</p>
     </> : null}
   </details>
