@@ -290,14 +290,15 @@ def _view(rows,events,limit):
 
 class LiveStrategyPerformanceOwner:
     """App拥有展示副本和独占本地租约；原读池线程串行调用，实例不创建线程。"""
-    def __init__(self,settings,*,history_root='',snapshot_reader=None,process_probe=None):
+    def __init__(self,settings,*,history_root='',watchlist_root='',snapshot_reader=None,process_probe=None):
         self.settings=settings  # 只使用原WT读取配置及账户来源选择，不读凭据或运行配置。
-        self.history_root=history_root  # 已准备个人观察根；空值只提供本轮快照。
+        self.history_root=history_root  # 已准备的策略观察专用目录；空值只提供本轮快照。
+        self._watchlist_root=watchlist_root  # 偏好目录由自选owner独占，供历史落盘前校验边界。
         self._read_snapshot=snapshot_reader or self._snapshot  # 单次已核原发布快照，测试可注入事实。
         self._probe=process_probe or _process_running  # 只读OS创建/存活核查，未知保持None。
         self._lock=RLock()  # 本owner采集/查询/关闭序列，持锁等待受调用者绝对截止限制。
         self._lease=None  # 固定本地副本的唯一WindowsLease，close保持实际资源责任。
-        self._root=None  # 初始化后固定个人根路径；产品程序目录之外。
+        self._root=None  # 初始化后固定策略历史根路径；产品程序目录之外。
         self._root_key=None  # 已核根的设备/inode身份；路径被换根时拒绝沿旧租约读新库。
         self._closed=False  # 关闭后禁止新观察，原运行角色及来源保持。
 
@@ -330,6 +331,11 @@ class LiveStrategyPerformanceOwner:
             root=Path(self.history_root)
             if not root.is_absolute(): raise ValueError('live observation root')
             _inspect(root,directory=True)
+            root = root.resolve(strict=True)
+            if self._watchlist_root:
+                preference = Path(self._watchlist_root).resolve()
+                if root.is_relative_to(preference) or preference.is_relative_to(root):
+                    raise ValueError('live observation root overlaps personal watchlist')
             if self._lease is None:self._lease=WindowsLease()
             lease=self._lease  # 先登记，部分open失败仍由close负责释放，后续不覆盖其资源引用。
             if not lease.closed:raise RuntimeError('live lease initialization incomplete')

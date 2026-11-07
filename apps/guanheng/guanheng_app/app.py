@@ -92,7 +92,8 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         application.state.watchlist_owner = None
         application.state.observation_owner = None
         application.state.observation_error = None
-        application.state.live_strategy_performance = LiveStrategyPerformanceOwner(configured, history_root=configured.watchlist_root)
+        application.state.live_strategy_performance = LiveStrategyPerformanceOwner(
+            configured, history_root=configured.live_strategy_history_root, watchlist_root=configured.watchlist_root)
         application.state.live_observation_task = None
         application.state.live_observation_error = None
         application.state.shutdown_complete = False
@@ -111,7 +112,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
                 await _initialize_document(application.state.reader, application.state.watchlist_owner)
             business = bool(configured.wt_current_file) or all((configured.wt_status_file, configured.wt_control_id,
                 configured.wt_instance_id, configured.wt_configuration_sha256))
-            if configured.watchlist_root and business:
+            if configured.live_strategy_history_root and business:
                 await _live_observation_call(application, application.state.live_strategy_performance.initialize, 10)
                 application.state.live_observation_task = asyncio.create_task(_capture_live_observations(application))
             yield

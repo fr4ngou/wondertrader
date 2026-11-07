@@ -52,6 +52,8 @@ class ConsoleSettings(BaseModel):
     backtest_archive_root: str = ""
     # 个人观察偏好根，安装目录之外显式准备；空值关闭，不影响行情或交易配置。
     watchlist_root: str = ""
+    # 策略观察历史库的独立本地目录；空值保留本轮观察，启动时生效。
+    live_strategy_history_root: str = ""
     observation_root: str = ""
     # 证券目录是部署时发布的只读制品；名称、拼音和规范证券身份在同一制品中闭合。
     security_catalog_file: str = ""
@@ -74,6 +76,7 @@ class ConsoleSettings(BaseModel):
             account_source=os.environ.get('GUANHENG_ACCOUNT_SOURCE','wt_strategy'),
             backtest_archive_root=os.environ.get("GUANHENG_BACKTEST_ARCHIVE_ROOT", ""),
             watchlist_root=os.environ.get("GUANHENG_WATCHLIST_ROOT", ""),
+            live_strategy_history_root=os.environ.get("GUANHENG_LIVE_STRATEGY_HISTORY_ROOT", ""),
             observation_root=os.environ.get("GUANHENG_OBSERVATION_ROOT", ""),
             security_catalog_file=os.environ.get("GUANHENG_SECURITY_CATALOG_FILE", ""),
         )

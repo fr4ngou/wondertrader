@@ -23,6 +23,8 @@
 
 创建个人专用目录并设GUANHENG_WATCHLIST_ROOT；后续版本沿用这个目录。每次只运行一个使用该目录的观衡实例。市场观察读取已更新的外部GUANHENG_OBSERVATION_ROOT，回测归档读取GUANHENG_BACKTEST_ARCHIVE_ROOT；这些资料的更新和生成由各自组件负责。缺少对应输入时页面会显示能力状态。
 
+策略观察历史使用外部 `GUANHENG_LIVE_STRATEGY_HISTORY_ROOT`。预建与个人自选目录互不包含的专用目录，使用本地绝对路径；空值仅提供本轮策略观察。目录重叠时策略历史拒绝写入，自选继续使用自己的目录和校验。
+
 回测报告读取使用随App安装的WT纯报告接口，固定基准与逐日基准分别核对其模型和来源。GUANHENG_BACKTEST_ARCHIVE_ROOT指向WT正式发布的原归档根；独立REPORT.json或实验结果尚缺完成证明时，保持未归档状态。该依赖不启动WT或加载回测DLL。当前逐日消费及其正式归档资格分别见[验证记录](../evidence/2026-10-30-per-date-report-observer.md)。
 
 ```powershell
@@ -85,6 +87,10 @@ WT日常启停使用[当前实例公开契约](../specs/wt-service-control.md)�
 重启同版使用原 profile；外部读取配置与个人目录保持。升级或回退时，先用旧 profile 正常 stop 并保留 closed 证据，再为新版本创建新的 profile 和控制目录，引用新安装的解释器与 SPA，沿用原读取配置及个人目录。修改 profile 会改变运行身份，因此运行期间保留原 profile 供 stop 使用。版本切换只处理 Web，WT 和市场更新角色继续独立运行。
 
 该入口只管理经它启动的 Web。已有直接 `pythonw -m guanheng_app` 启动的实例没有这些控制回执，须由其原 Owner 正常退出后，再迁到本入口；本工具不会附着到任意 PID 或强杀旧实例。
+
+### 从共用目录迁移策略观察历史
+
+以旧 profile 正常停止 Web 并核对关闭回执，再核共用目录只有自选文档、两类锁和策略观察数据库；SQLite 日志或异常临时文件需先由相应 owner 收口。把数据库和原历史锁备份到受控目录，核原文件摘要与 SQLite 完整性后迁往已准备的独立历史目录。保持 `watchlist.json`、原自选锁和 `GUANHENG_WATCHLIST_ROOT` 原样。新 profile 显式绑定历史目录，启动后核实同一列表身份、版本、顺序和两张历史表的原有记录。回退到旧版需要在新 Web 完全关闭后，备份并核对最新历史库，再将历史库和锁一并放回旧版预期位置。
 
 ### Web日志留存
 

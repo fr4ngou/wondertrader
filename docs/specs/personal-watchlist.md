@@ -14,6 +14,7 @@
 
 - 一份显式应用配置根对应一个default个人列表，当前单机单操作者模型。没有新用户账户、券商账户映射、多watchlist、云同步或浏览器localStorage权威副本。
 - 新ConsoleSettings字段watchlist_root: str，环境GUANHENG_WATCHLIST_ROOT，默认空关闭；不读取.env、不猜用户目录、不探测旧工程。该根由操作员预先准备在安装包外的本地数据目录，部署配置显式保存。HTTP不接受路径、用户名、账户、策略ID或源地址。
+- 自选目录专用于偏好文档及其锁和临时文件。策略观察历史使用独立的 `GUANHENG_LIVE_STRATEGY_HISTORY_ROOT`，不得与自选目录重叠。旧共用部署按[观衡维护手册](../runbooks/observer-runtime.md#从共用目录迁移策略观察历史)离线迁移，保留原列表身份、版本和策略观察库。
 - 首批目标为当前Windows独立应用受支持的CPython环境；不存在相应OS锁能力时仅此功能不可用。平台实际支持按运行证据登记。
 - 路径必须非空绝对本地目录、UTF8<=4096B；拒相对、UNC/device路径、NUL、空白路径、根目录本身、symlink/junction/reparse及受管文件多hardlink。程序不递归创建根、不改ACL、不扫描别处。原盘符和resolve后的目标都须核绝对本地盘符、非根目录及实际本地drive类型；网络映射盘、UNC/device及未知drive拒绝。配置失效只使watchlist能力降级，行情/账户/回测和health保持各自事实。
 - 状态只包含代码列表和自身版本。添加不调用QMT、SDK、原生订阅/下载、策略注册或配置激活；只在用户明确点选代码读取分钟图时使用现有图表GET。保存成功说明偏好保存，不授证券存在、行情可用或交易资格。
