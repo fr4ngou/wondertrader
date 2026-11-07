@@ -285,7 +285,8 @@ def strategy_extension_configuration(native, *, deadline=float('inf')):
     """仅投影已冻结新增行；原单策略业务准入继续核其余所有字段。"""
     marker=native.get('strategy_extension_origin')
     if marker is None:return native
-    _require(type(marker)is dict and set(marker)=={'schema','file','sha256','added_strategy'}
+    _require(type(marker)is dict and {'schema','file','sha256','added_strategy'}<=set(marker)
+        <={'schema','file','sha256','added_strategy','dependency_handoff'}
         and marker['schema']=='guanheng.strategy-extension-origin.v1')
     def pinned(reference,maximum):
         _require(type(reference)is dict and set(reference)=={'file','sha256'})
@@ -307,6 +308,9 @@ def strategy_extension_configuration(native, *, deadline=float('inf')):
         and sum(r['id']=='resonance-regime-v1'for r in rows)==1)
     projected=copy.deepcopy(native);projected.pop('strategy_extension_origin')
     projected['strategies']=[r for r in projected['strategies']if r['id']=='resonance-regime-v1']
+    if 'dependency_handoff'in marker:
+        from .execution_dependency_handoff import normalize_dependencies
+        projected=normalize_dependencies(projected,origin,marker['dependency_handoff'],marker['sha256'],deadline=deadline)
     _require(compatible_business_configuration(projected,origin,deadline=deadline))
     return projected
 
@@ -320,7 +324,9 @@ def compatible_business_configuration(current, previous, *, deadline=float('inf'
     # 旧双ctx不能在投影时被丢弃；后继新增行必须逐值保持。
     if 'strategy_extension_origin'in previous:
         _require('strategy_extension_origin'in current and _extension_row(current)==_extension_row(previous)
-            and current['strategy_extension_origin']==previous['strategy_extension_origin'])
+            and {k:v for k,v in current['strategy_extension_origin'].items()if k!='dependency_handoff'}
+                =={k:v for k,v in previous['strategy_extension_origin'].items()if k!='dependency_handoff'}
+            and ('dependency_handoff'not in previous['strategy_extension_origin']or'dependency_handoff'in current['strategy_extension_origin']))
     before=_business(market_origin_configuration(previous,deadline=deadline))
     after=_business(market_origin_configuration(current,deadline=deadline))
     if ('takeover' in current)!=('takeover' in previous):

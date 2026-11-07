@@ -28,4 +28,6 @@ queued/dispatching在原构造会发生恢复写入，因此维护构造在提�
 
 ## TBE-4 验证资格
 
+公开纯函数 `reference_deployment_identity(raw)` 复用原完整 `_decode_reference_deployment` 和唯一交易绑定校验，返回 `qmt.trade-deployment-origin.v1`：deployment_sha256绑定完整原pair部署字节；journal_path来自原Host声明；trade_binding_sha256使用Source原UTF8 canonical规则；schema标识提取协议。投影没有凭据、账户正文、连接/Journal/SDK副作用，不提供scope采用或当前运行资格。恢复消费方绑定原部署与该投影，再核原owner计划/连续版本/采用回执；计划的备份Journal路径与原Host路径不符时拒绝作为生产证明。新普通Host发行与旧a23演练分别留证。
+
 先证明合成已停止原owner→prepare→adopt→新配置恢复→旧UUID/事件/ticket原字节读取→新增159352准入及整数SELL，再核错误授权/缩scope/改账户预算/旧配置/坏链/CAS变化/未知责任跨版本保持/截止。实际生产Journal和配对材料保持仅读；普通安装、原56命令完整副本演练、权限采用与自然时段委托分别留证。

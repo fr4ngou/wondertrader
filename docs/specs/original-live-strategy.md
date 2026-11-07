@@ -51,3 +51,21 @@ BUY/SELL信号一致性、目标数量规则、实际执行时点和成交结果
 仅从比较副本移除经原件核同的新增行和扩展标记，再使用既有业务、角色、行情接入准入。其余账户、账根、原策略行、预算模型、合约和证券权限沿原约束；本扩展不增加价格、合约、Source绑定或过滤器豁免。后继双策略配置继续携带相同新增行；双策略不能沿此协议退回单策略或替换新增行。
 
 首次 `resume_reconciled` 使用实际状态owner的原策略集合核金融文件；新增ctx的stradata/userdata必须尚不存在。全体原文件的字节SHA继续绑定在原transition中。原WT加载器为新增ctx建立空状态，不预生成金融JSON、不复制账户持仓。后继正常关闭证明包含两个ctx，`resume_clean` 对两个ctx沿原SHA逐件准入。原版有效初始化模式由已验恢复状态owner确定；配置中的固定首次new声明不使后继恢复重置意图或资金。原单策略无标记调用保持原语义。
+
+## OLS-7 新策略依赖的显式续接
+
+仅OLS-6标记可增加可选 `dependency_handoff:{file,sha256}`，固定 `guanheng.strategy-dependency-handoff.v1` 材料。省略保持原准入；显式材料只归一化本节列明的依赖差异。标记的原配置/新增策略行继续保持，后继可用新依赖材料绑定新安装；两代材料分别完整核验，不允许撤回已有依赖续接。
+
+材料必填字段为：`schema`；`origin_configuration_sha256`（与OLS-6原配置SHA相同）；`previous_installation`、`current_installation`（两代实际 `execution-install.json` 的file/sha256）；`reader_additions`（恰为589680.SH→SSE.ETF.589680、159352.SZ→SZSE.ETF.159352两条映射）；`contract_addition`（159352的唯一完整Native合约行）；`contract_reference`（已准入数据owner证券资料catalog的file/sha256）；`source_extension`（未变更运输/绑定引用时为null）。完整安装文件的运行资格继续由原安装owner逐件校验；恢复比较核固定两代清单，并逐件核业务基础文件和过滤器的真实字节。
+
+两代base_data相对映射必须相同。sessions、commodities、holidays、policy、fees及已有过滤器原件SHA相同；contracts所有旧交易所及全部旧行逐值相同，仅追加SZSE.159352。新合约的exchg/product/上市日/名称须与固定资料中的SZSE.159352 ETF一致，原品种/会话/费率沿原件。旧Reader8条顺序和值保留，仅在其后追加上述两条，std_code/symbol均唯一。其它Reader字段、复权/单位/时区/日线/publication语义继续原比较约束。installation_root只在已核安装/业务文件的比较副本回投到原root，真实新安装身份不改写。
+
+environment独立声明的fees与filters也分别按两代安装清单及实际文件字节核同；不能只比较相对文件名。未声明或空fees保持原默认路径，不擅自增设费表。既有模拟费率的业务身份保留，不将其标作真实券商费率。
+
+`source_extension`存在时固定 `previous_version`、`current_version`、`adoption_receipt`、`plan`、`origin_deployment`、`origin_identity` 六个file/sha256及 `transport`。origin_deployment为实际原pair完整deployment原件；origin_identity由Source owner的 `reference_deployment_identity` 复用原完整decoder产生，只含schema、deployment_sha256、journal_path、trade_binding_sha256，不复制凭据。Runtime通过普通安装Source owner API从已核raw重新派生全部投影字段并逐值核同；Native从同raw的host核journal_path及trade_binding规范摘要，投影自报值不构成独立证明。Runtime此显式分支依赖普通Host0.1.0a24+deploymentidentity.1；默认无Source续接分支保持原行为。Runtime/Native核原部署字节摘要和此owner投影；plan.journal_path须等于实际原Host路径，备份Journal采用证明不能作为生产证明。plan的新identity/profile/保护摘要与采用版本核同，原权限算法仍归Source。
+
+版本原件为原HostTradingJournal owner输出的连续完整canonical版本记录；current.parent_sha256、adoption.identity_sha256与实际原件SHA核同，version连续，plan_sha256一致且adopted为true。旧/新Native binding_sha256分别核同两版identity.trade_binding的原Source UTF8规范摘要；Native binding_id和全部账户/环境/profile/币种/预算/query字段保持。transport恰含base_url、binding_sha256、instance_id、key_id_env、hmac_secret_env五项当前冻结值，比较副本仅回投这五项。Source权限及规则扩展只由原Source owner和新当前绑定准入，Native不重写权限算法、不造Source成功事实；没有实际owner采用证明时只可验证合成候选。
+
+plan保存原Source canonical字节，核其去除自身plan_sha256字段后的语义ID；不能改journal_path后保留旧ID或仅重算文件SHA。Native使用原canonical字节核ID，避免另一套浮点JSON格式器改变Source身份。origin_identity是受控Source owner输出，制作时调用原提取器并保留普通安装/原件身份，禁止手写投影代替该来源证明。
+
+旧589680全局ignore过滤保持原文件SHA，本续接不授清仓、替代、内部分仓或移除过滤权限。实际旧文件/命令责任、现金基准和周期继续由原owner保存。正向验收包括合成实际Native准入及两代材料；负向验收覆盖旧业务/账户/profile/预算、旧合约/基础文件/过滤器变更、其它Reader扩展、坏SHA及缺Source采用证明。

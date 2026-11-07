@@ -6,6 +6,8 @@ int main(int argc,char** argv){
         need(argc==2);auto request=parse(read(absolute(argv[1]),1024*1024));
         const auto mode=text(request,"mode");
         if(mode=="compare")need(compatible_model(member(request,"previous"),member(request,"current")));
+        else if(mode=="source-origin")source_origin(member(request,"source_extension"),text(request,"binding_sha256",64));
+        else if(mode=="source-plan")source_plan(member(request,"plan"));
         else if(mode=="state")transition_state_identity(absolute(text(request,"output")),member(request,"current"),member(request,"previous"));
         else if(mode=="admit"){
             const auto& current=member(request,"current");

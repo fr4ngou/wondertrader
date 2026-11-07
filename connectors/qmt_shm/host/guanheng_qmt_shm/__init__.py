@@ -1,11 +1,12 @@
 """Independent authenticated read-only QMT Host; internal private artifact."""
 from importlib import import_module
 
-__version__ = "0.1.0a23+bindingextension.1"
+__version__ = "0.1.0a24+deploymentidentity.1"
 
 # 公开API在实际使用时才加载：共享内存/私有文件等标准库工具独立运行，
 # HTTP应用的FastAPI/Uvicorn依赖只由使用HTTP入口的进程承担。
 _EXPORTS = {
+    "reference_deployment_identity": ".trade_deployment_identity",  # 无秘密部署身份投影；不授Source采用或运行资格。
     "build_runtime": ".bootstrap", "create_app": ".app",
     "create_server": ".server", "run_server": ".server",
     "HostReadRuntime": ".runtime", "HostRequest": ".runtime", "HostResponse": ".runtime",

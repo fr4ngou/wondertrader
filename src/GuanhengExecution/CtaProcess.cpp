@@ -37,6 +37,8 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <utility>
+#include <limits>
 
 namespace fs=std::filesystem;namespace rj=rapidjson;
 using Clock=std::chrono::steady_clock;
@@ -526,11 +528,162 @@ rj::Document legacy_market_model(const rj::Value& config){
     need(same_business(current,original));return original;
 }
 
+// 只读受控依赖原件；不重建Source权限或改写实际安装/Native配置。
+std::string dependency_bytes(const rj::Value& reference,std::size_t maximum){
+    keys(reference,{"file","sha256"});const auto raw=read(absolute(text(reference,"file")),maximum);
+    need(sha(raw)==text(reference,"sha256",64));return raw;
+}
+std::pair<rj::Document,std::string> dependency_proof(const rj::Value& reference,std::size_t maximum){
+    const auto raw=dependency_bytes(reference,maximum);return {parse(raw,std::min<std::size_t>(maximum,16*1024*1024)),raw};
+}
+void source_sort(rj::Value& value,rj::Document::AllocatorType& allocator){
+    // Source绑定只含精确整数/文本；按原canonical排序对象键，原值保持。
+    if(value.IsObject()){
+        std::vector<std::string> names;for(auto it=value.MemberBegin();it!=value.MemberEnd();++it)names.emplace_back(it->name.GetString(),it->name.GetStringLength());
+        std::sort(names.begin(),names.end());rj::Value sorted(rj::kObjectType);
+        for(const auto& name:names){rj::Value key;key.SetString(name.c_str(),static_cast<rj::SizeType>(name.size()),allocator);
+            rj::Value child;child.CopyFrom(value[name.c_str()],allocator);source_sort(child,allocator);sorted.AddMember(key,child,allocator);}
+        value.Swap(sorted);
+    }else if(value.IsArray()){for(auto& child:value.GetArray())source_sort(child,allocator);}
+}
+std::string source_identity(const rj::Value& value){
+    rj::Document canonical;canonical.CopyFrom(value,canonical.GetAllocator());source_sort(canonical,canonical.GetAllocator());
+    rj::StringBuffer buffer;rj::Writer<rj::StringBuffer> writer(buffer);need(canonical.Accept(writer));
+    return sha({buffer.GetString(),buffer.GetSize()}); // 原Source使用UTF8规范正文，不能用Native业务ASCII转义替代。
+}
+rj::Document source_plan(const rj::Value& reference){
+    auto plan=dependency_proof(reference,1024*1024);const auto expected=text(plan.first,"plan_sha256",64);
+    // 原Owner canonical字节的ID不经另一套浮点JSON格式器重算；移除固定自身字段后核原SHA。
+    auto body=plan.second;const auto token="\"plan_sha256\":\""+expected+"\"";const auto at=body.find(token);
+    need(at!=std::string::npos&&body.find(token,at+token.size())==std::string::npos);
+    if(at>0&&body[at-1]==',')body.erase(at-1,token.size()+1);
+    else{need(at+token.size()<body.size()&&body[at+token.size()]==',');body.erase(at,token.size()+1);}
+    need(sha(body)==expected);
+    need(text(plan.first,"schema_version")=="qmt.trade-binding-extension-plan.v1");return std::move(plan.first);
+}
+rj::Document source_origin(const rj::Value& proof,const std::string& binding_sha){
+    const auto identity=dependency_proof(member(proof,"origin_identity"),65536);
+    const auto raw=dependency_bytes(member(proof,"origin_deployment"),16*1024*1024);
+    auto plan=source_plan(member(proof,"plan"));auto deployment=parse(raw,16*1024*1024);
+    const auto& host=member(deployment,"host");need(host.IsObject());
+    // 只核原件身份，不在Native重复Source权限算法或复制任何凭据。
+    const auto actual=absolute(text(host,"journal_path")).wstring();
+    const auto stated=absolute(text(identity.first,"journal_path")).wstring();
+    need(CompareStringOrdinal(actual.c_str(),static_cast<int>(actual.size()),stated.c_str(),static_cast<int>(stated.size()),TRUE)==CSTR_EQUAL
+        &&source_identity(member(host,"trade_binding"))==text(identity.first,"trade_binding_sha256",64));
+    keys(identity.first,{"schema","deployment_sha256","journal_path","trade_binding_sha256"});need(identity.first.MemberCount()==4);
+    const auto left=absolute(text(identity.first,"journal_path")).wstring();const auto right=absolute(text(plan,"journal_path")).wstring();
+    need(text(identity.first,"schema")=="qmt.trade-deployment-origin.v1"&&text(identity.first,"deployment_sha256",64)==sha(raw)
+        &&text(identity.first,"trade_binding_sha256",64)==binding_sha
+        &&CompareStringOrdinal(left.c_str(),static_cast<int>(left.size()),right.c_str(),static_cast<int>(right.size()),TRUE)==CSTR_EQUAL
+        &&text(plan,"schema_version")=="qmt.trade-binding-extension-plan.v1");
+    return plan;
+}
+int dependency_date(const rj::Value& value){
+    need(value.IsString());const std::string s=value.GetString();need(s.size()==10&&s[4]=='-'&&s[7]=='-');
+    for(std::size_t i=0;i<s.size();++i)if(i!=4&&i!=7)need(s[i]>='0'&&s[i]<='9');
+    SYSTEMTIME day{};day.wYear=static_cast<WORD>(std::stoi(s.substr(0,4)));
+    day.wMonth=static_cast<WORD>(std::stoi(s.substr(5,2)));day.wDay=static_cast<WORD>(std::stoi(s.substr(8,2)));
+    FILETIME file{};need(SystemTimeToFileTime(&day,&file)!=0);return day.wYear*10000+day.wMonth*100+day.wDay;
+}
+void normalize_dependencies(rj::Document& current,const rj::Value& origin,const rj::Value& reference,const std::string& origin_sha){
+    auto proof=dependency_proof(reference,1024*1024);const auto& value=proof.first;
+    keys(value,{"schema","origin_configuration_sha256","previous_installation","current_installation","reader_additions","contract_addition","contract_reference","source_extension"});
+    need(text(value,"schema")=="guanheng.strategy-dependency-handoff.v1"&&text(value,"origin_configuration_sha256",64)==origin_sha);
+    auto manifest=[](const rj::Value& ref,const rj::Value& config){
+        const auto root=absolute(text(config,"installation_root"));
+        need(absolute(text(ref,"file"))==root.parent_path()/"execution-install.json");
+        auto result=dependency_proof(ref,256*1024);keys(result.first,{"schema","files"});
+        need(text(result.first,"schema")=="guanheng.execution-install.v1");
+        const auto& files=member(result.first,"files");need(files.IsObject()&&files.MemberCount()>0&&files.MemberCount()<=512);
+        for(auto it=files.MemberBegin();it!=files.MemberEnd();++it){
+            need(it->value.IsString()&&it->value.GetStringLength()==64);
+            const auto name=std::string(it->name.GetString(),it->name.GetStringLength());const auto p=fs::u8path(name);
+            need(!p.is_absolute()&&!p.has_root_name()&&name.find('\\')==std::string::npos&&name.find(':')==std::string::npos);
+            for(const auto& part:p)need(part!=".."&&part!=".");
+            for(char digit:std::string(it->value.GetString()))need((digit>='0'&&digit<='9')||(digit>='a'&&digit<='f'));
+        }
+        return std::move(result.first);
+    };
+    const auto previous=manifest(member(value,"previous_installation"),origin);
+    const auto next=manifest(member(value,"current_installation"),current);
+    const auto old_root=absolute(text(origin,"installation_root"));const auto root=absolute(text(current,"installation_root"));
+    auto installed_body=[](const fs::path& folder,const rj::Value& manifest,const std::string& name){
+        const auto path=installed(folder,name);for(auto parent=path;parent!=folder.parent_path();parent=parent.parent_path())physical(parent);
+        const auto raw=read(path,16*1024*1024);const auto& files=member(manifest,"files");
+        const auto key="app/"+name;need(files.HasMember(key.c_str())&&sha(raw)==text(files,key.c_str(),64));return raw;
+    };
+    const auto& base=member(current,"base_data");need(base==member(origin,"base_data")&&base.IsObject()&&base.HasMember("contracts"));
+    for(auto it=base.MemberBegin();it!=base.MemberEnd();++it){
+        need(it->value.IsString());const std::string name=it->value.GetString();
+        const auto before=installed_body(old_root,previous,name);const auto after=installed_body(root,next,name);
+        if(it->name!="contracts"){need(before==after);continue;}
+        const auto old=parse(before);auto fresh=parse(after);const auto& row=member(value,"contract_addition");
+        keys(row,{"exchg","expiredate","name","opendate","product"});need(row.MemberCount()==5);
+        need(text(row,"exchg")=="SZSE"&&text(row,"product")=="ETF"&&member(row,"opendate").IsInt()&&member(row,"expiredate").IsInt()
+            &&!member(old,"SZSE").HasMember("159352")&&member(fresh,"SZSE").HasMember("159352")&&fresh["SZSE"]["159352"]==row);
+        const auto reference=dependency_proof(member(value,"contract_reference"),16*1024*1024);
+        const auto schema=text(reference.first,"schema");need(schema=="guanheng.security-reference.v1"||schema=="guanheng.security-reference.v2"||schema=="guanheng.security-reference.v3");
+        const auto& security=member(member(reference.first,"securities"),"SZSE.159352");
+        keys(security,{"symbol","name","market","security_type","listed_on","expires_on","observed_at"});need(security.MemberCount()==7);
+        need(text(security,"symbol")=="SZSE.159352"&&text(security,"market")=="SZSE"&&text(security,"security_type")=="etf"
+            &&text(security,"name",128)==text(row,"name",128)&&dependency_date(member(security,"listed_on"))==member(row,"opendate").GetInt()
+            &&(member(security,"expires_on").IsNull()?20991231:dependency_date(security["expires_on"]))==member(row,"expiredate").GetInt());
+        fresh["SZSE"].RemoveMember("159352");need(fresh==old);
+    }
+    need(member(current,"environment")==member(origin,"environment"));
+    for(const char* key:{"filters","fees"}){
+        const auto& env=member(origin,"environment");if(!env.HasMember(key))continue;
+        need(env[key].IsString());const std::string name=env[key].GetString();
+        if(!name.empty())need(installed_body(root,next,name)==installed_body(old_root,previous,name));
+    }
+    const auto expected=parse("{\"rows\":[{\"std_code\":\"SSE.ETF.589680\",\"symbol\":\"589680.SH\"},{\"std_code\":\"SZSE.ETF.159352\",\"symbol\":\"159352.SZ\"}]}");
+    const auto& additions=member(value,"reader_additions");need(additions==member(expected,"rows"));
+    const auto& old_rows=member(member(member(origin,"data"),"store"),"symbols");
+    auto& rows=current["data"]["store"]["symbols"];need(old_rows.IsArray()&&old_rows.Size()==8&&rows.IsArray()&&rows.Size()==10);
+    std::set<std::string> standard,symbols;
+    for(rj::SizeType i=0;i<rows.Size();++i){
+        need(rows[i]==(i<8?old_rows[i]:additions[i-8]));
+        need(standard.insert(text(rows[i],"std_code")).second&&symbols.insert(text(rows[i],"symbol")).second);
+    }
+    rows.CopyFrom(old_rows,current.GetAllocator());
+    const auto& source=member(value,"source_extension");const auto& old_trader=member(origin,"trader");auto& trader=current["trader"];
+    const char* names[]={"base_url","binding_sha256","instance_id","key_id_env","hmac_secret_env"};
+    if(source.IsNull()){
+        for(auto key:names)need(trader.HasMember(key)==old_trader.HasMember(key)&&(!trader.HasMember(key)||trader[key]==old_trader[key]));
+    }else{
+        keys(source,{"previous_version","current_version","adoption_receipt","transport","plan","origin_deployment","origin_identity"});need(source.MemberCount()==7);
+        const auto& transport=member(source,"transport");keys(transport,{"base_url","binding_sha256","instance_id","key_id_env","hmac_secret_env"});need(transport.MemberCount()==5);
+        for(auto key:names)need(old_trader.HasMember(key)&&trader.HasMember(key)&&transport[key]==trader[key]);
+        auto previous=dependency_proof(member(source,"previous_version"),1024*1024);
+        auto next=dependency_proof(member(source,"current_version"),1024*1024);
+        auto adoption=dependency_proof(member(source,"adoption_receipt"),65536);const auto& receipt=adoption.first;
+        const auto plan=source_origin(source,text(old_trader,"binding_sha256",64));
+        need(member(plan,"expected_version")==member(previous.first,"version")&&member(plan,"new_identity")==member(next.first,"identity")
+            &&member(plan,"new_profile")==member(next.first,"profile")
+            &&text(member(plan,"protected_facts"),"facts_sha256",64)==text(next.first,"protected_facts_sha256",64)
+            &&text(plan,"plan_sha256",64)==text(next.first,"plan_sha256",64));
+        keys(receipt,{"schema_version","version","identity_sha256","plan_sha256","adopted"});need(receipt.MemberCount()==5);
+        need(text(previous.first,"schema_version")=="qmt.trade-binding-extension.v1"&&text(next.first,"schema_version")=="qmt.trade-binding-extension.v1"
+            &&member(previous.first,"version").IsInt64()&&member(next.first,"version").IsInt64()&&member(previous.first,"version").GetInt64()>=1
+            &&member(previous.first,"version").GetInt64()<std::numeric_limits<int64_t>::max()
+            &&member(next.first,"version").GetInt64()==member(previous.first,"version").GetInt64()+1
+            &&text(next.first,"parent_sha256",64)==sha(previous.second)
+            &&text(receipt,"schema_version")=="qmt.trade-binding-extension.v1"&&member(receipt,"adopted").IsTrue()
+            &&member(receipt,"version").IsInt64()&&receipt["version"]==next.first["version"]
+            &&text(receipt,"identity_sha256",64)==sha(next.second)&&text(receipt,"plan_sha256",64)==text(next.first,"plan_sha256",64)
+            &&source_identity(member(member(previous.first,"identity"),"trade_binding"))==text(old_trader,"binding_sha256",64)
+            &&source_identity(member(member(next.first,"identity"),"trade_binding"))==text(trader,"binding_sha256",64));
+        for(char digit:text(receipt,"plan_sha256",64))need((digit>='0'&&digit<='9')||(digit>='a'&&digit<='f'));
+        for(auto key:names)trader[key].CopyFrom(old_trader[key],current.GetAllocator());
+    }
+    current["installation_root"].CopyFrom(member(origin,"installation_root"),current.GetAllocator());
+}
 // 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
 rj::Document market_model(const rj::Value& config){
     if(!config.HasMember("strategy_extension_origin"))return legacy_market_model(config);
     const auto& marker=member(config,"strategy_extension_origin");
-    keys(marker,{"schema","file","sha256","added_strategy"});
+    keys(marker,{"schema","file","sha256","added_strategy","dependency_handoff"});
     need(text(marker,"schema")=="guanheng.strategy-extension-origin.v1");
     const auto path=absolute(text(marker,"file"));need(path.filename()=="execution.json");
     const auto raw=read(path,256*1024);need(sha(raw)==text(marker,"sha256",64));
@@ -552,6 +705,7 @@ rj::Document market_model(const rj::Value& config){
         else{need(text(*it,"id")=="resonance-regime-v1");++retained;++it;}
     }
     need(removed==1&&retained==1);
+    if(marker.HasMember("dependency_handoff"))normalize_dependencies(projected,original,marker["dependency_handoff"],text(marker,"sha256",64));
     auto before=legacy_market_model(original);auto after=legacy_market_model(projected);
     before.RemoveMember("recovery");after.RemoveMember("recovery");
     need(same_business(before,after));return legacy_market_model(projected);
@@ -559,8 +713,11 @@ rj::Document market_model(const rj::Value& config){
 bool compatible_model(const rj::Value& previous,const rj::Value& current){
     // 后继双ctx必须保留冻结新增行及扩展原件身份；投影不能隐藏策略删除或参数变更。
     if(previous.HasMember("strategy_extension_origin")){
-        need(current.HasMember("strategy_extension_origin")
-            &&previous["strategy_extension_origin"]==current["strategy_extension_origin"]);
+        need(current.HasMember("strategy_extension_origin"));
+        rj::Document before,after;before.CopyFrom(previous["strategy_extension_origin"],before.GetAllocator());
+        after.CopyFrom(current["strategy_extension_origin"],after.GetAllocator());
+        need(!before.HasMember("dependency_handoff")||after.HasMember("dependency_handoff"));
+        before.RemoveMember("dependency_handoff");after.RemoveMember("dependency_handoff");need(before==after);
         const auto find=[](const rj::Value& value)->const rj::Value*{
             for(const auto& row:member(value,"strategies").GetArray())
                 if(text(row,"id")=="resonance-original-wt-351f9d5-stable")return &row;
