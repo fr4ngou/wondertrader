@@ -1,5 +1,7 @@
 # 验证证据
 
+- [R25共享账户实际执行验证](2026-11-07-shared-account-r25-execution.md)：确定卖出、WT风控后目标、同账户占款与原指令闭环。
+
 - [R24同账户实际资金与份额独立复核](2026-11-07-shared-account-r24-independent-review.md)：原生责任、实际费用缺口、缩仓、内部划转和恢复反例。
 
 - [开发原则与缺陷预防规范整合](2026-11-07-development-principles.md)：根因回归、语义复用与模块边界。

@@ -16,7 +16,7 @@
 | 日更恢复 | Data28/Source19沿同一任务越过历史五字段计划校验并实际进入辅助事实回读；四个只读服务自然自启通过。完整辅助事实尚待确认。 | [日更发布](../releases/2026-11-07-data28-natural-recovery.md) |
 | 数据日期 | 11月6日自然价格CURRENT d22074fd…已发布；已核历史原价单位在合并中被旧档覆盖，前复权保留资格。 | [日更发布](../releases/2026-11-07-data28-natural-recovery.md) |
 | 来源缺口 | 已发布辅助事实仍有2只深市份额、融资和官方成交额各1项缺口；全目录5758事实/412缺口。自然后继以最新日更发布为准。 | [前次事实发布](../releases/2026-11-07-observer125-data-update-and-d-archive.md)、[日更发布](../releases/2026-11-07-data28-natural-recovery.md) |
-| 金融运行 | R24已普通安装，尚未启用。独立复现未知费用阻断退出、组合缩仓冲突、过期价格内部划转。100万元为新策略独立额度；保留原分析，待核替代ETF、次日收盘限价及相同口径WT回测。 | [独立复核](../evidence/2026-11-07-shared-account-r24-independent-review.md) |
+| 金融运行 | R25已普通安装并通过原生与隔离归属验证，实际模拟未启用。未知费用可继续已定卖出，接收WT风控目标，双策略不自动划转。替代ETF、收盘限价与匹配WT回测继续核实。 | [R25证据](../evidence/2026-11-07-shared-account-r25-execution.md) |
 | 研究资格 | 原版、因子及金融条件研究已有资料和限定验证；原作者收益、完整 PIT、真实挖掘效果与正式生产采用分别核实。 | [研究入口](../research/resonance-research-guide.md)、[原版规格](../specs/original-resonance-reference.md) |
 | 开发规则 | 根因回归、控制过度设计、语义复用及随完整切片验证已写入规范；规则工具化程度按各入口的实际实现登记。 | [规范整合证据](../evidence/2026-11-07-development-principles.md) |
 | AI 知识治理 | AKN 方案已设计；当前快照治理切片已采用，结果见本轮证据。本地 CI 已执行文档检查；任务选择、项目 skill 及新会话行为实验仍待实施。 | [AKN](../specs/agent-project-knowledge.md)、[本轮证据](../evidence/2026-11-07-roadmap-snapshots.md) |
