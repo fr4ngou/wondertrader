@@ -98,7 +98,7 @@ wheels = [
 
 [[package]]
 name = "guanheng-app"
-version = "0.1.0a119+targethandoff.1"
+version = "0.1.0a126+dualcta.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -166,6 +166,7 @@ dev = [
 
 [[package]]
 name = "guanheng-market-client"
+version = "0.21.0"
 source = { directory = "../../integrations" }
 
 [package.metadata]
@@ -208,7 +209,7 @@ requires-dist = [
 
 [[package]]
 name = "guanheng-wt-runtime"
-version = "0.1.0a11+read11.targethandoff.1"
+version = "0.1.0a11+read15.dualcta.1"
 source = { directory = "../../packages/observer-read-side/wt_runtime" }
 dependencies = [
     { name = "guanheng-market-client" },

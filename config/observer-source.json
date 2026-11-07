@@ -235,6 +235,7 @@
       "apps/guanheng/console/src/workspace/current-auxiliary.fixture.json",
       "apps/guanheng/console/src/workspace/currentAuxiliary.test.tsx",
       "apps/guanheng/console/src/workspace/currentAuxiliary.ts",
+      "apps/guanheng/console/src/workspace/dualStrategyRead.test.tsx",
       "apps/guanheng/console/src/workspace/executionProcessApi.ts",
       "apps/guanheng/console/src/workspace/historyPreparationApi.ts",
       "apps/guanheng/console/src/workspace/independent.css",
