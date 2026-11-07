@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-wt-runtime"
-version = "0.1.0a25+parallel.2"
+version = "0.1.0a26+parallel.3"
 description = "Independent WonderTrader runtime and QMT process ownership"
 requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]

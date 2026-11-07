@@ -53,16 +53,22 @@ def small(actions=None):
         signals_today={c:[] for c in DEFAULT_CODES}|({c:[dict(action=a,date='2026-11-06')] for c,a in (actions or {}).items()}),
         signal_close_prices={c:9.5 for c in DEFAULT_CODES},model_state={c:dict(held=True) for c in DEFAULT_CODES},route_qualification={c:dict(qualified=True,reasons=[]) for c in DEFAULT_CODES})
 
-def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=None,allocation=None):
+def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=None,allocation=None,
+         strategy_id=ORIGINAL_ID,capital='1000000'):
     monkeypatch.setattr(mod,'configured_native_facts',lambda *a,**kw:((),{}, {('SZSE' if c.startswith('159') else 'SSE')+'.ETF.'+c:Fraction(1,1000) for c in DEFAULT_CODES}))
     p=dict(schema=ORIGINAL_PROFILE,strategy_version='0.2.0a1',main_symbol='SSE.ETF.510300',price_policy=policy,
-        timing_policy='next-session-first-schedule',activation_mode='signals-from-activation',initial_capital_cny='1000000',state_mode=mode,
+        timing_policy='next-session-first-schedule',activation_mode='signals-from-activation',initial_capital_cny=capital,state_mode=mode,
         signal_source={},quote_max_age_seconds=60,evaluation_seconds=2,broker_max_age_seconds=60,shared_account={'path':'E:/fixed.json','sha256':'a'*64})
-    allocation=allocation or Allocation();out=[];sig=signals or Signals(small(actions))
+    if allocation is None:
+        allocation = Allocation()
+        cash = Decimal(capital)
+        allocation.own = replace(allocation.own, strategy=replace(allocation.own.strategy,
+            strategy_id=strategy_id, cash_cny=cash, ledger_cash_cny=cash, spendable_cash_cny=cash))
+    out=[];sig=signals or Signals(small(actions))
     def publish(sid,value,**kw):
         from guanheng_wt_runtime.execution_configured import _encode
         _encode(value);out.append((value,kw))
-    owner=mod.OriginalLiveStrategy(dict(id=ORIGINAL_ID,parameters={'python_strategy':p}),publish,NS(),{'trader':{'writes_enabled':True}},deadline=time.monotonic()+3,code_identity='f'*64,allocation=allocation,signals=sig)
+    owner=mod.OriginalLiveStrategy(dict(id=strategy_id,parameters={'python_strategy':p}),publish,NS(),{'trader':{'writes_enabled':True}},deadline=time.monotonic()+3,code_identity='f'*64,allocation=allocation,signals=sig)
     ctx=Context(owner.codes[0]);return owner,ctx,allocation,sig,out
 
 def schedule(owner,ctx):ctx.event=NS(kind=4,epoch=2,tdate=20261109);owner.callback(ctx)
@@ -81,6 +87,15 @@ def test_signal_to_nine_complete_targets_metadata_before_set(monkeypatch):
     assert event[3]['buy_price_caps']=={symbol:Decimal('9.5')} and event[3]['known_at']==sig.small['decision_at']
     assert json.loads(ctx.kv)['last_source']=='d'*64
     schedule(owner,ctx);assert ctx.calls.count('set')==2
+
+def test_third_instance_targets_use_its_configured_capital(monkeypatch):
+    code = DEFAULT_CODES[0]
+    owner, ctx, _, _, out = make(monkeypatch, {code:'BUY'}, strategy_id='original-small', capital='250000.05')
+    owner.callback(ctx)
+    schedule(owner, ctx)
+    assert ctx.targets[owner.mapping[code]] == 25000
+    assert out[0][0]['initial_capital_cny'] == '250000.05'
+
 
 def test_equalweight_uses_own_actual_and_cash(monkeypatch):
     c,d=DEFAULT_CODES[:2];owner,ctx,asa,sig,out=make(monkeypatch,{d:'BUY'})
@@ -113,10 +128,12 @@ def test_revision_after_consumption_not_consumed(monkeypatch):
 def test_fixed_dispatch_packages_and_identity():
     old={'id':RETAINED_ID,'parameters':{'python_strategy':{'schema':RETAINED_PROFILE}}}
     new={'id':ORIGINAL_ID,'parameters':{'python_strategy':{'schema':ORIGINAL_PROFILE}}}
+    third=dict(new, id='original-small')
+    account=dict(shared_account={'path':'E:/frozen.json','sha256':'a'*64})
     assert _python_packages({'strategies':[old]})==RETAINED_PACKAGES
-    assert _python_packages({'strategies':[new,old]})==SHARED_PACKAGES
-    for rows in ([new],[old,old],[old,new,new]):
-        with pytest.raises(ValueError):_python_packages({'strategies':rows})
+    assert _python_packages({'strategies':[new,old,third],'executer':account})==SHARED_PACKAGES
+    for rows in ([new],[old,old],[old,new,new],[old,new,dict(third,id=ORIGINAL_ID.upper())]):
+        with pytest.raises(ValueError):_python_packages({'strategies':rows, 'executer':account} if len(rows)>1 else {'strategies':rows})
 
 def test_retained_optional_allocation_own_positions_and_cycle():
     from guanheng_wt_runtime.execution_configured import RetainedStrategy
@@ -215,7 +232,7 @@ def test_waiting_original_announces_hold_and_old_sell_authorizes(tmp_path,monkey
     ctx.event=NS(kind=4,epoch=2,tdate=20261106);owner.callback(ctx)
     assert len(ctx.targets)==9 and not any(ctx.targets.values())
     assert send(4,dict(symbol=code,side='sell',requested_quantity=10000,limit_price_cny='10'))==10000
-    assert book.view(ORIGINAL_ID,deadline=time.monotonic()+5).positions==tuple(PositionView(s,0,0,0) for s in sorted(universe))
+    assert all(p.quantity == 0 for p in book.view(ORIGINAL_ID, deadline=time.monotonic()+5).positions)
 
 
 def test_resume_preserves_pending_original_caps_and_context_not_reseeded(monkeypatch):

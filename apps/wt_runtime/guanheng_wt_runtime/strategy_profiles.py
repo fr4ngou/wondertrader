@@ -1,4 +1,6 @@
-"""固定线上profile目录；不接受动态模块、脚本或任意包加载。"""
+"""已注册profile与运行实例选择。配置引用固定策略实现。"""
+from pathlib import PureWindowsPath
+import re
 RETAINED_PROFILE = 'guanheng.retained-cta.v1'
 RETAINED_ID = 'resonance-regime-v1'
 ORIGINAL_PROFILE = 'guanheng.original-live-cta.v1'
@@ -40,17 +42,42 @@ def source_handoff(native, *, deadline=float('inf')):
     return proof is not None
 
 
+def shared_account_reference(native):
+    """执行器统一持有账户描述符。兼容原版行内的旧引用。"""
+    executer = native.get('executer', {})
+    current = executer.get('shared_account')
+    if 'shared_account' in executer and current is None:
+        raise ValueError('shared_account_reference_missing')
+    for item in native['strategies']:
+        legacy = item['parameters']['python_strategy'].get('shared_account')
+        if legacy is not None:
+            if current is None:
+                current = legacy
+            elif current != legacy:
+                raise ValueError('shared_account_reference_conflict')
+    return current
+
+
 def shared_profiles(native):
-    """旧单策略原样通过；双策略固定身份且各只有一个独立ctx。"""
+    """策略ID是运行实例身份，profile schema选择已登记的策略实现。"""
     rows = native.get('strategies')
-    if type(rows) is not list:
+    if type(rows) is not list or not 1 <= len(rows) <= 64:
         raise ValueError('strategy_profiles')
-    pairs = tuple((r['id'], r['parameters'].get('python_strategy', {}).get('schema')) for r in rows)
-    if pairs == ((RETAINED_ID, RETAINED_PROFILE),):
-        return False
-    if len(pairs) == 2 and set(pairs) == {(RETAINED_ID, RETAINED_PROFILE), (ORIGINAL_ID, ORIGINAL_PROFILE)}:
-        return True
-    raise ValueError('strategy_profiles')
+    seen = set()
+    for row in rows:
+        strategy_id = row['id']
+        schema = row['parameters'].get('python_strategy', {}).get('schema')
+        if (type(strategy_id) is not str or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,62}', strategy_id)
+                or PureWindowsPath(strategy_id).is_reserved() or strategy_id.casefold() in seen
+                or schema not in (RETAINED_PROFILE, ORIGINAL_PROFILE)
+                or (schema == RETAINED_PROFILE and strategy_id != RETAINED_ID)
+                or (strategy_id == RETAINED_ID and schema != RETAINED_PROFILE)):
+            raise ValueError('strategy_profiles')
+        seen.add(strategy_id.casefold())
+    shared = shared_account_reference(native) is not None
+    if not shared and (len(rows) != 1 or rows[0]['id'] != RETAINED_ID):
+        raise ValueError('shared_allocation_required')
+    return shared
 
 
 def build_strategies(native, publish, configuration, *, deadline, code_identity, retained_factory, allocation=None):
@@ -59,7 +86,8 @@ def build_strategies(native, publish, configuration, *, deadline, code_identity,
         raise ValueError('shared_allocation_required')
     result = []
     for item in native['strategies']:
-        if item['id'] == RETAINED_ID:factory = retained_factory
+        if item['parameters']['python_strategy']['schema'] == RETAINED_PROFILE:
+            factory = retained_factory
         else:
             from .original_live import OriginalLiveStrategy
             factory = OriginalLiveStrategy
@@ -67,6 +95,8 @@ def build_strategies(native, publish, configuration, *, deadline, code_identity,
         if shared:
             kwargs['allocation'] = allocation
         result.append(factory(item, publish, configuration, native, **kwargs))
+    if shared:
+        allocation.verify_profile_targets({strategy.id: strategy.targets for strategy in result})
     participants = {}
     for strategy in result:
         for symbol in strategy.targets:

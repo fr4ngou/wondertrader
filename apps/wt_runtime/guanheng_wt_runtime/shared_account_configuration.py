@@ -1,4 +1,4 @@
-"""双策略受控材料准入；纯读取先行，ASA初始化借用原Native账户租约。"""
+"""共享账户受控材料准入；ASA初始化借用原Native账户租约。"""
 from __future__ import annotations
 
 from decimal import Decimal, localcontext, ROUND_CEILING
@@ -54,24 +54,16 @@ class _BorrowedAllocation:
 
 
 def create_runtime_attribution(native, configuration, control_directory, control_id, *, deadline):
-    """显式旧+原版组合的一次装配；仅核材料，返回惰性coordinator与可选Bridge。
-
-    材料里的旧seed由原金融owner及部署审查提供并绑定原件SHA；本函数不从整账户
-    available推断旧策略本金、成本或周期。原版固定新增100万元、零归属库存。
-    实际采用、原Source权限扩展和旧ctx恢复由所属owner另行完成。
-    """
+    """由账户配置和各策略seed装配同一归属owner，保持原初值和来源身份。"""
     from .account_allocation import (BookIdentity, StrategySeed, OwnedPosition, OpeningCycle,
-                                     AccountSnapshot, SellReservation)
+                                     AccountSnapshot, SellReservation, _money)
+    from .strategy_profiles import ORIGINAL_PROFILE, shared_profiles, shared_account_reference
     from guanheng_market_client.exchange_calendar import official_calendar
-    from guanheng_strategy_original.reference import DEFAULT_CODES
-    strategies = native['strategies']
-    _need(type(strategies) is list and len(strategies) == 2, 'shared_account_profile')
-    old = next((s for s in strategies if s['id'] == 'resonance-regime-v1'), None)
-    original = next((s for s in strategies if s['id'] == 'resonance-original-wt-351f9d5-stable'), None)
-    _need(old is not None and original is not None, 'shared_account_profile')
-    parameters = original['parameters']['python_strategy']
-    _need(parameters['schema'] == 'guanheng.original-live-cta.v1', 'shared_account_profile')
-    value = _fixed(parameters['shared_account'], deadline)
+
+    _need(shared_profiles(native), 'shared_account_profile')
+    strategies = {row['id']: row['parameters']['python_strategy'] for row in native['strategies']}
+    generic = 'shared_account' in native['executer']
+    value = _fixed(shared_account_reference(native), deadline)
     _need(type(value) is dict and set(value) == {'schema', 'identity', 'financial_root', 'initialization',
           'calendar', 'fee_reserve_model', 'callback_seconds'}
           and value['schema'] == 'guanheng.shared-account-allocation.v1', 'shared_account_schema')
@@ -101,20 +93,28 @@ def create_runtime_attribution(native, configuration, control_directory, control
         fields['universe'] = tuple(fields['universe'])
         fields['opening_cycles'] = tuple(OpeningCycle(**p) for p in fields.get('opening_cycles', []))
         seeds.append(StrategySeed(**fields))
-    _need(len(seeds) == 2 and {s.strategy_id for s in seeds} == {old['id'], original['id']}, 'shared_account_seed_scope')
-    old_seed = next(s for s in seeds if s.strategy_id == old['id'])
-    new_seed = next(s for s in seeds if s.strategy_id == original['id'])
-    original_universe = {('SZSE' if code.startswith('1') else 'SSE')+'.ETF.'+code for code in DEFAULT_CODES}
-    _need(new_seed.cash_cny == Decimal('1000000') and not new_seed.positions and not new_seed.opening_cycles
-          and set(new_seed.universe) == original_universe and old_seed.priority < new_seed.priority,
-          'shared_account_user_allocation')
-    _need(new_seed.version == parameters['strategy_version'], 'shared_account_strategy_version')
+    _need(len(seeds) == len(strategies) and {seed.strategy_id for seed in seeds} == set(strategies),
+          'shared_account_seed_scope')
+    _need(len({seed.priority for seed in seeds}) == len(seeds), 'shared_account_seed_priority')
+    for seed in seeds:
+        parameters = strategies[seed.strategy_id]
+        _money(seed.cash_cny)
+        if parameters['schema'] == ORIGINAL_PROFILE:
+            from .original_live import initial_capital
+            _need(seed.cash_cny == initial_capital(parameters) and not seed.positions
+                  and not seed.opening_cycles, 'shared_account_user_allocation')
+            _need(seed.version == parameters['strategy_version'], 'shared_account_strategy_version')
     snapshot = dict(initial['account_snapshot'])
     _need(type(snapshot['available_cny']) is str, 'shared_account_money')
     snapshot['available_cny'] = Decimal(snapshot['available_cny'])
     snapshot['positions'] = tuple(OwnedPosition(**p) for p in snapshot['positions'])
     snapshot['sell_reservations'] = tuple(SellReservation(**r) for r in snapshot.get('sell_reservations', []))
     snapshot = AccountSnapshot(**snapshot)
+    _need(type(initial['unallocated_cash_cny']) is str, 'shared_account_money')
+    unallocated = Decimal(initial['unallocated_cash_cny'])
+    if generic:
+        funded = _money(unallocated) + sum(_money(seed.cash_cny) for seed in seeds)
+        _need(funded <= _money(snapshot.available_cny), 'shared_account_initial_cash_unfunded')
     # 同一份受控NAP原件的内容由部署审查核同；不能以可用余额替代旧seed。
     _need(snapshot.source_sha256 == evidence['account_observation']['sha256'], 'shared_account_snapshot_identity')
     calendar = _fixed(value['calendar'], deadline)
@@ -137,7 +137,8 @@ def create_runtime_attribution(native, configuration, control_directory, control
     _need(type(fees) is dict and set(fees) == {'schema', 'source', 'securities'}
           and fees['schema'] == 'guanheng.asa-fee-reserve.v1' and type(fees['source']) is str and fees['source'],
           'shared_account_fee_model')
-    _need(set(fees['securities']) == set(old_seed.universe) | set(new_seed.universe), 'shared_account_fee_scope')
+    universes = {seed.strategy_id: frozenset(seed.universe) for seed in seeds}
+    _need(set(fees['securities']) == set().union(*universes.values()), 'shared_account_fee_scope')
     bounds = {}
     for symbol, sides in fees['securities'].items():
         _need(type(sides) is dict and set(sides) == {'buy', 'sell'}, 'shared_account_fee_model')
@@ -152,12 +153,12 @@ def create_runtime_attribution(native, configuration, control_directory, control
         with localcontext() as context:
             context.prec = 64
             return (fixed+unit*quantity).quantize(Decimal('.01'), rounding=ROUND_CEILING)
-    _need(type(initial['unallocated_cash_cny']) is str, 'shared_account_money')
-    allocation = _BorrowedAllocation(root, identity, tuple(seeds), Decimal(initial['unallocated_cash_cny']), snapshot)
+    allocation = _BorrowedAllocation(root, identity, tuple(seeds), unallocated, snapshot)
     coordinator = AttributionCoordinator(allocation, control_id=control_id,
-        account_scope_sha256=identity.account_scope_sha256, strategy_ids=(old_seed.strategy_id, new_seed.strategy_id),
+        account_scope_sha256=identity.account_scope_sha256, strategy_ids=tuple(strategies),
         fee_bound=fee_bound, settlement_day=settlement, trading_day_qualified=lambda day: day in days,
-        account_observation_day=observation_day, execution_scale=native['executer']['scale'])
+        account_observation_day=observation_day, execution_scale=native['executer']['scale'],
+        configured_universes=universes)
     bridge = AttributionBridge(coordinator, callback_seconds=value['callback_seconds'])
     allocation.bind(bridge)
     return coordinator, bridge

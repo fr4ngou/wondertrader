@@ -14,7 +14,8 @@ from guanheng_strategy_original.reference import DEFAULT_CODES
 from guanheng_market_client.exchange_calendar import encode
 
 
-def test_frozen_seed_creates_book_only_inside_native_borrow_and_preserves_million(tmp_path):
+@pytest.mark.parametrize('mode', ['legacy', 'generic', 'unfunded'])
+def test_seeded_strategies_have_separate_funds_and_real_native_borrow(tmp_path, mode):
     def save(name, value):
         path = tmp_path/name;raw=encode(value);path.write_bytes(raw)
         return dict(path=str(path), sha256=hashlib.sha256(raw).hexdigest())
@@ -29,6 +30,11 @@ def test_frozen_seed_creates_book_only_inside_native_borrow_and_preserves_millio
         dict(strategy_id=original_id,version='0.2.0a1',cash_cny='1000000',positions=[],priority=1,universe=universe)],
         unallocated_cash_cny='0',account_snapshot=dict(revision=1,trading_day='2026-11-06',available_cny='2000000.00',
         positions=[],source_sha256=account['sha256']),source_evidence=dict(old_basis=old_basis,account_observation=account))
+    third_id = 'research-original-etf'
+    third_cash = '250000.05' if mode != 'unfunded' else '1000000'
+    if mode != 'legacy':
+        initial['seeds'].append(dict(strategy_id=third_id, version='0.2.0a1', cash_cny=third_cash,
+            positions=[], priority=2, universe=universe))
     start,finish=date(2026,11,1),date(2026,11,10)
     opens=[(start+timedelta(days=i)).isoformat()for i in range((finish-start).days+1)
            if(start+timedelta(days=i)).weekday()<5]
@@ -44,7 +50,19 @@ def test_frozen_seed_creates_book_only_inside_native_borrow_and_preserves_millio
         fee_reserve_model=fee,callback_seconds=5))
     native=dict(output_directory=str(financial),executer=dict(scale=1.0),trader=dict(expected_account='SYNTHETIC',environment='simulation'),strategies=[
         dict(id=old_id,parameters=dict(python_strategy=dict(schema='guanheng.retained-cta.v1'))),
-        dict(id=original_id,parameters=dict(python_strategy=dict(schema='guanheng.original-live-cta.v1',shared_account=shared,strategy_version='0.2.0a1')))])
+        dict(id=original_id,parameters=dict(python_strategy=dict(schema='guanheng.original-live-cta.v1',shared_account=shared,strategy_version='0.2.0a1',
+            initial_capital_cny='1000000')))])
+    if mode != 'legacy':
+        native['executer']['shared_account'] = shared
+        native['strategies'][1]['parameters']['python_strategy'].pop('shared_account')
+        native['strategies'].append(dict(id=third_id, parameters=dict(python_strategy=dict(
+            schema='guanheng.original-live-cta.v1', strategy_version='0.2.0a1', initial_capital_cny=third_cash))))
+    if mode == 'unfunded':
+        with pytest.raises(RuntimeError, match='shared_account_initial_cash_unfunded'):
+            create_runtime_attribution(native, SimpleNamespace(configuration=tmp_path/'execution.json'),
+                tmp_path, str(uuid4()), deadline=monotonic()+10)
+        assert not (financial/'account-allocation.sqlite3').exists()
+        return
     coordinator,bridge=create_runtime_attribution(native,SimpleNamespace(configuration=tmp_path/'execution.json'),
         tmp_path,str(uuid4()),deadline=monotonic()+10)
     assert coordinator._account_observation_day('2026-11-07') == '2026-11-06'
@@ -55,12 +73,16 @@ def test_frozen_seed_creates_book_only_inside_native_borrow_and_preserves_millio
         coordinator.view(original_id,deadline=monotonic()+5)
     assert not(financial/'account-allocation.sqlite3').exists()
     bridge.bind_owner(SimpleNamespace(financial_borrowed=lambda: bridge.callback_active))
+    ids = [old_id, original_id] if mode == 'legacy' else [old_id, original_id, third_id]
+    scopes = {sid: ([universe[0]] if sid == old_id else universe) for sid in ids}
+    coordinator.verify_profile_targets(scopes)
+    with pytest.raises(RuntimeError, match='shared_account_profile_universe'):
+        coordinator.verify_profile_targets({sid: [] for sid in ids})
     balances=[]
     handle=bridge._handler
     def capture(event):
         result=handle(event)
-        balances.append((str(coordinator.view(old_id,deadline=event.deadline).ledger_cash_cny),
-                         str(coordinator.view(original_id,deadline=event.deadline).ledger_cash_cny)))
+        balances.append([str(coordinator.view(sid, deadline=event.deadline).ledger_cash_cny) for sid in ids])
         return result
     bridge._handler=capture
     coordinator.prepare_intent(original_id,1,source_sha256='a'*64,known_at='2026-11-06T07:00:00+00:00',
@@ -71,7 +93,7 @@ def test_frozen_seed_creates_book_only_inside_native_borrow_and_preserves_millio
     reply=NativeReply(C.sizeof(NativeReply),1,-1,0,0)
     assert bridge._callback(C.byref(event),C.byref(reply),None)==0,bridge.failure
     assert(financial/'account-allocation.sqlite3').exists()
-    assert balances == [('12345.67','1000000.00')]
+    assert balances == [['12345.67','1000000.00'] + ([] if mode == 'legacy' else ['250000.05'])]
     # 返回回调后即收回借用；无法借后台普通线程绕过原Native owner。
     with pytest.raises(RuntimeError,match='attribution_owner_not_borrowed'):
         coordinator.view(original_id,deadline=monotonic()+5)

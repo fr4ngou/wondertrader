@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import asdict
 from datetime import date,datetime,timedelta,timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import json,math,time
 from .execution_strategy import StrategyBinding,_need
@@ -15,23 +15,38 @@ ORIGINAL_STRATEGY_ID='resonance-original-wt-351f9d5-stable'
 ORIGINAL_LIVE_VERSION='0.2.0a1'
 
 
+def initial_capital(parameters):
+    """实例明确的初始CNY金额，沿分账的分级精度。"""
+    from .account_allocation import _money
+    text = parameters.get('initial_capital_cny')
+    _need(type(text) is str, 'original_live_capital')
+    try:
+        cash = Decimal(text)
+    except InvalidOperation:
+        raise ValueError('original_live_capital') from None
+    _need(_money(cash) > 0, 'original_live_capital')
+    return cash
+
+
 class OriginalLiveStrategy:
     """自身只保存策略意图；不发命令、不复制账户P、不维护资金或成交账本。"""
     def __init__(self,item,publish,configuration,native,*,deadline,code_identity,allocation,signals=None):
         from guanheng_strategy_original.reference import DEFAULT_CODES
         p=item['parameters']['python_strategy'];required={'schema','strategy_version','main_symbol','price_policy','timing_policy','activation_mode',
-            'initial_capital_cny','state_mode','signal_source','quote_max_age_seconds','evaluation_seconds','broker_max_age_seconds','shared_account'}
-        _need(type(p)is dict and set(p)==required and p['schema']==ORIGINAL_PROFILE and item['id']==ORIGINAL_STRATEGY_ID
+            'initial_capital_cny','state_mode','signal_source','quote_max_age_seconds','evaluation_seconds','broker_max_age_seconds'}
+        _need(type(p)is dict and required<=set(p)<=required|{'shared_account'} and p['schema']==ORIGINAL_PROFILE
               and p['strategy_version']==ORIGINAL_LIVE_VERSION,'original_live_profile')
         _need(p['price_policy'] in ('executor-price','signal-close-cap') and p['timing_policy']=='next-session-first-schedule'
-              and p['activation_mode']=='signals-from-activation' and p['initial_capital_cny']=='1000000'
+              and p['activation_mode']=='signals-from-activation'
               and p['state_mode'] in ('new','resume'),'original_live_model')
         for k,maximum in (('quote_max_age_seconds',3600),('broker_max_age_seconds',3600),('evaluation_seconds',5)):
             _need(type(p[k])in(int,float) and math.isfinite(p[k]) and 0<p[k]<=maximum,'original_live_budget')
-        shared=p['shared_account'];_need(type(shared)is dict and set(shared)=={'path','sha256'},'shared_account_binding')
-        from .original_signal_runtime import _path
-        _path(shared['path']);_sha(shared['sha256'])
+        if 'shared_account' in p:
+            shared=p['shared_account'];_need(type(shared)is dict and set(shared)=={'path','sha256'},'shared_account_binding')
+            from .original_signal_runtime import _path
+            _path(shared['path']);_sha(shared['sha256'])
         _need(allocation is not None,'shared_allocation_required')
+        self.initial_capital_cny = initial_capital(p)
         self.start_deadline=deadline
         self.id=item['id'];self.publish=publish;self.allocation=allocation;self.parameters=dict(p);self.codes=tuple(DEFAULT_CODES)
         self.mapping={c:('SZSE' if c.startswith('159') else 'SSE')+'.ETF.'+c for c in self.codes}
@@ -95,7 +110,7 @@ class OriginalLiveStrategy:
             for symbol in self.targets:
                 p=context.position(symbol);_need(p.raw_position==0 and p.raw_valid==0 and p.first_entry==p.last_entry==0,'original_new_context_required')
             view=own.strategy
-            _need(view.ledger_cash_cny==Decimal('1000000') and not view.pending_groups and all(r.quantity==0 for r in view.positions),'original_new_allocation_required')
+            _need(view.ledger_cash_cny==self.initial_capital_cny and not view.pending_groups and all(r.quantity==0 for r in view.positions),'original_new_allocation_required')
             context.store_quantity_state(json.dumps(self._state(),sort_keys=True,separators=(',',':')))
         else:
             state=json.loads(text);_need(type(state)is dict and set(state)==set(self._state()) and state['schema']=='guanheng.original-live-intent.v1'
@@ -126,7 +141,7 @@ class OriginalLiveStrategy:
             definition=self._definition(),  # 原ctx已核九证券声明；ASA暂缺时也保留证券范围。
             strategy_id=self.id,  # 独立原版线上策略身份。
             strategy_version=ORIGINAL_LIVE_VERSION,  # 本次线上执行模型版本，不改a1/a2历史报告。
-            initial_capital_cny='1000000',  # 用户明确新增的模型资本基准，CNY；不复制账户available。
+            initial_capital_cny=format(self.initial_capital_cny,'f'),  # 本实例明确的初始CNY金额。
             capital_source='ASA:explicit-new-allocation',  # 独立分配由唯一ASA拥有。
             owned_valuation=self._valuation(context,own,deadline),  # 本策略原价估值，费用未齐只发布参考值。
             allocation_observation=allocation_projection(own,include_read_projection=True),  # 自有份额/现金/周期及原账户来源，CNY十进制文本。

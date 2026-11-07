@@ -13,7 +13,7 @@ from guanheng_wt_runtime.execution_dependency_handoff import FIELDS, SOURCE_FIEL
 
 def native(root, source=True):
     value = dict(strategies=[dict(id=profiles.RETAINED_ID,parameters=dict(python_strategy=dict(schema=profiles.RETAINED_PROFILE))),
-                            dict(id=profiles.ORIGINAL_ID,parameters=dict(python_strategy=dict(schema=profiles.ORIGINAL_PROFILE)))])
+                            dict(id=profiles.ORIGINAL_ID,parameters=dict(python_strategy=dict(schema=profiles.ORIGINAL_PROFILE,shared_account={'path':'E:/frozen.json','sha256':'a'*64})))])
     proof = {key: None for key in FIELDS}
     proof.update(schema='guanheng.strategy-dependency-handoff.v1',
                  source_extension={key: None for key in SOURCE_FIELDS} if source else None)

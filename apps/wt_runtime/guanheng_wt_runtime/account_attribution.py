@@ -207,15 +207,17 @@ class AttributionCoordinator:
 
     def __init__(self, allocation, *, control_id, account_scope_sha256, strategy_ids,
                  fee_bound, settlement_day, clock=monotonic, utcnow=lambda: datetime.now(timezone.utc),
-                 trading_day_qualified=None, account_observation_day=None, execution_scale=1.0):
+                 trading_day_qualified=None, account_observation_day=None, execution_scale=1.0,
+                 configured_universes=None):
         _need(type(control_id) is str and str(UUID(control_id)) == control_id, 'attribution_control')
         _need(type(account_scope_sha256) is str and len(account_scope_sha256) == 64
               and all(c in '0123456789abcdef' for c in account_scope_sha256), 'attribution_account_scope')
-        _need(type(strategy_ids) is tuple and len(strategy_ids) > 1
+        _need(type(strategy_ids) is tuple and bool(strategy_ids)
               and len(set(strategy_ids)) == len(strategy_ids), 'attribution_strategies')
         _need(callable(fee_bound) and callable(settlement_day), 'attribution_fact_providers')
         _need(account_observation_day is None or callable(account_observation_day), 'attribution_fact_providers')
         self.allocation, self.strategy_ids = allocation, strategy_ids
+        self._configured_universes = configured_universes  # 固定seed的每策略执行池，用于装配时核对。
         _need(type(execution_scale) in (int, float) and math.isfinite(execution_scale)
               and execution_scale > 0, 'attribution_execution_scale')
         self._execution_scale = float(execution_scale)  # 与原Local配置同源的数量倍数。
@@ -242,6 +244,12 @@ class AttributionCoordinator:
         if self._clock() >= deadline:
             self._lock.release()
             raise AttributionError('attribution_deadline')
+
+    def verify_profile_targets(self, targets):
+        """实际profile输出执行证券池与分账初始化材料核同。"""
+        if self._configured_universes is not None:
+            actual = {strategy_id: frozenset(symbols) for strategy_id, symbols in targets.items()}
+            _need(actual == self._configured_universes, 'shared_account_profile_universe')
 
     def view(self, strategy_id, *, deadline):
         return self.allocation.view(strategy_id, deadline=deadline)
