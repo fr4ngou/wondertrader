@@ -4,11 +4,21 @@
 
 ## 日常流程
 
-1. 在独立开发分支完成修改，将最新本地master合入候选，解决冲突。
-2. 运行本地CI或直接使用自动检查的合入命令。
-3. 检查结果对应最终代码；开发者按明确文件清单提交，再快进合入本地master。
-4. 合入成功后，开发者切回主工作区，按[Worktree收尾](../development/workflow.md#worktree收尾)手动清理本任务临时工作树，并核对目录和Git登记；此项作为工作约定执行。
+1. 按[工作树与主干](../development/workflow.md#工作树与主干)核对主目录和最新本地 `master`，为新任务创建独立 worktree。
+2. 在任务 worktree 完成修改，核对候选基线，运行本地 CI 或使用自动检查的合入命令。
+3. 检查结果对应最终代码，按明确文件清单提交，以主目录为目标快进本地 `master`。
+4. 合入成功后，按[Worktree收尾](../development/workflow.md#worktree收尾)手动清理本任务临时工作树，并核对目录和 Git 登记。
 5. 发布按独立发布流程执行。
+
+远端和本地 `master` 处于同一条提交历史时，从主目录执行：
+
+```text
+git fetch --no-tags origin master
+git merge --ff-only origin/master
+git worktree add -b codex/my-task "../wondertrader-worktrees/my-task" master
+```
+
+换用本任务的分支名和目录。在任务 worktree 执行开发与下列验证命令。
 
 使用Python3.12+的开发测试环境。先安装本仓锁定依赖及`config/local-ci-test-requirements.txt`中的测试依赖；运行服务的解释器保持原样。配置及所需测试入口见[规格](../specs/local-continuous-integration.md)。
 

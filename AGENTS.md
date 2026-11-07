@@ -4,9 +4,10 @@
 
 ## 开始工作
 
-1. 使用 Python 3.10+ 执行 `python -B scripts/project.py start`，沿[文档任务路由](docs/README.md)读取相关正文。
-2. 查看 Git 状态、任务规格和涉及的[模块](docs/modules/README.md)，核实输入、状态所有者及完整调用链。
-3. 以任务已授权的范围开展工作；保持其他工作区改动和正在运行的实例。分支默认使用 `codex/` 前缀。
+1. 主目录固定检出最新本地 `master`，用于核对和集成。每项开发先按[工作树与主干](docs/development/workflow.md#工作树与主干)同步基线，再进入独立 worktree。
+2. 使用 Python 3.10+ 执行 `python -B scripts/project.py start`，沿[文档任务路由](docs/README.md)读取相关正文。
+3. 查看 Git 状态、任务规格和涉及的[模块](docs/modules/README.md)，核实输入、状态所有者及完整调用链。
+4. 在任务授权范围内开展工作，保持其他工作区改动和正在运行的实例。
 
 ## 共同约束
 

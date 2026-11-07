@@ -2,6 +2,14 @@
 
 类型：长期规范。适用范围：功能、修复、重构、依赖升级及配置行为变更。
 
+## 工作树与主干
+
+初始克隆的主目录固定检出本地 `master`，用于同步、查阅、集成和发布核对。功能、修复、重构、依赖、配置和文档开发均在主目录之外的任务 worktree 进行。 主目录和新建的任务 worktree 使用完整检出，确保代码、文档及本地验证引用的原件齐备。
+
+1. 开工前从主目录确认当前分支为 `master`，获取远端 `master` 并核对历史。远端更新可快进时同步到本地 `master`。本地包含远端时以最新本地 `master` 为基线，保留已集成提交。两边分叉时在独立集成 worktree 对齐并验证，主目录沿本地 CI 快进采用结果。
+2. 新任务从已核对的本地 `master` 创建独立 worktree，任务分支默认使用 `codex/` 前缀。续接任务使用该任务原 worktree。编辑前核对 worktree 路径、分支和基线。
+3. 合入前重新核对本地 `master`。候选基线落后时在任务 worktree 更新并重验。通过本地 CI 快进主目录的 `master` 后，按[Worktree收尾](#worktree收尾)手动清理已完成任务的临时目录。
+
 ## 入口与计划
 
 1. 执行 `python -B scripts/project.py start`，查看工作树和相关规格，先按[WonderTrader能力目录](wondertrader-capabilities.md)及[复用规则](wondertrader-reuse.md)核实原生支持与边界，再沿模块入口核实完整调用链；按[缺陷记录与检索规则](../runbooks/incidents.md#开发缺陷记录与检索)查阅相关历史问题。
