@@ -1,11 +1,12 @@
 import { fetchReadJson } from '../api'
 
 export type StrategyDefinition = {
-  /** WT活动结果或已保存报告的策略身份。 */ strategy_id: string
+  /** 部署登记、WT活动结果或已保存报告的策略身份。 */ strategy_id: string
   /** 同一来源实际发布的版本；null表示尚未发布。 */ strategy_version: string | null
   /** 稳定中文展示名称，不代表运行或执行资格。 */ display_name: string
   /** 稳定业务说明；历史报告可用其保存身份补充。 */ description: string
   /** 来源明确提供的历史版本；当前未提供时为空数组。 */ historical_versions: string[]
+  /** 仅由独立登记提供时标识，运行状态单独读取。 */ catalog_status?: 'registered'
 }
 function text(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && Array.from(value).length <= 256
@@ -18,10 +19,11 @@ export async function fetchStrategyCatalog(signal: AbortSignal): Promise<Strateg
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('策略目录格式无效，请重新读取')
   const data = value as Record<string, unknown>
   if (data.schema !== 'guanheng.strategy-catalog.v1' || data.read_only !== true || data.scope !== 'registered-definitions'
-    || !Array.isArray(data.strategies) || data.strategies.length > 32
+    || !Array.isArray(data.strategies) || data.strategies.length > 65
     || data.strategies.some(item => !item || typeof item !== 'object'
       || ![item.strategy_id, item.display_name, item.description].every(text)
       || !(item.strategy_version === null || text(item.strategy_version))
+      || !(item.catalog_status === undefined || item.catalog_status === 'registered')
       || !Array.isArray(item.historical_versions) || item.historical_versions.length > 32 || !item.historical_versions.every(text))
     || new Set(data.strategies.map(item => item.strategy_id + '@' + item.strategy_version)).size !== data.strategies.length) {
     throw new Error('策略目录格式无效，请重新读取')

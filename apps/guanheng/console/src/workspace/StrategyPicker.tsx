@@ -37,7 +37,7 @@ export function StrategyPicker({ selection }: {
     <label>选择策略<select aria-label="选择策略" value={selected ? strategyKey(selected) : ''}
       disabled={!query.data?.length} onChange={event => select(event.target.value)}>
       {!selected ? <option value="">{query.isPending ? '正在读取策略…' : '请选择策略'}</option> : null}
-      {query.data?.map(item => <option key={strategyKey(item)} value={strategyKey(item)}>{item.display_name} · {item.strategy_version === null ? '版本未提供' : `v${item.strategy_version}`} </option>)}
+      {query.data?.map(item => <option key={strategyKey(item)} value={strategyKey(item)}>{item.display_name} · {item.strategy_version === null ? '版本未提供' : `v${item.strategy_version}`} {item.catalog_status === 'registered' ? ' · 已登记' : ''}</option>)}
     </select></label>
     {query.isError ? <div role="alert">策略目录读取失败。<button onClick={() => void query.refetch()}>重新读取策略</button></div> : null}
     {query.data?.length === 0 ? <p role="status">当前没有登记策略。</p> : requested && query.data && !selected ? <p role="status">该策略当前不在目录中，请重新选择。</p> : null}

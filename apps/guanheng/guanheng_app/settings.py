@@ -1,5 +1,6 @@
 """独立应用配置；只读取显式环境，不探测旧目录或加载.env。"""
 
+import json
 import os
 from typing import Literal
 
@@ -16,6 +17,15 @@ _RETIRED_ENV = ('GUANHENG_ACCOUNT_SCAN_EXECUTABLE','GUANHENG_ACCOUNT_SCAN_CONFIG
     'GUANHENG_OBSERVATION_COLLECTION_CONFIG_SHA256')
 
 
+class StrategyRegistration(BaseModel):
+    """由部署明确登记的策略身份，只供观衡目录展示。"""
+
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    strategy_id: str = Field(pattern=r'^[A-Za-z0-9_.+-]{1,64}$')  # WT部署声明的策略ID。
+    strategy_version: str = Field(pattern=r'^[A-Za-z0-9_.+-]{1,64}$')  # 同一策略声明的非空版本。
+    display_name: str = Field(min_length=1, max_length=80, pattern=r'^[^\x00-\x1f\x7f]+$')  # 用户可见的策略名。
+
+
 class ConsoleSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
     wondertrader_market_url: str = ""
@@ -27,6 +37,8 @@ class ConsoleSettings(BaseModel):
     wondertrader_history_semantics: Literal["canonical", "source"] = "canonical"
     # 当前实例公开指针绝对路径；非空时每轮读取，优先于固定四项身份，缺失时等待恢复。
     wt_current_file: str = ""
+    # 只读策略登记。默认空列表；配置在Web启动时读取，运行事实另由WT发布。
+    strategy_registrations: tuple[StrategyRegistration, ...] = Field(default=(), max_length=32)
     # WT公开状态绝对路径；当前指针为空时使用固定四项，不加载运行配置或凭据。
     wt_status_file: str = ""
     # 固定模式控制UUID，属于本次启动代。
@@ -54,6 +66,7 @@ class ConsoleSettings(BaseModel):
             wondertrader_market_timeout_seconds=os.environ.get("GUANHENG_MARKET_TIMEOUT_SECONDS", "2"),
             wondertrader_history_semantics=os.environ.get("GUANHENG_HISTORY_SEMANTICS", "canonical"),
             wt_current_file=os.environ.get("GUANHENG_WT_CURRENT_FILE", ""),
+            strategy_registrations=json.loads(os.environ.get("GUANHENG_STRATEGY_REGISTRATIONS", "[]")),
             wt_status_file=os.environ.get("GUANHENG_WT_STATUS_FILE", ""),
             wt_control_id=os.environ.get("GUANHENG_WT_CONTROL_ID", ""),
             wt_instance_id=os.environ.get("GUANHENG_WT_INSTANCE_ID", ""),

@@ -19,6 +19,11 @@ export default function StrategyCatalogWorkspace() {
   const selectedView = params.get('view') ?? (hasObservation ? 'performance' : 'runtime')
   const description = selectedView === 'description'
   const unavailable = live.data?.state === 'not_current' && !live.isError
+  const registered = selected?.catalog_status === 'registered' && !online && !hasObservation
+  const offline = unavailable || (!live.isError && live.data?.current.process_state === 'exited')
+  const offlineLabel = registered
+    ? offline ? '已登记 · 待启用' : '已登记 · 运行状态待确认'
+    : live.isPending ? '正在核验运行状态…' : offline ? '当前未在线运行' : '运行状态待确认'
   function view(value: string) {
     const next = new URLSearchParams(params); next.set('view', value); setParams(next)
   }
@@ -29,7 +34,7 @@ export default function StrategyCatalogWorkspace() {
     {selected ? <>
       <div className="strategy-selected"><h2>{selected.display_name}</h2><span>{selected.strategy_version === null ? '版本未提供' : `版本 ${selected.strategy_version}`} </span>
         {online ? <span className="strategy-live-badge" role="status">线上运行 · 已核验</span>
-          : <span className="strategy-offline-badge" role="status">{live.isPending ? '正在核验运行状态…' : !live.isError && (live.data?.state === 'not_current' || live.data?.current.process_state === 'exited') ? '当前未在线运行' : '运行状态待确认'}</span>}
+          : <span className="strategy-offline-badge" role="status">{offlineLabel}</span>}
       </div>
       {live.isError ? <p role="alert">{live.error.message}；当前在线标记待重新核验。<button onClick={() => void live.refetch()}>重试运行状态</button></p> : null}
       <nav className="strategy-view-tabs" aria-label="策略详情视图">
@@ -47,6 +52,7 @@ export default function StrategyCatalogWorkspace() {
           live.isPending ? '正在读取线上表现…' : live.isError ? '线上表现读取失败，请重试运行状态。'
             : live.data?.reason ?? '所选策略版本尚无线上的净值或成交记录。'
         } />
+        : registered ? <StrategyObservationStatus title="当前持仓与运行" message="该策略已登记，等待 WT 发布该版本的运行与持仓记录。" />
         : unavailable ? <StrategyObservationStatus title="当前持仓与运行" message={live.data?.reason ?? '当前没有该版本的运行与持仓发布。'} />
         : <StrategyDetails key={strategyKey(selected)} strategy={selected} />}
     </> : null}

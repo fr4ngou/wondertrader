@@ -58,6 +58,22 @@ test.each(['resonance-original-wt-351f9d5-stable', 'new-strategy'])('离线策�
  expect(screen.queryByText('原版研究与回测')).toBeNull()
 })
 
+test('已登记但尚无WT运行发布的策略可选，显示待启用', async () => {
+ const id = 'registered-strategy'
+ runtime.offline = id
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json({...catalog,strategies:[
+   {strategy_id:id,strategy_version:'3.0',display_name:'预登记策略',description:'独立登记',historical_versions:[],catalog_status:'registered'},
+   ...catalog.strategies,
+ ]})))
+ mount()
+ expect(await screen.findByRole('option',{name:'预登记策略 · v3.0 · 已登记'})).toBeVisible()
+ expect(screen.getByText('已登记 · 待启用')).toBeVisible()
+ expect(screen.getByRole('region',{name:'当前持仓与运行'})).toHaveTextContent('该策略已登记，等待 WT 发布该版本的运行与持仓记录。')
+ expect(screen.queryByText('线上运行 · 已核验')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'目标仓位记录'}))
+ expect(await screen.findByText('目标归属：'+id)).toBeVisible()
+})
+
 test('精确当前线上策略有标记并默认展示线上图表，切换后清除标记',async()=>{
  runtime.online=true
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(catalog)));mount()

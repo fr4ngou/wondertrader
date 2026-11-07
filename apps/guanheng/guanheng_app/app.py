@@ -195,11 +195,17 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
             wrapped=asyncio.wrap_future(future)
             wrapped.add_done_callback(lambda done:None if done.cancelled()else done.exception())
             published=await asyncio.wait_for(asyncio.shield(wrapped),max(0,deadline-monotonic()))
-            return JSONResponse(content=strategy_catalog(published.get('strategies',[published['strategy']])),headers={'Cache-Control':'no-store'})
+            rows = published.get('strategies', [published['strategy']])
+            catalog = strategy_catalog(rows, registered=configured.strategy_registrations)
         except Exception:
-            raise HTTPException(503,'策略目录本次读取失败，请重新读取')from None
+            if not configured.strategy_registrations:
+                raise HTTPException(503, '策略目录本次读取失败，请重新读取') from None
+            # WT读取失败时仍提供独立登记；运行状态由原接口核验。
+            catalog = strategy_catalog(registered=configured.strategy_registrations)
         finally:
-            if future is not None:future.cancel()
+            if future is not None:
+                future.cancel()
+        return JSONResponse(content=catalog, headers={'Cache-Control': 'no-store'})
 
     @application.get("/v1/ui/capabilities")
     async def capabilities():
