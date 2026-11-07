@@ -11,7 +11,7 @@ from guanheng_wt_runtime import original_live as mod
 from guanheng_wt_runtime.original_signal_runtime import (OriginalPublication,PreparedOriginalSignal,OriginalSignalRead,OriginalSignalConfig,OriginalSignalWorker)
 from guanheng_wt_runtime.strategy_profiles import *
 from guanheng_wt_runtime.execution_process import _python_packages
-from guanheng_wt_runtime.execution_strategy import FactsValue,PositionValue,QuoteValue
+from guanheng_wt_runtime.execution_strategy import CtaBridgeError,FactsValue,PositionValue,QuoteValue
 from guanheng_wt_runtime.account_allocation import StrategyView,StrategyObservation,PositionView,OpeningCycle
 from guanheng_strategy_original.reference import DEFAULT_CODES
 
@@ -54,11 +54,14 @@ def small(actions=None):
         signal_close_prices={c:9.5 for c in DEFAULT_CODES},model_state={c:dict(held=True) for c in DEFAULT_CODES},route_qualification={c:dict(qualified=True,reasons=[]) for c in DEFAULT_CODES})
 
 def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=None,allocation=None,
-         strategy_id=ORIGINAL_ID,capital='1000000'):
-    monkeypatch.setattr(mod,'configured_native_facts',lambda *a,**kw:((),{}, {('SZSE' if c.startswith('159') else 'SSE')+'.ETF.'+c:Fraction(1,1000) for c in DEFAULT_CODES}))
+         strategy_id=ORIGINAL_ID,capital='1000000',execution_symbol=None):
+    monkeypatch.setattr(mod,'configured_native_facts',
+        lambda config,native,mapping,**kw:((),{},dict.fromkeys(mapping.values(),Fraction(1,1000))))
     p=dict(schema=ORIGINAL_PROFILE,strategy_version='0.2.0a1',main_symbol='SSE.ETF.510300',price_policy=policy,
         timing_policy='next-session-first-schedule',activation_mode='signals-from-activation',initial_capital_cny=capital,state_mode=mode,
         signal_source={},quote_max_age_seconds=60,evaluation_seconds=2,broker_max_age_seconds=60,shared_account={'path':'E:/fixed.json','sha256':'a'*64})
+    if execution_symbol is not None:
+        p['execution_symbol_589680']=execution_symbol
     if allocation is None:
         allocation = Allocation()
         cash = Decimal(capital)
@@ -87,6 +90,51 @@ def test_signal_to_nine_complete_targets_metadata_before_set(monkeypatch):
     assert event[3]['buy_price_caps']=={symbol:Decimal('9.5')} and event[3]['known_at']==sig.small['decision_at']
     assert json.loads(ctx.kv)['last_source']=='d'*64
     schedule(owner,ctx);assert ctx.calls.count('set')==2
+
+
+def test_opening_substitution_uses_original_signal_and_execution_quote(monkeypatch):
+    symbol = 'SSE.ETF.588230'
+    owner, ctx, asa, sig, out = make(monkeypatch, {'589680': 'BUY'}, policy='executor-price',
+                                    execution_symbol=symbol)
+    quotes = []
+    def quote(context, code, tick, **kwargs):
+        quotes.append(code)
+        return (Fraction(2), None) if code == symbol else None
+    monkeypatch.setattr(mod, 'quote_value', quote)
+
+    owner.callback(ctx)
+    schedule(owner, ctx)
+
+    assert len(ctx.targets) == 9 and ctx.targets[symbol] == 500000
+    assert 'SSE.ETF.589680' not in ctx.targets and 'SSE.ETF.589680' not in quotes
+    assert '588230.SH' in out[0][0]['definition']['symbols']
+    assert json.loads(ctx.kv)['buys'] == ['589680']
+    assert '588230' not in sig.small['route_qualification']
+    assert asa.calls[-1][3]['buy_price_caps'] == {}
+
+
+def test_original_exit_uses_owned_execution_position(monkeypatch):
+    symbol = 'SSE.ETF.588230'
+    owner, ctx, asa, _, _ = make(monkeypatch, {'589680': 'SELL'}, policy='executor-price',
+                                execution_symbol=symbol)
+    owner.callback(ctx)
+    asa.own = replace(asa.own, strategy=replace(asa.own.strategy,
+        positions=(PositionView(symbol,10000,10000,0),)))
+    ctx.targets[symbol] = 10000
+
+    schedule(owner, ctx)
+
+    assert ctx.targets[symbol] == 0 and 'SSE.ETF.589680' not in ctx.targets
+    assert json.loads(ctx.kv)['sells'] == ['589680']
+
+
+@pytest.mark.parametrize(('policy','symbol'), [
+    ('signal-close-cap','SSE.ETF.588230'),
+    ('executor-price','SSE.ETF.588000'),
+])
+def test_execution_substitution_rejects_cross_fund_price_cap_and_duplicate_route(monkeypatch,policy,symbol):
+    with pytest.raises(CtaBridgeError, match='original_execution_symbol'):
+        make(monkeypatch, policy=policy, execution_symbol=symbol)
 
 def test_third_instance_targets_use_its_configured_capital(monkeypatch):
     code = DEFAULT_CODES[0]

@@ -32,6 +32,10 @@
 
 BUY/SELL信号一致性、目标数量规则、实际执行时点和成交结果分别比较。若线上执行模型与a2不同，使用明确的新运行/回测版本记录；旧a1/a2报告、算法和模型身份保留。周末初始化成功只证明对应运行链，下一交易时段实际委托与成交另验。
 
+开盘执行候选允许原版实例用 `execution_symbol_589680` 明确指定沪市 ETF 的 WT 三段代码。当前选择华泰柏瑞科创200 ETF（`SSE.ETF.588230`）。信号仍从 589680 的原始分析输入生成。替代标的使用自身的原始报价、实际持仓、目标数量、成交及费用。该配置采用 `executor-price` 和原 `next-session-first-schedule`。源信号价格仅参与原信号计算与追溯。执行标的需与其他八路证券互异，并通过 Native 合约、行情及账户归属核验。现有配置缺省时沿原交易池。
+
+模拟启用前以同账户的柜台受理和买卖证据核准执行证券，并沿旧账续接核对持仓、未决委托和独立空仓子账。适配候选和实际启用分别登记。
+
 ## OLS-4 恢复与服务组合
 
 增加新策略沿明确的版本/配置过渡保存旧ctx资金、数量状态、目标、原文件及命令身份，只为新ID建立空仓和新增100万元基准。原单策略恢复默认保持兼容；双策略恢复核对两个ctx及共享执行责任。
@@ -61,6 +65,8 @@ BUY/SELL信号一致性、目标数量规则、实际执行时点和成交结果
 两代base_data相对映射必须相同。sessions、commodities、holidays、policy、fees及已有过滤器原件SHA相同；contracts所有旧交易所及全部旧行逐值相同，仅追加SZSE.159352。新合约的exchg/product/上市日/名称须与固定资料中的SZSE.159352 ETF一致，原品种/会话/费率沿原件。旧Reader8条顺序和值保留，仅在其后追加上述两条，std_code/symbol均唯一。其它Reader字段、复权/单位/时区/日线/publication语义继续原比较约束。installation_root只在已核安装/业务文件的比较副本回投到原root，真实新安装身份不改写。
 
 environment独立声明的fees与filters也分别按两代安装清单及实际文件字节核同；不能只比较相对文件名。未声明或空fees保持原默认路径，不擅自增设费表。既有模拟费率的业务身份保留，不将其标作真实券商费率。
+
+新增策略行声明 `execution_symbol_589680` 时，以该行的沪市 ETF 代码替换新增 Reader 两行中的 589680 映射。信号侧继续由原数据服务读取 589680。若旧安装尚无该执行合约，续接只允许从同一份固定证券资料追加该合约和 159352。原合约已存在时按旧值保留。旧 Reader、旧策略、费表、过滤器及其它合约仍逐项核同。Runtime 与 Native 使用同一已冻结的新增策略行确定允许的变化。
 
 `source_extension`存在时固定 `previous_version`、`current_version`、`adoption_receipt`、`plan`、`origin_deployment`、`origin_identity` 六个file/sha256及 `transport`。origin_deployment为实际原pair完整deployment原件；origin_identity由Source owner的 `reference_deployment_identity` 复用原完整decoder产生，只含schema、deployment_sha256、journal_path、trade_binding_sha256，不复制凭据。Runtime通过普通安装Source owner API从已核raw重新派生全部投影字段并逐值核同；Native从同raw的host核journal_path及trade_binding规范摘要，投影自报值不构成独立证明。Runtime此显式分支依赖普通Host0.1.0a24+deploymentidentity.1；默认无Source续接分支保持原行为。Runtime/Native核原部署字节摘要和此owner投影；plan.journal_path须等于实际原Host路径，备份Journal采用证明不能作为生产证明。plan的新identity/profile/保护摘要与采用版本核同，原权限算法仍归Source。
 

@@ -586,10 +586,18 @@ int dependency_date(const rj::Value& value){
     day.wMonth=static_cast<WORD>(std::stoi(s.substr(5,2)));day.wDay=static_cast<WORD>(std::stoi(s.substr(8,2)));
     FILETIME file{};need(SystemTimeToFileTime(&day,&file)!=0);return day.wYear*10000+day.wMonth*100+day.wDay;
 }
-void normalize_dependencies(rj::Document& current,const rj::Value& origin,const rj::Value& reference,const std::string& origin_sha){
+void normalize_dependencies(rj::Document& current,const rj::Value& origin,const rj::Value& reference,
+                            const std::string& origin_sha,const std::string& execution_symbol){
     auto proof=dependency_proof(reference,1024*1024);const auto& value=proof.first;
     keys(value,{"schema","origin_configuration_sha256","previous_installation","current_installation","reader_additions","contract_addition","contract_reference","source_extension"});
     need(text(value,"schema")=="guanheng.strategy-dependency-handoff.v1"&&text(value,"origin_configuration_sha256",64)==origin_sha);
+    std::string execution_code;
+    if(!execution_symbol.empty()){
+        need(execution_symbol.size()==14&&execution_symbol.compare(0,8,"SSE.ETF.")==0
+            &&execution_symbol!="SSE.ETF.589680");
+        execution_code=execution_symbol.substr(8);
+        for(char digit:execution_code)need(digit>='0'&&digit<='9');
+    }
     auto manifest=[](const rj::Value& ref,const rj::Value& config){
         const auto root=absolute(text(config,"installation_root"));
         need(absolute(text(ref,"file"))==root.parent_path()/"execution-install.json");
@@ -619,17 +627,31 @@ void normalize_dependencies(rj::Document& current,const rj::Value& origin,const 
         const auto before=installed_body(old_root,previous,name);const auto after=installed_body(root,next,name);
         if(it->name!="contracts"){need(before==after);continue;}
         const auto old=parse(before);auto fresh=parse(after);const auto& row=member(value,"contract_addition");
-        keys(row,{"exchg","expiredate","name","opendate","product"});need(row.MemberCount()==5);
-        need(text(row,"exchg")=="SZSE"&&text(row,"product")=="ETF"&&member(row,"opendate").IsInt()&&member(row,"expiredate").IsInt()
-            &&!member(old,"SZSE").HasMember("159352")&&member(fresh,"SZSE").HasMember("159352")&&fresh["SZSE"]["159352"]==row);
+        need(!member(old,"SZSE").HasMember("159352")&&member(member(fresh,"SZSE"),"159352")==row);
         const auto reference=dependency_proof(member(value,"contract_reference"),16*1024*1024);
         const auto schema=text(reference.first,"schema");need(schema=="guanheng.security-reference.v1"||schema=="guanheng.security-reference.v2"||schema=="guanheng.security-reference.v3");
-        const auto& security=member(member(reference.first,"securities"),"SZSE.159352");
-        keys(security,{"symbol","name","market","security_type","listed_on","expires_on","observed_at"});need(security.MemberCount()==7);
-        need(text(security,"symbol")=="SZSE.159352"&&text(security,"market")=="SZSE"&&text(security,"security_type")=="etf"
-            &&text(security,"name",128)==text(row,"name",128)&&dependency_date(member(security,"listed_on"))==member(row,"opendate").GetInt()
-            &&(member(security,"expires_on").IsNull()?20991231:dependency_date(security["expires_on"]))==member(row,"expiredate").GetInt());
-        fresh["SZSE"].RemoveMember("159352");need(fresh==old);
+        const auto validate_contract=[&](const std::string& exchange,const std::string& code,const rj::Value& contract){
+            keys(contract,{"exchg","expiredate","name","opendate","product"});need(contract.MemberCount()==5);
+            need(text(contract,"exchg")==exchange&&text(contract,"product")=="ETF"
+                &&member(contract,"opendate").IsInt()&&member(contract,"expiredate").IsInt());
+            const auto symbol=exchange+"."+code;
+            const auto& security=member(member(reference.first,"securities"),symbol.c_str());
+            keys(security,{"symbol","name","market","security_type","listed_on","expires_on","observed_at"});need(security.MemberCount()==7);
+            need(text(security,"symbol")==symbol&&text(security,"market")==exchange&&text(security,"security_type")=="etf"
+                &&text(security,"name",128)==text(contract,"name",128)
+                &&dependency_date(member(security,"listed_on"))==member(contract,"opendate").GetInt()
+                &&(member(security,"expires_on").IsNull()?20991231:dependency_date(security["expires_on"]))==member(contract,"expiredate").GetInt());
+        };
+        validate_contract("SZSE","159352",row);
+        fresh["SZSE"].RemoveMember("159352");
+        if(!execution_code.empty()){
+            const auto& execution=member(member(fresh,"SSE"),execution_code.c_str());
+            if(!member(old,"SSE").HasMember(execution_code.c_str())){
+                validate_contract("SSE",execution_code,execution);
+                fresh["SSE"].RemoveMember(execution_code.c_str());
+            }
+        }
+        need(fresh==old);
     }
     need(member(current,"environment")==member(origin,"environment"));
     for(const char* key:{"filters","fees"}){
@@ -637,7 +659,12 @@ void normalize_dependencies(rj::Document& current,const rj::Value& origin,const 
         need(env[key].IsString());const std::string name=env[key].GetString();
         if(!name.empty())need(installed_body(root,next,name)==installed_body(old_root,previous,name));
     }
-    const auto expected=parse("{\"rows\":[{\"std_code\":\"SSE.ETF.589680\",\"symbol\":\"589680.SH\"},{\"std_code\":\"SZSE.ETF.159352\",\"symbol\":\"159352.SZ\"}]}");
+    auto expected=parse("{\"rows\":[{\"std_code\":\"SSE.ETF.589680\",\"symbol\":\"589680.SH\"},{\"std_code\":\"SZSE.ETF.159352\",\"symbol\":\"159352.SZ\"}]}");
+    if(!execution_code.empty()){
+        const auto symbol=execution_code+".SH";
+        expected["rows"][0]["std_code"].SetString(execution_symbol.c_str(),expected.GetAllocator());
+        expected["rows"][0]["symbol"].SetString(symbol.c_str(),expected.GetAllocator());
+    }
     const auto& additions=member(value,"reader_additions");need(additions==member(expected,"rows"));
     const auto& old_rows=member(member(member(origin,"data"),"store"),"symbols");
     auto& rows=current["data"]["store"]["symbols"];need(old_rows.IsArray()&&old_rows.Size()==8&&rows.IsArray()&&rows.Size()==10);
@@ -705,7 +732,8 @@ rj::Document market_model(const rj::Value& config){
         else{need(text(*it,"id")=="resonance-regime-v1");++retained;++it;}
     }
     need(removed==1&&retained==1);
-    if(marker.HasMember("dependency_handoff"))normalize_dependencies(projected,original,marker["dependency_handoff"],text(marker,"sha256",64));
+    if(marker.HasMember("dependency_handoff"))normalize_dependencies(projected,original,marker["dependency_handoff"],
+        text(marker,"sha256",64),p.HasMember("execution_symbol_589680")?text(p,"execution_symbol_589680",14):std::string{});
     auto before=legacy_market_model(original);auto after=legacy_market_model(projected);
     before.RemoveMember("recovery");after.RemoveMember("recovery");
     need(same_business(before,after));return legacy_market_model(projected);

@@ -1,7 +1,7 @@
 """原策略扩展的固定依赖续接；只读证明，真实安装/Source准入仍归原owner。"""
 from copy import deepcopy
 from pathlib import Path,PurePosixPath
-import hashlib,json,time
+import hashlib,json,re,time
 from .managed_local_process import _read,_json,_require,_sha,_path
 
 FIELDS={
@@ -60,7 +60,7 @@ def _source_origin(proof,binding_sha256,pinned,pinned_raw):
         and plan['schema_version']=='qmt.trade-binding-extension-plan.v1')
     return plan
 
-def normalize_dependencies(current,origin,reference,origin_sha256,*,deadline):
+def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_symbol=None,deadline):
     """调用方提供去新增ctx/标记后的副本；只回投已核依赖，不改实际配置。"""
     def pinned_raw(ref,maximum):
         _require(type(ref)is dict and set(ref)=={'file','sha256'})
@@ -72,6 +72,12 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,deadline):
     value,unused=pinned(reference,1024*1024)
     _require(type(value)is dict and set(value)==FIELDS and value['schema']=='guanheng.strategy-dependency-handoff.v1'
         and value['origin_configuration_sha256']==_sha(origin_sha256))
+    additions=ADDITIONS
+    if execution_symbol is not None:
+        _require(type(execution_symbol)is str and re.fullmatch(r'SSE\.ETF\.[0-9]{6}',execution_symbol)
+            and execution_symbol!='SSE.ETF.589680')
+        execution_code=execution_symbol.rsplit('.',1)[1]
+        additions=[dict(std_code=execution_symbol,symbol=execution_code+'.SH'),ADDITIONS[1]]
     current=deepcopy(current)
     def manifest(ref,native):
         root=_path(native['installation_root']);_require(_path(ref['file'])==root.parent/'execution-install.json')
@@ -96,19 +102,28 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,deadline):
         before=installed(previous_root,previous,name);after=installed(root,files,name)
         if kind!='contracts':_require(before==after);continue
         old,new=_json(before),_json(after);row=value['contract_addition']
-        _require(type(row)is dict and set(row)=={'exchg','expiredate','name','opendate','product'}
-            and row['exchg']=='SZSE'and row['product']=='ETF'and type(row['expiredate'])is int
-            and type(row['opendate'])is int and '159352'not in old['SZSE'] and new['SZSE'].get('159352')==row)
+        _require('159352'not in old['SZSE'] and new['SZSE'].get('159352')==row)
         catalog,unused=pinned(value['contract_reference'],16*1024*1024)
         _require(catalog.get('schema')in('guanheng.security-reference.v1','guanheng.security-reference.v2','guanheng.security-reference.v3'))
-        security=catalog['securities']['SZSE.159352']
         from guanheng_market_client.security import validate_security_identity
-        validate_security_identity(security)
-        _require(security['market']=='SZSE'and security['security_type']=='etf'and security['symbol']=='SZSE.159352'
-            and type(security['name'])is str and security['name']==row['name'] and security['listed_on']is not None
-            and int(security['listed_on'].replace('-',''))==row['opendate']
-            and row['expiredate']==(20991231 if security['expires_on']is None else int(security['expires_on'].replace('-',''))))
-        new=deepcopy(new);new['SZSE'].pop('159352');_require(new==old)
+        def validate_contract(exchange,code,row):
+            _require(type(row)is dict and set(row)=={'exchg','expiredate','name','opendate','product'}
+                and row['exchg']==exchange and row['product']=='ETF'and type(row['expiredate'])is int
+                and type(row['opendate'])is int)
+            symbol=exchange+'.'+code
+            security=catalog['securities'][symbol]
+            validate_security_identity(security)
+            _require(security['market']==exchange and security['security_type']=='etf'and security['symbol']==symbol
+                and type(security['name'])is str and security['name']==row['name'] and security['listed_on']is not None
+                and int(security['listed_on'].replace('-',''))==row['opendate']
+                and row['expiredate']==(20991231 if security['expires_on']is None else int(security['expires_on'].replace('-',''))))
+        validate_contract('SZSE','159352',row)
+        new['SZSE'].pop('159352')
+        if execution_symbol is not None:
+            _require(execution_code in new['SSE'])
+            if execution_code not in old['SSE']:
+                validate_contract('SSE',execution_code,new['SSE'].pop(execution_code))
+        _require(new==old)
     # 原忽略过滤及其它environment字段仍归旧业务；新根的同名原件必须逐字节相同。
     _require(current['environment']==origin['environment'])
     for key in ('filters','fees'):
@@ -116,7 +131,7 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,deadline):
             name=origin['environment'][key];_require(type(name)is str)
             if name:_require(installed(root,files,name)==installed(previous_root,previous,name))
     old_rows=origin['data']['store']['symbols'];rows=current['data']['store']['symbols'];added=value['reader_additions']
-    _require(type(old_rows)is list and len(old_rows)==8 and added==ADDITIONS and rows==old_rows+added
+    _require(type(old_rows)is list and len(old_rows)==8 and added==additions and rows==old_rows+added
         and len({r['std_code']for r in rows})==10 and len({r['symbol']for r in rows})==10)
     current['data']['store']['symbols']=deepcopy(old_rows)
     proof=value['source_extension'];old=origin['trader'];new=current['trader']

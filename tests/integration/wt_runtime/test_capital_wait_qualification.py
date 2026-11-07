@@ -46,6 +46,7 @@ class CapitalWaitQualification(unittest.TestCase):
         request = WaitingRequest((), self.now, self.now+timedelta(seconds=300), self.now, ())
         strategy.inputs = SimpleNamespace(capital_baseline=self.origin, request=request)
         strategy.execution = (); strategy.mapping = {}; strategy.id = 'resonance-regime-v1'
+        strategy.execution_enabled = True
         strategy.seconds = 2; strategy.max_age = 300; strategy.sequence = 1
         strategy.initialized = True; strategy.state = None; strategy.exits = (); strategy.cycles = {}
         strategy.recovery = 'record_clean'; strategy.restored_state_id = None; strategy.restored_sequence = None

@@ -111,6 +111,41 @@ def test_explicit_full_dependency_main(tmp_path,source_versions):
     base.native(dict(mode='compare',previous=current,current=current),tmp_path)
 
 
+def test_substituted_execution_dependency_is_pinned_to_new_strategy(tmp_path,source_versions):
+    old,current,proof=fixture(tmp_path,source_versions)
+    marker=current['strategy_extension_origin']
+    execution_symbol='SSE.ETF.588230'
+    added=current['strategies'][1]
+    added['parameters']['python_strategy']['execution_symbol_589680']=execution_symbol
+    marker['added_strategy']=base.put(Path(marker['added_strategy']['file']),added)
+    reader_row=dict(std_code=execution_symbol,symbol='588230.SH')
+    proof['reader_additions'][0]=reader_row
+    current['data']['store']['symbols'][8]=reader_row
+    contracts=Path(current['installation_root'])/'contracts.json'
+    contents=json.loads(contracts.read_bytes())
+    contents['SSE']['588230']=dict(exchg='SSE',expiredate=20991231,
+        name='synthetic execution ETF',opendate=20241224,product='ETF')
+    manifest=Path(proof['current_installation']['file'])
+    installation=json.loads(manifest.read_bytes())
+    installation['files']['app/contracts.json']=base.put(contracts,contents)['sha256']
+    proof['current_installation']=base.put(manifest,installation)
+    catalog=Path(proof['contract_reference']['file'])
+    reference=json.loads(catalog.read_bytes())
+    reference['securities']['SSE.588230']=dict(symbol='SSE.588230',name='synthetic execution ETF',
+        market='SSE',security_type='etf',listed_on='2024-12-24',expires_on=None,
+        observed_at='2026-11-06T00:00:00Z')
+    proof['contract_reference']=base.put(catalog,reference)
+    marker['dependency_handoff']=base.put(Path(marker['dependency_handoff']['file']),proof)
+
+    assert recovery.compatible_business_configuration(current,old)
+    valid=deepcopy(current)
+    current['data']['store']['symbols'][8]=ADDITIONS[0]
+    with pytest.raises(ValueError):
+        recovery.compatible_business_configuration(current,old)
+    base.native(dict(mode='compare',previous=old,current=valid),tmp_path)
+    base.native(dict(mode='compare',previous=old,current=current),tmp_path,success=False)
+
+
 def test_actual_native_reconciled_dependency_admission(tmp_path,monkeypatch,source_versions):
     old,current,proof=fixture(tmp_path,source_versions)
     monkeypatch.setattr(base,'fixture',lambda root:(old,current))

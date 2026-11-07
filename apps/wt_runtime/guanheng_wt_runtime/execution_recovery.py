@@ -310,7 +310,8 @@ def strategy_extension_configuration(native, *, deadline=float('inf')):
     projected['strategies']=[r for r in projected['strategies']if r['id']=='resonance-regime-v1']
     if 'dependency_handoff'in marker:
         from .execution_dependency_handoff import normalize_dependencies
-        projected=normalize_dependencies(projected,origin,marker['dependency_handoff'],marker['sha256'],deadline=deadline)
+        projected=normalize_dependencies(projected,origin,marker['dependency_handoff'],marker['sha256'],
+            execution_symbol=p.get('execution_symbol_589680'),deadline=deadline)
     _require(compatible_business_configuration(projected,origin,deadline=deadline))
     return projected
 

@@ -4,7 +4,7 @@ from dataclasses import asdict
 from datetime import date,datetime,timedelta,timezone
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
-import json,math,time
+import json,math,re,time
 from .execution_strategy import StrategyBinding,_need
 from .execution_facts import canonical_raw_price
 from .original_signal_runtime import OriginalSignalConfig,OriginalSignalWorker,_sha
@@ -34,7 +34,7 @@ class OriginalLiveStrategy:
         from guanheng_strategy_original.reference import DEFAULT_CODES
         p=item['parameters']['python_strategy'];required={'schema','strategy_version','main_symbol','price_policy','timing_policy','activation_mode',
             'initial_capital_cny','state_mode','signal_source','quote_max_age_seconds','evaluation_seconds','broker_max_age_seconds'}
-        _need(type(p)is dict and required<=set(p)<=required|{'shared_account'} and p['schema']==ORIGINAL_PROFILE
+        _need(type(p)is dict and required<=set(p)<=required|{'shared_account','execution_symbol_589680'} and p['schema']==ORIGINAL_PROFILE
               and p['strategy_version']==ORIGINAL_LIVE_VERSION,'original_live_profile')
         _need(p['price_policy'] in ('executor-price','signal-close-cap') and p['timing_policy']=='next-session-first-schedule'
               and p['activation_mode']=='signals-from-activation'
@@ -50,6 +50,14 @@ class OriginalLiveStrategy:
         self.start_deadline=deadline
         self.id=item['id'];self.publish=publish;self.allocation=allocation;self.parameters=dict(p);self.codes=tuple(DEFAULT_CODES)
         self.mapping={c:('SZSE' if c.startswith('159') else 'SSE')+'.ETF.'+c for c in self.codes}
+        if 'execution_symbol_589680' in p:
+            execution_symbol=p['execution_symbol_589680']
+            _need(type(execution_symbol) is str and re.fullmatch(r'SSE\.ETF\.[0-9]{6}',execution_symbol)
+                  and execution_symbol not in self.mapping.values()
+                  and p['price_policy']=='executor-price','original_execution_symbol')
+            self.mapping['589680']=execution_symbol
+        # 实际账本使用执行证券，信号状态仍使用原六位代码。
+        self.analysis_codes={symbol:code for code,symbol in self.mapping.items()}
         self.reads=self.targets=tuple(sorted(self.mapping.values()));self.main=p['main_symbol'];_need(self.main in self.reads,'main_symbol')
         _,_,self.ticks=configured_native_facts(configuration,native,self.mapping,deadline=deadline)
         self.signals=signals or OriginalSignalWorker(OriginalSignalConfig.from_dict(p['signal_source']))
@@ -161,7 +169,8 @@ class OriginalLiveStrategy:
         return dict(
             strategy_id=self.id,  # 本次真实ctx策略身份。
             strategy_version=ORIGINAL_LIVE_VERSION,  # 原线上执行模型版本。
-            symbols=[c+{'SSE':'.SH','SZSE':'.SZ'}[self.mapping[c].split('.')[0]] for c in self.codes])  # 已核映射的完整九证券，含零持仓。
+            symbols=[code+{'SSE':'.SH','SZSE':'.SZ'}[exchange]
+                     for exchange,_,code in (symbol.split('.') for symbol in self.mapping.values())])  # 已核执行证券，含零持仓。
 
     def callback(self,context):
         if context.event.kind==1:self._initialize(context);return
@@ -211,7 +220,7 @@ class OriginalLiveStrategy:
         candidate['route_qualification']=qualifications
         trade=datetime.strptime(str(context.event.tdate),'%Y%m%d').date().isoformat()
         actual={c:0 for c in self.codes}
-        for p in own.strategy.positions:actual[p.symbol.rsplit('.',1)[1]]=p.quantity
+        for p in own.strategy.positions:actual[self.analysis_codes[p.symbol]]=p.quantity
         buys=set(self._buys);sells={c for c in self._sells if actual[c]>0};plan=None if self._plan is None else dict(self._plan)
         last_date,last_source=self._last_date,self._last_source
         consumed_sha=self._consumed_sha;consumed_codes=dict(self._consumed_codes)
