@@ -14,6 +14,15 @@ WT拥有QMT通信、行情、历史、采集、策略及交易生命周期；市
 
 观衡配置公开CURRENT读取后，WT日常启动、停止和重新启动沿[原服务入口](wt-independent-runtime.md#日常启动停止和状态查看)操作。观衡保持运行，账户、策略和系统状态页每15秒读取当前实例；用户无需修改运行UUID、配置摘要或重新启动观衡。当前实例读取失败时页面保留原成功结果及时间并显示失败；已知换代后等待本代账户结果，清除上一代账户回退。实际版本、网页地址及已验证新代见[联合验收入口](../evidence/2026-11-04-observer-current-joint-acceptance.md)。
 
+### 本机冷启动检查
+
+1. Windows 登录后先查看任务计划程序中的 `Guanheng-Data-Group-Autostart` 最近结果，再核对 WT 正式数据端口 18136 是否能返回日线。该任务覆盖四个数据角色。交易、行情采集和报价查询沿 WT 日常入口管理。使用 `E:/workspace/wondertrader-data/wt-service/启动WT.lnk` 或该目录 `DEPLOYMENT.json` 登记的操作组和 `status`、`start` 命令。
+2. 观衡 Web 使用 `E:/workspace/wondertrader-data/observer-current/DEPLOYMENT.json` 中的解释器、工具和 profile，沿原入口 `status`、`start`。访问 18143 的 `/health`，再确认原自选和市场观察快照可读。市场观察更新另从同目录 `UPDATE-DEPLOYMENT.json` 读取控制入口，核调度子进程及新心跳。
+3. 任一入口显示 `unknown` 或到达等待时限时，先读同一控制 ID 的进程身份和回执。确认旧代是否早于本次 Windows 启动，保存原控制记录、现场错误和未决状态。Web 已开始监听时回读原代就绪。启动未接管时由维护者按对应服务的故障恢复流程处理。
+4. WT 组启动在首个错误处停下时，先看具体组件。监听失败时核实际占用和 `netsh interface ipv4 show excludedportrange protocol=tcp`。构造失败时核冻结部署引用与工作目录，确认已有故障回执能否支持原交接续接。最后通过[系统状态](#查看日常业务)分别核 WT 日线、账户查询和策略执行。
+
+本机异常重启的实测、保留的回执和未闭合项见[冷启动故障记录](../incidents/2026-11-09-wt-observer-cold-start.md)。
+
 ## 查看日常业务
 
 | 工作区 | 操作与核对 |
