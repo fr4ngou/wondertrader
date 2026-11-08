@@ -9,8 +9,14 @@
 按[策略开发与回测交付](../development/workflow.md#策略开发与回测交付)区分研究输出与观衡正式归档。
 
 1. 按策略适用的 [WT 原生入口](../modules/wondertrader-strategy-capabilities.md#三原生回测实际调用链)运行，固定策略版本、数据、时间范围、本金及成本模型。已有项目受管接缝的策略可用下文 CLI，将 `--work-root` 指向独立研究目录，并省略 `--archive-label`。研究输出目录置于观衡读取根之外。
-2. 默认使用 WT 官方 [`WtBtSnooper`](https://github.com/wondertrader/wtpy/blob/master/wtpy/monitor/WtBtSnooper.py) 查看。使用独立研究环境，按所选查看器版本核对结果目录和字段。官方实现的摘要和环境读取依赖 `summary.json`、`btenv.json`，资金与交易分析读取原生 CSV；K 线读取还依赖 `WtDtServo`。项目现有受管输出与查看器的完整兼容性待用代表性运行实测；在完成验真前，研究结果可从原生 CSV 和项目报告核对。
+2. 默认复用用户当前打开的 WT 官方 [`WtBtSnooper`](https://github.com/wondertrader/wtpy/blob/master/wtpy/monitor/WtBtSnooper.py) 查看。本机先核 `http://127.0.0.1:8081/backtest/backtest.html` 及 `/bt/qryws`，确认现有实例和工作空间。研究回测目录独立于查看器进程。只有当前实例确实不可用，或有明确的兼容性隔离要求时，才另开查看实例，并在交付时说明入口和原因。
 3. 用户指定收录报告时走[正式归档](#正式归档的唯一位置)。已有项目报告须具备有效的 WT 父完成凭证才可按原件采用；只有研究输出时，以冻结输入通过正式入口运行并生成完成凭证。
+
+### 在现有查看器中登记结果
+
+1. 将各对照方案作为同一个工作空间根目录的直接子目录。每个子目录应有 `summary.json`、`btenv.json` 和原生 `funds.csv`、`trades.csv`，按当前查看器版本补齐其他分析所需原件。结果根目录由当前实验选择。需要更改显示名或裁去预热行时，使用独立只读展示副本，保留原生输出。
+2. 先按路径核对 `/bt/qryws`。尚未登记时使用查看器「回测工作空间」旁的加号，将工作空间根路径和显示名登记到现有实例。每次复用同一登记项。登记后刷新左栏，用 `/bt/qrybtstras`、`/bt/qrybtinfo`、`/bt/qrybtfunds`、`/bt/qrybttrds` 核对方案数、评价日、净值和成交，确认旧工作空间仍可读。
+3. K 线历史由当前查看器的数据服务提供，单独核 `/bt/qrybars` 的日期和输入口径。若只覆盖部分区间，在同一交付中写明覆盖，提供完整净值或已冻结的行情原件。正式观衡归档沿第 3 步的完成凭证流程单独判断。
 
 ## 安装输入
 
