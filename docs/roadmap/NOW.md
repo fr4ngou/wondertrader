@@ -1,6 +1,6 @@
 # 当前工作
 
-观衡126与D盘归档已正式验真。Data28只读服务自启已实证，11月6日后继完整CURRENT含辅助归档，原价单位回退仍待修。R25归属适配已用原WT完成隔离验证，实际金融未启用。原模拟账户新策略独立100万元，旧持仓归旧，禁用自动划转。模拟启用继续处理只替换执行ETF的映射、柜台资格、收盘限价与同口径WT回测。见[R25证据](../evidence/2026-11-07-shared-account-r25-execution.md)及[日更发布](../releases/2026-11-07-data28-natural-recovery.md)。
+[观衡129](../releases/2026-11-08-observer129-backtest-comparison-live.md) 已正式采用，原自选与策略历史延续。Data28只读服务自启已实证，11月6日后继完整CURRENT含辅助归档，原价单位回退仍待修。R25归属适配已用原WT完成隔离验证，实际金融未启用。原模拟账户新策略独立100万元，旧持仓归旧，禁用自动划转。模拟启用继续处理只替换执行ETF的映射、柜台资格、收盘限价与同口径WT回测。见[R25证据](../evidence/2026-11-07-shared-account-r25-execution.md)及[日更发布](../releases/2026-11-07-data28-natural-recovery.md)。
 
 界面及数据自动更新阶段已验真：App125正式18143与D盘9份归档可读；实际列表3704ms、完整打开2911ms（含350ms延迟），悬停HTTP为0。Data25沿原请求恢复，11月6日完整CURRENT及MSF已发布；四角色数据组ready，外部份额/融资/官方成交额缺口和代理单位未知继续保留。原版线上适配与100万元部署进入下一阶段，实际采用另验。见[本阶段发布](../releases/2026-11-07-observer125-data-update-and-d-archive.md)；既有目标记录、a2现金回测及金融未在线观察见[前次发布](../releases/2026-11-07-native-target-cash-gapplan-live.md)。
 
