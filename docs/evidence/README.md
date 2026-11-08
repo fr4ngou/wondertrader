@@ -1,5 +1,7 @@
 # 验证证据
 
+- [观衡沪深市场广度历史补采](2026-11-08-observation-shsz-breadth-backfill.md)记录原缺口、补采口径及正式页面验真。
+
 - [ETF 分钟来源复核与多策略异常验证](2026-11-07-etf-minute-and-shared-account-checks.md)：正式目录与离线长档、四策略异常回归及模拟启用顺序。
 
 - [同账户策略配置通用化及行情复核](2026-11-07-generic-account-configuration.md)：三策略独立资金、归属回调、实际WT派单及当前行情范围。
