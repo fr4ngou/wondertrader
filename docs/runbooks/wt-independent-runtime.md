@@ -24,6 +24,8 @@ E:\guanheng\wt\venv\Scripts\guanheng-wt-service.exe stop --service-config E:\gua
 
 ## 安装和启动
 
+正式运行以主工作区的已采用源码为基线。部署角色及工作子进程从稳定安装目录运行，持久配置与账本放在长期运行目录。正式采用前从快捷方式或计划任务一路解析到最内层描述符，逐项核对解释器、DLL、数据根及工作目录，尤其是分析窗口的 `producer.worker_cwd`。这些路径在开发 worktree 清理后仍须可用。核配置应使用实际发行绑定，包含尚未运行的服务和全部嵌套引用。
+
 1. 使用发行安装器准备独立WT环境及其原生组件；WT环境不要求安装观衡Web包或SPA。QMT Host使用安装器声明的独立Host环境。
 2. 在WT实例配置中声明所需组件，逐项填写原部署descriptor绝对路径及原字节SHA256。host选择只读或HPR组合中的一种；需要交易通信时额外声明trade_host（kind=qmt_trade），保留原补齐Host。当原v3账户查询需与HPR并存时，另声明account_host（kind=qmt_read），填写原只读Host descriptor。需要持续账户观察时，同实例声明account_observation（kind=native_account_observation），填写[NAP-v1](../migration/native-account-publication-proposal.md#nap-v1冻结合同)原生扫描/刷新发布descriptor。三个通信组件各用自己的原配对、映射与Journal，账户扫描及其更新由WT持有，观衡读取已发布文件。历史、采集及执行分别使用原组件描述。配对秘密和账户材料归WT实例管理；完整组合及同QMT正文接线分别验收，现场配置保持原值。
 3. 使用安装后WT环境的`pythonw.exe -I -B -m guanheng_wt_runtime`，传入配置、配置摘要、新控制目录及控制UUID。示例见[包说明](../../apps/wt_runtime/README.md#公开入口)。一次启动覆盖已声明组件，后台子进程均隐藏窗口。

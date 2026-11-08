@@ -18,6 +18,20 @@
 2. 先按路径核对 `/bt/qryws`。尚未登记时使用查看器「回测工作空间」旁的加号，将工作空间根路径和显示名登记到现有实例。每次复用同一登记项。登记后刷新左栏，用 `/bt/qrybtstras`、`/bt/qrybtinfo`、`/bt/qrybtfunds`、`/bt/qrybttrds` 核对方案数、评价日、净值和成交，确认旧工作空间仍可读。
 3. K 线历史由当前查看器的数据服务提供，单独核 `/bt/qrybars` 的日期和输入口径。若只覆盖部分区间，在同一交付中写明覆盖，提供完整净值或已冻结的行情原件。正式观衡归档沿第 3 步的完成凭证流程单独判断。
 
+## 本机 WT 原生回测查看页
+
+浏览器打开 **http://127.0.0.1:8081/backtest/backtest.html**。本机 WtBtSnooper 工作空间包含共振原版仓位实验对照和 177 日长窗口报告。
+
+若地址未监听，从既有查看器安装启动。入口使用 UTF-8 读取中文工作空间配置，启动日志与入口文件同目录。
+
+```powershell
+$viewer = 'D:/wt-build/wt-bt-snooper-exposure-20261108-001'
+$entry = 'E:/workspace/wondertrader-data/reboot-adoption-20261109-002/start-wt-snooper.py'
+Start-Process -FilePath "$viewer/venv/Scripts/pythonw.exe" -ArgumentList '-X','utf8','-B',$entry -WindowStyle Hidden
+```
+
+启动后检查页面响应与 `POST /bt/qryws`，并打开既有工作空间核资金曲线。WT 回测执行仍沿下文 CLI 按任务启动。
+
 ## 安装输入
 
 使用已核对版本/内容摘要的独立WT wheel及固定六发行，另提供匹配的WtBtPorter、ABI探针、基础资料和`nsh-wt-install-v1`安装绑定。Python依赖包含原策略纯核和数量包；该环境使用无`.pth`启动钩子的标准非editable安装。通信Host和观衡沿各自角色环境安装。原生DLL不从Python公共索引获取；安装绑定、SHA和本机固定盘运行根由操作员显式指定，运行根须预先存在。
