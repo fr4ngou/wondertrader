@@ -8,6 +8,12 @@
 
 `CtaStraBaseCtx`、`SelStraBaseCtx`、`HftStraBaseCtx` 管理对应上下文；`WtEngine` 维护组合运行状态。以具体引擎及接口定义为准，运行类型分别声明调度和数据可见性。
 
+## 策略编写入口
+
+1. 按[WT 策略能力](wondertrader-strategy-capabilities.md)选择与调度及数据粒度匹配的原生策略接口。原生 CTA 的策略实现和工厂登记可参考 [DualThrust](../../src/WtCtaStraFact/WtStraDualThrust.cpp)及[策略工厂](../../src/WtCtaStraFact/WtCtaStraFact.cpp)。维护现有共振策略时，沿[保留版规格](../specs/retained-resonance.md)或[原版回测规格](../specs/original-native-backtest.md)定位对应版本的受管接缝。
+2. 策略规则归策略自身，明确输入来源、知晓时刻、预热、缺数行为、信号到目标映射和策略状态。需要在线运行的策略复用同一套计算规则，在回测和实时上下文分别验证调度、撮合及恢复。
+3. 按[验证规范](../development/verification.md#按影响选择验证)和[回测手册](../runbooks/native-backtest.md#研究回测与查看)验证。观衡登记和回测报告交付沿[开发流程](../development/workflow.md#策略开发与回测交付)，运行及执行资格沿本模块分别验证。
+
 ## 状态与边界
 
 策略理论持仓、组合目标、内部资金统计和外部实际持仓分别命名。运行状态保存与加载沿现有上下文实现；新增状态定义版本、重启恢复和兼容性。策略拥有自身信号与止损规则，系统公共层承担其声明的权限与风险边界。

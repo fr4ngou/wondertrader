@@ -4,6 +4,14 @@
 
 唯一1.1.2日线接缝使用显式最终批次模型，固定JSON输入及原生run入口见[RR112-R5/R6](../specs/retained-resonance.md)。[独立WT安装](../evidence/2026-10-30-standalone-native-backtest.md)已完成401日输入/400次闭合、原持仓/费用及用户状态保存；当前操作员入口沿[NBC-R5](../specs/native-backtest-cli.md#nbc-r5-独立wt运行侧回测)。观衡只读报告与最终统一候选分别验收。
 
+## 研究回测与查看
+
+按[策略开发与回测交付](../development/workflow.md#策略开发与回测交付)区分研究输出与观衡正式归档。
+
+1. 按策略适用的 [WT 原生入口](../modules/wondertrader-strategy-capabilities.md#三原生回测实际调用链)运行，固定策略版本、数据、时间范围、本金及成本模型。已有项目受管接缝的策略可用下文 CLI，将 `--work-root` 指向独立研究目录，并省略 `--archive-label`。研究输出目录置于观衡读取根之外。
+2. 默认使用 WT 官方 [`WtBtSnooper`](https://github.com/wondertrader/wtpy/blob/master/wtpy/monitor/WtBtSnooper.py) 查看。使用独立研究环境，按所选查看器版本核对结果目录和字段。官方实现的摘要和环境读取依赖 `summary.json`、`btenv.json`，资金与交易分析读取原生 CSV；K 线读取还依赖 `WtDtServo`。项目现有受管输出与查看器的完整兼容性待用代表性运行实测；在完成验真前，研究结果可从原生 CSV 和项目报告核对。
+3. 用户指定收录报告时走[正式归档](#正式归档的唯一位置)。已有项目报告须具备有效的 WT 父完成凭证才可按原件采用；只有研究输出时，以冻结输入通过正式入口运行并生成完成凭证。
+
 ## 安装输入
 
 使用已核对版本/内容摘要的独立WT wheel及固定六发行，另提供匹配的WtBtPorter、ABI探针、基础资料和`nsh-wt-install-v1`安装绑定。Python依赖包含原策略纯核和数量包；该环境使用无`.pth`启动钩子的标准非editable安装。通信Host和观衡沿各自角色环境安装。原生DLL不从Python公共索引获取；安装绑定、SHA和本机固定盘运行根由操作员显式指定，运行根须预先存在。
@@ -47,7 +55,7 @@ CLI路由/准入/信号/退出码测试位于`tests/integration/strategy_cli`，
 
 观衡只读已有完成报告；WT原生回测CLI拥有新运行和父完成证明发布。正式位置由受控运行环境的 `backtest-current/STORAGE.json` 记录，字段 `state=active`、`archive_root`、`work_root` 与实际采用收据一起核对。该文件是运维采用记录，CLI显式参数与App环境分别沿其原入口配置。
 
-当前受控记录为 `E:/workspace/wondertrader-data/backtest-current/STORAGE.json`，已采用根为 `D:/wondertrader-data/formal-backtests-20261107-001`。观衡使用 `GUANHENG_BACKTEST_ARCHIVE_ROOT` 指向此根，在正常重启时绑定。WT CLI须显式使用同一位置：
+当前受控记录为 `E:/workspace/wondertrader-data/backtest-current/STORAGE.json`，已采用根为 `D:/wondertrader-data/formal-backtests-20261107-001`。观衡使用 `GUANHENG_BACKTEST_ARCHIVE_ROOT` 指向此根，在正常重启时绑定。为用户指定的报告直接运行并归档时，WT CLI 显式使用同一位置：
 
 ```powershell
 & "<已安装Python绝对路径>" -I -B -m guanheng_wt_runtime.backtest_cli `

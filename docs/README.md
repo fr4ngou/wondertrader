@@ -53,7 +53,8 @@
 | AI 开发知识与任务续接方案 | [AKN 方案](specs/agent-project-knowledge.md)、[研究依据](research/2026-11-07-documentation-standards-lifecycle.md) | 按采用切片登记；任务选择及行为实验仍待实施 |
 | 功能设计、职责或状态变化 | [方案规范](development/design.md)、[规格索引](specs/README.md) | 要求与验收映射；原规格及适用 ADR |
 | 测试、审查与运行资格 | [验证规范](development/verification.md)、[测试手册](runbooks/testing.md) | 输入有效的测试及[证据](evidence/README.md) |
-| 原生隔离回测操作员入口 | [回测手册](runbooks/native-backtest.md)、[NBC规格](specs/native-backtest-cli.md) | 固定安装、同一总预算、取消回收及真实原DLL命令 |
+| 策略编写与验证 | [策略编写入口](modules/strategy-runtime.md#策略编写入口)、[策略开发与回测交付](development/workflow.md#策略开发与回测交付) | 核对原生接口、策略版本、冻结输入和交付范围 |
+| WT 回测与报告 | [回测手册](runbooks/native-backtest.md)、[NBC规格](specs/native-backtest-cli.md) | 研究结果用 WT 查看；指定报告核对正式完成凭证及观衡读回 |
 | 构建、环境和工具 | [构建手册](runbooks/build.md)、[维护工具](development/skills.md) | 实际目标命令、工具链与环境证据 |
 | 历史分钟计划与证据消费 | [日历消费者](runbooks/history-calendar.md)、[独立 SDK](runbooks/client-sdk.md) | 原 owner 契约、存证回读、完整补齐链与发行身份 |
 | 历史进程部署接线 | [部署工厂](runbooks/history-deployment-factory.md)、[HDF规格](specs/history-deployment-factory.md) | 配置准入、凭据隔离、已登记作业及独立服务整链 |
