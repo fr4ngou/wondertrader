@@ -1,5 +1,7 @@
 # 验证证据
 
+- [市场广度备用来源补采](2026-11-08-observation-breadth-alternative-sources.md)记录沪深和沪深北历史补采、正式验真及 BigQuant 读取权限。
+
 - [观衡沪深市场广度历史补采](2026-11-08-observation-shsz-breadth-backfill.md)记录原缺口、补采口径及正式页面验真。
 
 - [ETF 分钟来源复核与多策略异常验证](2026-11-07-etf-minute-and-shared-account-checks.md)：正式目录与离线长档、四策略异常回归及模拟启用顺序。
