@@ -65,7 +65,7 @@ class MinuteCollectionMaintenance:
         self.last_error_type = None  # 可重试观察失败类型；原生关闭失败向外层收束。
         self.retained_read_resume = retained_resume_state('not_scanned')  # 原已派发读取交接进度，独立于滚动分钟日期。
         try:
-            require(type(configuration) is dict and set(configuration) == {
+            require(type(configuration) is dict and set(configuration) - {'transport_port'} == {
                 'schema', 'producer', 'metadata', 'lookback_trading_days', 'batch_size',
                 'interval_seconds', 'retry_seconds', 'priority_symbols'}
                 and configuration['schema'] == 'qmt.collection-maintenance.v1')
@@ -85,7 +85,7 @@ class MinuteCollectionMaintenance:
             self.c = c  # 本实例固定维护策略及原producer描述符。
             self.producer_configuration = producer  # 共享原生产配置，公开读方据此核同一身份。
             from .source_history_preparation import SourcePreparingMarket
-            self.producer = SourcePreparingMarket(producer)
+            self.producer = SourcePreparingMarket(producer, transport_port=c.get('transport_port'))
             base = self.producer.base
             require(base._minute_native is not None)
             self.profile = base._minute_native  # 原标准Reader全部固定制品/基础资料身份。

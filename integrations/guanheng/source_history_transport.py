@@ -58,7 +58,7 @@ class _DeadlineSocket:
 class BoundHistorySource:
     """默认单次连接；显式复用由最外层RPC预算拥有，无后台线程或自动重发。"""
 
-    def __init__(self, configuration, *, environ=None, clock=time.monotonic, reuse_connections=False):
+    def __init__(self, configuration, *, environ=None, clock=time.monotonic, reuse_connections=False, transport_port=None):
         require(type(configuration) is dict and set(configuration) == {'base_url','key_id','secret_env','timeout'})
         value=urlsplit(configuration['base_url'])
         require(value.scheme=='http' and value.hostname is not None and ipaddress.ip_address(value.hostname).is_loopback
@@ -68,10 +68,12 @@ class BoundHistorySource:
             and .1<=configuration['timeout']<=30)
         require(type(configuration['key_id'])is str and 1<=len(configuration['key_id'])<=128)
         require(type(reuse_connections)is bool)
+        require(transport_port is None or type(transport_port) is int and 1 <= transport_port <= 65535)
         environment=os.environ if environ is None else environ
         secret=environment[configuration['secret_env']]
         require(type(secret)is str and 32<=len(secret.encode('utf8'))<=8192)
-        self.host,self.port,self.key_id,self.secret=value.hostname,value.port,configuration['key_id'],secret.encode('utf8')
+        # 部署端口独立于原生产配置及请求身份，连接仍用原回环地址和认证角色。
+        self.host,self.port,self.key_id,self.secret=value.hostname,transport_port or value.port,configuration['key_id'],secret.encode('utf8')
         self.timeout,self.clock=configuration['timeout'],clock
         self._rpc_seconds=None
         self._reuse_connections=reuse_connections

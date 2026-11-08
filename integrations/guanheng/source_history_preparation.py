@@ -53,7 +53,7 @@ def failure(code,reason):
 class SourcePreparingMarket:
     """创建线程独占；旧根与至多一个窗口Reader各有显式缓存额度。"""
 
-    def __init__(self,configuration,*,environ=None,clock=time.monotonic,wall_clock=time.time):
+    def __init__(self,configuration,*,environ=None,clock=time.monotonic,wall_clock=time.time,transport_port=None):
         self.owner=threading.get_ident();self.base=self.overlay=self.lock=self.published_reader=None
         self.overlay_key=None;self.closed=False;self.clock=clock;self.wall_clock=wall_clock
         self._retained_resume_paths=None  # 可重建原窗口扫描游标；原请求责任仍由窗口及slot持有。
@@ -103,7 +103,7 @@ class SourcePreparingMarket:
             self.repository=PreparedHistoryRepository(self.root,self.identity,self.receipt_schema,
                 c['max_windows'],partitioned=self.partitioned)
             self.window_count=self.repository.count()  # 唯一写owner启动核实；新增窗口递增，避免逐次扫描全市场。
-            self.source=BoundHistorySource(c['host'],environ=environ,clock=clock)
+            self.source=BoundHistorySource(c['host'],environ=environ,clock=clock,transport_port=transport_port)
             self.reads=HistoryReadOperations(self.source,self.root,retained=c.get('retained_reads',False))
             helper=Path(c['helper']['library'])
             require(helper.is_absolute());_inspect(helper)

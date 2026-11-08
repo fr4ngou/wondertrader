@@ -24,6 +24,20 @@ from integrations.guanheng.collection_maintenance import MinuteCollectionMainten
 
 
 class RetainedResumeTests(unittest.TestCase):
+    def test_new_transport_port_keeps_the_original_producer_binding(self):
+        original = {'base_url': 'http://127.0.0.1:50885', 'key_id': 'fixture',
+                    'secret_env': 'FIXTURE_SECRET', 'timeout': 1}
+        environment = {'FIXTURE_SECRET': 's' * 32}
+        old = BoundHistorySource(original, environ=environment)
+        new = BoundHistorySource(original, environ=environment, transport_port=18149)
+        self.assertEqual((old.host, old.port), ('127.0.0.1', 50885))
+        self.assertEqual((new.host, new.port), ('127.0.0.1', 18149))
+        self.assertEqual((new.key_id, new.secret), (old.key_id, old.secret))
+        self.assertEqual(original['base_url'], 'http://127.0.0.1:50885')
+        for port in (0, True, '18149', 65536):
+            with self.subTest(port=port), self.assertRaises(ValueError):
+                BoundHistorySource(original, environ=environment, transport_port=port)
+
     def setUp(self):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         parent=Path(temporary.name);self.root=parent/'recovery';self.root.mkdir()

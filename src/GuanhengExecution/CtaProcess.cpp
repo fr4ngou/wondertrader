@@ -309,6 +309,25 @@ void normalize_target_replacement(rj::Value& value){
         rule.RemoveMember("replace_equal_position_target");
     }
 }
+// 本机行情读取端口属于部署接线，其余解析器配置和认证角色继续参与身份比较。
+void normalize_retained_parser_port(rj::Document& value){
+    if(!value.HasMember("parsers")||!value["parsers"].IsArray())return;
+    const std::string prefix="http://127.0.0.1:";
+    for(auto& parser:value["parsers"].GetArray()){
+        if(!parser.IsObject()||!parser.HasMember("module")||!parser["module"].IsString()
+            ||parser["module"]!="ParserQMTHostRetainedV6"||!parser.HasMember("qmt")||!parser["qmt"].IsObject())continue;
+        auto& qmt=parser["qmt"];
+        if(!qmt.HasMember("base_url")||!qmt["base_url"].IsString())continue;
+        auto url=std::string(qmt["base_url"].GetString(),qmt["base_url"].GetStringLength());
+        if(!url.empty()&&url.back()=='/')url.pop_back();
+        if(url.compare(0,prefix.size(),prefix)!=0)continue;
+        const auto port=url.substr(prefix.size());
+        if(port.empty()||port.size()>5||port.find_first_not_of("0123456789")!=std::string::npos)continue;
+        const auto number=std::stoul(port);
+        if(number>0&&number<=65535)qmt["base_url"].SetString("http://127.0.0.1",value.GetAllocator());
+    }
+}
+
 // 比较投影只归一化已核运行接线及已批准目标修正；来源及金融身份保持严格。
 bool same_business(const rj::Value& left,const rj::Value& right){
     rj::Document before,after;before.CopyFrom(left,before.GetAllocator());after.CopyFrom(right,after.GetAllocator());
@@ -317,6 +336,7 @@ bool same_business(const rj::Value& left,const rj::Value& right){
         const auto duration=number(budget,"run_ms",0,86400000);need(duration==0||duration>=1000);
         (*value)["budget"].RemoveMember("run_ms");
         normalize_publication_cache(*value);
+        normalize_retained_parser_port(*value);
         normalize_target_replacement(*value);
         if(value->HasMember("executer")&&(*value)["executer"].IsObject()){
             auto& executer=(*value)["executer"];

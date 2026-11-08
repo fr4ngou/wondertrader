@@ -101,6 +101,24 @@ def _normalize_publication_cache(value):
     publication.pop('cache_root')
 
 
+def _normalize_retained_parser_port(value):
+    """行情读取端口属于本机部署，认证角色和解析器的其余配置继续参与身份比较。"""
+    parsers = value.get('parsers')
+    if not isinstance(parsers, list):
+        return
+    for parser in parsers:
+        if not isinstance(parser, dict) or parser.get('module') != 'ParserQMTHostRetainedV6':
+            continue
+        qmt = parser.get('qmt')
+        url = qmt.get('base_url') if isinstance(qmt, dict) else None
+        if not isinstance(url, str):
+            continue
+        host, separator, port = url.removesuffix('/').rpartition(':')
+        if (separator and host == 'http://127.0.0.1' and 1 <= len(port) <= 5
+                and port.isascii() and port.isdecimal() and 1 <= int(port) <= 65535):
+            qmt['base_url'] = 'http://127.0.0.1'
+
+
 def _same_business(left, right):
     """仅比较金融模型；运行时长、发布接线和已核派生缓存定位独立，原件仍完整核验。"""
     left, right = copy.deepcopy(left), copy.deepcopy(right)
@@ -109,6 +127,7 @@ def _same_business(left, right):
         _require(type(duration) is int and (duration == 0 or 1000 <= duration <= 86400000))
         value['budget'].pop('run_ms')
         _normalize_publication_cache(value)
+        _normalize_retained_parser_port(value)
         # 此显式执行修正不改变金融模型；只归一化比较副本，实际配置和原件SHA保持。
         executer = value.get('executer')
         policies = executer.get('policy') if type(executer) is dict else None

@@ -89,6 +89,21 @@ class ExecutionBusinessIdentityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     compatible_business_configuration(new, old)
 
+    def test_retained_parser_port_change_preserves_business_identity(self):
+        original = {"budget": {"run_ms": 0}, "parsers": [{"module": "ParserQMTHostRetainedV6",
+            "qmt": {"base_url": "http://127.0.0.1:50885", "key_id_env": "FIXTURE_KEY"}}]}
+        changed = deepcopy(original)
+        qmt = changed["parsers"][0]["qmt"]
+        qmt["base_url"] = "http://127.0.0.1:18149/"
+        self.assertTrue(compatible_business_configuration(changed, original))
+        for endpoint in ("http://127.0.0.1:0", "http://127.0.0.1:65536", "http://localhost:18149",
+                         "https://127.0.0.1:18149", "http://127.0.0.1:18149/path"):
+            with self.subTest(endpoint=endpoint):
+                qmt["base_url"] = endpoint
+                self.assertFalse(compatible_business_configuration(changed, original))
+        qmt.update(base_url="http://127.0.0.1:18149", key_id_env="OTHER_KEY")
+        self.assertFalse(compatible_business_configuration(changed, original))
+
 
 class AccountPublicationBusinessIdentityTests(unittest.TestCase):
     """同账户发布程序升级只改变接线；账户事实及全部金融模型继续保持原身份。"""
