@@ -1,5 +1,7 @@
 # 验证证据
 
+- [BigQuant SDK 开通后读取验证](../research/2026-11-09-bigquant-data-source.md)记录 11 月 9 日业务回包及交易所对照，接续市场广度备用来源的权限核查。
+
 - [市场广度备用来源补采](2026-11-08-observation-breadth-alternative-sources.md)记录沪深和沪深北历史补采、正式验真及 BigQuant 读取权限。
 
 - [观衡沪深市场广度历史补采](2026-11-08-observation-shsz-breadth-backfill.md)记录原缺口、补采口径及正式页面验真。
