@@ -83,7 +83,7 @@ def _business(value):
 
 
 def _normalize_publication_cache(value):
-    """仅在比较投影移除自有持续Reader派生缓存位置；原行情来源保持严格。"""
+    """比较时保留发布路径及来源父目录，归一同父目录下的发布器工作代和派生缓存。"""
     data=value.get('data')
     store=data.get('store') if type(data) is dict else None
     if type(store) is not dict or store.get('module') != 'GuanhengRealtimeReader':
@@ -99,6 +99,11 @@ def _normalize_publication_cache(value):
                  and all(ord(c) >= 32 and ord(c) != 127 for c in path)
                  and Path(path).is_absolute() and '..' not in Path(path).parts)
     publication.pop('cache_root')
+    if 'source_root' in publication:
+        source = Path(publication['source_root'])
+        if Path(publication['status_file']) == source / 'STATUS.json' and source.parent != Path(source.anchor):
+            publication['status_file'] = 'STATUS.json'
+            publication['source_root'] = str(source.parent)
 
 
 def _normalize_retained_parser_port(value):

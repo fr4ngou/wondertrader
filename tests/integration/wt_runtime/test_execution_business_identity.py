@@ -89,6 +89,28 @@ class ExecutionBusinessIdentityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     compatible_business_configuration(new, old)
 
+    def test_daily_publication_owner_relocation_keeps_origin_and_window(self):
+        root = Path('E:/synthetic/analysis')
+        source = root / 'producer'
+        window = root / 'current-window.json'
+        original = {'budget': {'run_ms': 0}, 'data': {'store': {
+            'module': 'GuanhengRealtimeReader', 'daily': {'publication': {
+                'status_file': str(source / 'STATUS.json'), 'source_root': str(source),
+                'publication_file': str(window), 'cache_root': str(root / 'cache')}}}}}
+        relocated = deepcopy(original)
+        publication = relocated['data']['store']['daily']['publication']
+        successor = root / 'producer-next'
+        publication.update(status_file=str(successor / 'STATUS.json'), source_root=str(successor))
+        self.assertTrue(compatible_business_configuration(relocated, original))
+        publication['status_file'] = str(source / 'STATUS.json')
+        self.assertFalse(compatible_business_configuration(relocated, original))
+        publication['status_file'] = str(successor / 'STATUS.json')
+        publication['publication_file'] = str(root / 'different-window.json')
+        self.assertFalse(compatible_business_configuration(relocated, original))
+        unrelated = root / 'other' / 'producer-next'
+        publication.update(status_file=str(unrelated / 'STATUS.json'), source_root=str(unrelated), publication_file=str(window))
+        self.assertFalse(compatible_business_configuration(relocated, original))
+
     def test_retained_parser_port_change_preserves_business_identity(self):
         original = {"budget": {"run_ms": 0}, "parsers": [{"module": "ParserQMTHostRetainedV6",
             "qmt": {"base_url": "http://127.0.0.1:50885", "key_id_env": "FIXTURE_KEY"}}]}

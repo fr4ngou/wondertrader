@@ -35,6 +35,22 @@ _CURRENT_FIELDS = {
 _ENVIRONMENT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 
 
+def _connect_daily_publication(runtime: dict, publication: dict) -> None:
+    """正式续接由当前发布器描述符导出原生Reader实际读取的状态路径。"""
+    component = runtime['components'].get('analysis_window')
+    if component is None or 'source_root' not in publication:
+        return
+    raw, descriptor = _json_file(_path(component['descriptor'], e_drive=True), 65536)
+    _require(hashlib.sha256(raw).hexdigest() == _sha(component['sha256'])
+             and descriptor.get('schema') == 'guanheng.analysis-window-deployment.v1')
+    producer = descriptor['configuration']['producer']
+    source = _path(producer['directory'], e_drive=True)
+    _require(_path(producer['publication'], e_drive=True) == _path(publication['publication_file'], e_drive=True))
+    previous = _path(publication['source_root'], e_drive=True)
+    _require(previous.parent == source.parent and _path(publication['status_file'], e_drive=True) == previous / 'STATUS.json')
+    publication.update(status_file=str(source / 'STATUS.json'), source_root=str(source))
+
+
 def _canonical(value: dict) -> bytes:
     """生成配置和收据使用同一确定性 JSON 字节；不接收 NaN。"""
     return json.dumps(
@@ -589,6 +605,7 @@ class ServiceController:
                         cache_root = generation / "daily-cache"
                         _require(not os.path.lexists(cache_root))
                         daily["publication"]["cache_root"] = str(cache_root)
+                        _connect_daily_publication(runtime_value, daily["publication"])
                     native_template = generation / "native-template.json"
                     _write_exclusive(native_template, native)
                     transition_path = generation / "transition.json"

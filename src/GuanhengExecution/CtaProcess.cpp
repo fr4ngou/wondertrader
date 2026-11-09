@@ -280,8 +280,8 @@ bool known_orders_recoverable(guanheng::StandardExecutionHost& execution,const g
 bool settled(guanheng::StandardExecutionHost& execution,const guanheng::StandardQmtRecoveryV1& value){
     return value.submissions_closed&&known_orders_recoverable(execution,value);
 }
-// 自有持续Reader的缓存为派生位置；严格验证对象后，只从比较投影移除此定位。
-void normalize_publication_cache(rj::Value& value){
+// 比较时保留行情发布文件和来源父目录，同父目录下的发布代和派生缓存属于运行接线。
+void normalize_publication_cache(rj::Document& value){
     if(!value.HasMember("data")||!value["data"].IsObject())return;
     auto& data=value["data"];if(!data.HasMember("store")||!data["store"].IsObject())return;
     auto& store=data["store"];
@@ -291,7 +291,16 @@ void normalize_publication_cache(rj::Value& value){
     auto& daily=store["daily"];if(!daily.HasMember("publication"))return;
     auto& publication=daily["publication"];keys(publication,{"status_file","publication_file","cache_root","source_root"});
     for(const char* field:{"status_file","publication_file","cache_root"})absolute(text(publication,field));
-    if(publication.HasMember("source_root"))absolute(text(publication,"source_root"));
+    if(publication.HasMember("source_root")){
+        const auto source=absolute(text(publication,"source_root"));
+        const auto status=absolute(text(publication,"status_file"));
+        if(status==source/"STATUS.json"&&source.parent_path()!=source.root_path()){
+            const auto parent=source.parent_path().u8string();
+            auto& allocator=value.GetAllocator();
+            publication["status_file"].SetString("STATUS.json",allocator);
+            publication["source_root"].SetString(parent.c_str(),static_cast<rj::SizeType>(parent.size()),allocator);
+        }
+    }
     publication.RemoveMember("cache_root");
 }
 // 已批准的执行器目标修正属于发行行为选择；比较副本移除该开关，原配置及其SHA保持。
