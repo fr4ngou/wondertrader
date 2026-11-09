@@ -88,7 +88,7 @@ def main():
          *libraries, 'winhttp.lib', 'bcrypt.lib', 'synchronization.lib', 'ws2_32.lib', 'psapi.lib',
          'dbghelp.lib', 'version.lib', 'user32.lib', 'shell32.lib', 'advapi32.lib', 'ole32.lib'], 'probe-link')
     results = []
-    for scenario in ('cancel-false', 'cancel-error', 'partial', 'missing-current'):
+    for scenario in ('cancel-false', 'cancel-error', 'partial', 'missing-current', 'account-rejected'):
         directory = output / scenario
         run([sys.executable, '-I', '-B', ROOT / 'tests/integration/qmt_broker_context/run_cancel_refresh.py',
              '--legacy-fixtures', legacy, '--exe', probe, '--dll', build / 'bin/traders/TraderQMTStandard.dll',

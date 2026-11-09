@@ -883,7 +883,7 @@ public:
         pin=std::move(observed);source=std::move(identity);ready=true;++prepare_generation;return {};
     }
     QmtBoundResult follow(QmtBoundResult output,SignedHttpDeadline& until,SignedHttpResult response,bool get,
-        RequestControl* request_control=nullptr,const std::string* original_wire=nullptr)
+        RequestControl* request_control=nullptr,const std::string* original_wire=nullptr,bool initial_submit=false)
     {
         // 身份/receipt/unknown诊断在I/O前已分配；后续异常仍返回这些原值。
         try {
@@ -952,6 +952,18 @@ public:
                         return failure(fail(ErrorCode::SubmissionUnknown,"qmt_host_result_unknown"));
                     }
                     continue;
+                }
+            }
+            // 仅首POST的完整Host拒绝证明本轮未准入。续核/重投无法用新回复消除旧责任。
+            if(account()&&initial_submit&&!get&&!redelivered&&response.response_complete
+                &&!response.delivery_unknown&&response.code==400&&response.status.code==ErrorCode::InvalidInput){
+                Document rejected;
+                if(parse(response.body,rejected,16384)&&keys(rejected,{"error_code","error_message"})
+                    &&field(rejected,"error_code")&&string(rejected["error_message"],4096)){
+                    const auto code=text(rejected["error_code"]);
+                    if(code=="invalid_arguments")return failure(fail(ErrorCode::Unavailable,"qmt_account_admission_invalid_arguments"));
+                    if(code=="read_ticket_ended"&&!receipt.retention_ticket_json.empty())
+                        return failure(fail(ErrorCode::Unavailable,"qmt_account_admission_ticket_ended"));
                 }
             }
             if(!response.status.ok())return failure(response.status);
@@ -1339,7 +1351,7 @@ QmtHistoryResult QmtBoundReadCore::submit_prepared(std::unique_ptr<QmtPreparedHi
 #endif
         const bool get=!response.status.ok()&&response.delivery_unknown&&(response.code==0||response.code==200||response.code==202);
         out.bound=impl_->follow(std::move(out.bound),until,std::move(response),get,request_control,
-            original_account_deadline?&wire:nullptr);
+            original_account_deadline?&wire:nullptr,true);
         if(out.bound.result.status.ok())out.page=std::move(impl_->last_page);
         out.remote_error_code=std::move(impl_->last_error);
     }catch(...){if(request_control)request_control->failed();out.bound.result.status.code=ErrorCode::SubmissionUnknown;out.bound.result.data_json.clear();}

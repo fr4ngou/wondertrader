@@ -95,6 +95,8 @@ EFR-21a：同一 `ParserQMTHostRetainedV6` 仅迁移本机 HTTP 端口时，兼�
 
 显式账户票据的原ID lookup收到认证Host完整410/read_ticket_ended_unretained时，Common返回Unavailable/qmt_read_ticket_ended_unretained。Host对在途、未知及未消费结果仍保留原记录；该状态只结束旧读取责任，不提供账户数据。标准交易插件归还该原读取的槽和内存，沿既有刷新流程发起新一轮账户查询。其它410、绑定冲突、无法确认的原结果以及全部交易命令继续沿原核查／失败语义。
 
+原账户查询的首个准入 POST 收到完整 HTTP 400 和固定 `invalid_arguments` 或 `read_ticket_ended` 时，原轮次在准入前结束。Native 不交付账户数据，也不保留待续核的已准入请求。已登录实例进入现有只读等待流程，期间暂停新增交易准入，完整恢复资金、委托、成交、持仓后再开放。仅首个准入 POST 可凭该响应结束责任。原结果查询、消费确认、事件及交易命令沿各自的错误和核查规则处理。HTTP 参数类失败保留固定路由类别及允许的错误码供关联，诊断不复制报文和账户资料。
+
 本进程已验证并持有原终态后，consumed收到完整410/read_result_unretained表示消费交接已完成。先校验该业务回复，再解释通用HTTP错误；正文不完整、错误类别或形状不符均保留真实失败。读取回收不会清理历史行情、金融状态或未决委托。
 
 验证状态见[账户读取回收状态修正](../evidence/2026-11-03-account-read-ended.md)，现场恢复与隔离验证分别登记。

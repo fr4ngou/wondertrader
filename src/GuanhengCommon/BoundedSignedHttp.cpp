@@ -8,6 +8,7 @@
 #include <cstring>
 #include <mutex>
 #include <thread>
+#include <string_view>
 #include <vector>
 #include <set>
 #include <cmath>
@@ -615,7 +616,32 @@ SignedHttpResult BoundedSignedHttp::exchange(const char* method,const std::strin
 {
     const auto status = check();
     if (!status.ok()) return local_http_result(status, SignedHttpStage::None);
-    return impl_->exchange(method,target,body,deadline,response_limit);
+    auto result=impl_->exchange(method,target,body,deadline,response_limit);
+    if(result.response_complete&&result.status.reason=="qmt_http_remote_invalid_input"){
+        // 只登记固定路由及已知错误码，不复制报文、认证字段或URL中的原ID。
+        const char* route="other";
+        if(target=="/internal/v1/bound-operations/account.trade_detail")route="account.trade_detail";
+        else if(target.find("/internal/v1/bound-results/")==0)route="bound.result";
+        else if(target.find("/internal/v1/read-results/")==0)
+            route=target.compare(target.size()-9,9,"/consumed")==0?"retention.consumed":"retention.lookup";
+        else if(target=="/internal/v1/read-binding")route="binding.read";
+        else if(target=="/internal/v1/read-retention-status")route="retention.status";
+        else if(target=="/internal/v1/trade-events")route="trade.events";
+        else if(target=="/internal/v1/trade-status")route="trade.status";
+        else if(target=="/internal/v1/trade-commands")route="trade.submit";
+        else if(target.find("/internal/v1/trade-commands/")==0)route="trade.result";
+        else if(target=="/internal/v1/trade-order-lookup")route="trade.lookup";
+        else if(target=="/internal/v1/trade-cancel-lookup")route="trade.cancel_lookup";
+        result.status.reason+=":"+std::to_string(result.code)+":"+route;
+        rapidjson::Document value;
+        if(parse_bounded_qmt_json(result.body,value,16384,4096)&&value.IsObject()
+            &&value.HasMember("error_code")&&value["error_code"].IsString()){
+            const auto& code=value["error_code"];
+            const std::string_view text(code.GetString(),code.GetStringLength());
+            if(text=="invalid_arguments"||text=="read_ticket_ended")result.status.reason+=":"+std::string(text);
+        }
+    }
+    return result;
 }
 SignedHttpResult BoundedSignedHttp::read_binding(SignedHttpDeadline& deadline,std::size_t response_limit,
     const std::function<Status()>& gate)

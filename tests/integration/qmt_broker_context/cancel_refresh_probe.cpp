@@ -35,35 +35,48 @@ int wmain(int argc,wchar_t** argv){
   functions.find=exports.get<decltype(functions.find)>("findStandardQmtTrader");functions.pump=exports.get<decltype(functions.pump)>("pumpStandardQmtTrader");
   functions.inspect=exports.get<decltype(functions.inspect)>("inspectStandardQmtTrader");functions.stop=exports.get<decltype(functions.stop)>("stopStandardQmtTrader");functions.destroy=exports.destroy;
   functions.submission={exports.get<guanheng::BeginSubmissionFn>("beginStandardQmtSubmission"),exports.get<guanheng::EndSubmissionFn>("endStandardQmtSubmission"),exports.get<guanheng::InspectSubmissionFn>("inspectStandardQmtSubmission")};
+  functions.awaiting_observation=exports.get<decltype(functions.awaiting_observation)>("inspectStandardQmtAwaitingObservation");
   functions.recovery=exports.get<decltype(functions.recovery)>("inspectStandardQmtRecovery");functions.pause_inserts=exports.get<decltype(functions.pause_inserts)>("pauseStandardQmtInserts");
   host.reset(new guanheng::StandardExecutionHost("cancel_e2e","cancel_e2e_host",base,policy,factory,*environment));
   check(host->initialize(trader.get(),execution.get(),functions,{16,65536,16,10000}),"cancel_e2e_host_init");
   manager.add_executer(host->command());
   auto until=[&](auto condition){while(!condition()){check(Clock::now()<end,"cancel_e2e_deadline");check(host->pump(64,16)>=0,"cancel_e2e_pump");Sleep(2);}};
   until([&]{return host->status().phase==guanheng::ExecutionHostPhase::Ready;});
-  const char* code="SZSE.STK.000001";wtp::wt_hashmap<std::string,double> targets;targets[code]=1100;manager.set_positions(targets);
-  unsigned ticks=0;auto tick=[&]{wtp::WTSTickStruct v={};std::strcpy(v.code,code);std::strcpy(v.exchg,"SZSE");v.price=10.01;v.action_date=v.trading_date=20261022;v.action_time=100000000+(++ticks)*1000;auto* t=wtp::WTSTickData::create(v);manager.handle_tick(code,t);t->release();};
-  tick();until([&]{return host->status().plugin.inserts==1&&host->undone(code)>0;});
-  check(host->pause_inserts(true),"cancel_e2e_pause_insert_only");const auto prior=host->broker_observation();
-  Sleep(1100);tick(); // 原执行器在新tick中检查超时，真正走cancel/SHM。
-  guanheng::StandardQmtRecoveryV1 recovered;
-  // 查询序号变化还不足以证明冻结资金释放；等待券商替身返回实际可用现金。
-  // account[3]为BrokerQueryAdapter统一发布的CNY可用资金。
-  const double expected_cash=partial?97998.:100000.;
-  until([&]{const auto b=host->broker_observation();check(host->recovery(recovered)==0,"cancel_e2e_recovery_read");
-   return b.position_revision>prior.position_revision&&b.account_revision>prior.account_revision
-    &&b.account_known&&std::abs(b.account[3]-expected_cash)<0.000001
-    &&host->undone(code)==0&&(missing||recovered.unresolved_children==0);});
-  const auto observed=host->broker_observation();check(host->status().phase==guanheng::ExecutionHostPhase::Ready&&host->status().plugin.error==0,"cancel_e2e_channel_survives");
-  check(host->position(code)==(partial?300:100),"cancel_e2e_broker_position");
-  std::unique_ptr<wtp::OrderMap,HostOrderRelease> orders(host->orders(code));check(orders&&orders->size()==0,"cancel_e2e_original_order_table");
-  if(missing){check(recovered.unresolved_children>0&&host->status().plugin.inserts==1,"cancel_e2e_missing_not_fake_terminal");}
-  else {check(host->pause_inserts(false),"cancel_e2e_resume_original_execution");tick();until([&]{return host->status().plugin.inserts==2;});}
-  report.AddMember("queries",host->status().plugin.queries,a);report.AddMember("inserts",host->status().plugin.inserts,a);
-  report.AddMember("broker_position",host->position(code),a);report.AddMember("original_order_terminal",!missing,a);
-  report.AddMember("unresolved_original_children",recovered.unresolved_children,a);report.AddMember("channel_ready",true,a);
-  report.AddMember("position_revision",observed.position_revision,a);report.AddMember("account_revision",observed.account_revision,a);
-  report.AddMember("available_cash_after_cancel",observed.account[3],a);
+  if(scenario=="account-rejected"){
+   const auto prior=host->broker_observation();
+   until([&]{const auto status=host->status();check(status.plugin.error==0,"account_rejection_faulted_instance");
+    return status.plugin.writes_blocked!=0;});
+   until([&]{const auto status=host->status();const auto view=host->broker_observation();
+    check(status.phase==guanheng::ExecutionHostPhase::Ready&&status.plugin.error==0,"account_rejection_channel_survives");
+    return !status.plugin.writes_blocked&&view.account_revision>prior.account_revision
+     &&view.position_revision>prior.position_revision&&view.account_known;});
+   check(host->status().plugin.inserts==0,"account_rejection_no_insert");
+   report.AddMember("read_wait_recovered",true,a);
+  }else{
+   const char* code="SZSE.STK.000001";wtp::wt_hashmap<std::string,double> targets;targets[code]=1100;manager.set_positions(targets);
+   unsigned ticks=0;auto tick=[&]{wtp::WTSTickStruct v={};std::strcpy(v.code,code);std::strcpy(v.exchg,"SZSE");v.price=10.01;v.action_date=v.trading_date=20261022;v.action_time=100000000+(++ticks)*1000;auto* t=wtp::WTSTickData::create(v);manager.handle_tick(code,t);t->release();};
+   tick();until([&]{return host->status().plugin.inserts==1&&host->undone(code)>0;});
+   check(host->pause_inserts(true),"cancel_e2e_pause_insert_only");const auto prior=host->broker_observation();
+   Sleep(1100);tick(); // 原执行器在新tick中检查超时，真正走cancel/SHM。
+   guanheng::StandardQmtRecoveryV1 recovered;
+   // 查询序号变化还不足以证明冻结资金释放；等待券商替身返回实际可用现金。
+   // account[3]为BrokerQueryAdapter统一发布的CNY可用资金。
+   const double expected_cash=partial?97998.:100000.;
+   until([&]{const auto b=host->broker_observation();check(host->recovery(recovered)==0,"cancel_e2e_recovery_read");
+    return b.position_revision>prior.position_revision&&b.account_revision>prior.account_revision
+     &&b.account_known&&std::abs(b.account[3]-expected_cash)<0.000001
+     &&host->undone(code)==0&&(missing||recovered.unresolved_children==0);});
+   const auto observed=host->broker_observation();check(host->status().phase==guanheng::ExecutionHostPhase::Ready&&host->status().plugin.error==0,"cancel_e2e_channel_survives");
+   check(host->position(code)==(partial?300:100),"cancel_e2e_broker_position");
+   std::unique_ptr<wtp::OrderMap,HostOrderRelease> orders(host->orders(code));check(orders&&orders->size()==0,"cancel_e2e_original_order_table");
+   if(missing){check(recovered.unresolved_children>0&&host->status().plugin.inserts==1,"cancel_e2e_missing_not_fake_terminal");}
+   else {check(host->pause_inserts(false),"cancel_e2e_resume_original_execution");tick();until([&]{return host->status().plugin.inserts==2;});}
+   report.AddMember("queries",host->status().plugin.queries,a);report.AddMember("inserts",host->status().plugin.inserts,a);
+   report.AddMember("broker_position",host->position(code),a);report.AddMember("original_order_terminal",!missing,a);
+   report.AddMember("unresolved_original_children",recovered.unresolved_children,a);report.AddMember("channel_ready",true,a);
+   report.AddMember("position_revision",observed.position_revision,a);report.AddMember("account_revision",observed.account_revision,a);
+   report.AddMember("available_cash_after_cancel",observed.account[3],a);
+  }
   report.AddMember("business_strategy_qualified",false,a);report.AddMember("real_broker_calls",0,a);passed=true;
  }catch(const std::exception& e){text(report,"primary",std::string(e.what()).substr(0,256),a);}
  if(host){host->request_stop();closed=host->close()==0;if(closed)host.reset();}

@@ -16,7 +16,7 @@ def main():
     parser.add_argument('--dll', type=Path, required=True)
     parser.add_argument('--factory', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scenario', choices=('cancel-false', 'cancel-error', 'partial', 'missing-current'), required=True)
+    parser.add_argument('--scenario', choices=('cancel-false', 'cancel-error', 'partial', 'missing-current', 'account-rejected'), required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     # 显式旧测试依赖只提供夹具；产品模块始终从当前源码加载。
@@ -25,6 +25,7 @@ def main():
     for part in ('apps/guanheng', 'connectors/qmt_shm/host', 'connectors/qmt_shm/agent'):
         sys.path.insert(0, str(ROOT / part))
     from test_submission_group import GapFixture
+    from guanheng_qmt_shm.runtime import error
     from event_query_fixture import _Child, _FixtureOwners, canonical, decode, write_new, uptime_ms
 
     class Fixture(GapFixture):
@@ -117,6 +118,20 @@ def main():
     with owners:
         owners.callback(persist)
         fixture.start(owners)
+        rejected = []
+        if args.scenario == 'account-rejected':
+            original_submit = fixture.host.bound_submit
+
+            def reject_periodic_account_once(operation, raw):
+                from base64 import b64decode
+                request = decode(b64decode(decode(raw)['request_body_b64'], validate=True))
+                if (operation == 'account.trade_detail' and request['arguments']['datatype'] == 'account'
+                        and len(fixture.queries) >= 4 and not rejected):
+                    rejected.append(request['request_id'])
+                    return error(400, 'invalid_arguments')
+                return original_submit(operation, raw)
+
+            fixture.host.bound_submit = reject_periodic_account_once
         fixture.proxy.max_requests = 2048
         fixture.proxy.query_progress_capacity = 256
         value = {'work': str(args.output / 'runtime'), 'candidate_dll': str(args.dll),
@@ -131,8 +146,13 @@ def main():
         if (args.output / 'native-result.json').is_file():
             report = decode((args.output / 'native-result.json').read_bytes())
         assert fixture.child.exit_code == 0 and report and report['passed'], report
-        assert len(fixture.tokens) == (1 if args.scenario == 'missing-current' else 2)
-        assert any(x['operation'] == 'cancel' for x in fixture.sdk)
+        if args.scenario == 'account-rejected':
+            assert len(rejected) == 1 and not fixture.sdk and not fixture.tokens
+            with fixture.host.journal._transaction() as db:
+                assert db.execute('SELECT 1 FROM read_operations WHERE request_id=?', rejected).fetchone() is None
+        else:
+            assert len(fixture.tokens) == (1 if args.scenario == 'missing-current' else 2)
+            assert any(x['operation'] == 'cancel' for x in fixture.sdk)
         assert not fixture.callbacks  # 零订单终态推送；查询实际负责收敛。
         assert fixture.first.facts() is None and fixture.proxy.first.facts() is None
         assert fixture.child.reaped and not fixture.child.forced and all(fixture.child.eof.values())
@@ -140,7 +160,8 @@ def main():
     result = {'passed': True, 'scenario': args.scenario, 'native': report, 'sdk_substitute_calls': fixture.sdk,
               'query_sequence': [x['datatype'] for x in fixture.queries], 'real_broker_calls': 0,
               'order_terminal_pushes': 0, 'resource_owners_closed': True,
-              'case_outcome': ('identity_retained_with_inserts_paused' if args.scenario == 'missing-current'
+              'case_outcome': ('account_reads_resumed_without_orders' if rejected else
+                               'identity_retained_with_inserts_paused' if args.scenario == 'missing-current'
                                else 'original_order_reconciled_executor_resumed'),
               'reconciliation_complete': args.scenario != 'missing-current',
               'qualification': 'real Host/WinSHM/standard plugin/WT order table and stock executor; synthetic broker; no CTA business strategy qualification',
@@ -157,7 +178,7 @@ def main():
                   and Path(module.__file__).is_file()}}
     write_new(args.output / 'RESULT.json', result, total)
     print(json.dumps({'passed': True, 'scenario': args.scenario, 'queries': len(fixture.queries),
-                      'inserts': len(fixture.tokens), 'terminal_confirmed': report['original_order_terminal'], 'real_broker_calls': 0}))
+                      'inserts': len(fixture.tokens), 'terminal_confirmed': report.get('original_order_terminal'), 'real_broker_calls': 0}))
 
 
 if __name__ == '__main__':

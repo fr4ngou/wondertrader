@@ -1505,7 +1505,9 @@ struct StandardQmtTrader::Impl {
   // Common仅在原账户票据及完整Host回复校验通过后发布此状态。
   // 结束读取责任不代表查询成功，也不授予重发下单或撤单的权限。
   return value.status.code==ErrorCode::Unavailable
-   &&value.status.reason=="qmt_read_ticket_ended_unretained";
+   &&(value.status.reason=="qmt_read_ticket_ended_unretained"
+    ||value.status.reason=="qmt_account_admission_invalid_arguments"
+    ||value.status.reason=="qmt_account_admission_ticket_ended");
  }
  static bool interrupted_read(const Completion& value) {
   if((value.kind!=Kind::Query&&value.kind!=Kind::EventQuery)||value.stage>3)return false;
@@ -1568,7 +1570,7 @@ struct StandardQmtTrader::Impl {
   }
   if(!temporary_read(value))return false;
   const bool pending=(value.kind==Kind::Query||value.kind==Kind::EventQuery)
-    &&value.query_step>=QueryStep::SubmitEntered&&!value.account.bound.result.terminal&&!ended_retained_read(value);
+    &&value.query_step>=QueryStep::SubmitEntered&&!value.account.bound.result.terminal&&!settled_read(value);
   if(pending){
    HeldRead held;held.receipt=std::move(value.account.bound.receipt);
    if(held.receipt.request_body.empty())held.receipt=std::move(value.saved_receipt);
@@ -1842,7 +1844,7 @@ struct StandardQmtTrader::Impl {
     result.read_not_dispatched=read_not_dispatched(result);
     result.read_interrupted=query_first&&events_enabled&&interrupted_read(result);
     const bool held_query=task.kind==Kind::Query&&result.query_step>=QueryStep::SubmitEntered
-      &&!result.account.bound.result.terminal&&temporary_read(result);
+      &&!result.account.bound.result.terminal&&!settled_read(result)&&temporary_read(result);
     const bool financial=task.kind==Kind::Insert||task.kind==Kind::Cancel||task.kind==Kind::AuditOriginal;
     if(result.read_generation&&(financial||task.kind==Kind::Resolve||(task.kind==Kind::Query
         &&(task.resume_read?settled_read(result):!result.status.ok()&&!held_query)))){
