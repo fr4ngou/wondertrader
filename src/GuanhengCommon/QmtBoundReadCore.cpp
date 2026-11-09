@@ -854,7 +854,8 @@ public:
         Document body;body.SetObject();add(body,"schema","qmt.read-consumed.v1");
         add(body,"request_body_sha256",signed_http_sha256(output.receipt.request_body));
         add(body,"result_body_sha256",signed_http_sha256(output.native_result_json));
-        auto response=http.exchange("POST","/internal/v1/read-results/"+output.result.request_id+"/consumed",encode(body),until,16384);
+        auto response=http.exchange_observed("POST","/internal/v1/read-results/"+output.result.request_id+"/consumed",
+            encode(body),until,16384,{output.result.request_id,RequestJournalEvidence::Confirmed});
         // 本进程已持有并验完原结果。完整410确认消费责任已经结束，须先解释业务
         // 回复再处理运输层的通用错误分类，避免重复确认把正常回收变成硬故障。
         if(response.response_complete&&response.code==410){
@@ -889,7 +890,7 @@ public:
         try {
         const auto& receipt=output.receipt;Document body,b;
         // 只有原submit_once首POST运输未知进入的GET可再投一次；公开resume没有原wire能力。
-        const bool redelivery_allowed=original_wire&&get;bool redelivered=false;
+        const bool redelivery_allowed=original_wire&&get;bool redelivered=false,journal_confirmed=false;
         auto failure=[&](Status status){output.result.status=std::move(status);return std::move(output);};
         if(!request(receipt,body,b,profile_kind))return failure(fail(ErrorCode::InvalidInput,"qmt_host_receipt_invalid"));
         // 当前已认证账户能力要求显式原票据；公开receipt删字段不能绕过消费交接。
@@ -917,7 +918,8 @@ public:
                     }
                 }
                 if(!until.remaining())return failure(fail(ErrorCode::Timeout,"qmt_host_deadline"));
-                response=http.exchange("GET","/internal/v1/bound-results/"+request_id,{},until,http_response_cap);
+                response=http.exchange_observed("GET","/internal/v1/bound-results/"+request_id,{},until,http_response_cap,
+                    {request_id,journal_confirmed?RequestJournalEvidence::Confirmed:RequestJournalEvidence::Unknown});
             }
             observe(response);
             // 认证Host保留在途、未知和未消费结果。原账户票据查询收到这个完整410，
@@ -946,7 +948,7 @@ public:
                         if(!checked.ok())return failure(checked);
                     }
                     redelivered=true;get=false;
-                    response=http.exchange("POST","/internal/v1/bound-operations/"+operation,*original_wire,until,http_response_cap);
+                    response=http.exchange_observed("POST","/internal/v1/bound-operations/"+operation,*original_wire,until,http_response_cap,{request_id});
                     if(!response.status.ok()&&response.delivery_unknown){
                         observe(response);
                         return failure(fail(ErrorCode::SubmissionUnknown,"qmt_host_result_unknown"));
@@ -1001,6 +1003,7 @@ public:
             if(response.code==202){
                 if(!value["result_binding"].IsNull()||(state=="queued"&&!value["dispatch_binding"].IsNull())
                     ||(state=="executing"&&value["dispatch_binding"].IsNull()))return failure(fail(ErrorCode::IoError,"qmt_host_progress_invalid"));
+                journal_confirmed=true; // 同ID、正文与绑定均已核过的进度证明此请求已入库。
                 const auto left=until.remaining();if(!left)return failure(fail(ErrorCode::Timeout,"qmt_host_deadline"));
                 std::this_thread::sleep_for(std::chrono::milliseconds(std::min<std::uint32_t>(25,left)));get=true;continue;
             }
@@ -1345,7 +1348,8 @@ QmtHistoryResult QmtBoundReadCore::submit_prepared(std::unique_ptr<QmtPreparedHi
     if(!until.remaining())return reject(fail(ErrorCode::Timeout,"qmt_host_deadline"));
     try{
         if(request_control){status=request_control->gate(impl_->http,until,impl_->control,QmtAccountReadStage::Submit);if(!status.ok())return reject(status);}
-        auto response=impl_->http.exchange("POST",std::string("/internal/v1/bound-operations/")+operation(impl_->profile_kind),wire,until,impl_->http_response_cap);
+        auto response=impl_->http.exchange_observed("POST",std::string("/internal/v1/bound-operations/")+operation(impl_->profile_kind),wire,until,
+            impl_->http_response_cap,{out.bound.result.request_id,impl_->account()?RequestJournalEvidence::FirstAccountAdmission:RequestJournalEvidence::Unknown});
 #if defined(_WIN32) && defined(GH_QMT_HTTP_DRAIN_TESTING)
         unsigned expected=1;if(bound_test_fault.compare_exchange_strong(expected,0))throw std::bad_alloc();
 #endif
@@ -1381,7 +1385,8 @@ QmtHistoryResult QmtBoundReadCore::resume_prepared(const QmtBoundReceipt& receip
             add(lookup,"request_body_b64",base64(receipt.request_body));add(lookup,"request_body_sha256",signed_http_sha256(receipt.request_body));
             if(request_control){status=request_control->gate(impl_->http,until,impl_->control,QmtAccountReadStage::Result);if(!status.ok())return reject(status);}
             else if(impl_->stopped())return reject(fail(ErrorCode::Pending,"qmt_account_interrupted"));
-            response=impl_->http.exchange("POST","/internal/v1/read-results/"+out.bound.result.request_id+"/lookup",encode(lookup),until,impl_->http_response_cap);get=false;
+            response=impl_->http.exchange_observed("POST","/internal/v1/read-results/"+out.bound.result.request_id+"/lookup",
+                encode(lookup),until,impl_->http_response_cap,{out.bound.result.request_id});get=false;
         }
         out.bound=impl_->follow(std::move(out.bound),until,std::move(response),get,request_control);
         if(out.bound.result.status.ok()){

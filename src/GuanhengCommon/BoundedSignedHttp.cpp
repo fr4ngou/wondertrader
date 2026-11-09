@@ -611,36 +611,92 @@ std::uint32_t SignedHttpDeadline::remaining() const
 BoundedSignedHttp::BoundedSignedHttp(QmtHttpConfig config) : impl_(new Impl(std::move(config))) {}
 BoundedSignedHttp::~BoundedSignedHttp() = default;
 Status BoundedSignedHttp::check() const { return impl_->check(); }
+namespace {
+std::atomic<RequestRejectionSink> request_rejection_sink{nullptr};
+
+bool diagnostic_uuid(std::string_view value)
+{
+    if(value.size()!=36)return false;
+    for(std::size_t i=0;i<value.size();++i){
+        const char c=value[i];
+        if(i==8||i==13||i==18||i==23){if(c!='-')return false;}
+        else if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;
+    }
+    return true;
+}
+
+void record_rejection(const std::string& target,SignedHttpResult& result,RequestRejectionContext context) noexcept
+{
+    try {
+        if(!result.response_complete||result.code<400||result.code>599)return;
+        const char* route="other";const char* phase="exchange";
+        if(target=="/internal/v1/bound-operations/account.trade_detail"){route="account.trade_detail";phase="submit";}
+        else if(target.find("/internal/v1/bound-results/")==0){route="bound.result";phase="result";}
+        else if(target.find("/internal/v1/read-results/")==0){
+            const bool consumed=target.compare(target.size()-9,9,"/consumed")==0;
+            route=consumed?"retention.consumed":"retention.lookup";phase=consumed?"consume":"lookup";
+        }else if(target=="/internal/v1/read-binding"){route="binding.read";phase="binding";}
+        else if(target=="/internal/v1/read-retention-status"){route="retention.status";phase="capacity";}
+        else if(target=="/internal/v1/trade-events"){route="trade.events";phase="event_page";}
+        else if(target=="/internal/v1/trade-status"){route="trade.status";phase="trade_status";}
+        else if(target=="/internal/v1/trade-commands"){route="trade.submit";phase="submit";}
+        else if(target.find("/internal/v1/trade-commands/")==0){route="trade.result";phase="result";}
+        else if(target=="/internal/v1/trade-order-lookup"){route="trade.lookup";phase="lookup";}
+        else if(target=="/internal/v1/trade-cancel-lookup"){route="trade.cancel_lookup";phase="lookup";}
+        if(std::strcmp(route,"other")==0)return;
+        std::string_view code="unknown",origin="unclassified_http";
+        rapidjson::Document value;bool documented_account_rejection=false;
+        if(result.code==400&&result.body=="Invalid HTTP request received."){
+            origin="http_frontend";code="malformed_http";
+        }else if(parse_bounded_qmt_json(result.body,value,16384,4096)&&value.IsObject()
+            &&value.HasMember("error_code")&&value["error_code"].IsString()){
+            const auto& field=value["error_code"];const std::string_view raw(field.GetString(),field.GetStringLength());
+            for(auto known:{"invalid_arguments","read_ticket_ended","read_ticket_ended_unretained","read_result_unretained",
+                "unknown_operation","unknown_stream","unknown_order","unknown_command","read_result_unconfirmed","request_timeout",
+                "source_binding_changed","idempotency_conflict","identity_conflict","strategy_stale","queue_full","capability_unavailable",
+                "journal_unavailable","read_retention_capacity_exhausted","nonce_cache_full","order_source_unavailable","cancel_pending",
+                "missing_auth_header","invalid_auth_header","timestamp_skew","invalid_signature","content_hash_mismatch","replayed_nonce"})
+                if(raw==known){code=known;break;}
+            if(code!="unknown")origin="host_response";
+            documented_account_rejection=(code=="invalid_arguments"||code=="read_ticket_ended")
+                &&value.MemberCount()==2&&value.HasMember("error_message")&&value["error_message"].IsString();
+        }
+        if(result.status.reason=="qmt_http_remote_invalid_input"){
+            result.status.reason+=":"+std::to_string(result.code)+":"+route;
+            if(code=="invalid_arguments"||code=="read_ticket_ended")result.status.reason+=":"+std::string(code);
+        }
+        auto sink=request_rejection_sink.load(std::memory_order_acquire);if(!sink)return;
+        const char* journal="unknown";
+        if(context.journal==RequestJournalEvidence::Confirmed)journal="admitted";
+        else if(context.journal==RequestJournalEvidence::FirstAccountAdmission&&result.code==400
+            &&!result.delivery_unknown&&documented_account_rejection)journal="not_admitted";
+        else if(std::strcmp(route,"trade.events")==0||std::strcmp(route,"trade.status")==0
+            ||std::strcmp(route,"binding.read")==0||std::strcmp(route,"retention.status")==0)journal="not_applicable";
+        const auto id=diagnostic_uuid(context.request_id)?std::string(context.request_id):"none";
+        const auto exchange=signed_http_uuid();
+        const auto line=std::string("qmt_request_rejected route=")+route+" request_id="+id+" exchange_id="+
+            (exchange.empty()?"none":exchange)+" phase="+phase+" origin="+std::string(origin)+
+            " http_status="+std::to_string(result.code)+" error_code="+std::string(code)+" journal="+journal;
+        sink(line.c_str());
+    } catch (...) { /* 附属诊断不改变原响应、截止或交易准入。 */ }
+}
+}
+#ifdef _WIN32
+extern "C" __declspec(dllexport) void setStandardQmtRequestRejectionSink(RequestRejectionSink sink) noexcept
+{ request_rejection_sink.store(sink,std::memory_order_release); }
+#endif
 SignedHttpResult BoundedSignedHttp::exchange(const char* method,const std::string& target,
     const std::string& body,SignedHttpDeadline& deadline,std::size_t response_limit)
 {
-    const auto status = check();
-    if (!status.ok()) return local_http_result(status, SignedHttpStage::None);
+    return exchange_observed(method,target,body,deadline,response_limit,{});
+}
+SignedHttpResult BoundedSignedHttp::exchange_observed(const char* method,const std::string& target,
+    const std::string& body,SignedHttpDeadline& deadline,std::size_t response_limit,RequestRejectionContext context)
+{
+    const auto status=check();
+    if(!status.ok())return local_http_result(status,SignedHttpStage::None);
     auto result=impl_->exchange(method,target,body,deadline,response_limit);
-    if(result.response_complete&&result.status.reason=="qmt_http_remote_invalid_input"){
-        // 只登记固定路由及已知错误码，不复制报文、认证字段或URL中的原ID。
-        const char* route="other";
-        if(target=="/internal/v1/bound-operations/account.trade_detail")route="account.trade_detail";
-        else if(target.find("/internal/v1/bound-results/")==0)route="bound.result";
-        else if(target.find("/internal/v1/read-results/")==0)
-            route=target.compare(target.size()-9,9,"/consumed")==0?"retention.consumed":"retention.lookup";
-        else if(target=="/internal/v1/read-binding")route="binding.read";
-        else if(target=="/internal/v1/read-retention-status")route="retention.status";
-        else if(target=="/internal/v1/trade-events")route="trade.events";
-        else if(target=="/internal/v1/trade-status")route="trade.status";
-        else if(target=="/internal/v1/trade-commands")route="trade.submit";
-        else if(target.find("/internal/v1/trade-commands/")==0)route="trade.result";
-        else if(target=="/internal/v1/trade-order-lookup")route="trade.lookup";
-        else if(target=="/internal/v1/trade-cancel-lookup")route="trade.cancel_lookup";
-        result.status.reason+=":"+std::to_string(result.code)+":"+route;
-        rapidjson::Document value;
-        if(parse_bounded_qmt_json(result.body,value,16384,4096)&&value.IsObject()
-            &&value.HasMember("error_code")&&value["error_code"].IsString()){
-            const auto& code=value["error_code"];
-            const std::string_view text(code.GetString(),code.GetStringLength());
-            if(text=="invalid_arguments"||text=="read_ticket_ended")result.status.reason+=":"+std::string(text);
-        }
-    }
+    record_rejection(target,result,context);
     return result;
 }
 SignedHttpResult BoundedSignedHttp::read_binding(SignedHttpDeadline& deadline,std::size_t response_limit,

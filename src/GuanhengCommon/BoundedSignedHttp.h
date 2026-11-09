@@ -5,6 +5,7 @@
 #include <memory>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <rapidjson/document.h>
 
 namespace guanheng
@@ -48,6 +49,14 @@ struct SignedHttpResult
 // 创建线程独占；构造无网络I/O。统一拥有WinHTTP回调、原body签名和64项排空屏障。
 // exchange返回后仍可能有系统回调；DLL/对象必须保持至drain_callbacks成功。
 // 析构保留旧最终等待保险，受管宿主用自己的有界stop等待该owner退出。
+// 只携原逻辑ID及调用者已经核实的入库证据；无证据时保持Unknown。
+enum class RequestJournalEvidence { Unknown, FirstAccountAdmission, Confirmed };
+struct RequestRejectionContext {
+    std::string_view request_id; // 原查询/命令UUID；纯读取路由可为空。
+    RequestJournalEvidence journal = RequestJournalEvidence::Unknown; // 当前跳之前已取得的证据。
+};
+using RequestRejectionSink = void (*)(const char*) noexcept; // 借用单行脱敏诊断，仅在回调内有效。
+using SetRequestRejectionSink = void (*)(RequestRejectionSink) noexcept; // 插件初始化前登记。
 class BoundedSignedHttp
 {
 public:
@@ -59,6 +68,8 @@ public:
     // response_limit=0沿配置上限；非零只能收紧本跳，在接收/Content-Length阶段执行。
     SignedHttpResult exchange(const char* method, const std::string& target,
         const std::string& body, SignedHttpDeadline& deadline,std::size_t response_limit=0);
+    SignedHttpResult exchange_observed(const char* method,const std::string& target,const std::string& body,
+        SignedHttpDeadline& deadline,std::size_t response_limit,RequestRejectionContext context);
     // 新只读绑定等待原Source重连；调用方的停止gate每轮检查，原总截止保持。
     SignedHttpResult read_binding(SignedHttpDeadline&,std::size_t,const std::function<Status()>& gate);
     Status drain_callbacks(std::uint32_t milliseconds) noexcept;

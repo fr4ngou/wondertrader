@@ -4,9 +4,12 @@
 #undef wmain
 #include "GuanhengExecution/StandardExecutionHost.h"
 #include "GuanhengExecution/ExecutionEnvironment.h"
+#include "GuanhengCommon/BoundedSignedHttp.h"
+#include <cstdio>
 #include "WtCore/WtExecuterFactory.h"
 #include "WtCore/WtExecMgr.h"
 #include "Share/TimeUtils.hpp"
+void capture_request_rejection(const char* line) noexcept { std::fprintf(stderr,"%s\n",line);std::fflush(stderr); }
 struct HostOrderRelease {void operator()(wtp::OrderMap* p)const{if(p)p->release();}};
 
 int wmain(int argc,wchar_t** argv){
@@ -25,6 +28,7 @@ int wmain(int argc,wchar_t** argv){
   const auto dll=work/"traders/TraderQMTStandard.dll";check(fs::copy_file(fs::u8path(field(input,"candidate_dll")),dll),"cancel_e2e_plugin");
   check(!_putenv_s("QMT_STANDARD_FIXTURE_KEY","fixture")&&!_putenv_s("QMT_STANDARD_FIXTURE_SECRET",field(input,"hmac_secret").c_str()),"cancel_e2e_auth");
   WtHelper::setTime(20261022,1000);WtHelper::setTDate(20261022);base_files(work,base,policy);exports.load(dll);
+  exports.get<guanheng::SetRequestRejectionSink>("setStandardQmtRequestRejectionSink")(capture_request_rejection);
   environment.reset(new guanheng::ExecutionEnvironment(base,"DAY",nullptr,[]{return TimeUtils::makeTime(20261022,100000000);}));
   check(fs::create_directory(work/"executers"),"cancel_e2e_factory_root");
   check(fs::copy_file(fs::u8path(field(input,"execution_factory")),work/"executers/WtExeFact.dll"),"cancel_e2e_factory");
@@ -42,7 +46,14 @@ int wmain(int argc,wchar_t** argv){
   manager.add_executer(host->command());
   auto until=[&](auto condition){while(!condition()){check(Clock::now()<end,"cancel_e2e_deadline");check(host->pump(64,16)>=0,"cancel_e2e_pump");Sleep(2);}};
   until([&]{return host->status().phase==guanheng::ExecutionHostPhase::Ready;});
-  if(scenario=="account-rejected"){
+  if(scenario=="account-frontend"||scenario=="event-rejected"){
+   while(host->status().phase==guanheng::ExecutionHostPhase::Ready){
+    check(Clock::now()<end,"rejection_fence_deadline");host->pump(64,16);Sleep(2);
+   }
+   const auto state=host->status();
+   check(state.plugin.error!=0&&state.plugin.writes_blocked&&state.plugin.inserts==0,"unproven_rejection_fenced");
+   report.AddMember("rejection_fenced",true,a);
+  }else if(scenario=="account-rejected"||scenario=="account-result-unavailable"){
    const auto prior=host->broker_observation();
    until([&]{const auto status=host->status();check(status.plugin.error==0,"account_rejection_faulted_instance");
     return status.plugin.writes_blocked!=0;});

@@ -1,6 +1,7 @@
 """真实WinSHM/Host/WT执行链，券商SDK为隔离替身；旧夹具根须显式传入。"""
 from pathlib import Path
 import argparse
+from base64 import b64decode
 import hashlib
 import json
 import sys
@@ -16,7 +17,8 @@ def main():
     parser.add_argument('--dll', type=Path, required=True)
     parser.add_argument('--factory', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scenario', choices=('cancel-false', 'cancel-error', 'partial', 'missing-current', 'account-rejected'), required=True)
+    parser.add_argument('--scenario', choices=('cancel-false', 'cancel-error', 'partial', 'missing-current', 'account-rejected',
+                                               'account-result-unavailable', 'account-frontend', 'event-rejected'), required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     # 显式旧测试依赖只提供夹具；产品模块始终从当前源码加载。
@@ -25,7 +27,7 @@ def main():
     for part in ('apps/guanheng', 'connectors/qmt_shm/host', 'connectors/qmt_shm/agent'):
         sys.path.insert(0, str(ROOT / part))
     from test_submission_group import GapFixture
-    from guanheng_qmt_shm.runtime import error
+    from guanheng_qmt_shm.runtime import HostResponse, error
     from event_query_fixture import _Child, _FixtureOwners, canonical, decode, write_new, uptime_ms
 
     class Fixture(GapFixture):
@@ -119,19 +121,49 @@ def main():
         owners.callback(persist)
         fixture.start(owners)
         rejected = []
-        if args.scenario == 'account-rejected':
+        account_id = None
+        if args.scenario in ('account-rejected', 'account-frontend'):
             original_submit = fixture.host.bound_submit
 
             def reject_periodic_account_once(operation, raw):
-                from base64 import b64decode
                 request = decode(b64decode(decode(raw)['request_body_b64'], validate=True))
                 if (operation == 'account.trade_detail' and request['arguments']['datatype'] == 'account'
                         and len(fixture.queries) >= 4 and not rejected):
                     rejected.append(request['request_id'])
+                    if args.scenario == 'account-frontend':
+                        return HostResponse(400, b'Invalid HTTP request received.')
                     return error(400, 'invalid_arguments')
                 return original_submit(operation, raw)
 
             fixture.host.bound_submit = reject_periodic_account_once
+        if args.scenario == 'account-result-unavailable':
+            wire_reply = fixture.proxy._wire_reply
+
+            def lose_confirmed_result_once(fact, raw):
+                nonlocal account_id
+                normal = wire_reply(fact, raw)
+                if (fact['path'] == '/internal/v1/bound-operations/account.trade_detail'
+                        and fact['status'] == 202 and len(fixture.queries) >= 4 and account_id is None):
+                    request = decode(b64decode(fact['request_json']['request_body_b64'], validate=True))
+                    if request['arguments']['datatype'] == 'account':
+                        account_id = request['request_id']
+                if account_id and fact['path'] == '/internal/v1/bound-results/' + account_id and not rejected:
+                    rejected.append(account_id)
+                    failure = error(503, 'strategy_stale')
+                    return failure.status_code, failure.content, len(failure.content)
+                return normal
+
+            fixture.proxy._wire_reply = lose_confirmed_result_once
+        if args.scenario == 'event-rejected':
+            request = fixture.host.request
+
+            def reject_event_once(message):
+                if message.operation == 'trade.events' and len(fixture.queries) >= 4 and not rejected:
+                    rejected.append('none')
+                    return error(400, 'invalid_arguments')
+                return request(message)
+
+            fixture.host.request = reject_event_once
         fixture.proxy.max_requests = 2048
         fixture.proxy.query_progress_capacity = 256
         value = {'work': str(args.output / 'runtime'), 'candidate_dll': str(args.dll),
@@ -146,10 +178,28 @@ def main():
         if (args.output / 'native-result.json').is_file():
             report = decode((args.output / 'native-result.json').read_bytes())
         assert fixture.child.exit_code == 0 and report and report['passed'], report
-        if args.scenario == 'account-rejected':
+        if rejected:
             assert len(rejected) == 1 and not fixture.sdk and not fixture.tokens
-            with fixture.host.journal._transaction() as db:
-                assert db.execute('SELECT 1 FROM read_operations WHERE request_id=?', rejected).fetchone() is None
+            expected = {
+                'account-rejected': ('account.trade_detail', 'submit', 'host_response', '400', 'invalid_arguments', 'not_admitted'),
+                'account-frontend': ('account.trade_detail', 'submit', 'http_frontend', '400', 'malformed_http', 'unknown'),
+                'account-result-unavailable': ('bound.result', 'result', 'host_response', '503', 'strategy_stale', 'admitted'),
+                'event-rejected': ('trade.events', 'event_page', 'host_response', '400', 'invalid_arguments', 'not_applicable'),
+            }[args.scenario]
+            lines = bytes(fixture.child.output['stderr']).decode('utf-8').splitlines()
+            diagnostics = [dict(part.split('=', 1) for part in line.split()[1:])
+                           for line in lines if line.startswith('qmt_request_rejected ')]
+            captured, = [row for row in diagnostics if row['request_id'] == rejected[0]
+                         and tuple(row[key] for key in ('route', 'phase', 'origin', 'http_status', 'error_code', 'journal')) == expected]
+            from uuid import UUID
+            assert str(UUID(captured['exchange_id'])) == captured['exchange_id']
+            if rejected[0] != 'none':
+                with fixture.host.journal._transaction() as db:
+                    found = db.execute('SELECT 1 FROM read_operations WHERE request_id=?', rejected).fetchone()
+                assert bool(found) == (args.scenario == 'account-result-unavailable')
+            if args.scenario == 'account-result-unavailable':
+                path = '/internal/v1/bound-results/' + rejected[0]
+                assert sum(item['path'] == path for item in fixture.proxy.requests) >= 2
         else:
             assert len(fixture.tokens) == (1 if args.scenario == 'missing-current' else 2)
             assert any(x['operation'] == 'cancel' for x in fixture.sdk)
@@ -160,7 +210,9 @@ def main():
     result = {'passed': True, 'scenario': args.scenario, 'native': report, 'sdk_substitute_calls': fixture.sdk,
               'query_sequence': [x['datatype'] for x in fixture.queries], 'real_broker_calls': 0,
               'order_terminal_pushes': 0, 'resource_owners_closed': True,
-              'case_outcome': ('account_reads_resumed_without_orders' if rejected else
+              'request_rejection': captured if rejected else None,
+              'case_outcome': ('unknown_rejection_fenced' if report.get('rejection_fenced') else
+                               'account_reads_resumed_without_orders' if rejected else
                                'identity_retained_with_inserts_paused' if args.scenario == 'missing-current'
                                else 'original_order_reconciled_executor_resumed'),
               'reconciliation_complete': args.scenario != 'missing-current',

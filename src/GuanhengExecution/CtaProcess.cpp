@@ -3,6 +3,8 @@
 #include "CtaProcess.h"
 #include "CtaExecutionSession.h"
 #include "NativeRuntimeLog.h"
+#include "GuanhengCommon/BoundedSignedHttp.h"
+#include <mutex>
 #include <algorithm>
 #include <atomic>
 #include "StandardExecutionHost.h"
@@ -41,6 +43,16 @@
 #include <limits>
 
 namespace fs=std::filesystem;namespace rj=rapidjson;
+namespace {
+// 插件工作线程借用当前进程日志。即使故障收尾未能排空，也先关闭借用再析构日志。
+std::mutex request_log_mutex;
+guanheng::NativeRuntimeLog* request_log=nullptr;
+void log_request_rejection(const char* line) noexcept {
+    try { std::lock_guard<std::mutex> lock(request_log_mutex);
+        if(request_log)request_log->request_rejection(line);
+    } catch (...) {}
+}
+}
 using Clock=std::chrono::steady_clock;
 namespace {
 void need(bool value){if(!value)throw std::runtime_error("execution_host_configuration");}
@@ -1133,6 +1145,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         need(!fs::exists(control/"ready.json")&&!fs::exists(control/"closed.json")&&!fs::exists(control/"close-prepared.json"));
         native_log.start(control);
         native_log_attempted=true;
+        { std::lock_guard<std::mutex> lock(request_log_mutex);request_log=&native_log; }
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
         keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","role_replacement","strategy_extension_origin"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
@@ -1253,6 +1266,9 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         functions.find=plugin.get<decltype(functions.find)>("findStandardQmtTrader");
         find_event_chain=functions.find;
         inspect_event_chain=reinterpret_cast<decltype(inspect_event_chain)>(GetProcAddress(plugin.module,"inspectStandardQmtEventChain"));
+        const auto request_sink=reinterpret_cast<guanheng::SetRequestRejectionSink>(
+            GetProcAddress(plugin.module,"setStandardQmtRequestRejectionSink"));
+        if(request_sink)request_sink(log_request_rejection);
         functions.pump=plugin.get<decltype(functions.pump)>("pumpStandardQmtTrader");
         functions.inspect=plugin.get<decltype(functions.inspect)>("inspectStandardQmtTrader");
         functions.awaiting_observation=reinterpret_cast<decltype(functions.awaiting_observation)>(
@@ -1539,6 +1555,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         publish_lifecycle(control,"lifecycle-finished.json","guanheng.execution.finished.v1",id,expected_sha,true);
     // 未确认关闭保留整树至进程回收；避免普通局部析构越过原截止或释放在途依赖。
     if(!closed)ExitProcess(3);
+    { std::lock_guard<std::mutex> lock(request_log_mutex);request_log=nullptr; }
     native_log.close();
     if(native_log_attempted)try {
         const auto logging=native_log.status();

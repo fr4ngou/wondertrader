@@ -103,6 +103,8 @@ EFR-21a：同一 `ParserQMTHostRetainedV6` 仅迁移本机 HTTP 端口时，兼�
 
 本进程已验证并持有原终态后，consumed收到完整410/read_result_unretained表示消费交接已完成。先校验该业务回复，再解释通用HTTP错误；正文不完整、错误类别或形状不符均保留真实失败。读取回收不会清理历史行情、金融状态或未决委托。
 
+原生执行控制目录的轮转 `native.log` 保存已完整收到的 HTTP 拒绝。每条固定字段包含 `route`、原 `request_id`、本地 `exchange_id`、协议 `phase`、响应 `origin`、`http_status`、固定 `error_code` 及 `journal`。事件页无原请求 UUID，使用本地交换 ID。`admitted` 来自已核原ID、原正文和来源绑定的进度或终态。`not_admitted` 只用于符合固定协议的首发账户拒绝。无法取得入库证据时保存 `unknown`，无入库语义的查询使用 `not_applicable`。可识别的 HTTP 解析器固定拒绝与 Host 业务错误分别归类。诊断不保存报文、密钥、账户或任意远端错误文字，不改变恢复决策。
+
 验证状态见[账户读取回收状态修正](../evidence/2026-11-03-account-read-ended.md)，现场恢复与隔离验证分别登记。
 
 
