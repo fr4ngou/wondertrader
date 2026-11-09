@@ -1,5 +1,7 @@
 # 故障记录
 
+- [2026-11-09 WT 账户读取拒绝与行情发布接线故障](2026-11-09-qmt-account-read-and-analysis-publication.md)记录自动恢复、拒绝诊断和原模拟账户接续。
+
 - [2026-11-09 WT 与观衡冷启动故障](2026-11-09-wt-observer-cold-start.md)记录观衡及五个数据角色恢复、HPR 端口冲突和交易实例续接缺口。
 
 - [2026-11-05内嵌配对正文进入工具记录](2026-11-05-source-body-tool-output.md)：contained；已停止正文输出，完整配对轮换尚未实施。
