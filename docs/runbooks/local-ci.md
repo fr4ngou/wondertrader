@@ -58,6 +58,8 @@ python -B scripts/local_ci.py integrate --master-worktree <本地master工作区
 
 `execution_inputs`需要原产品构建生成的TOOLCHAIN.json、SOURCE.json、inputs/upstream及deps。入口核验上游快照和批准覆盖，冻结当前自有源码到独立结果目录，重新构建项目对象。缺少缓存时先按[构建手册](build.md)准备，CI本身不调用Git远端或托管平台。
 
+可选 `execution_scratch` 指定已存在的高速临时根。该根承载隔离原生构建、SDK 替身 Journal 和各场景产物，CI 输出目录继续保存日志及总回执。软件回归保留项目既有 E 盘路径约束。
+
 当前执行夹具仍有显式历史目录依赖，成功结果登记相关摘要；归仓和统一开发环境安装还需继续完善。纯软件测试使用当前候选包的PYTHONPATH，第三方依赖取调用解释器的正常环境。环境依赖异常先修开发环境，保留首次失败记录。
 
 ## 发布衔接

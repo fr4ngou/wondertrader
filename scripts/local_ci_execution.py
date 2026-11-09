@@ -7,6 +7,7 @@ import io
 import json
 import shutil
 import sys
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -25,6 +26,14 @@ def main():
     legacy = Path(settings['legacy_fixtures']).resolve()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    # 夹具的同步Journal和C++中间件可落到独立高速临时盘，报告仍归本次CI输出。
+    workspace = output
+    if 'execution_scratch' in settings:
+        scratch = Path(settings['execution_scratch'])
+        if not scratch.is_absolute() or not scratch.is_dir():
+            raise ValueError('执行CI临时根必须是现有绝对目录')
+        workspace = scratch.resolve() / ('wt-execution-' + uuid4().hex)
+        workspace.mkdir(exist_ok=False)
     env = json.loads((seed / 'TOOLCHAIN.json').read_bytes())['environment']
     cmake = shutil.which('cmake.exe', path=env['PATH'])
     compiler = Path(shutil.which('cl.exe', path=env['PATH']))
@@ -43,7 +52,7 @@ def main():
             raise ValueError('当前框架覆盖源码与构建配方不同：' + name)
     # 使用原产品冻结函数创建当前源码副本；依赖源码缓存保持原位置。
     files = source_files(recipe)
-    owned = output / 'inputs/owned'
+    owned = workspace / 'inputs/owned'
     owned.parent.mkdir()
     # 相邻Includes等WT头也来自同一已批准快照，保持原产品构建的头文件布局。
     entries = dict(files)
@@ -53,12 +62,12 @@ def main():
         entries[name] = {'sha256': identity['sha256'], 'data': (upstream / name).read_bytes()}
     write_snapshot(owned, entries)
     (output / 'TOOLCHAIN.json').write_bytes((seed / 'TOOLCHAIN.json').read_bytes())
-    helper = output / 'helpers'
+    helper = workspace / 'helpers'
     helper.mkdir()
     shutil.copyfile(legacy / 'qmt_standard_trader/standard_probe.cpp', helper / 'standard_probe.cpp')
     # 外部C++帮助文件参与编译；冻结副本摘要须与结果一起留存，而非仅登记Python夹具。
     helper_sha256 = hashlib.sha256((helper / 'standard_probe.cpp').read_bytes()).hexdigest()
-    build = output / 'cmake'
+    build = workspace / 'cmake'
 
     def run(argv, label, seconds=300):
         print('execution CI: ' + label, flush=True)
@@ -75,34 +84,34 @@ def main():
     includes = [owned / 'src', upstream / 'src', helper, seed / 'deps/rapidjson/include', seed / 'deps/spdlog/include',
                 *list((seed / 'deps/boost/libs').glob('*/include')),
                 *list((seed / 'deps/boost/libs/numeric').glob('*/include'))]
-    probe = output / 'cancel_refresh_probe.exe'
+    probe = workspace / 'cancel_refresh_probe.exe'
     run([compiler, '/nologo', '/std:c++17', '/EHsc', '/MD', '/O2', '/utf-8',
          '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/DBOOST_ALL_NO_LIB', '/D_CRT_SECURE_NO_WARNINGS',
          '/D_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS', '/FIobjbase.h',
          *['/I' + str(p) for p in includes], '/c', owned / 'tests/integration/qmt_broker_context/cancel_refresh_probe.cpp',
-         '/Fo' + str(output / 'probe.obj')], 'probe-compile')
+         '/Fo' + str(workspace / 'probe.obj')], 'probe-compile')
     libraries = [build / 'lib/GuanhengBrokerQueryContext.lib', build / 'build_x64/Release/libs/WtCore.lib',
                  build / 'lib/WTSTools.lib', build / 'lib/WTSUtils.lib',
                  *list((build / 'product/readonly-support/deps/boost').rglob('*.lib'))]
-    run([compiler.with_name('link.exe'), '/nologo', '/MACHINE:X64', '/OUT:' + str(probe), output / 'probe.obj',
+    run([compiler.with_name('link.exe'), '/nologo', '/MACHINE:X64', '/OUT:' + str(probe), workspace / 'probe.obj',
          *libraries, 'winhttp.lib', 'bcrypt.lib', 'synchronization.lib', 'ws2_32.lib', 'psapi.lib',
          'dbghelp.lib', 'version.lib', 'user32.lib', 'shell32.lib', 'advapi32.lib', 'ole32.lib'], 'probe-link')
     results = []
     for scenario in ('cancel-false', 'cancel-error', 'partial', 'missing-current', 'account-rejected'):
-        directory = output / scenario
+        directory = workspace / scenario
         run([sys.executable, '-I', '-B', ROOT / 'tests/integration/qmt_broker_context/run_cancel_refresh.py',
              '--legacy-fixtures', legacy, '--exe', probe, '--dll', build / 'bin/traders/TraderQMTStandard.dll',
              '--factory', build / 'bin/executers/WtExeFact.dll', '--scenario', scenario, '--output', directory], scenario, 65)
         result = json.loads((directory / 'RESULT.json').read_bytes())
         if result['passed'] is not True:
             raise ValueError('执行链未通过：' + scenario)
-        results.append({'scenario': scenario, 'outcome': result['case_outcome']})
+        results.append({'scenario': scenario, 'outcome': result['case_outcome'], 'receipt': str(directory / 'RESULT.json')})
     verify_snapshot(owned)
     verify_snapshot(upstream)
     if hashlib.sha256((helper / 'standard_probe.cpp').read_bytes()).hexdigest() != helper_sha256:
         raise ValueError('冻结的C++测试夹具在编译或运行期间发生变化')
-    (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results,
-        'cpp_fixture': {'path': 'helpers/standard_probe.cpp', 'sha256': helper_sha256},
+    (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'workspace': str(workspace),
+        'cpp_fixture': {'path': str(helper / 'standard_probe.cpp'), 'sha256': helper_sha256},
         'standard_source_sha256': hashlib.sha256((owned / 'src/TraderQMT/StandardQmtTrader.cpp').read_bytes()).hexdigest(),
         'real_broker_calls': 0, 'historical_reconciliation_qualified': False,
         'business_strategy_qualified': False}, indent=2) + '\n', encoding='utf-8')
