@@ -30,7 +30,7 @@
       "source": "apps/guanheng/guanheng_app/observation/ashare_pool.py"
     },
     "guanheng_app/observation/ashare_public.py": {
-      "sha256": "b400ea97774eb1e224cefe1f2c95bb38270bd2cf5117976a4a05a957dd3b0476",
+      "sha256": "63824cb310c07041ec3c7ee0cea0a37762c598add946d66a805a2e437e0021a6",
       "source": "apps/guanheng/guanheng_app/observation/ashare_public.py"
     },
     "guanheng_app/observation/ashare_source.py": {
@@ -38,7 +38,7 @@
       "source": "apps/guanheng/guanheng_app/observation/ashare_source.py"
     },
     "guanheng_app/observation/baostock_source.py": {
-      "sha256": "03f8a2b467b38897c382c68745029411d0cfdf14c854c63e31cb645c063d61a5",
+      "sha256": "f0d91a91441b2db8accce19ebe9ad132176fa22c5b8ab3040ff45b5d5bd32f6b",
       "source": "apps/guanheng/guanheng_app/observation/baostock_source.py"
     },
     "guanheng_app/observation/breadth_models.py": {
@@ -418,11 +418,11 @@
       "source": "integrations/guanheng/daily_batch_source.py"
     },
     "integrations/guanheng/daily_data_inputs.py": {
-      "sha256": "2181b084be2c3895c6f7f9d6eaea02eecf25d0317cbbb7f4995be211b2493067",
+      "sha256": "c591cad9eb6778ea985157626ad59101ddb285550bf139893d18ff7ba2c34096",
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "885ee059af1c26a0f94a57ed44178912d5884e7d063d90512bfc59a14159253a",
+      "sha256": "420a4b36ced985748d85a1dd4d6cec86f3afef3df7ea01393fa4e263473eee70",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -498,7 +498,7 @@
       "source": "integrations/guanheng/day_facts.py"
     },
     "integrations/guanheng/day_facts_capture.py": {
-      "sha256": "6b2f2a87a3ae130e84726d31864b16232a5e14176f5743e9c68a4eb2afa801b8",
+      "sha256": "b393954029181f82acef18365c8538d912b9466ff9e93afdf5d4f16ce22345d5",
       "source": "integrations/guanheng/day_facts_capture.py"
     },
     "integrations/guanheng/day_facts_prepare.py": {
@@ -766,5 +766,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.29"
+  "version": "0.2.0a1+unified.30"
 }

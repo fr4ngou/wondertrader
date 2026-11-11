@@ -44,7 +44,8 @@ class ObjectCapture:
 
 class Archive:
     """原runs记录尝试和成功原件锚；采集lease由原refresh或服务调用者持有。"""
-    def __init__(self,reader,fetch,source,*,retry_seconds=60,max_attempts=8,now=None,admitted_records=(),normalizer=None,published_inputs=True,retry_window_seconds=None):
+    def __init__(self,reader,fetch,source,*,retry_seconds=60,max_attempts=8,now=None,admitted_records=(),
+                 normalizer=None,published_inputs=True,retry_window_seconds=None,baostock_daily_timeout_seconds=None):
         self.normalizer=normalize if normalizer is None else normalizer  # 原默认指标准入或显式数据事实回调；在本采集线程执行。
         _need(callable(self.normalizer) and type(published_inputs) is bool)
         self.published_inputs=published_inputs  # 原观察角色可复用已发布PB原件；数据角色只读自己的原件/回执域。
@@ -54,6 +55,7 @@ class Archive:
         self.retry_window_seconds=retry_window_seconds  # 常驻数据owner的有限重试窗口；None保持既有单批次数规则。
         self.policy=digest(encode(source))
         self.admitted_records=admitted_records  # 同批先前成功Baostock来源的原件记录；保持原SHA及真实抓取时间。
+        self.baostock_daily_timeout_seconds=baostock_daily_timeout_seconds  # WT 日线单请求预算，None 沿 fetch 超时。
 
     def stock_input(self,kind,day):
         """同一Baostock事实只采一次；优先本批成功原件，再读已发布PB原件。
@@ -251,7 +253,7 @@ class Archive:
         table=self.stock_input('stock_daily_batch',day)
         if table is None:
             with BaostockClient(fetch,fetch.timeout) as client:
-                fields,values=client.table('stock_daily_batch',day)
+                fields,values=client.table('stock_daily_batch',day,request_timeout=self.baostock_daily_timeout_seconds)
             table=dict(fields=fields,rows=values)
         fields,values=table['fields'],table['rows']
         _need(bool(values),'pb_day_not_published')

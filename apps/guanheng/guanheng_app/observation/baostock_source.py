@@ -55,8 +55,9 @@ class BaostockClient:
         if stream is not None:
             stream.close();self.socket=None
 
-    def _message(self,request_type,method,arguments):
-        remaining=self.budget.request_deadline(self.timeout)
+    def _message(self,request_type,method,arguments,*,request_timeout=None):
+        seconds=self.timeout if request_timeout is None else request_timeout
+        remaining=self.budget.request_deadline(seconds)
         self.budget.request('sdk');split=self.constants.MESSAGE_SPLIT
         body=split.join([method,*arguments]);head=split.join([self.constants.BAOSTOCK_CLIENT_VERSION,request_type,str(len(body)).zfill(10)])
         message=(head+body).encode('utf8');wire=message+split.encode()+str(zlib.crc32(message)).encode()+b'\n'
@@ -119,14 +120,17 @@ class BaostockClient:
             request_type=request_type,  # 官方SDK两位协议请求码；00为登录，45为股票表。
             received_bytes=received_bytes)  # 当前请求已接收的原始字节数；0表示首字节尚未取得。
 
-    def table(self,kind,start=None,end=None):
+    def table(self,kind,start=None,end=None,*,request_timeout=None):
+        if request_timeout is not None and (kind!='stock_daily_batch'
+                or type(request_timeout) not in (int,float) or not 0 < request_timeout <= 60):
+            raise SourceFailure('pb_invalid_timeout')
         settings={'stock_basic':('45','query_stock_basic',('code','type','ipoDate','outDate')),
             'calendar':('33','query_trade_dates',('calendar_date','is_trading_day')),
             'stock_daily_batch':(self.constants.MESSAGE_TYPE_GETKDaily_D_AStock_REQUEST,'query_daily_history_k_AStock',('date','code','pbMRQ','tradestatus'))}
         request_type,method,required=settings[kind];table=None;page=1;per_page=str(self.constants.BAOSTOCK_PER_PAGE_COUNT)
         while True:
             args=['anonymous',start] if kind=='stock_daily_batch' else ['anonymous',str(page),per_page,*(['',''] if kind=='stock_basic' else [start,end])]
-            parts=self._message(request_type,method,args)
+            parts=self._message(request_type,method,args,request_timeout=request_timeout)
             try:
                 data_at,fields_at=(4,5) if kind=='stock_daily_batch' else (6,9)
                 # 供应商CSV列头带协议排版换行；仅规范列名，JSON行内字符串原样保留。

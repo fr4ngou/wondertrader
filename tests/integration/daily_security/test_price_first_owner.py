@@ -4,6 +4,7 @@ from datetime import datetime,timedelta,timezone
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -53,6 +54,62 @@ class PriceFirstOwnerTests(unittest.TestCase):
             self.assertEqual(index['state'],'failed')
             self.assertEqual(index['error_type'],'SourceFailure')
             self.assertEqual(Path(index['request']).parent,Path(config['directory'])/'2026-11-05')
+
+    def test_baostock_daily_timeout_keeps_frozen_inputs_and_price_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            descriptor, config = self.fixture(root)
+            durable = Path(config['directory'])/'CONFIGURATION.json'
+            durable.write_text(json.dumps(config))
+            candidate = deepcopy(config)
+            candidate['inputs']['public_facts']['baostock_daily_timeout_seconds'] = 60
+            body = json.dumps(candidate).encode()
+            Path(descriptor['path']).write_bytes(body)
+            descriptor['sha256'] = hashlib.sha256(body).hexdigest()
+
+            def prices(actual, *_args, **_kwargs):
+                self.assertEqual(actual, config)
+                return dict(current_sha256='a'*64, price_result={'path':'synthetic-price-result','sha256':'b'*64},
+                            continuation_required=False, auxiliary_observation_date='2026-11-04')
+
+            def auxiliary(actual, *_args, **kwargs):
+                self.assertEqual(actual, config)
+                self.assertEqual(kwargs['baostock_daily_timeout_seconds'], 60)
+                raise SourceFailure('synthetic_aux_unavailable')
+
+            control = str(uuid4())
+            with patch('integrations.guanheng.daily_price_refresh.price_refresh', side_effect=prices) as price, \
+                    patch('integrations.guanheng.daily_data_service.prepare_update', side_effect=auxiliary) as source:
+                with self.assertRaisesRegex(RuntimeError, 'one cycle failed'):
+                    serve(descriptor, root/control, control, once=True, as_of='2026-11-05')
+            price.assert_called_once()
+            source.assert_called_once()
+            self.assertEqual(json.loads(durable.read_bytes()), config)
+
+    def test_baostock_daily_timeout_is_clamped_by_original_collection_budget(self):
+        from guanheng_app.observation.baostock_source import BaostockClient
+        from guanheng_app.observation.source_fetch import CollectionBudget
+
+        client = BaostockClient.__new__(BaostockClient)
+        client.timeout = 20
+        client.constants = SimpleNamespace(MESSAGE_SPLIT='|', BAOSTOCK_CLIENT_VERSION='00.0.00',
+                                           MESSAGE_TYPE_GETKDaily_D_AStock_REQUEST='95',
+                                           BAOSTOCK_PER_PAGE_COUNT=100)
+        client.budget = CollectionBudget(132, max_requests=4, max_bytes=1000, response_bytes=1000)
+        observed = []
+        client.socket = SimpleNamespace(settimeout=observed.append, sendall=lambda _: None, recv=lambda _: b'')
+        with patch('guanheng_app.observation.source_fetch.time.monotonic', return_value=100):
+            with self.assertRaisesRegex(SourceFailure, 'pb_incomplete_response'):
+                client._message('00', 'login', ['anonymous'])
+            self.assertEqual(observed, [20, 20])
+            observed.clear()
+            with self.assertRaisesRegex(SourceFailure, 'pb_incomplete_response'):
+                client.table('stock_daily_batch', '2026-11-11', request_timeout=60)
+            self.assertEqual(observed, [32, 32])
+            observed.clear()
+            with self.assertRaisesRegex(SourceFailure, 'pb_invalid_timeout'):
+                client.table('stock_basic', request_timeout=60)
+            self.assertEqual(observed, [])
 
     def test_default_without_full_price_scope_keeps_original_path(self):
         with tempfile.TemporaryDirectory()as directory:

@@ -70,7 +70,7 @@ def observe_prior_plans(plans, owner, *, deadline, cancelled):
 
 
 def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda: False,
-                   environ=None, previous_requests=(), prior_price_requests=()):
+                   environ=None, previous_requests=(), prior_price_requests=(), baostock_daily_timeout_seconds=None):
     """调用方持publication锁；同目录输入请求及原slot固定，恢复不改capture_id。
 
     configuration.template为单轮更新静态配置，inputs为公开事实/原批读的有限预算。
@@ -199,7 +199,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     supplement_transport = None  # 由本输入owner在finally关闭，不创建第二个采集线程。
     try:
         packet, facts = capture_day_facts(reader, fetch, public['source'], day,
-            retry_window_seconds=min(86400,max(60,configuration['retry_seconds']*8)))
+            retry_window_seconds=min(86400,max(60,configuration['retry_seconds']*8)),
+            baostock_daily_timeout_seconds=baostock_daily_timeout_seconds)
         if 'supplement_facts' in inputs:
             from .market_supplement_capture import collect_supplement, prior_supplement_catalogs
             from guanheng_app.observation.calendars import official_calendar

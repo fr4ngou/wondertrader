@@ -79,14 +79,20 @@ def validate_configuration(value):
         raise ValueError('daily service prior input references invalid')
     datetime.strptime(inputs['cache_from'], '%Y%m%d')
     public = inputs['public_facts']
-    if (type(public) is not dict or set(public) != {'source', 'allowed_hosts', 'seconds', 'max_requests',
-            'max_bytes', 'response_bytes', 'timeout_seconds'} or type(public['allowed_hosts']) is not list):
+    public_fields = {'source', 'allowed_hosts', 'seconds', 'max_requests', 'max_bytes', 'response_bytes', 'timeout_seconds'}
+    if (type(public) is not dict or not public_fields <= set(public)
+            or set(public) - public_fields - {'baostock_daily_timeout_seconds'}
+            or type(public['allowed_hosts']) is not list):
         raise ValueError('daily service public facts invalid')
     for key, lower, upper in (('seconds', 30, 600), ('max_requests', 1, 512), ('max_bytes', 1, 1073741824),
                               ('response_bytes', 1, 16777216), ('timeout_seconds', 1, 30)):
         number = public[key]
         if type(number) not in (int, float) or not math.isfinite(number) or not lower <= number <= upper:
             raise ValueError('daily service source budget invalid')
+    if 'baostock_daily_timeout_seconds' in public:
+        timeout = public['baostock_daily_timeout_seconds']
+        if type(timeout) not in (int, float) or not 0 < timeout <= 60:
+            raise ValueError('daily service BaoStock daily request budget invalid')
     if not isinstance(value['template'], dict) or value['template'].get('schema') != 'guanheng.daily-data-update.v1':
         raise ValueError('daily service update template invalid')
     scope=value.get('price_scope')
@@ -118,6 +124,9 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
     if directory.name != control_id:
         raise ValueError('daily service control directory differs')
     config = validate_configuration(_load(configuration))
+    # 本代单请求传输截止只控制重试耗时，原数据源、输入槽与输出身份沿既有配置固定。
+    daily_timeout = config['inputs']['public_facts'].pop('baostock_daily_timeout_seconds', None)
+    public_request_options = {} if daily_timeout is None else {'baostock_daily_timeout_seconds': daily_timeout}
     root = Path(config['directory'])
     directory.mkdir(parents=False, exist_ok=False)
     close_deadline = None
@@ -282,7 +291,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                                 cancelled=stopped, previous_requests=previous,
                                 prior_price_requests=[p for row in index.values()for p in
                                     [*row.get('price_history_requests',[]),*([row['price_request']]if row.get('price_request')else[])]
-                                    if Path(p).is_file()])
+                                    if Path(p).is_file()], **public_request_options)
                             request = _load(prepared)
                             _save(request_file, request)
                         index[day].update(state='updating')  # 保留原修订链，未声称原生或发布完成。
