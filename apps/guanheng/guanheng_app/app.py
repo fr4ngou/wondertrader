@@ -167,7 +167,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
     application.include_router(backtest_router(configured.backtest_archive_root))
     application.include_router(status_router(configured,market_client_factory))
     application.include_router(wt_runtime_router(configured))
-    application.include_router(wt_business_router(configured))
+    application.include_router(wt_business_router(configured, securities))
     application.add_exception_handler(ObservationError,observation_error)
     application.include_router(observation_router())
     application.include_router(security_router(securities))

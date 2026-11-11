@@ -74,7 +74,38 @@ const fixture = ()=>({schema_version:'guanheng.strategy-details.v1',read_only:tr
  returns:{cumulative_pct:missing('缺少起始本金和期间现金流基准')}})
 const clients:QueryClient[]=[]
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals()})
-function mount(strategy?:{strategy_id:string;strategy_version:string}){const c=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});clients.push(c);render(<QueryClientProvider client={c}><MemoryRouter><StrategyDetails strategy={strategy}/></MemoryRouter></QueryClientProvider>)}
+function mount(strategy?: { strategy_id: string; strategy_version: string }, targetHistory?: unknown) {
+ const fetchDetails = globalThis.fetch
+ vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+   String(input).startsWith('/v1/ui/strategy-target-history?') ? Promise.resolve(Response.json(targetHistory ?? {}, { status: targetHistory ? 200 : 503 }))
+     : fetchDetails(input, init))
+ const c = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+ clients.push(c)
+ render(<QueryClientProvider client={c}><MemoryRouter><StrategyDetails strategy={strategy}/></MemoryRouter></QueryClientProvider>)
+}
+
+test('持仓匹配简称，目标摘要可显示不在当前历史页的清仓变化', async () => {
+ const value = { ...fixture(), security_names: { '510300.SH': '沪深300ETF' } }
+ value.account.groups.position.rows[0].identity = { m_strInstrumentID: '510300', m_strExchangeID: 'SH' }
+ const changed = { id: 'c'.repeat(64), sequence: 1, changed_at: '2026-11-01T09:31:00+08:00',
+   symbol: '510300.SH', previous_target_quantity: 1200, target_quantity: 0, change_quantity: -1200,
+   kind: 'changed', reference_price_cny: '4.28', target_weight: null, strategy_version: null, reason: null }
+ const source = { kind: 'wt-native-signals', source_id: 'a'.repeat(64), snapshot_sha256: 'b'.repeat(64),
+   raw_count: 2, changed_count: 1, initial_count: 1, unchanged_count: 0, incomplete_tail: false,
+   first_at: changed.changed_at, last_at: changed.changed_at, latest_targets: [changed] }
+ const history = { schema_version: 'guanheng.strategy-target-history.v1', read_only: true,
+   observed_at: value.observed_at, state: 'available', reason: '原生记录', requested: value.strategy,
+   source, items: [], next_cursor: null }
+ vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(Response.json(value))))
+ mount(undefined, history)
+ const holdings = await screen.findByRole('region', { name: '策略当前持仓' })
+ expect(holdings).toHaveTextContent('沪深300ETF 510300.SH')
+ const targets = await screen.findByRole('region', { name: '逐标的目标与最近变化' })
+ const cells = within(targets).getAllByRole('cell')
+ expect(cells[0]).toHaveTextContent('—')
+ expect(cells[1]).toHaveTextContent('0')
+ expect(cells[2]).toHaveTextContent('1,200 → 0')
+})
 test('未启动策略仍显示四项当前持仓，资金、预算和收益基准分别解释',async()=>{
  const value=fixture();const row=value.account.groups.position.rows[0]
  value.account.groups.position.rows=[0,1,2,3].map((i):AccountRow=>({...structuredClone(row),identity:{m_strInstrumentID:`5100${i}0`,m_strExchangeID:'SH'},

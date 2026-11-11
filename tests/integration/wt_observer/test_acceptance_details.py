@@ -47,7 +47,9 @@ class DetailsAcceptance(unittest.TestCase):
         settings = ConsoleSettings(account_source='wt_account_publication')
         with patch('guanheng_app.observer_strategy_details.read_runtime_snapshot', return_value=runtime), \
              patch('guanheng_app.account_publication.observe_published_account', return_value=account):
-            value = observe_details(settings, object(), monotonic()+2)
+            securities = SimpleNamespace(available=True, name=lambda symbol: {'510000.SH': '测试ETF'}.get(symbol))
+            value = observe_details(settings, object(), monotonic()+2, securities=securities)
+        self.assertEqual(value['security_names'], {'510000.SH': '测试ETF'})
         self.assertEqual(value['execution']['state'], 'not_started')
         self.assertEqual(value['account'], fixture)
         self.assertIsNone(value['budget_cny']['value'])

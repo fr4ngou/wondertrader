@@ -18,6 +18,7 @@ import type { Catalog, Definition, Range, Row, Series } from './types'
 import './observation.css'
 import { exactObservationValue, observationNumber, observationDisplayUnit } from './numbers'
 import { MarketObservationGroup, groupedBoard, groupDateDomain } from './MarketObservationGroup'
+import { ExecutiveWeeklyChart, isExecutiveNet } from './ExecutiveWeeklyChart'
 
 const value = (v: unknown, key?: string) => key === 'source_kind' ? sourceTypeLabel(v) : key === 'method_version' ? methodVersionLabel(v) : typeof v === 'number' ? new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(v) : v == null ? '不可用' : String(v)
 function Message({ children, retry }: { children: ReactNode; retry?: () => void }) {
@@ -64,8 +65,9 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const [detail, setDetail] = useState('rows')
   const focus = search.get('focus') || 'both'; const mode = search.get('mode') || 'fixed_base'; const activity = search.get('activity') || 'all'
   const [futuresMatrix, setFuturesMatrix] = useState(true)
-  const defaultPreset = dataset.default_preset || 'd30'
-  const coverage=groupedBoard(dataset.board)?groupDateDomain(catalog,dataset.board,dataset.coverage):dataset.coverage
+  const weeklyExecutive = isExecutiveNet(dataset.id)
+  const defaultPreset = weeklyExecutive ? 'all' : dataset.default_preset || 'd30'
+  const coverage = !weeklyExecutive && groupedBoard(dataset.board) ? groupDateDomain(catalog, dataset.board, dataset.coverage) : dataset.coverage
   const range = search.get('start') && search.get('end') ? { start: search.get('start')!, end: search.get('end')! } : presetRange(search.get('preset') || defaultPreset, coverage.end, coverage)
   const selectedPreset = search.get('preset') || (search.get('start') ? '' : defaultPreset)
   const parameters = { window: search.get('window') || (dataset.board === 'spread' ? '756' : '20'), k: search.get('k') || '2', method: search.get('method') || 'sma', pcr_type: search.get('pcr_type') || 'oi' }
@@ -79,8 +81,9 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const select = (id: string) => {
     const next=available.find(item=>item.id===id)!
     const outside=range.end<next.coverage.start || range.start>next.coverage.end
-    const preset=outside ? next.default_preset || 'd30' : selectedPreset
-    const nextRange=outside ? presetRange(preset,next.coverage.end,next.coverage) : range
+    const openWeekly = isExecutiveNet(next.id) && !weeklyExecutive
+    const preset = openWeekly ? 'all' : outside ? next.default_preset || 'd30' : selectedPreset
+    const nextRange = openWeekly || outside ? presetRange(preset, next.coverage.end, next.coverage) : range
     setSearch({ metric:id,start:nextRange.start,end:nextRange.end,preset,...(search.get('snapshot_id') ? {snapshot_id:search.get('snapshot_id')!} : {}) })
     setDetail('rows')
   }
@@ -97,12 +100,12 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const primaryUnit=d&&primaryLine?displayedUnit(primaryLine,d,mode):d?.unit
   useEffect(()=>{
     if(d?.axis_type==='tenor' || !history.data)return
-    const coverage=groupedBoard(dataset.board)?groupDateDomain(catalog,dataset.board,dataset.coverage):history.data.coverage
+    const keyboardCoverage = groupedBoard(dataset.board) ? coverage : history.data.coverage
     const keydown=(event:KeyboardEvent)=>{
       const target=event.target
       if(event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
         target instanceof Element && target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="dialog"],.observation-plot'))return
-      const next=keyboardRange(event.key,range,coverage)
+      const next=keyboardRange(event.key,range,keyboardCoverage)
       if(next){event.preventDefault();updateRange(next)}
     }
     window.addEventListener('keydown',keydown)
@@ -125,7 +128,7 @@ function Boards({ catalog }: { catalog: Catalog }) {
         {dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && <button onClick={() => setFuturesMatrix(!futuresMatrix)}>{futuresMatrix ? '切换单项详细' : '四品种2×2'}</button>}
       </div>}
       <ReadNotice label="指标数据" query={series} /><ReadNotice label="历史导航" query={history} /><ReadNotice label="指标说明" query={definition} />
-      {groupedBoard(dataset.board) ? <MarketObservationGroup catalog={catalog} metric={dataset.id} board={dataset.board} range={range} parameters={parameters} onRange={updateRange}/> : dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && futuresMatrix ? <div className="observation-matrix">{['if', 'ih', 'ic', 'im'].map(product => <FuturesCard key={product} product={product} version={catalog.snapshot_id} range={range} onRange={updateRange} />)}</div> : !series.data || !d ? series.isPending ? <Message>正在读取所选窗口…</Message> : null : !series.data.rows.length ? <Message>所选日期没有已发布观察。请选择来源覆盖内的日期；休市和未披露日期保持空值。</Message> : <>
+      {weeklyExecutive ? (series.data ? <ExecutiveWeeklyChart catalog={catalog} data={series.data} range={range} /> : series.isPending ? <Message>正在读取周度净减持…</Message> : null) : groupedBoard(dataset.board) ? <MarketObservationGroup catalog={catalog} metric={dataset.id} board={dataset.board} range={range} parameters={parameters} onRange={updateRange}/> : dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && futuresMatrix ? <div className="observation-matrix">{['if', 'ih', 'ic', 'im'].map(product => <FuturesCard key={product} product={product} version={catalog.snapshot_id} range={range} onRange={updateRange} />)}</div> : !series.data || !d ? series.isPending ? <Message>正在读取所选窗口…</Message> : null : !series.data.rows.length ? <Message>所选日期没有已发布观察。请选择来源覆盖内的日期；休市和未披露日期保持空值。</Message> : <>
         {<ObservationChart definition={d} rows={series.data.rows} history={history.data} range={range} hidden={hidden} focus={focus} mode={mode} activity={activity} onRange={updateRange} onHidden={keys=>parameter('hidden',keys.join(','))} />}
         {dataset.board === 'crossmarket' && <p className="observation-note">本窗口国企涨幅 {change(series.data.rows, 'hscei_close')}，上证涨幅 {change(series.data.rows, 'a_close')}。</p>}
         <div className="observation-line-toggles">{shownLines.map(line => <label key={line.key}><input type="checkbox" checked={!hidden.includes(line.key)} onChange={() => parameter('hidden', hidden.includes(line.key) ? hidden.filter(key => key !== line.key).join(',') : [...hidden, line.key].join(','))} /><i style={{ background: line.color }} />{line.name} · {d && displayedUnit(line,d,mode)}</label>)}</div>

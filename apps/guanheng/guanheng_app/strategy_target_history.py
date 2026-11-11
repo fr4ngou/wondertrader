@@ -95,8 +95,8 @@ def _row(raw, sequence, source_id):
         target_weight=None, strategy_version=None, reason=None)
 
 
-def read_signal_history(path, logical_instance, strategy_id, limit, cursor, deadline):
-    """只读共享写句柄，固定前缀两次SHA核同；顺序扫描，内存只保留一页及逐证券前值。
+def read_signal_history(path, logical_instance, strategy_id, limit, cursor, deadline, *, summary_symbols=()):
+    """只读共享写句柄，固定前缀两次SHA核同；扫描保留一页、逐证券前值及当前标的最近变动。
 
     原生追加不改变此页快照；替换、截断或原前缀变化返回冲突。末行未写完时保留明确缺口。
     """
@@ -119,6 +119,7 @@ def read_signal_history(path, logical_instance, strategy_id, limit, cursor, dead
         stream.seek(0)
         remaining, sequence, changed, initial, unchanged = size, 0, 0, 0, 0
         hasher, previous, selected = hashlib.sha256(), {}, deque(maxlen=limit+1)
+        summary_symbols, latest_targets = frozenset(summary_symbols), {}
         first_at = last_at = None
         incomplete = False
         try:
@@ -144,6 +145,8 @@ def read_signal_history(path, logical_instance, strategy_id, limit, cursor, dead
                 row.update(previous_target_quantity=prior,
                     change_quantity=None if prior is None else row['target_quantity']-prior,
                     kind='initial' if prior is None else 'changed')
+                if row['symbol'] in summary_symbols:
+                    latest_targets[row['symbol']] = row
                 if token is None or sequence < token['before']: selected.append(row)
         except (ValueError, UnicodeError, csv.Error, DecimalException):
             if token and _hash_prefix(stream, size, deadline) != token['sha']:
@@ -163,7 +166,7 @@ def read_signal_history(path, logical_instance, strategy_id, limit, cursor, dead
     _check(deadline)
     return dict(kind='wt-native-signals', source_id=source_id, snapshot_sha256=digest, raw_count=sequence,
         changed_count=changed, initial_count=initial, unchanged_count=unchanged, incomplete_tail=incomplete,
-        first_at=first_at, last_at=last_at), items, next_cursor
+        first_at=first_at, last_at=last_at, latest_targets=sorted(latest_targets.values(), key=lambda row: row['sequence'], reverse=True)), items, next_cursor
 
 
 def read_target_history(settings, strategy_id, strategy_version, limit=20, cursor=None, *, deadline) -> TargetHistoryResponse:
@@ -183,7 +186,7 @@ def read_target_history(settings, strategy_id, strategy_version, limit=20, curso
     report = strategies.get(strategy_id)
     if report is None:
         response.update(state='not_current', reason='当前所选策略没有同身份的线上目标记录。'); return response
-    definition, unused_symbols = published_identity(strategy_id, report)
+    definition, symbols = published_identity(strategy_id, report)
     if definition['strategy_version'] != strategy_version:
         response.update(state='not_current', reason='所选版本与WT本轮发布版本不同，目标记录按精确身份读取。'); return response
     native_path = Path(reference['path']).with_name('execution.json')
@@ -194,7 +197,7 @@ def read_target_history(settings, strategy_id, strategy_version, limit=20, curso
           and sum(type(x) is dict and x.get('id') == strategy_id for x in native['strategies']) == 1)
     output = _path(native['output_directory'])
     path = output/'outputs'/strategy_id/'signals.csv'
-    try: source, items, next_cursor = read_signal_history(path, configuration.instance_id, strategy_id, limit, cursor, deadline)
+    try: source, items, next_cursor = read_signal_history(path, configuration.instance_id, strategy_id, limit, cursor, deadline, summary_symbols=symbols)
     except FileNotFoundError:
         if cursor: raise TargetHistoryChanged() from None
         source, items, next_cursor = None, [], None

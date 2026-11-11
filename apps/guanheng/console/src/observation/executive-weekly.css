@@ -1,0 +1,28 @@
+.executive-weekly {
+  background: #fff;
+  color: #2b2b2b;
+  padding: 18px 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.executive-weekly h3 {
+  margin: 0 8px 7px;
+  text-align: center;
+  font-size: clamp(16px, 2vw, 23px);
+}
+.executive-weekly-stats {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 8px 5px;
+  color: #616975;
+  font-size: 13px;
+}
+.executive-weekly-stats strong { color: #b84d43; }
+.executive-weekly-stats b { color: #28678e; }
+.executive-weekly-plot { width: 100%; height: clamp(425px, 58vw, 820px); }
+.executive-weekly-note { margin: 7px 8px; color: #606b78; font-size: 12px; }
+@media (max-width: 600px) {
+  .executive-weekly-stats { font-size: 11px; }
+  .executive-weekly-plot { height: 440px; }
+}

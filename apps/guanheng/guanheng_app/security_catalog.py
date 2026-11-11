@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 import hashlib
 import json
 from pathlib import Path
@@ -92,6 +93,13 @@ class SecurityCatalog:
             self._items = ()
             if isinstance(error, SecurityCatalogError):
                 return
+
+    def name(self, symbol: str) -> str | None:
+        """按规范证券身份查已准入的简称，目录缺项时返回未知。"""
+        index = bisect_left(self._items, symbol, key=lambda item: item.symbol)
+        if index < len(self._items) and self._items[index].symbol == symbol:
+            return self._items[index].name
+        return None
 
     def search(self, query: str, limit: int) -> tuple[SecuritySearchResult, ...]:
         if not self.available:

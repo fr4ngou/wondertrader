@@ -95,7 +95,7 @@ def project_execution(runtime, strategy, report=None):
         started_at=started_at, duration_seconds=duration)
 
 
-def observe_details(settings, configuration, deadline, strategy_id=None):
+def observe_details(settings, configuration, deadline, strategy_id=None, securities=None):
     from .wt_business_observation import read_business, observe_account
     from .strategy_runtime_projection import project_strategy
     from .account_publication import observe_published_account
@@ -142,7 +142,19 @@ def observe_details(settings, configuration, deadline, strategy_id=None):
                 budget = dict(value=str(amount), reason=None)
         except (InvalidOperation, TypeError, KeyError):
             pass
-    return dict(schema_version='guanheng.strategy-details.v1', read_only=True,
+    names = {}
+    if securities is not None and securities.available:
+        symbols = {row['symbol'] for row in strategy['positions']} if strategy else set()
+        if account:
+            for row in account['groups']['position']['rows']:
+                identity = row['identity']
+                symbol = identity.get('wt_symbol')
+                if identity.get('m_strInstrumentID') and identity.get('m_strExchangeID'):
+                    symbol = identity['m_strInstrumentID'] + '.' + identity['m_strExchangeID']
+                if symbol:
+                    symbols.add(symbol)
+        names = {symbol: name for symbol in sorted(symbols) if (name := securities.name(symbol))}
+    return dict(schema_version='guanheng.strategy-details.v1', read_only=True, security_names=names,
         observed_at=datetime.now(timezone.utc).isoformat(), strategy=strategy_definition(strategy['strategy_id'],strategy['strategy_version'])if strategy else strategy_definition(strategy_id or 'resonance-regime-v1',None),
         # 本轮已解析的公开运行身份摘要；未配置为null，只用于隔离跨代展示缓存。
         runtime_scope_id=hashlib.sha256(repr((str(configuration.path), configuration.control_id,
@@ -208,7 +220,7 @@ def observe_instances(rows, deadline):
         observed_at=datetime.now(timezone.utc).isoformat(), instances=result)
 
 
-def router(settings, configuration, invalid):
+def router(settings, configuration, invalid, securities=None):
     """兼容新增GET共用App有界读池和原2秒总截止，不构造WT运行owner。"""
     import asyncio
     from fastapi import APIRouter, HTTPException, Request
@@ -234,7 +246,7 @@ def router(settings, configuration, invalid):
             raise HTTPException(503, 'WT详情读取配置无效，请由维护人员核对实例目录。')
         deadline, future = monotonic() + 2, None
         try:
-            operation = (lambda: observe_instances(instances, deadline)) if multi else (lambda: observe_details(settings, configuration, deadline,strategy_id))
+            operation = (lambda: observe_instances(instances, deadline)) if multi else (lambda: observe_details(settings, configuration, deadline,strategy_id,securities))
             future = request.app.state.reader.submit(lambda _remaining: operation(), deadline)
             wrapped = asyncio.wrap_future(future)
             wrapped.add_done_callback(lambda done: None if done.cancelled() else done.exception())

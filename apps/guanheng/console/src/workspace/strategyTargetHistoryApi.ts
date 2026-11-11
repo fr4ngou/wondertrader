@@ -35,6 +35,7 @@ export type TargetHistory = {
     /** 原生末行尚未写完，下次刷新再纳入。 */ incomplete_tail: boolean
     /** 首个原生行情时刻；无行时为空。 */ first_at: string | null
     /** 最后原生行情时刻；无行时为空。 */ last_at: string | null
+    /** 当前标的在此固定前缀中的最近变动或首次记录；旧服务可能缺失。 */ latest_targets?: TargetHistoryItem[]
   }
   /** 当前页倒序的变动及首次记录。 */ items: TargetHistoryItem[]
   /** 同一前缀下一页的不透明游标。 */ next_cursor: string | null
@@ -59,9 +60,16 @@ export function validateTargetHistory(value: unknown, strategy: Pick<StrategyDef
     || typeof s.incomplete_tail !== 'boolean' || ![s.first_at, s.last_at].every(v => v === null || time(v)))) return invalid()
   if (value.state !== 'available' && (s !== null || value.items.length || value.next_cursor !== null)) return invalid()
   if (value.state === 'available' && s === null) return invalid()
+  if (!validHistoryItems(value.items)) return invalid()
+  if (object(s) && s.latest_targets !== undefined && (!Array.isArray(s.latest_targets) || s.latest_targets.length > 64
+    || !validHistoryItems(s.latest_targets) || new Set(s.latest_targets.map(row => row.symbol)).size !== s.latest_targets.length)) return invalid()
+  return value as TargetHistory
+}
+
+function validHistoryItems(items: unknown[]): items is TargetHistoryItem[] {
   let previousSequence = Infinity
   const identities = new Set<string>()
-  for (const item of value.items) {
+  for (const item of items) {
     if (!object(item) || !hash(item.id) || !integer(item.sequence) || item.sequence === 0 || item.sequence >= previousSequence
       || !time(item.changed_at) || typeof item.symbol !== 'string' || !/^\d{6}\.(SH|SZ)$/.test(item.symbol)
       || !integer(item.target_quantity) || !(item.previous_target_quantity === null || integer(item.previous_target_quantity))
@@ -70,13 +78,13 @@ export function validateTargetHistory(value: unknown, strategy: Pick<StrategyDef
       || item.kind === 'changed' && item.change_quantity === 0
       || typeof item.reference_price_cny !== 'string' || item.reference_price_cny.length > 128 || !/^\d+(\.\d+)?$/.test(item.reference_price_cny)
       || !Number.isFinite(Number(item.reference_price_cny)) || item.target_weight !== null || item.strategy_version !== null || item.reason !== null
-      || identities.has(String(item.id))) return invalid()
+      || identities.has(String(item.id))) return false
     previousSequence = item.sequence; identities.add(String(item.id))
   }
-  return value as TargetHistory
+  return true
 }
 
-export function useStrategyTargetHistory(strategy: StrategyDefinition, cursor: string | null) {
+export function useStrategyTargetHistory(strategy: Pick<StrategyDefinition, 'strategy_id' | 'strategy_version'>, cursor: string | null) {
   return useQuery({ queryKey: ['strategy-target-history', strategyKey(strategy), cursor], retry: false,
     queryFn: async ({signal}) => {
       const params = new URLSearchParams({strategy_id: strategy.strategy_id, strategy_version: strategy.strategy_version ?? '', limit:'20'})

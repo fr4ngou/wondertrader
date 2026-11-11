@@ -15,6 +15,7 @@ export type StrategyDetails = CapitalFields & {
   }
   assignment: { scope: 'current-account-inventory' | 'strategy-allocated'; label: string; reason: string }
   execution: { state: string; label: string; reason: string; started_at: OptionalFact; duration_seconds: OptionalFact }
+  /** 已准入证券目录按规范代码投影的简称；缺项或旧App可缺失。 */ security_names?: Record<string, string>
   account: AccountOverview | null; account_reason: string | null
   calculation: StrategyRuntime['strategy']; calculation_reason: string | null
   budget_cny: OptionalFact; returns: { cumulative_pct: OptionalFact }
@@ -48,6 +49,8 @@ export function validateStrategyDetails(v: unknown): StrategyDetails {
     || !numericFact(v.budget_cny, true) || !object(v.returns) || !numericFact(v.returns.cumulative_pct)
     || !(v.account_reason === null || text(v.account_reason)) || !(v.calculation_reason === null || text(v.calculation_reason))) return invalid()
   if (v.account !== null) validateAccountOverview(v.account)
+  if (v.security_names !== undefined && (!object(v.security_names) || Object.entries(v.security_names).some(([symbol, name]) =>
+    !/^\d{6}\.(SH|SZ)$/.test(symbol) || !text(name) || !name.trim()))) return invalid()
   if (v.runtime_scope_id !== undefined && v.runtime_scope_id !== null
     && (typeof v.runtime_scope_id !== 'string' || !/^[a-f0-9]{64}$/.test(v.runtime_scope_id))) return invalid()
   // 采用同一消费者的诊断独立降级结果；丢弃返回值会把坏附加信息继续交给页面。

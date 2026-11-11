@@ -40,6 +40,16 @@ def test_native_changes_keep_round_trip_first_unknown_and_zero_distinct(tmp_path
     assert cursor is None
 
 
+def test_current_symbols_keep_latest_changes_beyond_the_page(tmp_path):
+    path = tmp_path / 'signals.csv'
+    path.write_bytes(HEADER + line(100) + line(0, '02') + line(0, '03') + line(200, '04', '510500'))
+    source, items, cursor = read_signal_history(path, 'instance', 'strategy', 1, None, monotonic() + 3,
+                                                summary_symbols=('510300.SH', '510500.SH', '510050.SH'))
+    assert cursor and items[0]['symbol'] == '510500.SH'
+    assert [(row['symbol'], row['previous_target_quantity'], row['target_quantity'], row['sequence'])
+            for row in source['latest_targets']] == [('510500.SH', None, 200, 4), ('510300.SH', 100, 0, 2)]
+
+
 def test_paging_is_fixed_during_native_append_and_initial_rows_are_not_lost(tmp_path):
     p=tmp_path/'signals.csv';p.write_bytes(HEADER+b''.join(line(i*100,f'{i+1:02}')for i in range(5)))
     source,items,cursor=read(p,2);p.write_bytes(p.read_bytes()+line(1000,'09'))

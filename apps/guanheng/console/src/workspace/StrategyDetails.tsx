@@ -8,6 +8,7 @@ import { FinancialValue } from './FinancialValue'
 import { StatusBadge } from './StatusBadge'
 import { Link } from 'react-router-dom'
 import { StrategyCapitalSummary } from './StrategyCapitalSummary'
+import { StrategyPositionTargets, StrategySecurityLabel } from './StrategyPositionTargets'
 import { strategyKey } from './StrategyPicker'
 import { currentAuxiliaryPresentation } from './currentAuxiliary'
 import type { StrategyDefinition } from './strategyCatalogApi'
@@ -21,6 +22,10 @@ const field = (v?: AccountField, currency = false) => v?.availability === 'prese
     ? <FinancialValue value={v.value} /> : amount(v.value) : '尚未取得'
 const clock = (v?: string | null) => v ? absoluteChinaTime(v) : '尚未取得'
 const groupTime = (v?: AccountGroup) => v && 'received_at' in v ? v.received_at : v?.execution_finished_at
+function positionSymbol({ identity }: AccountRow) {
+  if (identity.m_strInstrumentID && identity.m_strExchangeID) return `${identity.m_strInstrumentID}.${identity.m_strExchangeID}`
+  return identity.wt_symbol ?? (identity.m_strInstrumentID ? `${identity.m_strInstrumentID}.?` : '证券未知')
+}
 function runtimeDuration(value: string | number) {
   const seconds = Math.floor(Number(value))
   const days = Math.floor(seconds / 86400)
@@ -85,10 +90,11 @@ export default function StrategyDetails({ strategy }: {
       {!allocated && currentGroups?.position.status !== 'complete' && positionGroup?.status === 'complete' ? <p role="status">本轮持仓未更新，当前保留上次成功持仓及原查询时间。</p> : null}
       {positions ? positions.length ? <div className="account-table-scroll" role="region" aria-label="策略当前持仓" tabIndex={0}>
         <table><thead><tr><th>证券</th><th>数量（份）</th><th>可卖（份）</th><th>市值（元）</th><th>持仓浮盈（元）</th></tr></thead>
-          <tbody>{positions.map((row,index)=><tr key={index}><th scope="row">{row.identity.m_strInstrumentID ? `${row.identity.m_strInstrumentID}.${row.identity.m_strExchangeID??'?'}` : row.identity.wt_symbol??'证券未知'}</th>
+          <tbody>{positions.map((row,index)=><tr key={index}><th scope="row"><StrategySecurityLabel symbol={positionSymbol(row)} names={data.security_names} /></th>
             <td>{field(row.fields.quantity)}</td><td>{field(row.fields.sellable)}</td><td>{field(row.fields.market_value, true)}</td><td>{field(row.fields.float_profit, true)}</td></tr>)}</tbody></table>
       </div> : <p>本次完整持仓查询返回为空。</p> : <p role="status">{positionGroup?.reason??'当前持仓尚未取得。'}</p>}
 
+      {data.strategy.strategy_version && <StrategyPositionTargets details={data} />}
       {data.calculation_reason ? <p role="status">{data.calculation_reason}</p> : null}
       {data.calculation ? <p title={currentAuxiliaryPresentation(data.calculation).title}>策略最近计算：{data.calculation.status_label}；决策时间：{clock(data.calculation.decision_at)}；{currentAuxiliaryPresentation(data.calculation).label}</p> : null}
 

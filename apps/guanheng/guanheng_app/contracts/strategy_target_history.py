@@ -1,5 +1,5 @@
 """WT原生目标设置历史的只读投影；数量为份，时间来自行情时钟。"""
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class TargetHistoryItem(TypedDict):
@@ -28,6 +28,7 @@ class TargetHistorySource(TypedDict):
     incomplete_tail: bool  # 捕获时末行尚未完整；该行留待下一次刷新。
     first_at: str | None  # 原始记录首个行情时刻，无完整行时为空。
     last_at: str | None  # 原始记录最后行情时刻，无完整行时为空。
+    latest_targets: NotRequired[list[TargetHistoryItem]]  # 当前发布标的在固定前缀中的最近变动或首次记录，缺记录时无对应行。
 
 
 class TargetHistoryResponse(TypedDict):
