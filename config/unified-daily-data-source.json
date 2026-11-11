@@ -110,7 +110,7 @@
       "source": "apps/guanheng/guanheng_app/observation/pcr_quantities.py"
     },
     "guanheng_app/observation/provider_reports.py": {
-      "sha256": "50a159768657a99809d1d1871b819c6620a26e90e8621754e094161e1f1b75ae",
+      "sha256": "591b85aa5e88422fc57b36058c669d1c3a05c2439e32df42786de32499b500dd",
       "source": "apps/guanheng/guanheng_app/observation/provider_reports.py"
     },
     "guanheng_app/observation/provider_tables.py": {
