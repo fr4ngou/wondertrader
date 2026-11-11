@@ -1,3 +1,5 @@
+- [观衡因子素材库与研究全链路方案](factor-research-lifecycle.md)：FRS，素材、定义版本、冻结数据、搜索与诊断、WT 正式回测和结果追溯。
+
 - [AI 原生项目知识与持续演进方案](agent-project-knowledge.md)：AKN，入口路由、任务续接与经验收敛；按采用切片和阶段分别登记。
 
 - [策略数据、业务诊断与运行日志](strategy-data-and-observability.md)：SDO，辅助来源/持续更新、逐角色与回测诊断、日志留存与发布验真。

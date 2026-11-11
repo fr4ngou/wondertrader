@@ -46,6 +46,8 @@
 
 2026-11-11 静态核查。GitHub Star 为公开关注度快照，发行日期来自 PyPI。下表比较能力和接入工作量，本机安装、运行速度与样本外收益留待选定工具后验证。
 
+后续已完成 Windows 运行核查并登记首个素材来源。接入选择以[本机验证](../evidence/2026-11-11-factor-library-windows.md)及[全链路方案](../specs/factor-research-lifecycle.md)为准。
+
 | 候选 | 能做什么 | 适合观衡的接入方式 | 关注度、许可与发行 |
 |---|---|---|---|
 | **gplearn** | 用遗传编程组合已有输入，`SymbolicTransformer` 可输出多条表达式。支持自定义算子、适应度、复杂度惩罚和随机种子。 | 通用遗传编程基线。用独立 Python 环境读取冻结样本，从少量已核验的价量与滚动特征开始。默认相关目标按传入的样本计算，逐日截面评分须由观衡保留日期分组并显式接入。时序切分、交易约束与成本仍由观衡负责。 | 约 1.9k Star，BSD-3-Clause，0.4.3（2026-01-07），要求 Python 3.11+、scikit-learn 1.8+。[仓库](https://github.com/trevorstephens/gplearn) · [API](https://gplearn.readthedocs.io/en/stable/reference.html) · [PyPI](https://pypi.org/project/gplearn/0.4.3/) |
@@ -60,7 +62,7 @@
 
 ### 专用金融因子搜索与采用证据
 
-- **alpha-foundry** 有实际金融公式搜索入口。固定源码的 `run_gp` 使用 DEAP 强类型遗传编程，从行情面板和预定义算子组合公式。上游也实现了 GFlowNet 搜索、Rank IC 和因子池筛选，声明支持 A 股日线。MIT，约 64 Star。适合验证原生金融算子与截面搜索能否接上 WT 冻结面板。其 C++/OpenMP 计算及 Linux/WSL 构建需要实测，正式撮合沿 WT。参与候选准入的评估区间登记为已观察。[仓库及构建说明](https://github.com/Huang-Hg/alpha-foundry) · [GP 搜索源码](https://github.com/Huang-Hg/alpha-foundry/blob/0a87be0034d93adede9b0621ae02b029a96ad309/search/gp/gp_baseline.py) · [许可证](https://github.com/Huang-Hg/alpha-foundry/blob/0a87be0034d93adede9b0621ae02b029a96ad309/LICENSE)
+- **alpha-foundry** 有实际金融公式搜索入口。固定源码的 `run_gp` 使用 DEAP 强类型遗传编程，从行情面板和预定义算子组合公式。上游也实现了 GFlowNet 搜索、Rank IC 和因子池筛选。公开快照的 `gp-ashare` 入口缺少 A 股数据加载器，接入需用 WT 冻结面板补齐该接口。MIT，约 64 Star。参与候选准入的评估区间登记为已观察。[仓库及构建说明](https://github.com/Huang-Hg/alpha-foundry) · [GP 搜索源码](https://github.com/Huang-Hg/alpha-foundry/blob/0a87be0034d93adede9b0621ae02b029a96ad309/search/gp/gp_baseline.py) · [许可证](https://github.com/Huang-Hg/alpha-foundry/blob/0a87be0034d93adede9b0621ae02b029a96ad309/LICENSE)
 - **AlphaQCM** 是 ICML 2025 的分布强化学习方法。作者仓库提供沪深 300、中证 500 的训练入口和 CSV 公式池输出，依赖 Qlib/BaoStock，复现环境使用 Python 3.8、PyTorch 1.13.1、CUDA 11.6。约 125 Star，顶层声明 MIT，仓库也明确引用 AlphaGen 的搜索环境。采用前按固定版本核对该部分的来源与许可，研究复现先在独立环境中进行。[论文](https://proceedings.mlr.press/v267/zhu25ag.html) · [作者复现说明](https://github.com/ZhuZhouFan/AlphaQCM/blob/dffc695f9ea54e6a54e4dac86ee357be314fead4/README.md)
 - **AlphaGen** 用强化学习搜索一组互补的公式，公开外部 `AlphaCalculator` 接口。**AlphaForge** 用生成模型挖掘公式，再做动态组合。两者均有作者代码和发表论文，约 1.3k 和 444 Star，本次仍未查到明确的顶层项目许可。**QuantaAlpha** 用大模型和演化搜索迭代量价因子，约 1.7k Star，打包元数据声明 MIT，本次未找到独立许可证正文。三者先作为方法和实验设计参考。[AlphaGen 源码](https://github.com/ICT-FinD-Lab/alphagen) · [KDD 论文](https://doi.org/10.1145/3580305.3599831) · [AlphaForge 源码](https://github.com/DulyHao/AlphaForge) · [AAAI 论文](https://ojs.aaai.org/index.php/AAAI/article/view/33365) · [QuantaAlpha 实验入口](https://github.com/QuantaAlpha/QuantaAlpha/blob/b7ceb27b1001261d7a95b209a963664ae1f8ab23/quantaalpha/pipeline/factor_mining.py) · [打包元数据](https://github.com/QuantaAlpha/QuantaAlpha/blob/b7ceb27b1001261d7a95b209a963664ae1f8ab23/pyproject.toml)
 

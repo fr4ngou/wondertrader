@@ -1,5 +1,7 @@
 # 验证证据
 
+- [因子研究库 Windows 验证](2026-11-11-factor-library-windows.md)：Alpha144 成交额核对、CPU 搜索、日线读取与指标诊断的本机结果。
+
 - [BigQuant SDK 开通后读取验证](../research/2026-11-09-bigquant-data-source.md)记录 11 月 9 日业务回包及交易所对照，接续市场广度备用来源的权限核查。
 
 - [市场广度备用来源补采](2026-11-08-observation-breadth-alternative-sources.md)记录沪深和沪深北历史补采、正式验真及 BigQuant 读取权限。
