@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import uuid
 
 from .daily_data_update import _save, _load, _descriptor
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .market_generation import read_fixed, read_generation
 from .daily_gap_plan import load_gap_plan, MAX_PROTECTED_SLOTS
 from ..guanheng_market_client import strict_json
@@ -122,11 +123,11 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         while isinstance(base, dict):
             archive = base.get('archive')
             if archive is not None:
-                schema=_load(archive).get('schema')
+                schema=_load(archive,DAILY_ARCHIVE_MANIFEST_BYTES).get('schema')
                 if schema=='guanheng.daily-native-archive.v1'and not additional_selected:
                     current_additional.append(archive);additional_selected=True
                 if schema=='guanheng.daily-native-archive.v2':
-                    entries=_load(archive)['entries']
+                    entries=_load(archive,DAILY_ARCHIVE_MANIFEST_BYTES)['entries']
                     if entries and all(row['provenance'][0]['metadata']['adjustment']=='front_ratio'for row in entries):
                         current_additional.append(archive);base=base.get('base');continue
                     template.update(previous_archives=[archive], previous_stores=[])

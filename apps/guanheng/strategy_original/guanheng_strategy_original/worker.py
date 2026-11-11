@@ -98,7 +98,7 @@ def _data_audit(snapshot: dict, factors, composite) -> dict:
     }
 
 
-def evaluate(snapshot: dict) -> dict:
+def evaluate(snapshot: dict, *, confirmation_backend: Path | None = None, confirmation_history=None) -> dict:
     """按照固定portfolio/API相同纯函数和日期约定回放，原结果完整保留。"""
     from base.analysis.sentiment.core import enrich_turnover, percentile_series, turnover_value
     from base.analysis.strategy.router import compute_trades
@@ -108,6 +108,17 @@ def evaluate(snapshot: dict) -> dict:
     from resonance.analysis.core import compute_resonance
 
     daily, codes = snapshot["daily"], snapshot["codes"]
+    if confirmation_backend is not None:
+        from guanheng_strategy_original import kc50_confirmation as confirmation
+        from base.analysis.strategy.hs300 import run_hs300_strategy
+
+        codes = confirmation.CODES
+        daily = dict(confirmation.lagged_features(daily, snapshot["calendar"]))
+        main_days = [r["date"] for r in daily["510300"]]
+        start_day = snapshot["evaluation_start"]
+        warmup = next(day for day in main_days if day >= start_day)
+        history = {code: [row for row in confirmation_history[code] if row["date"] >= warmup] for code in codes}
+        market = dict(confirmation.market_state(history, [day for day in snapshot["calendar"] if day >= warmup]))
     if any(code not in ETFS for code in daily):
         raise ValueError("上游监控集合中没有该证券")
     for code in codes:
@@ -123,8 +134,13 @@ def evaluate(snapshot: dict) -> dict:
     results, lights, trades = {}, {}, {}
     start = snapshot["evaluation_start"]
     for code in codes:
-        results[code] = compute_trades(code, daily[code], t_pct=tp, m_pct=mp,
-                                      hs300_rows=daily.get("510300"), kc50_rows=daily.get("588000"), version="stable")
+        if confirmation_backend is not None and code == "588000":
+            results[code] = confirmation.evaluate_kc50(confirmation_backend, daily[code], market, tp, mp)
+        elif confirmation_backend is not None and code == "159352":
+            results[code] = dict(run_hs300_strategy(daily[code]), code=code)
+        else:
+            results[code] = compute_trades(code, daily[code], t_pct=tp, m_pct=mp,
+                                          hs300_rows=daily.get("510300"), kc50_rows=daily.get("588000"), version="stable")
         trades[code] = [t for t in results[code]["trades"] if t["date"] >= start]
         lights[code] = compute_resonance(code, daily[code], turnover, margin)
     price_map = {code: {r["date"]: r["close_price"] for r in daily[code] if r["close_price"] is not None} for code in codes}
@@ -133,6 +149,11 @@ def evaluate(snapshot: dict) -> dict:
             price_map[code].setdefault(trade["date"], trade["price"])
     end = max((d for prices in price_map.values() for d in prices), default=None)
     dates = [d for d in snapshot["calendar"] if start <= d and (end is None or d <= end)]
+    if confirmation_backend is not None:
+        dates = dates[1:]  # 首个评价交易日用作 WT 原生日线暖机，不在该日生成目标。
+        if not dates:
+            raise ValueError("收复确认缺少暖机后评价日")
+        trades = {code: [trade for trade in signals if trade["date"] >= dates[0]] for code, signals in trades.items()}
     fallback = not dates
     if fallback:
         dates = sorted({d for prices in price_map.values() for d in prices})
@@ -140,7 +161,9 @@ def evaluate(snapshot: dict) -> dict:
     audit = _data_audit(snapshot, factors, composite)
     audit["market_percentile_coverage"] = {"turnover_dates": len(tp), "margin_dates": len(mp)}
     audit["signal_duplicates"] = {code: len(items) - len({(t["date"], t["action"]) for t in items}) for code, items in trades.items()}
+    variant = ({confirmation.REFERENCE_FIELD: True} if confirmation_backend is not None else {})
     return {
+        **variant,  # 显式独立策略模型，WT按此校验回放身份。
         "schema": "guanheng.resonance-original-report.v1",  # 独立报告协议，与原WT报告族分开。
         "algorithm_id": "resonance-original-351f9d5-stable",  # 唯一参考算法身份。
         "upstream_commit": "351f9d58152e10efd2447c997b8ee4db66b5ac6a",  # 上游固定提交。

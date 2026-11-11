@@ -4,6 +4,7 @@ from pathlib import Path
 import time
 
 from .daily_data_update import _save,_load,_descriptor
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .daily_data_stages import prepare_directory
 from .daily_price_inputs import prepare_price_inputs
 from .daily_price_archive import materialize_price_archive
@@ -112,12 +113,12 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         market=create_native_source_market(base)
         try:
             def restore(output):
-                result=_descriptor(output/'archive.json');_load(result)
+                result=_descriptor(output/'archive.json',DAILY_ARCHIVE_MANIFEST_BYTES);_load(result,DAILY_ARCHIVE_MANIFEST_BYTES)
                 return result
             archive=prepare_directory(root,'price-archive','archive.json',lambda output:
                 materialize_price_archive(inputs,market,request['previous_archives'],output,request['helper'],reader,
                     deadline=deadline,maximum_history_rows=limit,cancelled=cancelled,
-                    additional_captures=(strategy_capture,)if strategy_capture is not None else(),**unit_options),restore)
+                    additional_captures=(strategy_capture,)if strategy_capture is not None else(),**unit_options),restore,recover_prior=True)
         finally:market.close()
     # 即使本次无额外证券，也保持已有补充价格；旧整档遮蔽股票新尾日的情况在有补充输入时统一收敛。
     additional=[archive]if archive is not None else request['previous_archives']
@@ -130,7 +131,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         try:
             def restore_front(output):
                 descriptor=_descriptor(output/'RESULT.json');value=_load(descriptor)
-                if value['archive']is not None:_load(value['archive'])
+                if value['archive']is not None:_load(value['archive'],DAILY_ARCHIVE_MANIFEST_BYTES)
                 return descriptor
             def build_front(output):
                 prepare_front_archive(inputs,market,request['previous_archives'],output,request['helper'],

@@ -178,14 +178,20 @@ def normalize_facts(facts: dict) -> dict:
     return result
 
 
-def build_current_signal(source: Path, facts: dict, *, work_directory: Path, timeout_seconds: float = 120) -> dict:
+def build_current_signal(source: Path, facts: dict, *, work_directory: Path, timeout_seconds: float = 120, confirmation: bool = False) -> dict:
     """有界计算原日特征及当前日候选，返回ORR-07结果；无来源/金融副作用。
 
     source为用户提供的固定上游根；work_directory须为已存在D/E绝对目录，调用方
     所有，内部独占子目录退出时回收。子进程超时后终止/join，返回TimeoutError。
     ValueError表示事实/来源/输出身份失败，错误只暴露固定分类，不带外部原文。
     """
+    if type(confirmation) is not bool:
+        raise ValueError("收复确认策略选择无效")
     normalized = normalize_facts(facts)
+    if confirmation:
+        from .kc50_confirmation import CODES
+        if set(normalized["codes"]) != set(CODES):
+            raise ValueError("收复确认策略需要固定七只 ETF")
     if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 600:
         raise ValueError("运行期限须大于0且不超过600秒")
     root = Path(source).resolve(strict=True)
@@ -212,6 +218,8 @@ def build_current_signal(source: Path, facts: dict, *, work_directory: Path, tim
             target.write_bytes(raw)
         inp, out = work / "facts.json", work / "signal.json"
         payload = {"facts": normalized, "facts_sha256": digest(facts), "manifest_sha256": digest({"original": original, "feature": feature})}
+        if confirmation:
+            payload["confirmation"] = True
         inp.write_bytes(canonical(payload))
         command = [sys.executable, "-I", "-S", "-B", str(package / "current_signal_worker.py"), str(work / "backend"), str(inp), str(out)]
         try:

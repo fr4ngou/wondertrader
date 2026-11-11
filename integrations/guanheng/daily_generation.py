@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib,json,os,time,uuid
 from ..guanheng_market_client import strict_json
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from ..guanheng_market_client.source_history import validate_source_metadata
 from .native_history import _parse_source_receipt
 from .qmt_minute_import import _Native,_manifest,_rows,_chunk_path
@@ -49,7 +50,7 @@ def materialize_generation(preparation,previous_stores,output,helper,helper_sha2
     if (output/'PROVENANCE.json').exists():read(output/'PROVENANCE.json',plan['provenance_sha256'])
     else:(output/'PROVENANCE.json').write_bytes(read(source.parent/'PROVENANCE.json',plan['provenance_sha256']))
     if (output/'RESULT.json').exists():
-        result=strict_json(read(output/'RESULT.json'));read(result['archive']['path'],result['archive']['sha256']);return result
+        result=strict_json(read(output/'RESULT.json'));read(result['archive']['path'],result['archive']['sha256'],DAILY_ARCHIVE_MANIFEST_BYTES);return result
     previous={};comparable=('adjustment','timezone','minute_boundary','value_semantics','price_unit','volume_unit','amount_unit')
     for store in previous_stores:
         root=Path(store['store_root']).resolve(strict=True);body=read(root/'qmt-import.json',store['import_receipt_sha256']);receipt=strict_json(body)
@@ -61,7 +62,7 @@ def materialize_generation(preparation,previous_stores,output,helper,helper_sha2
             if key in previous:raise ValueError('daily generation previous price source repeated')
             previous[key]=dict(path=root/entry['path'],sha256=entry['sha256'],source_rows_sha256=entry['chunks'][0]['sha256'],profile=profile,rows=entry['count'],store=store,entry=None)
     for descriptor in previous_archives:
-        path=Path(descriptor['path']).resolve(strict=True);archive=strict_json(read(path,descriptor['sha256']))
+        path=Path(descriptor['path']).resolve(strict=True);archive=strict_json(read(path,descriptor['sha256'],DAILY_ARCHIVE_MANIFEST_BYTES))
         if archive['schema']!='guanheng.daily-native-archive.v2'or archive['helper_sha256']!=helper_sha256:raise ValueError('daily generation previous archive differs')
         for entry in archive['entries']:
             metadata=entry['provenance'][0]['metadata'];key=(entry['symbol'],metadata['adjustment'])
@@ -160,10 +161,14 @@ def materialize_generation(preparation,previous_stores,output,helper,helper_sha2
     finally:
         native.close()
         if reader is not None:reader.close()
-    archive=output/'archive.json';save(archive,dict(schema='guanheng.daily-native-archive.v2',entries=entries,helper_sha256=helper_sha256))
+    archive=output/'archive.json'
+    document=dict(schema='guanheng.daily-native-archive.v2',entries=entries,helper_sha256=helper_sha256)
+    if len(encode(document))>DAILY_ARCHIVE_MANIFEST_BYTES:
+        raise ValueError('daily archive manifest exceeds capacity')
+    save(archive,document)
     result=dict(schema='guanheng.qmt-analysis-native-import.v2',state='completed',capture_sha256=provenance['capture_sha256'],
         observation_date=provenance['request']['end_date'],source_kind=provenance['source_kind'],source_received_at=provenance['source_received_at'],
-        securities=plan['securities'],rows=rows_total,stores=[],archive=dict(path=str(archive),sha256=sha(read(archive))),
+        securities=plan['securities'],rows=rows_total,stores=[],archive=dict(path=str(archive),sha256=sha(read(archive,maximum=DAILY_ARCHIVE_MANIFEST_BYTES))),
         reused_securities=reused,written_securities=written,
         retained_price_files=retained,  # 当前输入未出现、沿旧DSB及完整原来源保留的价格键数量。
         input_rows=plan['rows'],  # 本次实际捕获行数；rows另包含退出/缺项证券的已保留历史。

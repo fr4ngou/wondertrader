@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 
 from .daily_data_update import _save,_load
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .analysis_price_capture import load_price_capture,price_batches,capture_metadata,original_price_quality
 from .daily_archive_merge import read_price_history
 from .daily_archive_prepare import prepare_daily_archive,price_rows_identity
@@ -48,7 +49,7 @@ def prepare_front_archive(inputs,market,previous_archives,output,helper,*,deadli
                 values[symbol]=item;candidates.setdefault(symbol,[]).insert(0,(item,source_metadata,'strategy_history'))
     retained_symbols=set();retained_files={}
     for archive in previous_archives:
-        for entry in _load(archive)['entries']:
+        for entry in _load(archive,DAILY_ARCHIVE_MANIFEST_BYTES)['entries']:
             if entry['provenance'][0]['metadata']['adjustment']!='front_ratio':continue
             retained_symbols.add(entry['symbol'])
             original_root=Path(archive['path']).parent.resolve(strict=True)

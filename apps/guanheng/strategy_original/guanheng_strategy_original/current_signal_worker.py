@@ -213,7 +213,12 @@ def compute(payload: dict, backend: Path) -> dict:
     from guanheng_strategy_original.reference_labels import prepare_nullable_reason_labels
     prepare_nullable_reason_labels(backend)
     # 参考函数要求各code非空。数据不足返回完整缺口；不能静默缩成另一证券组合。
-    report = evaluate(snapshot) if all(snapshot["daily"].get(c) for c in snapshot["codes"]) else None
+    confirmation_backend = backend if payload.get("confirmation") else None
+    options = {}
+    if confirmation_backend is not None:
+        history = {code: facts["analysis"][code]["bars"] for code in snapshot["codes"]}
+        options = dict(confirmation_backend=backend, confirmation_history=history)
+    report = evaluate(snapshot, **options) if all(snapshot["daily"].get(c) for c in snapshot["codes"]) else None
     today, states = {}, {}
     for code in snapshot["codes"]:
         trades = report["strategy_results"][code]["trades"] if report is not None else []

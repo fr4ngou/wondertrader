@@ -212,7 +212,7 @@ def _artifact(value, maximum, deadline):
     return data
 
 
-def _verify_packages(root, items, deadline, *, per_date=False):
+def _verify_packages(root, items, deadline, *, per_date=False, original=False):
     """唯一策略环境的发行及导入根共用一份闭包，部署writer与runner沿同一检查。"""
     packages = dict(_PACKAGES)
     if per_date:
@@ -220,6 +220,8 @@ def _verify_packages(root, items, deadline, *, per_date=False):
         packages['guanheng-native-analysis-core'] = 'integrations'
     distributions = {}
     roots = {Path(name).parts[0] for name in items}
+    if original and 'guanheng_strategy_original' in roots:
+        packages['guanheng-strategy-original'] = 'guanheng_strategy_original'
     for name in roots:
         if name in packages.values():
             continue
@@ -288,7 +290,8 @@ def verify_install(data, expected, deadline):
     if value['report_schema'] == ORIGINAL_REPORT_SCHEMA:
         required |= {'guanheng_wt_runtime/original_native_replay.py','guanheng_wt_runtime/original_native_cli.py'}
     _verify_packages(_path(value['site_root']), value['site_files'], deadline,
-                     per_date=value['report_schema'] == PER_DATE_REPORT_SCHEMA)
+                     per_date=value['report_schema'] == PER_DATE_REPORT_SCHEMA,
+                     original=value['report_schema'] == ORIGINAL_REPORT_SCHEMA)
     if not required <= set(value["site_files"]):
         raise HostError("安装缺少固定runner、会话或独立核")
     python = _path(value["python"]["path"])

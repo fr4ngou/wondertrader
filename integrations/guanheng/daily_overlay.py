@@ -19,6 +19,7 @@ from .price_quality import validate_price_quality,summarize_source_bars
 from ..guanheng_market_client.daily_contract import source_daily_security
 from .native_history import NativeHistory, source_file_metadata
 from .source_market import _require, _hash
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 
 
 def _read(path, maximum):
@@ -98,7 +99,7 @@ class DailyOverlayMarket:
             if archive is not None:
                 _require(set(archive) == {'path','sha256'})
                 path = Path(archive['path']).resolve(strict=True)
-                raw = _read(path, 16 * 1024 * 1024)
+                raw = _read(path, DAILY_ARCHIVE_MANIFEST_BYTES)
                 _require(hashlib.sha256(raw).hexdigest() == _hash(archive['sha256']))
                 manifest = strict_json(raw)
                 _require(manifest.get('schema') in ('guanheng.daily-native-archive.v1','guanheng.daily-native-archive.v2'))

@@ -4,6 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 
+# 全市场清单每证券包含多段来源。64 MiB 覆盖实测 7952 证券的 17.6 MB 清单，
+# 并给最多 20000 个归档条目保留同量级的来源分段空间。
+DAILY_ARCHIVE_MANIFEST_BYTES = 64 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class StaticArchiveIdentity:

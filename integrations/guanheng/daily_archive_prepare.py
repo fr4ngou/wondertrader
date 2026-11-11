@@ -3,6 +3,7 @@ from datetime import datetime
 import hashlib,json,math,os,re,time
 from pathlib import Path
 from .qmt_minute_import import _Native
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .native_history import WTSBar
 from ..guanheng_market_client.source_history import validate_source_metadata
 from .price_quality import PriceRangeQuality
@@ -105,5 +106,8 @@ def prepare_daily_archive(securities,metadata,output,helper,helper_sha256,*,dead
     encode=lambda v:json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode('utf8')
     document=dict(schema='guanheng.daily-native-archive.v1',entries=entries)
     if basis=='front_ratio':document.update(schema='guanheng.daily-native-archive.v2',helper_sha256=helper_sha256)
-    path=output/'archive.json';body=encode(document);path.write_bytes(body)
+    path=output/'archive.json';body=encode(document)
+    if len(body)>DAILY_ARCHIVE_MANIFEST_BYTES:
+        raise ValueError('daily archive manifest exceeds capacity')
+    path.write_bytes(body)
     return dict(path=str(path.absolute()),sha256=hashlib.sha256(body).hexdigest())

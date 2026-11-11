@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 from threading import get_ident
+from .kc50_atr_protection import AtrProtection
 from .strategy_porter import BacktestConfig, BacktestPorter, Bar, Callbacks, Target
 from .strategy_replay_facts import SessionError, admit_native_files, _decimal
 from .retained_replay import ORIGINAL_BT_SHA256, ABI_PROBE_SHA256
@@ -23,6 +24,7 @@ from .original_native_contracts import (
     INPUT_FIELDS,
     MODEL,
     LEGACY_VERSION,
+    CONFIRM_VERSION,
     model_for_version,
     _encode,
     _digest,
@@ -66,6 +68,14 @@ class OriginalNativeSession:
         self._sell_intents=set()  # T+1冻结/原生pending下保留的原SELL责任。
         self._cash_plan=None  # 原BUY当日固定的份数目标；只保存策略意图，成交与现金由WT拥有。
         self._fees={}  # 已核SHA的绑定费用模板，用于下单成本上界，不替代原生实际费用。
+        self._market={}
+        self._atr=None
+        if self._value['strategy']['strategy_version']==CONFIRM_VERSION:
+            from guanheng_strategy_original.kc50_confirmation import START, allocation, market_state
+
+            self._market={_day(day):state for day,state in market_state(self._value['history'],self._value['calendar']) if day>=START}
+            self._allocation=allocation
+            self._atr=AtrProtection(self._value['history'],START)
         self._signals={}
         for code,rows in self._value['reference_report']['trades_by_code'].items():
             for row in rows:self._signals.setdefault(_day(row['date']),[]).append(dict(code=code,**row))
@@ -195,9 +205,14 @@ class OriginalNativeSession:
         control=dict(available_cash_cny=_decimal(available),reserved_buy_cost_cny='0',orders=[])
         targets=dict(actual);status='holding';reason='沿原生实际持仓保持';vector=[];readback=[]
         self._sell_intents={code for code in self._sell_intents if actual[code]>0}
+        exits=[]
+        if self._atr is not None:
+            date=datetime.strptime(str(day),'%Y%m%d').date().isoformat()
+            exits=list(self._atr.exits(date,actual,signals,self._sell_intents))
+        style=None
         if self._cash_plan is not None and all(actual[c]==q for c,q in self._cash_plan.items()):
             self._cash_plan=None;self._buy_intents.clear()
-        for signal in signals:
+        for signal in signals+exits:
             code=signal['code']
             if signal['action']=='BUY':
                 self._buy_intents.add(code);self._sell_intents.discard(code);self._cash_plan=None
@@ -210,8 +225,12 @@ class OriginalNativeSession:
             if self._buy_intents and self._cash_plan is None:
                 active=({c for c,q in actual.items() if q>0}|self._buy_intents)-self._sell_intents
                 if active and all(c in prices and any(b.date==day for b in self._series[self._mapping[c]]) for c in active):
-                    budget=max(Fraction(0),nav-_money(self._value['fee_reserve_cny']))/len(active)
-                    self._cash_plan={c:(int(budget/prices[c]/100)*100 if c in active else 0) for c in self._codes}
+                    budget=max(Fraction(0),nav-_money(self._value['fee_reserve_cny']))
+                    weights=dict.fromkeys(active,1)
+                    if day in self._market:
+                        weights,style=self._allocation(self._market[day],active)
+                    total_weight=sum(weights.values())
+                    self._cash_plan={c:(int(budget*weights[c]/total_weight/prices[c]/100)*100 if c in active else 0) for c in self._codes}
                 else:status='blocked_missing_price';reason='原BUY目标缺少当日已闭合价格，保留意图'
             if self._cash_plan is not None:targets={c:max(q,frozen[c]) for c,q in self._cash_plan.items()}
             for c in self._sell_intents:targets[c]=frozen[c]
@@ -246,6 +265,8 @@ class OriginalNativeSession:
                 status='deferred_T1' if any(frozen.values()) else 'waiting_cash_or_lot'
                 reason='保留原信号份数意图；等待原生可卖份额、实际卖出回款或整手预算'
         else:status='pending_native_execution';reason='保留原生已触发未成交责任，不重复预占或下单'
+        if exits:reason='ATR 退出：'+'、'.join(item['reason'] for item in exits)+'。'+reason
+        if style:reason=f'风格权重：{style}。'+reason
         text=_encode(dict(schema='guanheng.original-native-state.v2',session_id=self._session_id,sequence=len(self._records)+1,
             buy_intents=sorted(self._buy_intents),sell_intents=sorted(self._sell_intents),cash_plan=self._cash_plan)).decode('ascii')
         porter.store_userdata(STATE_KEY,text);self._last_userdata=text
@@ -278,7 +299,7 @@ class OriginalNativeSession:
             path=output/name;_need(path.is_file() and path.stat().st_size<=32*1024*1024)
             files.append([name,hashlib.sha256(path.read_bytes()).hexdigest()])
         report=dict(schema=REPORT_SCHEMA,session_id=self._session_id,input_sha256=self._input_id,scope=REPORT_SCOPE,
-            policy=self._value['policy'],configuration_sha256=configuration_id(self._value),strategy_id=STRATEGY_ID,strategy_version=self._value['strategy']['strategy_version'],
+            policy=self._value['policy'],configuration_sha256=configuration_id(self._value),strategy_id=self._value['strategy']['strategy_id'],strategy_version=self._value['strategy']['strategy_version'],
             signal_algorithm_id=ALGORITHM_ID,historical_model=model_for_version(self._value['strategy']['strategy_version']),reference_report_sha256=self._value['reference_report_sha256'],
             execution_model=model_for_version(self._value['strategy']['strategy_version']),evaluation_window=self._value['evaluation_window'],
             source_snapshot_sha256=self._value['source_snapshot_sha256'],status=self._records[-1]['status'],native_files=[list(x) for x in identities],

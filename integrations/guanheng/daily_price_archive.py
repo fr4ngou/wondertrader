@@ -10,7 +10,7 @@ from .market_generation import read_fixed
 from .native_history import NativeHistory,source_file_metadata
 from ..guanheng_market_client.daily_contract import source_daily_security
 from ..guanheng_market_client.source_history import validate_source_metadata
-from .source_archive_identity import archive_entry_identity,PreloadedArchiveRows
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES,archive_entry_identity,PreloadedArchiveRows
 
 
 def materialize_price_archive(inputs,market,previous_archives,output,helper,native_reader,*,deadline,
@@ -35,7 +35,7 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
     additions={};reusable_files={};preloaded={};reader=None
     try:
         for descriptor in previous_archives:
-            check();document=_load(descriptor);root=Path(descriptor['path']).parent
+            check();document=_load(descriptor,DAILY_ARCHIVE_MANIFEST_BYTES);root=Path(descriptor['path']).parent
             if document.get('schema')not in('guanheng.daily-native-archive.v1','guanheng.daily-native-archive.v2'):
                 raise ValueError('daily price prior archive invalid')
             for entry in document['entries']:
@@ -118,7 +118,7 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
             # 合法空补充集也是已完成的不可变档案；不加载Helper、不制造任何价格条目。
             check();output=Path(output);output.mkdir(parents=False,exist_ok=False)
             _save(output/'archive.json',dict(schema='guanheng.daily-native-archive.v1',entries=[]))
-            result=_descriptor(output/'archive.json')
+            result=_descriptor(output/'archive.json',DAILY_ARCHIVE_MANIFEST_BYTES)
         return result
     finally:
         if reader is not None:reader.close()

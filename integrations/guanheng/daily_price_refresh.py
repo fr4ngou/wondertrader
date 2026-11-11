@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 
 from .daily_data_update import _save,_load,_descriptor
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .daily_price_scope import prepare_price_scope
 from .daily_data_inputs import fixed_unit_evidence_configuration
 from .daily_price_update import prepare_price_update,compact_price_base
@@ -67,7 +68,7 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
     while isinstance(base,dict):
         archive=base.get('archive')
         if archive is not None:
-            document=_load(archive)
+            document=_load(archive,DAILY_ARCHIVE_MANIFEST_BYTES)
             # 最近一次补充档优先；原价和前复权各保留一份完整原档，底层原股票仍由Reader链拥有。
             entries=document.get('entries',[])
             if entries:

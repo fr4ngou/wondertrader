@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 
 from ..guanheng_market_client import strict_json
+from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .market_generation import GenerationPublisher, encode, read_fixed, read_generation, _replace_pointer
 
 
@@ -201,7 +202,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                     result = _load(prepared)
                     if result['state'] != 'completed':
                         raise ValueError('daily update prepared native is not completed')
-                    _load(result['archive'])
+                    _load(result['archive'],DAILY_ARCHIVE_MANIFEST_BYTES)
                     if (result['capture_sha256'] == reread['sha256']
                             and result['helper_sha256'] == request['helper']['sha256']):
                         return prepared
