@@ -1,5 +1,6 @@
 # 发布记录
 
+- [观衡130 重要股东周度历史正式采用](2026-11-11-observer130-shareholder-live.md)：2018 年起 463 周、四指数与策略目标汇总在原 18143 读回。
 - [WT 原模拟策略初始净值恢复](2026-11-11-wt-initial-nav-recovery.md)：同账资金投影、观衡净值历史及市场观察补验。
 - [WT 原模拟账户跨日成交与分析窗口恢复](2026-11-11-broker-deal-coverage-recovery.md)
 - [WT 固定端口迁移](../incidents/2026-11-09-wt-observer-cold-start.md#固定端口迁移验收)：六个消费者和端口验真，同账户恢复与原分钟请求接续。

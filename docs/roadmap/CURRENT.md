@@ -9,7 +9,7 @@
 | 主题 | 最近记录及适用范围 | 依据 |
 |---|---|---|
 | 系统职责 | WT 独立拥有 QMT 通信、采集/历史、策略和交易；观衡独立部署、只读消费。 | [架构](../architecture/overview.md)、[ADR-0016](../architecture/adr/0016-independent-wt-runtime-and-observer.md) |
-| 观衡交付 | App129 已在 18143 正式采用。策略和版本分栏，五指数多选及日末仓位正式验真。原 4 项自选、独立策略历史和读取配置保持。 | [正式发布](../releases/2026-11-08-observer129-backtest-comparison-live.md) |
+| 观衡交付 | App130 已在 18143 正式采用。重要股东 463 周和四指数同图，策略持仓名称和逐标的目标汇总已验真。原自选、策略历史及读取配置连续。 | [正式发布](../releases/2026-11-11-observer130-shareholder-live.md) |
 | 市场广度 | 正式一年窗口内沪深五项与沪深北广度、RANA、MSI、推力各有 242 个有效值。沪深北 TRIN 有 240 个有效值，T2108 保留 47 日。 | [备用来源补采与验真](../evidence/2026-11-08-observation-breadth-alternative-sources.md) |
 | 目标记录 | 1160 行原始设置归约为 42 条首次/变化记录；目标、持仓和成交分别归属。原目标、历史权重、算法版本及原因缺字段时保持未知。 | [目标规格](../specs/strategy-target-history.md)、[后验真](../evidence/2026-11-07-native-target-cash-gapplan-postflight.md) |
 | 原版回测 | 原版 a2 完成 1415 日、407 笔实际 WT 回测及独立复算，负现金日为 0；原 a1 及失败证据保留。历史 PIT、OHLC 撮合和未成交排队限制沿原模型；回测报告与正式运行策略采用分别核实。 | [发布记录](../releases/2026-11-07-native-target-cash-gapplan-live.md)、[回测规格](../specs/original-native-backtest.md) |
