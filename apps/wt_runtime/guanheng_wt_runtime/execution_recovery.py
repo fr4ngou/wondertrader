@@ -410,7 +410,7 @@ def restoration_origin(transition, *, deadline=float('inf')):
     return dict(configuration=configuration,configuration_sha256=snapshot['predecessor_configuration_sha256'],control_directory=origin,binding=_json(binding))
 
 
-def initialization_abort_origin(transition, *, deadline=float('inf')):
+def initialization_abort_origin(transition, *, current=None, deadline=float('inf')):
     """核准入后、就绪前失败且状态未变的原owner，保留真实失败生命周期。"""
     reference=transition.get('initialization_abort')
     if reference is None:return None
@@ -421,7 +421,9 @@ def initialization_abort_origin(transition, *, deadline=float('inf')):
     raw=read(previous/'reconciled.json',256*1024)
     _require(hashlib.sha256(raw).hexdigest()==_sha(reference['sha256']))
     admitted=_json(raw);failure=_json(read(previous/'failure.json',4096));closed=_json(read(previous/'close-prepared.json',4096))
-    _require(admitted['schema']=='guanheng.cta-reconciled.v1'and admitted['admission_kind']=='clean_transition'
+    kind = admitted['admission_kind']
+    _require(admitted['schema']=='guanheng.cta-reconciled.v1'
+        and kind in ('clean_transition', 'process_lost_reconciled')
         and failure['schema']=='guanheng.execution.failure.v1'and failure['stage']=='cta'
         and closed['schema']=='guanheng.execution.close-prepared.v1'and closed['closed']is True
         and closed['ok']is False and closed['recovery_ready']is False)
@@ -431,7 +433,7 @@ def initialization_abort_origin(transition, *, deadline=float('inf')):
     require_process_exited(failure['pid'])
     prior_raw=read(previous/'execution.json',256*1024)
     _require(hashlib.sha256(prior_raw).hexdigest()==transition['predecessor_configuration_sha256'])
-    prior=_json(prior_raw);_require(prior['trader']['writes_enabled']is False)
+    prior=_json(prior_raw)
     selected=prior['recovery']['transition'];snapshot_raw=read(_path(selected['file']),1024*1024)
     _require(hashlib.sha256(snapshot_raw).hexdigest()==selected['sha256']==admitted['transition_sha256'])
     snapshot=_json(snapshot_raw)
@@ -443,8 +445,15 @@ def initialization_abort_origin(transition, *, deadline=float('inf')):
     _require(hashlib.sha256(config_raw).hexdigest()==snapshot['predecessor_configuration_sha256']
         and hashlib.sha256(binding_raw).hexdigest()==snapshot['predecessor_python_binding_sha256'])
     configuration=_json(config_raw)
-    _require(configuration['trader']['writes_enabled']is False
-        and compatible_business_configuration(prior,configuration,deadline=deadline))
+    _require(compatible_business_configuration(prior,configuration,deadline=deadline))
+    if kind == 'process_lost_reconciled':
+        _require(prior['trader'] == configuration['trader']
+                 and (current is None or current['trader'] == prior['trader']))
+        _validate_lost_initialization_abort(previous, origin, admitted, raw, failure, snapshot,
+                                            configuration, transition, read)
+        return dict(configuration=configuration,configuration_sha256=snapshot['predecessor_configuration_sha256'],
+                    control_directory=origin,binding=_json(binding_raw))
+    _require(configuration['trader']['writes_enabled']is False and prior['trader']['writes_enabled']is False)
     terminal=_json(read(origin/'closed.json',4096));ready=_json(read(origin/'ready.json',4096))
     _require(ready['schema']=='guanheng.execution.ready.v1'and ready['control_id']==origin.name
         and ready['config_sha256']==snapshot['predecessor_configuration_sha256']and ready['pid']==terminal['pid'])
@@ -461,17 +470,50 @@ def initialization_abort_origin(transition, *, deadline=float('inf')):
     return dict(configuration=configuration,configuration_sha256=snapshot['predecessor_configuration_sha256'],control_directory=origin,binding=_json(binding_raw))
 
 
-def state_origin(transition, *, deadline=float('inf')):
+def _validate_lost_initialization_abort(previous, origin, admitted, admission_raw, failure,
+                                        snapshot, configuration, transition, read):
+    """核原进程丢失交接及未进入执行的失败代，保留所有原收据。"""
+    queue = failure['execution_queue']
+    counters = ('fault', 'accepted', 'entered', 'delivered', 'rejected', 'queued_commands', 'payload_bytes')
+    _require(failure['closed'] is False and set(queue) == {*counters, 'accepting', 'inflight'}
+             and queue['accepting'] is False and queue['inflight'] is False
+             and all(type(queue[k]) is int and queue[k] == 0 for k in counters))
+    _require(not any((previous / name).exists() for name in ('closed.json', 'lifecycle-started.json'))
+             and not any((origin / name).exists() for name in ('closed.json', 'close-prepared.json', 'failure.json')))
+    _require(_path(snapshot['predecessor_configuration']) == origin / 'execution.json'
+             and admitted['successor_installation_sha256'] == snapshot['successor_installation_sha256']
+                 == transition['predecessor_installation_sha256'])
+    output = _path(configuration['output_directory'])
+    claim = output / ('.cta-reconciled-' + _sha(admitted['transition_sha256']) + '.json')
+    _require(read(claim, 256 * 1024) == admission_raw)
+    ready_raw = read(origin / 'ready.json', 4096)
+    ready = _json(ready_raw)
+    identity = dict(control_id=origin.name, config_sha256=snapshot['predecessor_configuration_sha256'],
+                    pid=ready['pid'])
+    loss = _json(read(origin / 'owner-loss.json', 4096))
+    installed = _json(read(origin / 'installation-identity.json', 4096))
+    _require(all(all(item.get(k) == v for k, v in identity.items()) for item in (ready, loss, installed))
+             and ready['schema'] == 'guanheng.execution.ready.v1'
+             and loss['schema'] == 'guanheng.execution.owner-loss.v1'
+             and loss['reason'] == 'process_lost'
+             and loss['ready_sha256'] == hashlib.sha256(ready_raw).hexdigest()
+             and installed['schema'] == 'guanheng.execution-installation.v1'
+             and installed['installation_sha256'] == snapshot['predecessor_installation_sha256'])
+    require_process_exited(ready['pid'])
+
+
+def state_origin(transition, *, current=None, deadline=float('inf')):
     """显式恢复和初始化失败分别核严格凭证，再提供原状态owner。"""
     _require(not('restoration'in transition and 'initialization_abort'in transition))
-    return restoration_origin(transition,deadline=deadline)or initialization_abort_origin(transition,deadline=deadline)
+    return restoration_origin(transition,deadline=deadline)or initialization_abort_origin(
+        transition,current=current,deadline=deadline)
 
 
 def state_origin_configuration(native, *, deadline=float('inf')):
     """状态身份和初始观察沿被恢复原owner；真实最新进程前代仍独立保留。"""
     selection=native['recovery']['transition'];raw=_read(_path(selection['file']),1024*1024,clock=time.monotonic,deadline=deadline)
     _require(hashlib.sha256(raw).hexdigest()==selection['sha256']);value=_json(raw)
-    origin=state_origin(value,deadline=deadline)
+    origin=state_origin(value,current=native,deadline=deadline)
     return origin['configuration']if origin else predecessor_configuration(native,deadline=deadline)
 
 
@@ -563,7 +605,7 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
         source_owners = source_handoff(native, deadline=deadline)
         _compatible_python(old,binding,role_handoff=role_handoff,strategy_upgrade=True,
             strategy_extension='strategy_extension_origin'in native,source_handoff=source_owners)
-    restored=state_origin(value,deadline=deadline)
+    restored=state_origin(value,current=native,deadline=deadline)
     if restored is not None and identities is not None:
         _compatible_python(restored['binding'],binding,strategy_upgrade=True,
             strategy_extension='strategy_extension_origin'in native,source_handoff=source_owners)
@@ -624,7 +666,8 @@ def prior_strategy_observations(native, strategy_id, *, deadline):
         current = prior
 
 
-def prepare_transition(configuration, predecessor_configuration, predecessor_control, destination, *, successor_python=None):
+def prepare_transition(configuration, predecessor_configuration, predecessor_control, destination, *,
+                       successor_python=None, initialization_abort=False):
     """冻结发行交接材料；只读取上代状态，实际准入由持有租约的 Native 再核。"""
     from .execution_process import PythonExecutionProcessConfig
     configuration, predecessor_configuration, predecessor_control, destination = map(
@@ -684,6 +727,13 @@ def prepare_transition(configuration, predecessor_configuration, predecessor_con
         predecessor_python_binding_sha256=hashlib.sha256(binding).hexdigest(),  # 原Python绑定文件字节摘要。
         successor_python_code_identity=digest(identities),  # 实际部署解释器与源码集合的规范身份。
         state_files=files)  # 原金融JSON相对路径到字节摘要；仅作准入证据，不生成账本。
+    if initialization_abort:
+        admission = predecessor_control / 'reconciled.json'
+        value['initialization_abort'] = dict(file=str(admission),
+            sha256=hashlib.sha256(_read(admission, 256 * 1024)).hexdigest())
+        initialization_abort_origin(value, current=native)
+        spent = root / ('.cta-initialization-abort-' + predecessor_control.name + '.json')
+        _require(not spent.exists() and not spent.with_suffix('.json.pending').exists())
     raw = canonical(value)
     with destination.open('xb') as stream:
         stream.write(raw)
@@ -696,6 +746,8 @@ if __name__ == '__main__':
     for name in ('configuration', 'predecessor-configuration', 'predecessor-control', 'destination'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--successor-python', type=Path, required=True, help='正式owner实际使用的解释器入口')
+    parser.add_argument('--initialization-abort', action='store_true', help='沿已接收状态和就绪前失败收据准备后继')
     args = parser.parse_args()
     print(json.dumps(prepare_transition(args.configuration, args.predecessor_configuration,
-        args.predecessor_control, args.destination, successor_python=args.successor_python)))
+        args.predecessor_control, args.destination, successor_python=args.successor_python,
+        initialization_abort=args.initialization_abort)))

@@ -850,6 +850,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
             &&member(value,"pid")==member(ready,"pid"));
     };
     same_origin(ready);
+    fs::path abort_claim;
     if(initialization_abort){
         need(!clean_transition&&!lost_transition&&text(ready,"stage")=="cta");
         const auto closed=parse(read(previous/"close-prepared.json",4096));same_origin(closed);
@@ -859,7 +860,9 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
         need(absolute(text(reference,"file"))==previous/"reconciled.json");
         const auto admitted_raw=read(previous/"reconciled.json",256*1024);
         need(sha(admitted_raw)==text(reference,"sha256",64));const auto admitted=parse(admitted_raw);same_origin(admitted);
-        need(text(admitted,"schema")=="guanheng.cta-reconciled.v1"&&text(admitted,"admission_kind")=="clean_transition"
+        const auto admission_kind=text(admitted,"admission_kind");
+        const bool aborted_loss=admission_kind=="process_lost_reconciled";
+        need(text(admitted,"schema")=="guanheng.cta-reconciled.v1"&&(aborted_loss||admission_kind=="clean_transition")
             &&member(admitted,"state_files")==member(transition,"state_files"));
         const auto prior_full=parse(prior_raw);const auto& selected=member(member(prior_full,"recovery"),"transition");
         const auto snapshot_raw=read(absolute(text(selected,"file")),1024*1024);
@@ -872,25 +875,61 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
         const auto source_raw=read(origin/"execution.json",256*1024);
         need(sha(source_raw)==text(snapshot,"predecessor_configuration_sha256",64)
             &&sha(read(origin/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64));
-        auto source=parse(source_raw);need(member(member(source,"trader"),"writes_enabled").IsFalse()
+        auto source=parse(source_raw);
+        if(aborted_loss){
+            // 仅沿已验证的异常退出认领接续，实际账户、执行权限和业务配置逐项保持。
+            need(member(source,"trader")==member(prior_config,"trader")&&member(source,"trader")==member(current,"trader"));
+            const auto& queue=member(ready,"execution_queue");
+            keys(queue,{"fault","accepting","inflight","accepted","entered","delivered","rejected","queued_commands","payload_bytes"});
+            need(member(ready,"closed").IsFalse()&&member(queue,"accepting").IsFalse()&&member(queue,"inflight").IsFalse());
+            for(const auto* name:{"fault","accepted","entered","delivered","rejected","queued_commands","payload_bytes"})
+                need(member(queue,name).IsUint64()&&member(queue,name).GetUint64()==0);
+            need(!fs::exists(previous/"lifecycle-started.json")
+                &&!fs::exists(origin/"closed.json")&&!fs::exists(origin/"close-prepared.json")&&!fs::exists(origin/"failure.json"));
+            const auto snapshot_sha=text(admitted,"transition_sha256",64);
+            need(absolute(text(snapshot,"predecessor_configuration"))==origin/"execution.json"
+                &&text(admitted,"successor_installation_sha256")==text(snapshot,"successor_installation_sha256")
+                &&text(admitted,"successor_installation_sha256")==text(transition,"predecessor_installation_sha256")
+                &&read(output/(".cta-reconciled-"+snapshot_sha+".json"),256*1024)==admitted_raw);
+            const auto source_ready_raw=read(origin/"ready.json",4096);const auto source_ready=parse(source_ready_raw);
+            const auto loss=parse(read(origin/"owner-loss.json",4096));
+            const auto installed=parse(read(origin/"installation-identity.json",4096));
+            for(const auto* item:{&source_ready,&loss,&installed})
+                need(text(*item,"control_id")==origin.filename().u8string()&&text(*item,"config_sha256")==sha(source_raw)
+                    &&member(*item,"pid")==member(source_ready,"pid"));
+            need(text(source_ready,"schema")=="guanheng.execution.ready.v1"
+                &&text(loss,"schema")=="guanheng.execution.owner-loss.v1"&&text(loss,"reason")=="process_lost"
+                &&text(loss,"ready_sha256",64)==sha(source_ready_raw)
+                &&text(installed,"schema")=="guanheng.execution-installation.v1"
+                &&text(installed,"installation_sha256")==text(snapshot,"predecessor_installation_sha256"));
+            const auto& source_pid=member(source_ready,"pid");need(source_pid.IsUint()&&source_pid.GetUint()>0);
+            Handle source_process;source_process.value=OpenProcess(SYNCHRONIZE,FALSE,source_pid.GetUint());
+            if(source_process.value)need(WaitForSingleObject(source_process.value,0)==WAIT_OBJECT_0);
+            else need(GetLastError()==ERROR_INVALID_PARAMETER);
+            need(previous.filename().u8string()==text(ready,"control_id"));
+            abort_claim=output/(".cta-initialization-abort-"+previous.filename().u8string()+".json");
+            need(!fs::exists(abort_claim)&&!fs::exists(fs::path(abort_claim.wstring()+L".pending")));
+        }else need(member(member(source,"trader"),"writes_enabled").IsFalse()
             &&member(member(current,"trader"),"writes_enabled").IsFalse());
         source.RemoveMember("recovery");need(compatible_model(source,identity));
         state_owner.CopyFrom(source,state_owner.GetAllocator());
-        const auto terminal=parse(read(origin/"closed.json",4096));
-        const auto source_ready=parse(read(origin/"ready.json",4096));
-        need(text(source_ready,"schema")=="guanheng.execution.ready.v1"&&text(source_ready,"control_id")==origin.filename().string()
-            &&text(source_ready,"config_sha256")==sha(source_raw)&&member(source_ready,"pid")==member(terminal,"pid"));
-        need(text(terminal,"schema")=="guanheng.execution.closed.v2"&&text(terminal,"control_id")==origin.filename().string()
-            &&text(terminal,"config_sha256")==sha(source_raw)&&member(terminal,"closed").IsTrue()
-            &&member(terminal,"ok").IsTrue()&&member(terminal,"resources_closed").IsTrue()&&member(terminal,"recovery_ready").IsTrue()
-            &&member(terminal,"error_code").IsNull()&&member(terminal,"exit_code").IsInt()&&member(terminal,"exit_code").GetInt()==0);
-        const auto consumed=parse(read(output/".cta-clean.consumed.json",256*1024));
-        need(text(consumed,"schema")=="guanheng.cta-clean.v2"&&text(consumed,"control_id")==origin.filename().string()
-            &&text(consumed,"closed_config_sha256")==sha(source_raw)&&text(consumed,"config_sha256")==sha(encode(source))
-            &&member(consumed,"closed").IsTrue()
-            &&text(consumed,"installation_sha256")==text(snapshot,"predecessor_installation_sha256")
-            &&member(consumed,"pid")==member(terminal,"pid")&&member(consumed,"files")==member(transition,"state_files")
-            &&absolute(text(consumed,"closed_receipt"))==origin/"closed.json");
+        if(!aborted_loss){
+            const auto terminal=parse(read(origin/"closed.json",4096));
+            const auto source_ready=parse(read(origin/"ready.json",4096));
+            need(text(source_ready,"schema")=="guanheng.execution.ready.v1"&&text(source_ready,"control_id")==origin.filename().string()
+                &&text(source_ready,"config_sha256")==sha(source_raw)&&member(source_ready,"pid")==member(terminal,"pid"));
+            need(text(terminal,"schema")=="guanheng.execution.closed.v2"&&text(terminal,"control_id")==origin.filename().string()
+                &&text(terminal,"config_sha256")==sha(source_raw)&&member(terminal,"closed").IsTrue()
+                &&member(terminal,"ok").IsTrue()&&member(terminal,"resources_closed").IsTrue()&&member(terminal,"recovery_ready").IsTrue()
+                &&member(terminal,"error_code").IsNull()&&member(terminal,"exit_code").IsInt()&&member(terminal,"exit_code").GetInt()==0);
+            const auto consumed=parse(read(output/".cta-clean.consumed.json",256*1024));
+            need(text(consumed,"schema")=="guanheng.cta-clean.v2"&&text(consumed,"control_id")==origin.filename().string()
+                &&text(consumed,"closed_config_sha256")==sha(source_raw)&&text(consumed,"config_sha256")==sha(encode(source))
+                &&member(consumed,"closed").IsTrue()
+                &&text(consumed,"installation_sha256")==text(snapshot,"predecessor_installation_sha256")
+                &&member(consumed,"pid")==member(terminal,"pid")&&member(consumed,"files")==member(transition,"state_files")
+                &&absolute(text(consumed,"closed_receipt"))==origin/"closed.json");
+        }
     }
     if(lost_transition){
         const auto loss=parse(read(previous/"owner-loss.json",4096));
@@ -995,6 +1034,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     // 独立核查收据记录新代认领；原failure/consumed与金融JSON均保留原字节。
     if(clean_transition)need(MoveFileExW((output/".cta-clean.json").c_str(),consumed.c_str(),
         MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0);
+    if(!abort_claim.empty())publish(abort_claim,proof);
     publish(claimed,proof);publish(control/"reconciled.json",proof);
 }
 bool own_orders_empty(guanheng::StandardExecutionHost& execution){
