@@ -18,7 +18,7 @@ import type { Catalog, Definition, Range, Row, Series } from './types'
 import './observation.css'
 import { exactObservationValue, observationNumber, observationDisplayUnit } from './numbers'
 import { MarketObservationGroup, groupedBoard, groupDateDomain } from './MarketObservationGroup'
-import { ExecutiveWeeklyChart, isExecutiveNet } from './ExecutiveWeeklyChart'
+import { ExecutiveWeeklyChart, isExecutiveNet, isShareholderNet } from './ExecutiveWeeklyChart'
 
 const value = (v: unknown, key?: string) => key === 'source_kind' ? sourceTypeLabel(v) : key === 'method_version' ? methodVersionLabel(v) : typeof v === 'number' ? new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 }).format(v) : v == null ? '不可用' : String(v)
 function Message({ children, retry }: { children: ReactNode; retry?: () => void }) {
@@ -81,7 +81,7 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const select = (id: string) => {
     const next=available.find(item=>item.id===id)!
     const outside=range.end<next.coverage.start || range.start>next.coverage.end
-    const openWeekly = isExecutiveNet(next.id) && !weeklyExecutive
+    const openWeekly = isExecutiveNet(next.id) && (!weeklyExecutive || next.id !== dataset.id && isShareholderNet(next.id))
     const preset = openWeekly ? 'all' : outside ? next.default_preset || 'd30' : selectedPreset
     const nextRange = openWeekly || outside ? presetRange(preset, next.coverage.end, next.coverage) : range
     setSearch({ metric:id,start:nextRange.start,end:nextRange.end,preset,...(search.get('snapshot_id') ? {snapshot_id:search.get('snapshot_id')!} : {}) })
@@ -98,6 +98,9 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const last = primaryRows?.at(-1)
   const primaryLine=d?.lines.find(line=>line.key===d.primary_field)
   const primaryUnit=d&&primaryLine?displayedUnit(primaryLine,d,mode):d?.unit
+  const shareholder = isShareholderNet(dataset.id)
+  const primary = shareholder && typeof last?.net_amount_cny === 'number' ? -last.net_amount_cny
+    : d && primaryRows ? displayedPrimary(d, primaryRows, mode) : undefined
   useEffect(()=>{
     if(d?.axis_type==='tenor' || !history.data)return
     const keyboardCoverage = groupedBoard(dataset.board) ? coverage : history.data.coverage
@@ -119,7 +122,7 @@ function Boards({ catalog }: { catalog: Catalog }) {
       <div className="observation-presets">{presets.map(([key, label]) => <button key={key} className={selectedPreset === key ? 'active' : ''} onClick={() => updateRange(presetRange(key, range.end, key==='all'?coverage:dateDomain), key)}>{label}</button>)}</div>
       <p className="observation-note">资料截至 {dataset.coverage.end}{dataset.board==='executive' && ' · 已披露资料，非盘中实时'}{d?.primary_coverage?.end && d.primary_coverage.end!==dataset.coverage.end && ` · 主指标截至 ${d.primary_coverage.end}`} {range.end<dataset.coverage.end && <button onClick={()=>updateRange(latestRange(range,selectedPreset,dataset.coverage,dateDomain),selectedPreset)}>查看最新数据</button>}</p>
     </section>
-    <section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{primaryLine?.name}</span><strong title={last&&d?exactObservationValue(displayedPrimary(d,primaryRows!,mode),primaryUnit):undefined}>{last && d ? observationNumber(displayedPrimary(d,primaryRows!,mode),primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
+    <section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{shareholder ? '最新日可计价净减持' : primaryLine?.name}</span><strong title={last&&d?exactObservationValue(primary,primaryUnit):undefined}>{last && d ? observationNumber(primary,primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
       {d?.id==='t2108.ashare' && <T2108Coverage row={last} definitionVersion={d.definition_version} mixedMethods={new Set(series.data?.rows.map(row=>row.method_version || d.definition_version || 'unregistered')).size>1} />}
       <FieldCoverage metric={dataset.id} row={series.data?.rows.at(-1)} />
       {d?.parameters && <div className="observation-inline"><label>窗口<input aria-label="计算窗口" type="number" min="2" max="2000" value={parameters.window} onChange={e => parameter('window', e.target.value)} /></label><label>倍数<input aria-label="通道倍数" type="number" min="0" max="10" step="0.5" value={parameters.k} onChange={e => parameter('k', e.target.value)} /></label><select aria-label="通道算法" value={parameters.method} onChange={e => parameter('method', e.target.value)}><option value="sma">算术均值</option><option value="ema">EMA中心</option><option value="ema_moments">EMA矩通道</option></select>{dataset.board === 'pcr' && <select aria-label="PCR口径" value={parameters.pcr_type} onChange={e => parameter('pcr_type', e.target.value)}><option value="oi">持仓</option><option value="volume">成交</option></select>}</div>}

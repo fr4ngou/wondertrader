@@ -18,6 +18,8 @@ export type ExecutiveWeek = {
   /** 所选范围实际纳入的第一天。 */ start: string
   /** 所选范围实际纳入的最后一天。 */ end: string
   /** 已确认减持额减增持额，单位亿元；缺日或金额未知时为空。 */ netSales: number | null
+  /** 缺少历史价格的股东公告笔数；本周净额只显示可计价小计。 */ unpriced: number
+  /** 使用历史收盘价估算的公告笔数。 */ estimated: number
   /** 各指数本周最后一条已闭合收盘点位，整周缺失时无键。 */ closes: Partial<Record<WeeklyIndex, number>>
   /** 周首或周尾超出查询/披露覆盖，或本周尚未结束。 */ partial: boolean
 }
@@ -67,22 +69,27 @@ export async function readWeeklyIndex(symbol: WeeklyIndex, range: Range, signal:
 export function buildExecutiveWeeks(rows: Row[], indexes: Partial<Record<WeeklyIndex, DailyClose[]>>, range: Range, coverage: Range, today: string): ExecutiveWeek[] {
   const start = stamp(range.start)
   const end = stamp(range.end)
-  const amounts = new Map(rows.map(row => [row.date, row.net_amount_cny]))
+  const byDate = new Map(rows.map(row => [row.date, row]))
   const weeks = new Map<string, ExecutiveWeek>()
   for (let monday = mondayOf(start); monday <= end; monday += 7 * DAY) {
     const from = Math.max(monday, start, stamp(coverage.start))
     const to = Math.min(monday + 6 * DAY, end, stamp(coverage.end))
     let sum = 0
+    let unpriced = 0
+    let estimated = 0
     let complete = from <= to
     for (let day = from; day <= to; day += DAY) {
-      const amount = amounts.get(dateOf(day))
+      const row = byDate.get(dateOf(day))
+      const amount = row?.net_amount_cny
       if (finite(amount)) sum -= amount
       else complete = false
+      if (finite(row?.unpriced_count)) unpriced += row.unpriced_count
+      if (finite(row?.estimated_count)) estimated += row.estimated_count
     }
     const date = dateOf(monday)
     weeks.set(date, {
       monday: date, label: isoWeek(monday), start: dateOf(Math.max(monday, start)), end: dateOf(Math.min(monday + 6 * DAY, end)),
-      netSales: complete ? sum / 100_000_000 : null, closes: {},
+      netSales: complete ? sum / 100_000_000 : null, unpriced, estimated, closes: {},
       partial: from > monday || to < monday + 6 * DAY || dateOf(monday + 6 * DAY) >= today,
     })
   }
@@ -99,7 +106,7 @@ export function executiveWeekStats(weeks: ExecutiveWeek[]) {
   const values: number[] = []
   const pairs: [number, number][] = []
   for (const [i, week] of weeks.entries()) {
-    if (week.partial || week.netSales === null) continue
+    if (week.partial || week.unpriced || week.netSales === null) continue
     values.push(week.netSales)
     const previous = weeks[i - 1]
     const base = previous?.closes['000985.SH']

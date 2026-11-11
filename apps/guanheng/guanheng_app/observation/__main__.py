@@ -14,7 +14,7 @@ from .storage import MANIFEST_BYTES
 
 def main():
     parser = argparse.ArgumentParser(description='观衡独立市场观察目录')
-    parser.add_argument('command', choices=['initialize', 'import-frozen', 'verify', 'restore', 'refresh', 'derive-breadth'])
+    parser.add_argument('command', choices=['initialize', 'import-frozen', 'verify', 'restore', 'refresh', 'derive-breadth', 'import-shareholders'])
     parser.add_argument('--root', required=True)
     parser.add_argument('--manifest')
     parser.add_argument('--snapshot')
@@ -36,6 +36,14 @@ def main():
         if args.command == 'initialize':
             reader.repository.initialize()
             result = dict(status='initialized', execution_enabled=False)
+        elif args.command == 'import-shareholders':
+            if not all((args.source_root, args.as_of, args.expected_current)):
+                parser.error('股东历史采用需要source-root、as-of及expected-current')
+            from .shareholder_archive import FIRST, publish_archive
+            last = date.fromisoformat(args.as_of)
+            if not FIRST <= last <= date.today():
+                parser.error('as-of需在2018年1月1日至今天之间')
+            result = publish_archive(reader, args.source_root, last, args.expected_current, deadline)
         elif args.command == 'derive-breadth':
             if not all((args.source_root,args.source_snapshot,args.start,args.as_of)):
                 parser.error('归档计算需要source-root、source-snapshot、start及as-of')
