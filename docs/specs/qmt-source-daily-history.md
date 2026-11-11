@@ -116,6 +116,8 @@ UDI-R19：缺口计划与快照共用`load_snapshot_basics`解析已有QMT资料
 
 WT 定日事实的 `inputs.public_facts.baostock_daily_timeout_seconds` 为可选单请求秒数，取值大于 0 且至多 60。未设时沿原 `timeout_seconds`。该值只作用于 BaoStock 沪深日线批量表请求，登录、注销、证券表、其它提供者与原采集总截止继续沿各自预算。该运行代的传输等待参数通过启动配置摘要记录，原任务、来源原件、身份与持久输入配置保持可恢复。
 
+完整日更任务在顶层保存共享保护槽，价格阶段从该集合恢复。独立价格任务也只保存一次共享保护槽，策略专用槽保存实际差集，运行时恢复完整集合。已有合格请求继续按原字段读取。超出原请求容量且尚未准入的旧 UPDATE，只有顶层和价格阶段保护集合完全相同才可保存独立的单份表示，沿原上限及原槽接续，保留原 UPDATE 字节。
+
 UDI-R20：控制代ready/status/stop/closed使用独立control_id。正常停止在阶段检查点或原有界调用完成后收束，释放连接、Reader、事实LRU和发布锁；原未知副作用保持原身份。closed记录入口上下文退出，实际进程树、EOF、线程和Job句柄关闭另取父owner收据。每日已成功任务重启后直接等待；失败按有限retry_seconds续接同任务。日志只记录固定阶段/异常类型及计数。
 
 UDI-R21：facts、gap-plan、snapshot共用不可变输出阶段事务。固定任务写锁内先登记尝试UUID，准备器在独立新尝试目录构建；完成marker及其全套输出核对后保存提交结果。marker已完成而阶段提交前中断时核对并采用原输出；未完成或半份marker的旧尝试保留，新尝试不改旧HPR槽。已提交结果变化明确失败；每阶段至多16个尝试，超限保留当前版本。共享CONFIGURATION、INDEX、REQUEST、STATE及活动ready/status均在原发布租约内写入，同目录原子替换复用R10的Windows语义。控制代独有的closed/failure收据在上下文退出后登记实际关闭事实，独有控制目录不抢占共享任务身份。阶段事务的schema/name/attempts/result分别表示合同版本、准备器名称、有界尝试目录身份和已提交描述符；None表示尚未提交。

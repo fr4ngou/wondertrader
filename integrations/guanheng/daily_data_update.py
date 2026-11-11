@@ -11,6 +11,9 @@ from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .market_generation import GenerationPublisher, encode, read_fixed, read_generation, _replace_pointer
 
 
+DAILY_UPDATE_REQUEST_BYTES = 16 * 1024 * 1024  # 完整日更请求和同一不可变输入描述的原字节容量。
+
+
 def _save(path, value):
     pending = path.with_suffix(path.suffix + '.pending')
     with pending.open('wb') as stream:
@@ -20,17 +23,29 @@ def _save(path, value):
     _replace_pointer(pending, path)
 
 
-def _descriptor(path, maximum=16777216):
+def _descriptor(path, maximum=DAILY_UPDATE_REQUEST_BYTES):
     """固定原文件摘要；maximum为该类合同允许的字节上界，默认保持原16MiB。"""
     path = Path(path).absolute()
     return dict(path=str(path), sha256=hashlib.sha256(read_fixed(path, maximum=maximum)).hexdigest())
 
 
-def _load(descriptor, maximum=16777216):
+def _load(descriptor, maximum=DAILY_UPDATE_REQUEST_BYTES):
     if (type(descriptor) is not dict or set(descriptor) != {'path', 'sha256'}
             or type(descriptor['path']) is not str or not Path(descriptor['path']).is_absolute()):
         raise ValueError('daily update descriptor invalid')
     return strict_json(read_fixed(descriptor['path'], maximum=maximum, identity=descriptor['sha256']))
+
+
+def price_maintenance_with_slots(request):
+    """原独立价格请求可有策略专用槽，执行时恢复原完整保护集合。"""
+    maintenance = request['price_maintenance']
+    if 'protected_slots' in maintenance:
+        return maintenance
+    resolved = dict(maintenance)
+    extra = resolved.pop('additional_protected_slots', ())
+    shared = request['protected_slots']
+    resolved['protected_slots'] = sorted(set(shared).union(extra)) if extra else shared
+    return resolved
 
 
 def verify_supplement_configuration(config, expected, day, check):
@@ -222,7 +237,8 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
             price_result=None
             if 'price_maintenance'in request:
                 from .daily_price_update import prepare_price_update
-                price_descriptor=stage('prices',lambda:prepare_price_update(request['price_maintenance'],native,
+                maintenance = price_maintenance_with_slots(request)
+                price_descriptor=stage('prices',lambda:prepare_price_update(maintenance,native,
                     request['base_configuration'],root/'prices',deadline=deadline,cancelled=cancelled,environ=environ,daily_facts=facts))
                 price_result=_load(price_descriptor)
             def restore_snapshot(output):

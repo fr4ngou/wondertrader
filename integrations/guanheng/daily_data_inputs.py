@@ -9,9 +9,9 @@ import time
 from types import SimpleNamespace
 import uuid
 
-from .daily_data_update import _save, _load, _descriptor
+from .daily_data_update import DAILY_UPDATE_REQUEST_BYTES, _save, _load, _descriptor, price_maintenance_with_slots
 from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
-from .market_generation import read_fixed, read_generation
+from .market_generation import encode, read_fixed, read_generation
 from .daily_gap_plan import load_gap_plan, MAX_PROTECTED_SLOTS
 from ..guanheng_market_client import strict_json
 
@@ -69,6 +69,32 @@ def observe_prior_plans(plans, owner, *, deadline, cancelled):
     return observations
 
 
+def _prepared_update_descriptor(path):
+    """旧未准入的双份清单原件保留，单份等价表示沿原请求预算进入当前任务。"""
+    if path.stat().st_size <= DAILY_UPDATE_REQUEST_BYTES:
+        return _descriptor(path)
+    original = strict_json(read_fixed(path, maximum=2 * DAILY_UPDATE_REQUEST_BYTES))
+    if type(original) is not dict or original.get('schema') != 'guanheng.daily-data-update.v1':
+        raise ValueError('oversized daily update schema invalid')
+    slots = original.get('protected_slots')
+    maintenance = original.get('price_maintenance')
+    if type(slots) is not list or type(maintenance) is not dict or maintenance.get('protected_slots') != slots:
+        raise ValueError('oversized daily update protected slots differ')
+    single = dict(maintenance)
+    del single['protected_slots']
+    compact = dict(original, price_maintenance=single)
+    body = encode(compact)
+    if len(body) > DAILY_UPDATE_REQUEST_BYTES:
+        raise ValueError('compact daily update exceeds original request budget')
+    destination = path.with_name('UPDATE-COMPACT.json')
+    if destination.exists():
+        if read_fixed(destination, maximum=DAILY_UPDATE_REQUEST_BYTES) != body:
+            raise ValueError('compact daily update identity differs')
+    else:
+        _save(destination, compact)
+    return _descriptor(destination)
+
+
 def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda: False,
                    environ=None, previous_requests=(), prior_price_requests=(), baostock_daily_timeout_seconds=None):
     """调用方持publication锁；同目录输入请求及原slot固定，恢复不改capture_id。
@@ -106,7 +132,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         _save(intent, bound)
     final = root / 'UPDATE.json'
     if final.exists():
-        return _descriptor(final)
+        check()
+        return _prepared_update_descriptor(final)
     check()
     template = deepcopy(configuration['template'])
     inputs = configuration['inputs']
@@ -149,7 +176,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         protected.update(previous['protected_slots'])
         if previous.get('price_maintenance')is not None:
             scope_history=[previous['price_maintenance']['scope']]
-            protected.update(previous['price_maintenance']['protected_slots'])
+            protected.update(price_maintenance_with_slots(previous)['protected_slots'])
         state_path = request_path.parent / 'work' / 'STATE.json'
         if not state_path.exists():
             continue
@@ -322,7 +349,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             snapshot_id=current_value['snapshot_id'],  # 原旧快照身份，不冒充来源catalog_id。
             calendar=template['calendar'],  # 原日历范围及验证资格。
             connections=inputs['connections'],  # 同一数据角色的原Batch/HPR通信，凭据不写入。
-            protected_slots=sorted(protected),  # 跨股票及额外价格旧任务的原槽全部保护。
+            # 股票和额外价格复用完整任务顶层的同一保护集合。
             authorized_from=configuration['price_scope']['authorized_from'],  # 全类别已授权历史起日。
             source_kind=inputs['source_kind'],  # 真源与SDK替身分别标识。
             maximum_history_rows=configuration['price_scope']['maximum_history_rows'],  # 每证券完整历史预算。

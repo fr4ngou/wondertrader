@@ -4,7 +4,7 @@ from datetime import datetime,timezone
 import hashlib
 from pathlib import Path
 
-from .daily_data_update import _save,_load,_descriptor
+from .daily_data_update import _save,_load,_descriptor,price_maintenance_with_slots
 from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .daily_price_scope import prepare_price_scope
 from .daily_data_inputs import fixed_unit_evidence_configuration
@@ -56,7 +56,8 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
     protected=set(configuration['template']['protected_slots']);previous_archives=[];retired_archives=[]
     for path in previous_requests:
         request=strict_json(read_fixed(path,maximum=16777216));protected.update(request['protected_slots'])
-        if request.get('price_maintenance')is not None:protected.update(request['price_maintenance']['protected_slots'])
+        if request.get('price_maintenance')is not None:
+            protected.update(price_maintenance_with_slots(request)['protected_slots'])
         # 已发出的价格HPR责任保持原slot；新缓存未确认覆盖前，后继缺口计划沿原保护区间。
         prior=Path(path).parent/'work'/'prices'/'inputs'/'gap-work'/'preparation'
         protected.update(str(slot)for slot in prior.glob('*.json'))
@@ -82,7 +83,7 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
     request_path=root/'REQUEST.json'
     maintenance=dict(scope=scope,current_configuration=current['configuration'],snapshot_id=current['snapshot_id'],
         calendar=configuration['template']['calendar'],connections=configuration['inputs']['connections'],
-        protected_slots=sorted(protected),authorized_from=configuration['price_scope']['authorized_from'],
+        authorized_from=configuration['price_scope']['authorized_from'],
         source_kind=configuration['inputs']['source_kind'],maximum_history_rows=configuration['price_scope']['maximum_history_rows'],
         previous_archives=[item for _,item in previous_archives],helper=configuration['template']['helper'],
         replaced_archives=retired_archives)  # 新整档包含的旧补充层；活动Reader替换，旧原件永久保留原引用。
@@ -94,11 +95,16 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
         maintenance['strategy_history']=configuration['price_scope']['strategy_history']
         maintenance['strategy_history_previous_requests']=list(previous_requests)
         from .daily_strategy_history import strategy_slots
-        maintenance['protected_slots']=sorted(set(maintenance['protected_slots'])|strategy_slots(previous_requests))
+        strategy_only = strategy_slots(previous_requests) - protected
+        if strategy_only:
+            maintenance['additional_protected_slots'] = sorted(strategy_only)
     request=dict(schema='guanheng.daily-price-refresh.v1',day=day,protected_slots=sorted(protected),
                  price_maintenance=maintenance)  # 原公共日事实任务可发现此请求的HPR/批读责任。
+    maintenance = price_maintenance_with_slots(request)
     if request_path.exists():
-        if strict_json(read_fixed(request_path,maximum=16777216))!=request:raise ValueError('daily price refresh request differs')
+        original = strict_json(read_fixed(request_path,maximum=16777216))
+        if dict(original,price_maintenance=price_maintenance_with_slots(original)) != dict(request,price_maintenance=maintenance):
+            raise ValueError('daily price refresh request differs')
     else:_save(request_path,request)
     work=root/'work';work.mkdir(exist_ok=True)
     state_path=work/'STATE.json'

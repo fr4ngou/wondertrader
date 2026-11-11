@@ -111,6 +111,40 @@ class PriceFirstOwnerTests(unittest.TestCase):
                 client.table('stock_basic', request_timeout=60)
             self.assertEqual(observed, [])
 
+    def test_recover_oversized_prepared_update_without_rewriting_original(self):
+        from integrations.guanheng.daily_data_inputs import _prepared_update_descriptor
+        from integrations.guanheng.daily_data_update import _load, _save
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'UPDATE.json'
+            slots = [f'original/slot-{index:04d}.json' for index in range(100)]
+            legacy = dict(schema='guanheng.daily-data-update.v1', protected_slots=slots,
+                          price_maintenance=dict(scope='original-scope', protected_slots=slots))
+            _save(path, legacy)
+            original = path.read_bytes()
+            with patch('integrations.guanheng.daily_data_inputs.DAILY_UPDATE_REQUEST_BYTES', 4096):
+                descriptor = _prepared_update_descriptor(path)
+                self.assertEqual(_prepared_update_descriptor(path), descriptor)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(_load(descriptor), dict(schema=legacy['schema'], protected_slots=slots,
+                                                        price_maintenance=dict(scope='original-scope')))
+                legacy['price_maintenance']['protected_slots'] = slots[:-1]
+                _save(path, legacy)
+                with self.assertRaisesRegex(ValueError, 'protected slots differ'):
+                    _prepared_update_descriptor(path)
+
+    def test_price_maintenance_resolves_legacy_and_strategy_only_slots(self):
+        from integrations.guanheng.daily_data_update import price_maintenance_with_slots
+
+        legacy = dict(protected_slots=['shared-a', 'shared-b'],
+                      price_maintenance=dict(scope='fixed', protected_slots=['extra', 'shared-a', 'shared-b']))
+        successor = dict(protected_slots=['shared-a', 'shared-b'],
+                         price_maintenance=dict(scope='fixed', additional_protected_slots=['extra']))
+        self.assertEqual(price_maintenance_with_slots(successor), price_maintenance_with_slots(legacy))
+        self.assertEqual(successor['price_maintenance'], dict(scope='fixed', additional_protected_slots=['extra']))
+        compact_full = dict(protected_slots=['shared-a', 'shared-b'], price_maintenance=dict(scope='fixed'))
+        self.assertEqual(price_maintenance_with_slots(compact_full)['protected_slots'], compact_full['protected_slots'])
+
     def test_default_without_full_price_scope_keeps_original_path(self):
         with tempfile.TemporaryDirectory()as directory:
             root=Path(directory);descriptor,_=self.fixture(root,scope=False);control=str(uuid4())
