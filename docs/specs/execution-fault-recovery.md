@@ -50,6 +50,8 @@ EFR-13：账户资金约束线程每轮沿原有限预算读取权威NAP，即�
 
 EFR-14：整树退出且原owner来不及发布关闭收据时，独立WT入口以显式record-process-loss核原ready、status、配置摘要、实例身份、原父/组件PID实际退出并取得原实例OS租约，记录owner-loss故障及当前faulted状态；components_closed=false表示原Job/线程join凭据缺失。原ready、原金融文件和通信Journal保留。执行恢复owner独立核原Native ready和配置摘要、原PID实际退出，独占发布guanheng.execution.owner-loss.v1，包含control_id/config_sha256/pid、原ready摘要、固定reason=process_lost、核查UTC时间及核查者PID；该记录仅证明进程已退出，关闭结果及退出码保持未知。
 
+持续分析窗口发布线程归 WT。其固定状态类型可省略 PID，退出核查使用已验证的 WT PID。显式 PID 须与 WT 相同。刷新工作进程由 WT 持有的终止型 Job 回收，其他独立组件仍须提供原 PID 并逐项核退出。
+
 显式resume_reconciled可沿该owner-loss作为第三类故障依据。Native在原输出租约内重核原ready字节摘要、完整身份、进程退出、两代安装/Python、原金融文件集合和当前券商O/P/A及原自有委托/未知责任。仅缺原正常closed/close-prepared/failure时接受该依据；现有正常/故障关闭语义保持。认领收据admission_kind=process_lost_reconciled，后继正常停止仍生成原clean。活进程、缺原件、身份/状态变化或当前责任未收束继续拒绝。过程不删除锁、重建基准、重发交易或生成正常关闭证明。
 
 EFR-15：首次Prepare/Login只读取来源绑定及事件上下文，尚未触发SDK账户/交易请求。固定暂不可用类别（完整503、运输超时）或成功完成值晚于本轮截止时，原任务名额先退役，再以同类新有界任务继续来源准备；原绑定的来源业务身份仍逐次核验，旧轮次不交付Connect/Login成功。首次客户端已经固定的绑定发生冲突时保持原硬故障，由整体启动重新核验；本项不授首次准备跨运输代际资格。启动外层总截止及停止gate继续有效，每轮保持原timeout_ms，硬身份/协议错误继续故障。已登录账户查询及已提交SDK请求继续EFR-11原ID核查语义；此首次准备续接不扩展金融重发权限。

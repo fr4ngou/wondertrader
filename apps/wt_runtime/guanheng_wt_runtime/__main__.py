@@ -166,10 +166,20 @@ def record_process_loss(config, configuration_sha256, directory, control_id):
                  and directory.name == control_id and not (directory / 'closed.json').exists())
         require_process_exited(identity['pid'])
         components = status['components']
-        _require(type(components) is dict and set(components) == set(dict(config.components)))
-        for component in components.values():
-            require_process_exited(component['pid'])
-        component_pids = {k:v['pid'] for k,v in components.items()}
+        configured = dict(config.components)
+        _require(type(components) is dict and set(components) == set(configured))
+        component_pids = {}
+        for name, component in components.items():
+            _require(type(component) is dict)
+            if configured[name].kind == 'analysis_window':
+                # 窗口发布线程归 WT 进程，刷新子进程由 WT 持有的终止型 Job 回收。
+                pid = component.get('pid', identity['pid'])
+                _require(component.get('schema') == 'guanheng.analysis-window-process-status.v1'
+                         and type(pid) is int and pid == identity['pid'])
+            else:
+                pid = component.get('pid')
+                require_process_exited(pid)
+            component_pids[name] = pid
         loss_path = directory / 'owner-loss.json'
         if loss_path.exists():
             loss = _json(_read(loss_path, 4096))
