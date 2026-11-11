@@ -1,5 +1,6 @@
 # 发布记录
 
+- [WT 原模拟策略初始净值恢复](2026-11-11-wt-initial-nav-recovery.md)：同账资金投影、观衡净值历史及市场观察补验。
 - [WT 原模拟账户跨日成交与分析窗口恢复](2026-11-11-broker-deal-coverage-recovery.md)
 - [WT 固定端口迁移](../incidents/2026-11-09-wt-observer-cold-start.md#固定端口迁移验收)：六个消费者和端口验真，同账户恢复与原分钟请求接续。
 - [观衡129 策略版本和回测对照正式采用](2026-11-08-observer129-backtest-comparison-live.md)：正式 18143 两级选择、指数对照和仓位曲线验真，原自选与策略历史连续。
