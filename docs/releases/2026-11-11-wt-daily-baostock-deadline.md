@@ -16,17 +16,20 @@
 
 源提交 `fb4768893a085ebe05078cdb2f5f288d3a56b8e3`，构建源提交 `84eadc974d36e0e14fea7b57c84b5e5461b9ed5a`，正式标签 `deploy/wt-daily-shared-protected-slots-20261111-002`。同步当前主干共享报表模块的构建指纹后，正式软件回归 302 项通过，日线任务和价格优先定向验证 20 项通过。Data31 制品清单 SHA-256 为 `07ff869eba0e43710aa512782c1547765bb9c508437a86d5951ccd76d1fe689d`。新格式请求获准入后，回滚目标须具备新格式读取能力，原 Data30 只适用新请求准入前的回退。
 
-20:08（北京时间）沿原独立日线实例、原数据目录和 Data30 配置接入 Data31。原端口读回以及三条启动入口的正式配置身份一致。20:09 原任务接受 8,946,179 字节的 `REQUEST.json`，原始准备文件、压缩副本与正式请求逐字段核对，56,269 个保护槽完整保留，继续进入缺口计划。Data31 验证和接入证据位于 `E:/workspace/wondertrader-data/wt-daily-slot-dedup-20261111-001`，包括 `ci-final-release/RESULT.json`、`program-formal/INSTALLATION.json`、`ADOPTED.json` 及 `OBSERVER-BEFORE.json`。
+20:08（北京时间）沿原独立日线实例、原数据目录和 Data30 配置接入 Data31。原端口读回以及三条启动入口的正式配置身份一致。20:09 原任务接受 8,946,179 字节的 `REQUEST.json`，原始准备文件、压缩副本与正式请求逐字段核对，56,269 个保护槽完整保留。52 项缺口准备请求均返回，按原槽继续复核 QMT 回读。Data31 验证和接入证据位于 `E:/workspace/wondertrader-data/wt-daily-slot-dedup-20261111-001`，包括 `ci-final-release/RESULT.json`、`program-formal/INSTALLATION.json`、`ADOPTED.json` 及 `OBSERVER-BEFORE.json`。
 
 ## 数据读回
 
-- 中债原来源补跑成功。观衡读回的申万加权 PB、申万 A 指和股债差分位均到 11 月 11 日。
+- 中债、腾讯指数和 WT 指数原来源补跑成功。观衡正式目录和对应序列读回申万加权 PB、申万 A 指、股债差分位、上证指数及系统 C 日频均到 11 月 11 日。系统 C 周频读回最近已完成的 11 月 6 日当周。证据为 Data31 私有目录的 `OBSERVER-POSTFLIGHT.json`。
 - BaoStock 登录仍间歇超时。独立解码核对了 11 月 11 日原始协议回包及 5,225 行标准表；经独立日线 owner 正常停止和发布租约，复用原北交所收盘及证券身份原件，形成覆盖 5,579 只证券的正式定日事实原包。原采集身份和读取日期保留。
 - 11 月 10 日已归档沪深原始表，观衡沪深广度已读回该日。沪深北广度和 T2108 的正式末期为 11 月 9 日，11 月 10 日仍缺北交所同日事实包和完整 WT 快照。广度及 T2108 的观衡刷新沿现有前一交易日规则。
 - 原 `baostock.pb` 刷新按活动配置重跑仍返回 `source_request_timeout`，沪深等权 PB 保留 11 月 10 日的已验结果。
+- 系统 C 日频的全 A 成交活跃度和双活动压力需要连续 20 个共同交易日的成交额。申万原接口在 10 月 14 日至 16 日返回两端记录，缺 10 月 15 日，相关两列保留空值。原回包见 `SHENWAN-OCT15-ORIGINAL.json`。
 
 ## 独立的策略运行恢复
 
 交易侧原运行代在 19:06 因分析窗口 Native 只读作业超时退出，早于 19:16 日线切换。原 Native 留下正常关闭和可恢复凭据，56 条 Journal 记录逐条核同。沿正式组入口重启原模拟实例，观衡重新读到现行净值，分析窗口于 19:30:30 发布新结果，目标 setter 为 0。自然交易窗口的决策与成交继续待验。
 
-私有证据位于 `E:/workspace/wondertrader-data/wt-daily-timeout-20261111-001`，包括 `ci-rebased/RESULT.json`、`program/INSTALLATION.json`、`ADOPTED.json`、`CAPTURE-RECOVERED.json` 及 `WT-RECOVERY-POSTFLIGHT.json`。Data29 的程序和正常切换前的组配置保留，回滚沿独立日线角色正式入口和原共享 CURRENT。
+Data31 切换后核实原模拟执行器仍就绪，20:20 再次发布分析，观衡策略 v1.2.2 的当前净值与 WT 发布一致。Chrome 桌面浏览器从「运行与持仓」切到「线上表现」并选择 11 月 6 日，实际净值覆盖 11 月 6 日和 11 月 11 日。当前成交按原账户的策略证券范围筛选，缺少连续策略资金流及独立归因，投资收益率显示「口径待核实」。申万加权 PB 的 11 月 11 日实际行已在正式市场观察页面读回。浏览器控制台错误和页面异常均为 0。证据为 Data31 私有目录的 `WT-POSTFLIGHT.json` 和 `OBSERVER-BROWSER-POSTFLIGHT.json`。
+
+Data30 私有证据位于 `E:/workspace/wondertrader-data/wt-daily-timeout-20261111-001`，包括 `ci-rebased/RESULT.json`、`program/INSTALLATION.json`、`ADOPTED.json`、`CAPTURE-RECOVERED.json` 及 `WT-RECOVERY-POSTFLIGHT.json`。Data29 程序与 Data30 切换前的组配置保留为该次切换的历史证据。当前回退资格沿 Data31 的请求格式约束。
