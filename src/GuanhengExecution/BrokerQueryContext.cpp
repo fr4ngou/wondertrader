@@ -129,8 +129,9 @@ void BrokerQueryAdapter::onRspTrades(const wtp::WTSArray* rows){
         auto* row=dynamic_cast<wtp::WTSTradeInfo*>(*i);require(row,"qmt_query_context_trade_row");
         values.push_back(trade_value(*row,received));
     }
-    // 只把原回调交WT一次；观察副本不再调用查询或重复交付历史成交统计。
-    TraderAdapter::onRspTrades(rows);
+    // 原初始化成交只交 WT 一次。已就绪后的周期查询只更新来源水位与事实，
+    // 避免原 TraderAdapter 的累计成交统计重复吸收同一批历史成交。
+    if(state()==AS_ORDERS_QRYED)TraderAdapter::onRspTrades(rows);
     ++trade_metadata_.revision;++trade_metadata_.query_revision;
     trade_metadata_.received_ms=trade_metadata_.query_received_ms=received;
     trade_metadata_.known=rows&&!trade_metadata_.error;

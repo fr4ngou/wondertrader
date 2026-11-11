@@ -171,6 +171,7 @@ def _retained_seed_identity(inputs, recovery, *, budget):
 
 class RetainedStrategy:
     allocation = None  # 旧独立调用及局部适配器默认沿原单策略来源。
+    deal_history = None  # 原账户只读历史材料；仅在唯一策略及固定资金基准接线。
     allocation_observation = None  # 双profile才由原借用刷新。
     """唯一当前版本实时薄桥。周期元数据存原KV，数量只读取原owner。
 
@@ -222,6 +223,14 @@ class RetainedStrategy:
             from .strategy_capital import AccountCashReader
             _need(self.inputs.cash_anchor is not None, 'capital_cash_anchor')
             self.capital_reader = AccountCashReader(parameters['capital_account'], self.max_age)
+            if 'output_directory' in native:
+                from .execution_deal_history import ClosedDealHistory
+                self.deal_history = ClosedDealHistory.load(native, self.input_sha,
+                    self.inputs.capital_baseline['baseline_at'], deadline)
+                if self.deal_history is not None:
+                    _need(self.capital_reader.binding['account'] == native['trader']['expected_account']
+                          and self.capital_reader.binding['environment'] == native['trader']['environment'],
+                          'broker_deal_history_account_scope')
         from .execution_market_window import MarketWindowFile
         self.market_window = MarketWindowFile.from_dict(parameters['market_window']) if 'market_window' in parameters else None
         self.recovery = configuration.recovery_mode
@@ -453,8 +462,11 @@ class RetainedStrategy:
         trades=context.broker_trades()
         if self.role_handoff and rows.get(self.mapping['588030.SH'],(0,0))[0]:
             # 候选验证已真实买入时，以原flat基准和完整D证明新基金开启；不冒充原库存。
-            opening = self._opening_cycle('588030.SH',broker,trades,datetime.now(timezone.utc),
-                                          lambda: _need(time.monotonic() < self.start_deadline,'evaluation_budget'))
+            cutoff = datetime.now(timezone.utc)
+            def check():
+                _need(time.monotonic() < self.start_deadline, 'evaluation_budget')
+            cycle_trades = self._historical_cycle_facts(broker, trades, cutoff, check)
+            opening = self._opening_cycle('588030.SH', broker, cycle_trades, cutoff, check)
             _need(opening is not None, 'actual_opening_source_required')
             self.cycles['588030.SH'] = opening
         self.flat_sources={symbol:self._flat_source(symbol,broker,trades) for symbol in self.execution
@@ -665,6 +677,18 @@ class RetainedStrategy:
         if previous_cycle is not None or not opening_target:
             self.flat_sources[symbol]=self._flat_source(symbol,broker,trades)
 
+    def _historical_cycle_facts(self, broker, trades, cutoff, check):
+        if self.deal_history is None:
+            return trades
+        if (trades is None or not trades.known or trades.query_received_ms is None
+                or broker.position_received_ms is None):
+            return None
+        queried = datetime.fromtimestamp(trades.query_received_ms/1000, timezone.utc)
+        position = datetime.fromtimestamp(broker.position_received_ms/1000, timezone.utc)
+        if cutoff >= queried+timedelta(seconds=self.max_age):
+            return None
+        return self.deal_history.join(trades.trades, queried, position, cutoff, check)
+
     def _opening_cycle(self,symbol,broker,trades,cutoff,check):
         if self.allocation is not None:
             check();cycle=self.allocation_observation.opening_cycles.get(self.mapping[symbol])
@@ -845,6 +869,9 @@ class RetainedStrategy:
                     source_identity=self.state_identity,deadline=deadline)
                 self._shared_announced=True
             source = _digest(asdict(broker))
+            cycle_trades = self._historical_cycle_facts(broker, trades, cutoff, check)
+            if self.deal_history is not None and cycle_trades is None:
+                status, reason = 'waiting_actual_cycle', 'broker_deal_coverage_required'
             for symbol in self.execution:
                 quantity = rows.get(self.mapping[symbol],(0,0))[0]
                 old = metadata.get(symbol)
@@ -852,14 +879,16 @@ class RetainedStrategy:
                     self._track_flat_source(symbol,broker,trades,old)
                     metadata.pop(symbol,None);cycles.append(PositionCycle(symbol,'flat',0,source))
                 else:
-                    actual=self._opening_cycle(symbol,broker,trades,cutoff,check)
+                    actual=self._opening_cycle(symbol,broker,cycle_trades,cutoff,check)
                     if self.allocation is not None or self.inputs.capital_baseline is not None:
                         # 完整查询已证明当前周期；真实卖平再买覆盖旧周期，缺证据则等待。
                         old=actual
                     elif old is None:old=actual
                     elif actual is not None and actual['cycle_id']==old['cycle_id']:
                         if datetime.fromisoformat(actual['opened_at'])<datetime.fromisoformat(old['opened_at']):old=actual
-                    if old is None:status, reason = 'waiting_actual_cycle','actual_opening_source_required'
+                    if old is None:
+                        if status is None:
+                            status, reason = 'waiting_actual_cycle', 'actual_opening_source_required'
                     else:
                         metadata[symbol]=old
                         initial = old.get('status') == 'initial_inventory'
@@ -871,6 +900,8 @@ class RetainedStrategy:
                          broker_position_qualified=False,recovery_mode=self.recovery,
                          restored_state_id=self.restored_state_id,restored_sequence=self.restored_sequence)
         candidate['broker_trades']=None if trades is None else asdict(trades)
+        if self.deal_history is not None:
+            candidate['broker_deal_history'] = self.deal_history.source()
         if self.allocation_observation is not None:candidate['allocation_observation']=allocation_projection(self.allocation_observation,include_read_projection=True)
         candidate['cycle_metadata']=dict(metadata)
         if self.inputs.capital_baseline is not None:

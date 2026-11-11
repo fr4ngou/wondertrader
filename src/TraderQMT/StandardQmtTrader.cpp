@@ -2078,10 +2078,12 @@ struct StandardQmtTrader::Impl {
     observation_refresh_at=Clock::now();}
   }else if(observation_order_cycle){
    if(observation_refresh_stage==1){observation_refresh_stage=0;observation_refresh_at=Clock::now();}
-   else if(observation_refresh_stage==0){observation_refresh_stage=3;observation_refresh_at=Clock::now();}
+   else if(observation_refresh_stage==0){observation_refresh_stage=observation_refresh_ms?2:3;observation_refresh_at=Clock::now();}
+   else if(observation_refresh_stage==2){observation_refresh_stage=3;observation_refresh_at=Clock::now();}
    else {observation_order_cycle=false;observation_refresh_stage=3;
     observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_orders_requested?0:observation_refresh_ms);}
   }else if(observation_refresh_stage==3){observation_refresh_stage=0;observation_refresh_at=Clock::now();}
+  else if(observation_refresh_stage==0){observation_refresh_stage=2;observation_refresh_at=Clock::now();}
   else {observation_refresh_stage=3;
    observation_refresh_at=Clock::now()+std::chrono::milliseconds(observation_orders_requested?0:observation_refresh_ms);}
   cv.notify_all();

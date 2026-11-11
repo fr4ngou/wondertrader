@@ -54,17 +54,17 @@ struct Probe {
  void idle(){schedule_observation_refresh();need(queue.empty(),"unexpected immediate query");}
 };
 int main(){try{
- {Probe p;p.expect({3,0});p.idle();need(!p.observation_order_cycle,"ordinary refresh leaked cycle");}
- {Probe p;p.active_orders=1;p.expect({1,0,3});p.idle();p.due();need(p.step()==1,"active order not refreshed");}
+ {Probe p;p.expect({3,0,2});p.idle();need(!p.observation_order_cycle,"ordinary refresh leaked cycle");}
+ {Probe p;p.active_orders=1;p.expect({1,0,2,3});p.idle();p.due();need(p.step()==1,"active order not refreshed");}
  {Probe p;p.observation_refresh_ms=0;p.idle();for(unsigned i=0;i<8;++i)p.request_order_refresh();p.expect({1,0,3});p.idle();need(p.next_id==3,"duplicate trigger created extra cycle");}
  {Probe p;p.request_order_refresh();p.schedule_observation_refresh();auto old=p.queue.front();p.queue.pop_front();
-  p.request_order_refresh();p.observation_refresh_applied(old.id);p.expect({0,3,1,0,3});p.idle();}
- {Probe p;p.request_order_refresh();p.reject=true;p.schedule_observation_refresh();need(p.queue.empty()&&p.observation_orders_requested,"failed enqueue consumed request");p.reject=false;p.due();p.expect({1,0,3});}
- {Probe p;p.active_orders=1;p.expect({1,0,3});p.active_orders=0;p.due();p.expect({3,0});p.idle();}
- {Probe p;p.identities[7].group_id=8;p.expect({1,0,3});need(p.identities[7].group_id==8,"missing order falsely retired identity");p.due();need(p.step()==1,"unknown old order lost followup");}
- {Probe p;p.read_waiting=true;p.query_flow_mask=0;p.request_order_refresh();p.expect({3,1,2,0});need(!p.read_waiting,"read recovery not completed");p.query_flow_mask=15;p.expect({1,0,3});}
+  p.request_order_refresh();p.observation_refresh_applied(old.id);p.expect({0,2,3,1,0,2,3});p.idle();}
+ {Probe p;p.request_order_refresh();p.reject=true;p.schedule_observation_refresh();need(p.queue.empty()&&p.observation_orders_requested,"failed enqueue consumed request");p.reject=false;p.due();p.expect({1,0,2,3});}
+ {Probe p;p.active_orders=1;p.expect({1,0,2,3});p.active_orders=0;p.due();p.expect({3,0,2});p.idle();}
+ {Probe p;p.identities[7].group_id=8;p.expect({1,0,2,3});need(p.identities[7].group_id==8,"missing order falsely retired identity");p.due();need(p.step()==1,"unknown old order lost followup");}
+ {Probe p;p.read_waiting=true;p.query_flow_mask=0;p.request_order_refresh();p.expect({3,1,2,0});need(!p.read_waiting,"read recovery not completed");p.query_flow_mask=15;p.expect({1,0,2,3});}
  {Probe p;p.read_waiting=true;p.held_reads[42]={false,1,17,99,123};p.schedule_observation_refresh();need(p.queue.size()==1&&p.queue.front().id==42&&p.queue.front().resume_read&&p.queue.front().original_read==99&&p.next_id==0,"held read identity changed");}
- {Probe p;p.query_first=false;p.request_order_refresh();p.expect({3,0});p.idle();need(!p.observation_orders_requested,"native mode acquired new behavior");}
+ {Probe p;p.query_first=false;p.request_order_refresh();p.expect({3,0,2});p.idle();need(!p.observation_orders_requested,"native mode acquired new behavior");}
  std::cout<<"Actual Standard query scheduler: 10 scenarios PASS\n";
  }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}}
 '''.replace('// METHODS', methods)
