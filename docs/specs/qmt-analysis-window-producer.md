@@ -61,6 +61,9 @@ HPR 原日期/SDK绝对D与分片保持，先准备后原v7回读；成功调用
 显式回收模式的每个新slot沿公共RR6准入当前认证；AWP固定本capture首次BINDING并传完整expected_binding。新slot确认认证不同，在任何新请求受理前转原Unavailable，旧窗口及capture原件保持；下一业务capture重取认证。旧slot先核原责任；未知保持原ID，确认后再核capture来源一致。分析raw/factor/reference与HPR各自原连接的认证保持一致，不把重连前后的v7行拼成合格快照。
 
 
+已消费的 v7 纯读取中断可结束旧捕获。条件是原 slot 的完整认证响应已校验并保存，终态明确为 operation_interrupted，当前认证 Host 实例已换代，其余来源身份和 profile 相同。保存 SUPERSEDED 收据关联原请求、原结果及新旧认证摘要，下一轮从全新 capture 重新观察行情。原 slot、原结果及 Host 的 held_unknown 责任持续保留。缺原结果、未消费、同代或来源身份变化继续沿原等待。HPR 保持原责任；能到达 v7 中断处的同 capture 已完成可选 HPR 的原准备阶段。验收覆盖换代前后、缺回执及来源不一致，核新 capture 从新认证重读和旧回执逐字节保留。
+
+
 ## AWP7 来源读取期间停止
 
 发布者 request_close 把同一个首次绝对关闭截止交给工厂组合的分析读取与可选 HPR owner。每个 slot 开始读取前检查停止；原 retained/legacy 的内部轮询及新请求计划均检查停止。已经准入的当前 slot 保留一次原首次 POST 权利，覆盖公共客户端先持久 attempted 后尚未调用运输的窗口；其余交换停止准入，避免把确定未派发的读取制造成不可续行的未知责任。关闭后保留已有 capture、slot、UUID、原请求截止、终态和未确认责任。正在执行的 HTTP 继续沿原 RPC 截止返回；下一观察/轮询交换停止准入，发布线程按原关闭截止 join，原 Native Job 仍由原 owner 取消和回收。

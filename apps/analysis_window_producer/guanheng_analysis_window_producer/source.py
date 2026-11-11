@@ -171,6 +171,50 @@ class BoundAnalysisClient:
             raise ValueError('analysis_source_profile')
         return dict(value, profile=profile)
 
+    def _superseded_read(self, slot, metadata, operation, arguments, deadline):
+        # 已持久消费的旧代中断终态可结束本次只读行情捕获。Host仍持有原未知
+        # 责任；新捕获使用当前认证，不复派原ID，也不合并两代行情。
+        from guanheng_qmt_shm.read_retention_client import inspect_saved_result
+        from .retained import check_capability
+        if not slot.exists():
+            return False
+        record = json.loads(slot.read_bytes())
+        if (record.get('consumed') is not True
+                or record['binding'] != metadata['binding']
+                or record['request']['operation_id'] != operation
+                or record['request']['arguments'] != arguments):
+            return False
+        reply = inspect_saved_result(record)
+        if reply['ok'] is not False or reply['error_code'] != 'operation_interrupted':
+            return False
+        current = self._binding(deadline)
+        check_capability(current, self.retention)
+        old_binding, new_binding = record['binding'], current['binding']
+        if old_binding['host_instance_id'] == new_binding['host_instance_id']:
+            return False
+        epoch_fields = {'host_instance_id', 'transport_generation'}
+        if (old_binding.keys() != new_binding.keys()
+                or any(old_binding[key] != new_binding[key] for key in old_binding.keys() - epoch_fields)):
+            return False
+        from guanheng_qmt_shm import bound
+        from guanheng_qmt_shm_agent.protocol import canonical as encode
+        old_sha = bound.digest(encode(old_binding))
+        if old_sha != metadata['binding_sha256']:
+            raise ValueError('analysis_original_binding_identity')
+        evidence = slot.parent/'SUPERSEDED.json'
+        identity = dict(schema='guanheng.analysis-source-superseded.v1',
+            request_id=record['request']['request_id'], request_body_sha256=record['request_body_sha256'],
+            result_body_sha256=record['result']['result_body_sha256'], old_binding_sha256=old_sha)
+        if evidence.exists():
+            saved = json.loads(evidence.read_bytes())
+            previous_sha = saved.pop('new_binding_sha256')
+            if (saved != identity or not isinstance(previous_sha, str) or len(previous_sha) != 64
+                    or previous_sha == old_sha or any(c not in '0123456789abcdef' for c in previous_sha)):
+                raise ValueError('analysis_superseded_identity')
+        else:
+            write_json(evidence, dict(identity, new_binding_sha256=current['binding_sha256']))
+        return True
+
     def read(self, operation, arguments, slot, *, deadline):
         from guanheng_qmt_shm import bound
         from guanheng_qmt_shm_agent.protocol import canonical as encode, decode
@@ -198,6 +242,8 @@ class BoundAnalysisClient:
                         return self.retained.read(operation,arguments,slot,deadline=deadline,
                             expected_binding=metadata['binding'])
                     except RetainedReadPending:
+                        if self._superseded_read(slot, metadata, operation, arguments, deadline):
+                            raise SourceUnavailable('analysis_source_epoch_interrupted') from None
                         raise SourcePending('analysis_original_request_unresolved') from None
                     except RetainedReadFailure:
                         raise SourceUnavailable('analysis_source_terminal_failure') from None

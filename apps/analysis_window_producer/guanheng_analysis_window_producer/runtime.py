@@ -402,7 +402,8 @@ class AnalysisWindowProducer:
                     # 已确认缺源后下一轮重新查询；旧窗口及旧时钟原样保持。
                     reason = str(error)
                     if reason not in {'analysis_daily_missing', 'analysis_common_dates_missing',
-                            'analysis_source_stale', 'analysis_source_terminal_failure'}:
+                            'analysis_source_stale', 'analysis_source_terminal_failure',
+                            'analysis_source_epoch_interrupted'}:
                         reason = 'source_unavailable'
                     self._save_state(phase='waiting_source', error=reason)
                     attempt = None
