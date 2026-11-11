@@ -2,6 +2,8 @@
 
 状态为已发布，2026-11-11 在原端口 18143 验真。源码 `21fdf99be4b7fa65195a5f9cab766ef00cdb6ce4`，注释标签 `deploy/observer130-shareholder-20261111-002`，App `0.1.0a130+shareholder.2`。ZIP SHA256 为 `5edc0e08b865f0cc47c847d52eca0e5cf970b4b004fa9db98ef320cbae81b0d1`，安装收据 SHA256 为 `622fec63c0ce995d623f11706a90af7f203c90db7187863f1da4834693a551a9`。
 
+持续更新及目标份数显示随后由[观衡131](2026-11-11-observer131-shareholder-auto-live.md)接续。
+
 ## 数据采用
 
 - 东方财富 Choice 股东增减持公告 100,078 条覆盖 2018-01-01 至 2026-11-11。按公告日汇总 3,237 个自然日、463 周。成交均价计价 67,800 条，历史参考价估算 32,225 条，9 条缺价分布在 7 周，41 条日期冲突单列，3 条经发行人原公告核除。招行 2019-08-29 供应商列出的 12.59 亿股已在半年报中列为存量，中建 2019-02-13 两条对应同一内部转让。原始页和公告 PDF 随内容仓保留。[东方财富数据中心](https://data.eastmoney.com/executive/gdzjc.html)、[招商银行半年报](https://www1.hkexnews.hk/listedco/listconews/sehk/2019/0823/ltn20190823751_c.pdf)、[中国建筑股东权益变动公告](https://www.cscec.com.cn/tzzgxnew/tzgg_new/tz2019/201902/P020190221528214670054.pdf)
