@@ -68,8 +68,10 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const weeklyExecutive = isExecutiveNet(dataset.id)
   const defaultPreset = weeklyExecutive ? 'all' : dataset.default_preset || 'd30'
   const coverage = !weeklyExecutive && groupedBoard(dataset.board) ? groupDateDomain(catalog, dataset.board, dataset.coverage) : dataset.coverage
-  const range = search.get('start') && search.get('end') ? { start: search.get('start')!, end: search.get('end')! } : presetRange(search.get('preset') || defaultPreset, coverage.end, coverage)
   const selectedPreset = search.get('preset') || (search.get('start') ? '' : defaultPreset)
+  const range = isShareholderNet(dataset.id) && selectedPreset === 'all' ? presetRange('all', coverage.end, coverage)
+    : search.get('start') && search.get('end') ? { start: search.get('start')!, end: search.get('end')! }
+    : presetRange(selectedPreset || defaultPreset, coverage.end, coverage)
   const parameters = { window: search.get('window') || (dataset.board === 'spread' ? '756' : '20'), k: search.get('k') || '2', method: search.get('method') || 'sma', pcr_type: search.get('pcr_type') || 'oi' }
   const definition = useQuery({ retry: false, queryKey: ['observation', 'definition', dataset.id, catalog.snapshot_id], queryFn: ({ signal }) => getDefinition(dataset.id, catalog.snapshot_id, signal) })
   const history = useQuery({ retry: false, queryKey: ['observation', 'history', dataset.id, catalog.snapshot_id], queryFn: ({ signal }) => getHistory(dataset.id, catalog.snapshot_id, signal) })

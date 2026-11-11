@@ -50,3 +50,53 @@ def test_repeated_source_rows_stop_publication():
     row = event()
     with pytest.raises(ObservationError, match='分页身份重复'):
         aggregate([row, row], date(2018, 1, 1), date(2018, 1, 3), indexes, {})
+
+
+def test_scheduled_tail_reuses_wt_prices_and_preserves_published_values():
+    import json
+    from types import SimpleNamespace
+
+    from guanheng_app.observation.shareholder_source import INDEX_TABLES, URL, history
+    from guanheng_app.observation.source_fetch import SourceFailure
+
+    events = [
+        event(code='600100', announcement='2026-11-11', traded='2026-11-10', quantity=-2),
+        event(code='600200', announcement='2026-11-11', traded='2026-11-10', average=3, quantity=1),
+    ]
+    request = []
+    calls = []
+    report = dict(success=True, result=dict(count=2, pages=1, data=events))
+
+    def get(url, params):
+        assert url == URL
+        calls.append(params)
+        return json.dumps(report).encode()
+
+    def query(payload):
+        request.append(payload)
+        return dict(status=dict(code='Ok'), data=dict(metadata=dict(adjustment='none', factor_version=''),
+            bars=[dict(date=20261110, close=4)]))
+
+    fetch = SimpleNamespace(get=get, timeout=10, records=[], objects=SimpleNamespace(put=lambda body: 'a'*64),
+        budget=SimpleNamespace(remaining=lambda: 10, request=lambda **_: None, consume=lambda _: None))
+    start, end = '2026-11-10', '2026-11-11'
+    old = aggregate([], date.fromisoformat(start), date.fromisoformat(start),
+                    {symbol: {start: 2000} for symbol in INDEXES}, {})
+    old[0].update(net_amount_cny=100, issuer_excluded_count=1)
+    tables = {table: [dict(date=end, close=3000)] for table in INDEX_TABLES.values()}
+    source = dict(url=URL, max_pages=16)
+    retained, new = history(fetch, source, start, end, old, tables,
+                            lambda _: SimpleNamespace(source_daily_history_query=query))
+    assert retained == old[0]
+    assert new['net_amount_cny'] == -50000
+    assert new['estimated_count'] == new['priced_trade_count'] == 1
+    assert all(new[field] == 3000 for field in INDEXES.values())
+    assert request == [dict(exchange='SSE', code='600100', **{'from': 20261011, 'to': 20261110, 'limit': 2000})]
+    assert calls[0]['filter'].startswith("(NOTICE_DATE>='2026-11-10')(NOTICE_DATE<='2026-11-11')")
+
+    report.update(success=False, result=None, code=9201, message='返回数据为空')
+    _, empty = history(fetch, source, start, end, old, tables, None)
+    assert empty['net_amount_cny'] == 0 and empty['csi_close'] == 3000
+    report['code'] = 500
+    with pytest.raises(SourceFailure, match='shareholder_report_unavailable'):
+        history(fetch, source, start, end, old, tables, None)

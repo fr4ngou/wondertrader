@@ -32,7 +32,7 @@ from .breadth_trends import attach_trends, attach_benchmark
 from .legulegu_source import history as legulegu_history
 from .nfra_source import history as nfra_history
 from . import legulegu_gdp
-from . import institution_reports, bond_mtm
+from . import institution_reports, bond_mtm, shareholder_source
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,
@@ -152,6 +152,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=wt_t2108_history(fetch,source,start,end,market_client_factory,
                     calendar=config['models'].get('calendars',{}).get('cn'))
+            elif source['kind']=='shareholder_changes':
+                key=shareholder_source.METRIC
+                if key not in datasets:raise SourceFailure('shareholder_archive_required')
+                updates={key:shareholder_source.history(fetch,source,start,end,datasets[key],tables,market_client_factory)}
             elif source['kind']=='financial_annual':
                 key='source.financial_'+source.get('scope','shsz')+'_universe'
                 updates=annual_reports(fetch,source,start,end,admitted_rows=tables.get(key,()))
@@ -251,6 +255,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             if key==bond_mtm.METRIC and bond_mtm.TABLE in tables:
                 context_parents=[*context_parents,*[parent for name in
                     (bond_mtm.TABLE,'source.csi_all','market.sh000001') for parent in table_parents.get(name,[])]]
+            if key==shareholder_source.METRIC and any(r['status']=='success' for r in relevant):
+                context_parents=[*context_parents,*[parent for name in shareholder_source.INDEX_TABLES.values()
+                    for parent in table_parents.get(name,[])]]
             input_parents=[candidate['datasets'][name]['partition'] for name in definition.get('input_metrics',[])]
             # 只登记直接前代和本轮输入；递归历史由原不可变快照持有，避免每轮复制历史图。
             candidate['datasets'][key]=admit_dataset(reader.objects,definition,rows,[*([old['partition']] if 'partition' in old else []),*context_parents,*input_parents,

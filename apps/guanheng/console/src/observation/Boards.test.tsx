@@ -7,6 +7,10 @@ import type { Catalog, Definition } from './types'
 
 const charts=vi.hoisted(()=>({last:undefined as {rows:unknown[]}|undefined}))
 vi.mock('./ObservationChart', () => ({ ObservationChart: (props:{rows:unknown[]}) => {charts.last=props;return <div>图表已读取</div>} }))
+vi.mock('./ExecutiveWeeklyChart', async importOriginal => ({
+  ...await importOriginal<typeof import('./ExecutiveWeeklyChart')>(),
+  ExecutiveWeeklyChart: () => <div>weekly chart</div>,
+}))
 const pcrState=vi.hoisted(()=>({partial:false,newer:false,contextOnly:false,referenceFixture:false,stale:false,schedule:null as null|{timezone:string;times:string[]}}))
 const coverage = { start:'2022-10-17',end:'2026-10-16',observations:970 }
 const definitions = Object.fromEntries([
@@ -181,4 +185,36 @@ it('持仓成交切换保留日终PCR且没有分钟归档提示',async()=>{
   expect(screen.queryByText(/所选区间已归档/)).not.toBeInTheDocument()
   expect(screen.getByText('日终PCR',{selector:'.observation-last span'})).toBeInTheDocument()
   ui.unmount();ui.query.clear()
+})
+
+
+it('重要股东全历史随新快照延长，手选区间保持原日期',async()=>{
+  const metric='shareholder.net.ashare'
+  const weekly={...definitions.pcr_510050,id:metric,board:'executive',label:'重要股东净减持',
+    coverage:{start:'2018-01-01',end:'2026-10-16',observations:3200},primary_field:'net_amount_cny'}
+  definitions[metric]=weekly
+  catalog.boards.push({id:'executive',label:'股东与高管增减持'})
+  catalog.datasets.push({...weekly,dataset_version:'c'.repeat(64),default_preset:'all'})
+  catalog.preferences.default_datasets.executive=metric
+  const {query}=await open()
+  try {
+    fireEvent.click(screen.getByRole('button',{name:'03股东与高管增减持'}))
+    await waitFor(()=>expect(dates()).toEqual(['2018-01-01','2026-10-16']))
+    const newer={...catalog,snapshot_id:'d'.repeat(64),
+      datasets:catalog.datasets.map(d=>d.id===metric ? {...d,coverage:{...d.coverage,end:'2026-10-19'}} : d)}
+    act(()=>query.setQueryData(['observation','catalog',undefined],newer))
+    await waitFor(()=>expect(dates()).toEqual(['2018-01-01','2026-10-19']))
+    const {getSeries}=await import('./api')
+    const request=()=>vi.mocked(getSeries).mock.calls.at(-1)
+    await waitFor(()=>expect(request()).toEqual([metric,newer.snapshot_id,
+      expect.objectContaining({start:'2018-01-01',end:'2026-10-19'}),expect.anything()]))
+    expect(request()?.[2]).not.toHaveProperty('observations')
+    fireEvent.change(screen.getByLabelText('截止日期'),{target:{value:'2026-10-10'}})
+    act(()=>query.setQueryData(['observation','catalog',undefined],{...newer,snapshot_id:'e'.repeat(64),
+      datasets:newer.datasets.map(d=>d.id===metric ? {...d,coverage:{...d.coverage,end:'2026-10-20'}} : d)}))
+    await waitFor(()=>expect(dates()).toEqual(['2018-01-01','2026-10-10']))
+  } finally {
+    catalog.boards.pop();catalog.datasets.pop()
+    delete definitions[metric];delete catalog.preferences.default_datasets.executive
+  }
 })

@@ -41,7 +41,7 @@ function TargetRows({item, expanded, toggle}: {item: import('./strategyTargetHis
     <td><button aria-expanded={expanded} onClick={toggle}>{expanded ? '收起' : '查看详情'}</button></td>
   </tr>{expanded ? <tr><td colSpan={6}><div className="target-history-details">
     <span>原生日志序号：{item.sequence}</span><span>信号参考价：{item.reference_price_cny} 元/份</span>
-    <span>目标权重：未记录</span><span>历史算法版本：未记录</span><span>调整原因：原生记录未提供细分原因</span>
+    <span>历史算法版本：未记录</span><span>调整原因：原生记录未提供细分原因</span>
     {item.kind === 'initial' ? <span>这是该证券在当前日志中的首次记录，原目标保持未知。</span> : null}
   </div></td></tr> : null}</>
 }

@@ -7,11 +7,11 @@ from .source_fetch import SourceFailure
 
 
 def report_pages(fetch, url, *, report, columns, filters, sort, max_pages,
-                 allow_empty=False, decimal_numbers=False, error_prefix='financial_report'):
+                 allow_empty=False, empty_error=None, decimal_numbers=False, error_prefix='financial_report'):
     """完整返回有限截面；计数/页数漂移、缺行和未知空回复终止本来源。
 
     金额适配器在JSON边界选择Decimal，避免先经二进制浮点损失原十进制值。
-    只有服务明确返回success及零计数时，allow_empty才授予已知空结果。
+    allow_empty接纳成功零计数；empty_error可登记已核实的供应商空结果码和消息。
     sort为逗号分隔的唯一字段名，各字段统一升序；具体来源负责选择稳定的
     唯一排序组合并核业务身份。排序字段与方向的数量在本适配器统一对齐。
     """
@@ -28,6 +28,9 @@ def report_pages(fetch, url, *, report, columns, filters, sort, max_pages,
             sortColumns=sort, sortTypes=order, pageNumber=page, pageSize=500, source='WEB', client='WEB')),
             parse_float=Decimal if decimal_numbers else float)
         result = raw.get('result')
+        if (empty_error is not None and page == 1 and raw.get('success') is False
+                and 'result' in raw and result is None and (raw.get('code'), raw.get('message')) == empty_error):
+            return []
         if raw.get('success') is not True or type(result) is not dict:
             raise SourceFailure(error_prefix+'_unavailable')
         count, pages, data = result.get('count'), result.get('pages'), result.get('data')

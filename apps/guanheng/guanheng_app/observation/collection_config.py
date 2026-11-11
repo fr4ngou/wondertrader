@@ -10,7 +10,7 @@ from .contracts import ObservationError
 
 KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmoney','shenwan','irs',
          'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance','legulegu_gdp',
-         'pbc_custody','wealth_allocation','citic_broker','chinabond_wealth','wt_t2108','wt_breadth'}
+         'pbc_custody','wealth_allocation','citic_broker','chinabond_wealth','wt_t2108','wt_breadth','shareholder_changes'}
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
@@ -138,6 +138,15 @@ def validate_configuration(value):
             _need(not {'url','referer','symbols','input_manifest','input_sha256','input_directory','scope','bse_history','replace_tables','window_mode'} & set(source))
             calendar=value['models'].get('calendars',{}).get('cn',{})
             _need(type(calendar)is dict and calendar.get('kind')=='official-exchange-calendar/v1')
+        elif source['kind']=='shareholder_changes':
+            from .shareholder_archive import METRIC
+            from .shareholder_source import URL
+            _need(set(source)=={'id','kind','url','datasets','date_policy','overlap_days','max_pages'}
+                and source['url']==URL and source['datasets']==[METRIC]
+                and source['date_policy']=='calendar-day'
+                and type(source['max_pages']) is int and 1<=source['max_pages']<=16
+                and type(source['overlap_days']) is int and 0<=source['overlap_days']<value['max_days_per_batch'])
+            _need(sum(item.get('kind')=='shareholder_changes' for item in value['sources'] if type(item) is dict)==1)
         elif source['kind']=='qmt_t2108':
             from .t2108_models import METRIC,UNIVERSE
             if 'input_directory' in source:

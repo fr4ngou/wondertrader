@@ -31,11 +31,17 @@ def _date(value):
     return date.fromisoformat(value[:10])
 
 
-def _price(value):
+def positive_price(value):
     if value is None:
         return None
     number = Decimal(str(value))
     return number if number.is_finite() and number > 0 else None
+
+
+def report_price(event):
+    """返回公告成交均价和来源历史参考价，均以人民币元/股计。"""
+    average = positive_price(event['TRADE_AVERAGE_PRICE'])
+    return average, positive_price(event['CLOSE_PRICE']) if average is None else None
 
 
 def _json(raw):
@@ -82,7 +88,7 @@ def _read_prices(root, store, parents, check):
         closes = {}
         for line in (data or {}).get('klines', ()):
             day, _, close = line.split(',')
-            value = _price(close)
+            value = positive_price(close)
             _need(value is not None and day not in closes, '历史收盘价无效或重复')
             closes[day] = value
         if code in INDEXES:
@@ -97,7 +103,7 @@ def _read_prices(root, store, parents, check):
               and len(data['items']) < 6000, '补充行情字段或分页容量无效')
         for symbol, day, raw in data['items']:
             code = symbol.split('.')[0]
-            close = _price(raw)
+            close = positive_price(raw)
             if close is not None:
                 iso = datetime.strptime(day, '%Y%m%d').date().isoformat()
                 stocks[code].setdefault(iso, close)
@@ -115,7 +121,7 @@ def _read_prices(root, store, parents, check):
             _need(len(page) == 1 and page[0]['code'] == 'cn_'+code and page[0]['status'] == 0, '搜狐历史行情结果无效')
             values = page[0]['hq']
         for day, _, raw, *_ in values:
-            close = _price(raw)
+            close = positive_price(raw)
             _need(close is not None and manifest['start'] <= day <= manifest['end'], '补充历史行情日期或收盘价无效')
             stocks[code].setdefault(day, close)
     _need(set(indexes) == set(INDEXES), '缺少四条指数历史原件')
@@ -175,11 +181,11 @@ def aggregate(rows, start, end, indexes, stocks, check=lambda: None, *, excluded
         if trade_day > day:
             values['timing_conflict_count'] += 1
             continue
-        price = _price(event['TRADE_AVERAGE_PRICE'])
+        price, reference = report_price(event)
         if price is not None:
             values['priced_trade_count'] += 1
         else:
-            price = _price(event['CLOSE_PRICE']) or _reference_close(stocks, code, trade_day)
+            price = reference or _reference_close(stocks, code, trade_day)
             values['estimated_count' if price is not None else 'unpriced_count'] += 1
         if price is not None:
             values['net_amount_cny'] += quantity * price * 10_000

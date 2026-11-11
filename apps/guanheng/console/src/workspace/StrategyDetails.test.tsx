@@ -102,9 +102,9 @@ test('持仓匹配简称，目标摘要可显示不在当前历史页的清仓�
  expect(holdings).toHaveTextContent('沪深300ETF 510300.SH')
  const targets = await screen.findByRole('region', { name: '逐标的目标与最近变化' })
  const cells = within(targets).getAllByRole('cell')
- expect(cells[0]).toHaveTextContent('—')
- expect(cells[1]).toHaveTextContent('0')
- expect(cells[2]).toHaveTextContent('1,200 → 0')
+ expect(within(targets).getByRole('columnheader', { name: '目标仓位（份）' })).toBeInTheDocument()
+ expect(cells[0]).toHaveTextContent(/^0$/)
+ expect(cells[1]).toHaveTextContent('1,200 → 0')
 })
 test('未启动策略仍显示四项当前持仓，资金、预算和收益基准分别解释',async()=>{
  const value=fixture();const row=value.account.groups.position.rows[0]

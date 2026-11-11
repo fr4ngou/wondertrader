@@ -77,6 +77,8 @@ CSV/JSON导出链接包含页面snapshot_id，和表格/图表保持同版本。
 
 ### 原采集与调度
 
+重要股东周图在历史快照已接纳后，由现有更新服务追加 `shareholder_changes` 来源。使用 Choice 公开报表接口、`datasets=["shareholder.net.ashare"]` 和 `date_policy=calendar-day`。`overlap_days` 控制重查的已收录自然日，`max_pages` 沿用公开报表分页预算。以保留原来源、日历、凭据及调度时间的配置摘要部署同一更新角色。运行回执按 `eastmoney.shareholders` 核对，页面从当前快照读取周图。
+
 `pb_all`持续生产使用[原供应商快照模块](../modules/pb-all-continuation.md)。在原来源列表追加`id=legulegu.pb_all`、`kind=legulegu_pb`、`datasets=[pb_all]`、`window_mode=report_latest`、`date_policy=cn-closed-day`，url固定`https://legulegu.com/api/stock-data/market-index-pb`，referer固定`https://legulegu.com/stockdata/all-pb`，allowed_hosts追加`legulegu.com`。保留原27来源、模型、日历、调度及预算。公开会话和当日标识由原Fetcher内生成，不手填token或导入浏览器Cookie。
 
 Root先在E盘隔离根沿原refresh只选择该source验证，核原PB方法版本、全部旧日期/数值、新月末与最新点、分位及导出，再部署支持新kind的更新角色并绑定新来源配置SHA。Web继续只读，旧读取版本可消费新增PB数据；现场当前版本已变化时在最新快照重放该单路，不以旧候选覆盖其它更新。供应商响应不提供的日期保留已有真实观察，缺失历史不补值。完整日频、逐股股票池及真实样本数仍按原未核范围记录。

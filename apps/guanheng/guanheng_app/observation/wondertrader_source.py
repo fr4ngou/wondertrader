@@ -22,6 +22,20 @@ def prepare_table(key, old, rows, effective):
     return prepared,revisions,[]
 
 
+def query_daily(fetch, exchange, code, start, end, client_factory):
+    """读取一段未指定形成中视图的归档日线，并保留 SDK 原响应。"""
+    fetch.budget.request(kind='sdk')
+    client=client_factory(min(fetch.timeout,fetch.budget.remaining()))
+    response=client.source_daily_history_query(dict(exchange=exchange,code=code,
+        **{'from':int(start.replace('-','')),'to':int(end.replace('-','')),'limit':2000}))
+    body=encode(response);fetch.budget.consume(len(body))
+    sha=fetch.objects.put(body)
+    fetch.records.append(dict(sha256=sha,source_host='wondertrader',kind='source_daily_history',status=200,
+        retrieved_at=datetime.now(timezone.utc).isoformat(),media_type='application/json'))
+    if response['status']['code']!='Ok':raise SourceFailure('market_source_unavailable')
+    return response['data']
+
+
 def history(fetch, config, start, end, client_factory):
     output={}
     for symbol in config['symbols']:
@@ -29,16 +43,9 @@ def history(fetch, config, start, end, client_factory):
         rows=[];current=date.fromisoformat(start);last=date.fromisoformat(end);unit=None
         while current<=last:
             stop=min(last,current+timedelta(days=729))
-            fetch.budget.request()
-            client=client_factory(min(fetch.timeout,fetch.budget.remaining()))
-            response=client.source_daily_history_query(dict(exchange='SSE' if symbol.startswith('sh') else 'SZSE',
-                code=symbol[2:],**{'from':int(current.strftime('%Y%m%d')),'to':int(stop.strftime('%Y%m%d')),'limit':2000}))
-            body=encode(response);fetch.budget.consume(len(body))
-            sha=fetch.objects.put(body)
-            fetch.records.append(dict(sha256=sha,source_host='wondertrader',kind='source_daily_history',status=200,
-                retrieved_at=datetime.now(timezone.utc).isoformat(),media_type='application/json'))
-            if response['status']['code']!='Ok':raise SourceFailure('market_source_unavailable')
-            data=response['data'];metadata=data['metadata'];volume_unit=metadata['volume_unit']
+            data=query_daily(fetch,'SSE' if symbol.startswith('sh') else 'SZSE',symbol[2:],
+                current.isoformat(),stop.isoformat(),client_factory)
+            metadata=data['metadata'];volume_unit=metadata['volume_unit']
             # 来源日线允许未知量单位；价格和原量照实归档，量指标单独核资格。
             if key!='source.csi_all':
                 if volume_unit not in ('share','lot','unknown'):raise SourceFailure('market_volume_unit_invalid')
