@@ -81,7 +81,7 @@ EFR-20：已准入原状态、在发布ready前启动失败的后继，可在tra
 
 ## INIT同账估值恢复
 
-恢复INIT先核对原持仓数量、周期、资本基准、WT现金依据及损益，再读取同账的已验证估值。QMT快照与原CTA已应用价格各自保持来源和原价时点；CTA原价须为raw CNY/share、关联原窗口，持仓价格完整，重建市值沿1e-8 CNY既有表示容差核对。缺合适原估值才读取已声明MarketClient快照。账户约束继续核实际NAP及时效，过期保留可用金额未知。恢复估值只服务资金展示，不触发策略计算、目标setter或交易命令。
+恢复INIT先按原持仓数量读取已声明的MarketClient快照，再与原资本基准和券商现金原点合成估值。恢复代的当前快照读取至多用掉估值剩余时间的三分之一，为前代来源校验和账户读回保留时间。当前快照不可用时，在原截止内核对前代同账、同持仓数量、同周期的估值。QMT快照与原CTA已应用价格各自保持来源和原价时点；CTA原价须为raw CNY/share、关联原窗口，持仓价格完整，重建市值沿1e-8 CNY既有表示容差核对。账户约束继续核实际NAP及时效，过期保留可用金额未知。恢复估值只服务资金展示，不触发策略计算、目标setter或交易命令。
 
 
 EFR-21：同账权限交接显式提供execution_permission_origin={schema:"guanheng.execution-permission-origin.v1",file,sha256}。file为实际前代execution.json绝对路径，sha256固定其原字节；两代writes_enabled须为不同布尔值。兼容比较仅将trader.writes_enabled/base_url/binding_id/binding_sha256/instance_id/key_id_env/hmac_secret_env七项还原到前代。其余业务字段、账户、模型、费用、资本基准和金融根逐项保持。原启动截止内最多16跳，支持后续停写及兼容发行。Native独立复核同一归一化，含该标记的record_clean模式拒绝。原进程退出、正常关闭或故障核查、金融文件摘要、当前券商查询、未知命令责任、准确安装与实际解释器入口身份继续核验。标记只表达兼容来源；Source、Host和Trader的写权限及风险检查各守原职责。

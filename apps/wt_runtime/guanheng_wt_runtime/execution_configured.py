@@ -621,12 +621,12 @@ class RetainedStrategy:
     def _read_initial_capital(self, context, broker):
         """初始化后发布只读资金；券商现金、实际P和明确原价分别保留来源。
 
-        原CTA初始化早于行情Parser启动，当前价格尚未进入CTA缓存。恢复优先读取
-        同账、同数量和周期的原估值；首次估值使用已声明的原MarketClient快照。
+        原CTA初始化早于行情Parser启动，先读已声明的原MarketClient快照。
+        快照不可用时，恢复沿同账、同数量和周期核对前代原估值。
         两条路径保留原价时点，不触发策略计算、目标setter或金融命令。
         后续原K线回调继续以原CTA价格和同一资本基准更新。
         """
-        from guanheng_market_client import MarketClient
+        from guanheng_market_client import MarketClient, MarketUnavailable
         from .strategy_capital import InitialCapitalValuation
         market = self.capital_market
         _need(type(market) is dict and set(market) == {
@@ -643,13 +643,18 @@ class RetainedStrategy:
         if codes:
             held = {code:quantities[code][0] for code in codes}
             try:
-                value,stamp,market_value_source,response = self._retained_initial_valuation(broker,funds,deadline=deadline)
-            except (ValueError,CtaBridgeError):
-                client = MarketClient(market['base_url'],os.environ[market['token_env']],
-                    timeout=min(market['timeout_seconds'],deadline-time.monotonic()),
+                token = os.environ.get(market['token_env'])
+                _need(bool(token), 'capital_market_credentials')
+                remaining = deadline-time.monotonic()
+                # 恢复代给前代估值核验及账户读取保留时间，沿同一绝对截止。
+                quote_budget = remaining/3 if self.recovery == 'resume_reconciled' else remaining
+                client = MarketClient(market['base_url'],token,
+                    timeout=min(market['timeout_seconds'],quote_budget),
                     max_response_bytes=market['max_response_bytes'])
                 response = client.quotes_query(['.'.join(code.split('.')[::2]) for code in sorted(codes)])
                 value,stamp = self._snapshot_valuation(response,held)
+            except (ValueError,CtaBridgeError,MarketUnavailable):
+                value,stamp,market_value_source,response = self._retained_initial_valuation(broker,funds,deadline=deadline)
             valuation_stamps.append(stamp)
         cutoff = datetime.now(timezone.utc)
         if self._initial_capital_basis is None:

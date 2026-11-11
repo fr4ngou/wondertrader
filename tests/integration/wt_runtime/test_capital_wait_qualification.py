@@ -64,6 +64,72 @@ class CapitalWaitQualification(unittest.TestCase):
             set_targets=lambda *_: self.fail('等待资料时禁止提交目标'))
         return strategy, context, reports
 
+    def initial_strategy(self):
+        strategy, context, _ = self.strategy(False)
+        code = 'SSE.ETF.510500'
+        strategy.inputs.cash_anchor = self.anchor
+        strategy.mapping = {'510500.SH': code}
+        strategy.targets = (code,)
+        strategy.capital_market = dict(base_url='http://127.0.0.1:18150', token_env='TEST_CAPITAL_QUOTES',
+            timeout_seconds=1, max_response_bytes=8192, max_age_seconds=300)
+        strategy.native_price_ticks = {code: Fraction('0.001')}
+        strategy._initial_capital_basis = None
+        strategy.recovery = 'resume_reconciled'
+        strategy.start_deadline = time.monotonic()+2
+        context.facts = lambda: SimpleNamespace(fund_pnl=0)
+        stamp = self.now-timedelta(seconds=30)
+        broker = SimpleNamespace(position_received_ms=int(stamp.timestamp()*1000),
+            positions=(SimpleNamespace(symbol=code, is_long=True, quantity=100, sellable=100),))
+        return strategy, context, broker, stamp
+
+    def test_initial_nav_reads_qualified_quote_before_recovery_chain(self):
+        from zoneinfo import ZoneInfo
+        strategy, context, broker, stamp = self.initial_strategy()
+        source = stamp.astimezone(ZoneInfo('Asia/Shanghai'))
+        reply = dict(status={'code': 'Ok'}, data={
+            'metadata': {'qualification': 'NativeVerified'},
+            'snapshots': [dict(symbol='SSE.510500', date=int(source.strftime('%Y%m%d')),
+                action_time=int(source.strftime('%H%M%S'))*1000, source_time_verified=True, price=1.25)]})
+        with patch.dict('os.environ', TEST_CAPITAL_QUOTES='test-read-token'), \
+                patch('guanheng_market_client.MarketClient') as client, \
+                patch.object(strategy, '_retained_initial_valuation', side_effect=TimeoutError) as history:
+            client.return_value.quotes_query.return_value = reply
+            self.assertIs(strategy._read_initial_capital(context, broker), reply)
+            history.assert_not_called()
+        observed = strategy.capital_observation
+        self.assertEqual(observed['cash_anchor'], self.anchor)
+        self.assertEqual(Fraction(observed['market_value_cny']), 125)
+        self.assertEqual(observed['market_value_source'], 'broker-position+raw-QMT-snapshot')
+
+    def test_initial_nav_uses_retained_proof_when_current_source_unavailable(self):
+        from guanheng_market_client import MarketUnavailable
+        strategy, context, broker, stamp = self.initial_strategy()
+        proof = (Fraction(125), stamp, 'broker-position+raw-CTA-price', None)
+        clock = [time.monotonic()]
+        strategy.start_deadline = clock[0]+strategy.seconds
+
+        def timeout(**kwargs):
+            clock[0] += kwargs['timeout']
+            raise MarketUnavailable('test transport deadline')
+
+        def retained(_broker, _funds, *, deadline):
+            self.assertGreater(deadline-clock[0], 1)
+            return proof
+
+        with patch('guanheng_wt_runtime.execution_configured.time.monotonic', side_effect=lambda: clock[0]), \
+                patch.dict('os.environ', TEST_CAPITAL_QUOTES='test-read-token'), \
+                patch('guanheng_market_client.MarketClient') as client, \
+                patch.object(strategy, '_retained_initial_valuation', side_effect=retained) as history:
+            def quotes(_symbols):
+                timeout(**client.call_args.kwargs)
+            client.return_value.quotes_query.side_effect = quotes
+            self.assertIsNone(strategy._read_initial_capital(context, broker))
+            history.assert_called_once()
+        observed = strategy.capital_observation
+        self.assertEqual(observed['cash_anchor'], self.anchor)
+        self.assertEqual(Fraction(observed['market_value_cny']), 125)
+        self.assertEqual(observed['price_observed_at'], stamp.isoformat())
+
     def test_wait_callbacks_and_background_keep_valid_account(self):
         # 原故障：每次等待窗口的CTA回调把账户资格清空，后台线程稍后又恢复，产生闪烁。
         for waiting_market in (False, True):
