@@ -130,10 +130,29 @@ def _reference_close(stocks, code, trade_day):
     return None
 
 
-def aggregate(rows, start, end, indexes, stocks, check=lambda: None):
+def _read_reconciliations(root, store, parents, check):
+    path = root / 'issuer-reconciliations.json'
+    if not path.is_file():
+        return set()
+    exclusions = set()
+    for item in json.loads(path.read_bytes()):
+        check()
+        sha = item['disclosure_sha256']
+        _need(store.get(sha).startswith(b'%PDF-') and item['disclosure_url'].startswith('https://'),
+              '证券公告校正缺少原件')
+        key = item['notice_date'], item['code'], item['holder'], Decimal(item['quantity_10k'])
+        _need(key not in exclusions, '证券公告校正身份重复')
+        parents.add(sha)
+        exclusions.add(key)
+    parents.add(store.put(path.read_bytes()))
+    return exclusions
+
+
+def aggregate(rows, start, end, indexes, stocks, check=lambda: None, *, excluded=()):
     """每公告日累计人民币元，估值、缺价及时间冲突按笔单列。"""
     daily = defaultdict(lambda: dict(net_amount_cny=Decimal(0), priced_trade_count=0,
-        estimated_count=0, unpriced_count=0, timing_conflict_count=0))
+        estimated_count=0, unpriced_count=0, timing_conflict_count=0, issuer_excluded_count=0))
+    unmatched = set(excluded)
     seen = set()
     for event in rows:
         check()
@@ -148,6 +167,11 @@ def aggregate(rows, start, end, indexes, stocks, check=lambda: None):
         _need(quantity.is_finite() and quantity != 0 and abs(quantity) == Decimal(str(event['CHANGE_NUM']))
               and event['DIRECTION'] == ('减持' if quantity < 0 else '增持'), '股东公告股份数量和方向不一致')
         values = daily[day]
+        correction = day.isoformat(), code, event['HOLDER_NAME'], quantity
+        if correction in unmatched:
+            unmatched.remove(correction)
+            values['issuer_excluded_count'] += 1
+            continue
         if trade_day > day:
             values['timing_conflict_count'] += 1
             continue
@@ -159,6 +183,7 @@ def aggregate(rows, start, end, indexes, stocks, check=lambda: None):
             values['estimated_count' if price is not None else 'unpriced_count'] += 1
         if price is not None:
             values['net_amount_cny'] += quantity * price * 10_000
+    _need(not unmatched, '证券公告校正与来源数据身份不匹配')
     result = []
     for offset in range((end - start).days + 1):
         day = start + offset * DAY
@@ -177,6 +202,7 @@ def definition():
         'date': ('公告日', '日期'), 'net_amount_cny': ('可计价净增持额', '元'),
         'priced_trade_count': ('成交均价计价', '笔'), 'estimated_count': ('历史收盘价估算', '笔'),
         'unpriced_count': ('缺少合格历史价格', '笔'), 'timing_conflict_count': ('变动日期晚于公告日待核', '笔'),
+        'issuer_excluded_count': ('据公司公告核除的非交易变动', '笔'),
         'csi_close': ('中证全指', '指数点'), 'sse_close': ('上证指数', '指数点'),
         'chinext_close': ('创业板指', '指数点'), 'star_close': ('科创50', '指数点'),
     }
@@ -191,7 +217,7 @@ def definition():
                     panel='main', shown=True, formula=formula, reading=reading)],
         formula=formula, reading=reading, limitations=[
             '成交均价缺失时使用来源历史参考价，或交易截止日及其之前30日内最后未复权收盘价估算。',
-            '缺少合格历史价格时金额不计入小计；日期冲突记录单列。当前归档按公告日回溯，历史当时可得性未知。',
+            '缺少合格历史价格时金额不计入小计；日期冲突、据公司公告核除的非交易变动单列。历史当时可得性未知。',
         ])
 
 
@@ -215,7 +241,8 @@ def publish_archive(reader, root, end, expected, deadline):
         hi = min(end, next_month - DAY)
         rows.extend(_read_report(root / (lo.isoformat()[:7]+'.json'), store, parents, lo, hi, check))
         lo = next_month
-    values = aggregate(rows, FIRST, end, indexes, stocks, check)
+    excluded = _read_reconciliations(root, store, parents, check)
+    values = aggregate(rows, FIRST, end, indexes, stocks, check, excluded=excluded)
     with reader.repository.collection_lease() as acquired:
         if not acquired or reader.repository.current() != expected:
             raise ObservationError('publication_conflict', '观察目录正在更新或当前版本已变化', 409)
@@ -239,4 +266,4 @@ def publish_archive(reader, root, end, expected, deadline):
         result = adopt_snapshot(reader, candidate, digest(encode(candidate)), expected, deadline)
     return dict(**result, shareholder_rows=len(rows),
                 **{name: sum(row[name] for row in values)
-                   for name in ('priced_trade_count', 'estimated_count', 'unpriced_count', 'timing_conflict_count')})
+                   for name in ('priced_trade_count', 'estimated_count', 'unpriced_count', 'timing_conflict_count', 'issuer_excluded_count')})

@@ -122,14 +122,14 @@ export function ExecutiveWeeklyChart({ catalog, data, range }: {
   }, [data.rows, archived, csi, sse, chinext, star, range.start, range.end, coverage.start, coverage.end, today])
   const estimated = weeks.reduce((sum, week) => sum + week.estimated, 0)
   const unpriced = weeks.reduce((sum, week) => sum + week.unpriced, 0)
-  const stats = executiveWeekStats(weeks)
+  const stats = executiveWeekStats(weeks, archived ? 'level' : 'return')
   const scope = data.definition.id.endsWith('.ashare') ? '沪深北' : '沪深'
   return <section className="executive-weekly" aria-label={archived ? "重要股东净减持周度图" : "高管净减持周度图"} aria-busy={indexes.some(query => query.isFetching)}>
     <h3>周度{archived ? '重要股东' : '高管'}净减持金额 vs 主要指数</h3>
     <p className="executive-weekly-stats">
       <span>{weeks[0]?.label ?? '—'} — {weeks.at(-1)?.label ?? '—'} · 共 {weeks.length} 周</span>
       <span>周均净减持 <strong>{format(stats.average)}</strong> 亿元</span>
-      <span>与中证全指周涨跌幅相关系数 <b>{stats.correlation !== null && stats.correlation > 0 ? '+' : ''}{format(stats.correlation)}</b>{stats.count > 0 && `（${stats.count} 周）`}</span>
+      <span>与中证全指{archived ? '周收盘' : '周涨跌幅'}相关系数 <b>{stats.correlation !== null && stats.correlation > 0 ? '+' : ''}{format(stats.correlation)}</b>{stats.count > 0 && `（${stats.count} 周）`}</span>
     </p>
     {indexes.map((query, i) => <ReadNotice key={WEEKLY_INDEXES[i].symbol} label={WEEKLY_INDEXES[i].name} query={query} />)}
     {indexes.some(query => query.isFetching) && <p role="status" className="executive-weekly-note">正在读取指数日线…</p>}

@@ -102,7 +102,7 @@ export function buildExecutiveWeeks(rows: Row[], indexes: Partial<Record<WeeklyI
   return [...weeks.values()]
 }
 
-export function executiveWeekStats(weeks: ExecutiveWeek[]) {
+export function executiveWeekStats(weeks: ExecutiveWeek[], indexBasis: 'return' | 'level' = 'return') {
   const values: number[] = []
   const pairs: [number, number][] = []
   for (const [i, week] of weeks.entries()) {
@@ -111,7 +111,8 @@ export function executiveWeekStats(weeks: ExecutiveWeek[]) {
     const previous = weeks[i - 1]
     const base = previous?.closes['000985.SH']
     const close = week.closes['000985.SH']
-    if (previous && !previous.partial && stamp(week.monday) - stamp(previous.monday) === 7 * DAY && base && close) pairs.push([week.netSales, close / base - 1])
+    if (indexBasis === 'level' && close) pairs.push([week.netSales, close])
+    if (indexBasis === 'return' && previous && !previous.partial && stamp(week.monday) - stamp(previous.monday) === 7 * DAY && base && close) pairs.push([week.netSales, close / base - 1])
   }
   const count = pairs.length
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
