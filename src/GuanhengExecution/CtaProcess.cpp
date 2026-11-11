@@ -292,16 +292,20 @@ bool known_orders_recoverable(guanheng::StandardExecutionHost& execution,const g
 bool settled(guanheng::StandardExecutionHost& execution,const guanheng::StandardQmtRecoveryV1& value){
     return value.submissions_closed&&known_orders_recoverable(execution,value);
 }
-// 比较时保留行情发布文件和来源父目录，同父目录下的发布代和派生缓存属于运行接线。
-void normalize_publication_cache(rj::Document& value){
-    if(!value.HasMember("data")||!value["data"].IsObject())return;
-    auto& data=value["data"];if(!data.HasMember("store")||!data["store"].IsObject())return;
+rj::Value* daily_publication(rj::Value& data){
+    if(!data.IsObject()||!data.HasMember("store")||!data["store"].IsObject())return nullptr;
     auto& store=data["store"];
     if(!store.HasMember("module")||!store["module"].IsString()
-        ||std::string(store["module"].GetString(),store["module"].GetStringLength())!="GuanhengRealtimeReader")return;
-    if(!store.HasMember("daily")||!store["daily"].IsObject())return;
-    auto& daily=store["daily"];if(!daily.HasMember("publication"))return;
-    auto& publication=daily["publication"];keys(publication,{"status_file","publication_file","cache_root","source_root"});
+        ||std::string(store["module"].GetString(),store["module"].GetStringLength())!="GuanhengRealtimeReader")return nullptr;
+    if(!store.HasMember("daily")||!store["daily"].IsObject())return nullptr;
+    auto& daily=store["daily"];
+    return daily.HasMember("publication")?&daily["publication"]:nullptr;
+}
+// 比较时保留行情发布文件和来源父目录，同父目录下的发布代和派生缓存属于运行接线。
+void normalize_publication_cache(rj::Document& value){
+    auto* selected=value.HasMember("data")?daily_publication(value["data"]):nullptr;
+    if(!selected)return;
+    auto& publication=*selected;keys(publication,{"status_file","publication_file","cache_root","source_root"});
     for(const char* field:{"status_file","publication_file","cache_root"})absolute(text(publication,field));
     if(publication.HasMember("source_root")){
         const auto source=absolute(text(publication,"source_root"));
@@ -1149,6 +1153,22 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
         keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","role_replacement","strategy_extension_origin"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
+        std::string reader_cache_path;
+        if(const auto* publication=cfg.HasMember("data")?daily_publication(cfg["data"]):nullptr){
+            // 原配置用于账本证明；只有交给本代 Reader 的配置使用控制代的独占缓存。
+            stage="market_cache";
+            absolute(text(*publication,"cache_root"));
+            const auto reader_cache=control/"daily-cache";
+            for(auto parent=reader_cache.parent_path();!parent.empty();parent=parent.parent_path()){
+                physical(parent);need(fs::is_directory(parent));
+                if(parent==parent.root_path())break;
+            }
+            need(!fs::exists(fs::symlink_status(reader_cache)));
+            // 原 Reader 链使用 Windows 窄路径；先确认转码仍指向同一物理路径。
+            reader_cache_path=reader_cache.string();
+            need(fs::path(reader_cache_path)==reader_cache);
+            stage="configuration";
+        }
         if(cfg.HasMember("role_replacement")){
             need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
         }
@@ -1247,6 +1267,10 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         need(base.loadHolidays(installed(root,text(base_cfg,"holidays")).string().c_str()));
         need(policy.init(installed(root,text(base_cfg,"policy")).string().c_str()));check_start();
         trader=load_variant(member(cfg,"trader"));executer=load_variant(member(cfg,"executer"));env=load_variant(member(cfg,"environment"));data=load_variant(member(cfg,"data"));
+        if(!reader_cache_path.empty()){
+            auto* publication=data->get("store")->get("daily")->get("publication");
+            need(publication&&publication->append("cache_root",reader_cache_path.c_str()));
+        }
         stage="account_lease";
         const auto account_identity=sha(trader->getString("expected_account")+"|"+trader->getString("environment")+"|"+trader->getString("profile"));
         const auto mutex_name=std::wstring(L"Global\\GuanhengCta-")+std::wstring(account_identity.begin(),account_identity.end());

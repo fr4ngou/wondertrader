@@ -81,6 +81,8 @@ def main():
          '-DWT_DEPS_DIR=' + str(seed / 'deps'), '-DGH_FIXED_UPSTREAM_ROOT=' + str(upstream),
          '-DGH_FIXED_OWN_ROOT=' + str(owned), '-DPython3_EXECUTABLE=' + sys.executable], 'configure')
     run([cmake, '--build', build, '--target', recipe['target'], '--parallel', '2'], 'build', 600)
+    run([sys.executable, '-I', '-B', ROOT / 'tests/integration/wt_runtime/check_execution_cache_startup.py',
+         '--exe', build / 'bin/GuanhengCtaHost.exe', '--output', workspace / 'cache-startup'], 'cache-startup', 45)
     includes = [owned / 'src', upstream / 'src', helper, seed / 'deps/rapidjson/include', seed / 'deps/spdlog/include',
                 *list((seed / 'deps/boost/libs').glob('*/include')),
                 *list((seed / 'deps/boost/libs/numeric').glob('*/include'))]
@@ -112,6 +114,7 @@ def main():
     if hashlib.sha256((helper / 'standard_probe.cpp').read_bytes()).hexdigest() != helper_sha256:
         raise ValueError('冻结的C++测试夹具在编译或运行期间发生变化')
     (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'workspace': str(workspace),
+        'cache_startup': {'passed': True, 'log': str(output / 'cache-startup.log')},
         'cpp_fixture': {'path': str(helper / 'standard_probe.cpp'), 'sha256': helper_sha256},
         'standard_source_sha256': hashlib.sha256((owned / 'src/TraderQMT/StandardQmtTrader.cpp').read_bytes()).hexdigest(),
         'real_broker_calls': 0, 'historical_reconciliation_qualified': False,
