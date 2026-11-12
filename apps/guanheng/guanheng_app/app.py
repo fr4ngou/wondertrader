@@ -225,7 +225,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
             "strategy":{"available":True,"read_only":True,"reason":None},
             "execution":{"available":business,"read_only":True,"reason":None if business else "尚未配置WT策略观察读取连接"}}}
 
-    async def read_chart(symbol, period, limit, before, daily_limit, years, deadline):
+    async def read_chart(symbol, period, limit, before, daily_limit, years, deadline, calendar_days=None, calendar_months=None):
         remaining = deadline - monotonic()
         if remaining <= 0:
             return unavailable_native_chart(symbol, period, "WonderTrader 行情读取预算已耗尽")
@@ -235,6 +235,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
                     symbol=symbol, period=period, limit=limit, before=before,
                     settings=configured, client_factory=market_client_factory,
                     timeout_seconds=budget, daily_limit=daily_limit, years=years,
+                    calendar_days=calendar_days, calendar_months=calendar_months,
                 ), deadline,
             )
             wrapped = asyncio.wrap_future(future)
@@ -257,6 +258,8 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         limit: int | None = Query(default=None, ge=1, le=2000), before: datetime | None = None,
         daily_limit: int | None = Query(default=None, ge=1, le=2000),
         years: int | None = Query(default=None, ge=1),
+        calendar_days: int | None = Query(default=None, ge=1, le=31),
+        calendar_months: int | None = Query(default=None, ge=1, le=12),
         benchmark_symbol: str | None = None, feature_version: str | None = None,
     ):
         try:
@@ -270,19 +273,21 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
             raise HTTPException(422, "daily_limit 仅用于周线和月线")
         if years is not None and period not in ("1d", "1w", "1mo"):
             raise HTTPException(422, "years 仅用于日线、周线和月线")
-        if daily_limit is not None and years is not None:
-            raise HTTPException(422, "daily_limit 与 years 不能同时使用")
+        if (calendar_days is not None or calendar_months is not None) and period not in ("1d", "1w", "1mo"):
+            raise HTTPException(422, "公历日月范围仅适用于日、周、月线")
+        if sum(value is not None for value in (daily_limit, years, calendar_days, calendar_months)) > 1:
+            raise HTTPException(422, "每次仅可选择一种日线范围")
         if feature_version is not None or (before is not None and before.utcoffset() is None):
             raise HTTPException(422, "行情查询须使用带时区的时间，且不接受旧feature_version")
         # 主图与基准共享同一绝对截止；每个worker真正执行时再次扣除排队时间。
         deadline = monotonic() + configured.wondertrader_market_timeout_seconds
-        chart = await read_chart(symbol, period, limit, before, daily_limit, years, deadline)
+        chart = await read_chart(symbol, period, limit, before, daily_limit, years, deadline, calendar_days, calendar_months)
         unavailable = {"strategy", "bridge"}
         benchmark = None
         if benchmark_symbol and benchmark_symbol != symbol:
             # 主图空或失败时，附加读取没有对齐窗口；明确缺项并保留来源预算。
             source = (
-                await read_chart(benchmark_symbol, period, limit, before, daily_limit, years, deadline)
+                await read_chart(benchmark_symbol, period, limit, before, daily_limit, years, deadline, calendar_days, calendar_months)
                 if chart.data_available else unavailable_native_chart(
                     benchmark_symbol, period, "主图无可用行情，基准暂不读取"
                 )

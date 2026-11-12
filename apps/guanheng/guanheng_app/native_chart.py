@@ -1,5 +1,6 @@
 """单次独立SDK查询投影原生图表；分钟聚合和日线原值由来源服务拥有。"""
 
+from calendar import monthrange
 from datetime import datetime, timedelta, timezone
 import math
 import re
@@ -78,7 +79,8 @@ def _calendar_projection(candles, period, limit):
             close=rows[-1].close,
             volume=sum(row.volume for row in rows),
         ))
-    return result, sum(len(rows) for unused, rows in selected)
+    first_source_at = selected[0][1][0].occurred_at if selected else None
+    return result, sum(len(rows) for unused, rows in selected), first_source_at
 
 
 def _calendar_year_cutoff(stamp, years):
@@ -88,7 +90,7 @@ def _calendar_year_cutoff(stamp, years):
         return stamp.replace(year=stamp.year - years, day=28)
 
 
-def _daily_projection(response, request, symbol, period, limit, years):
+def _daily_projection(response, request, symbol, period, limit, years, calendar_days, calendar_months):
     """复用SDK0.17来源协议及CNI身份；图表层另核OHLC和日期标签。"""
     from guanheng_market_client.source_history import validate_source_daily_data
 
@@ -99,9 +101,17 @@ def _daily_projection(response, request, symbol, period, limit, years):
         stamp = datetime.strptime(str(row["date"]), "%Y%m%d").replace(tzinfo=SHANGHAI_TIME_ZONE)
         candles.append(MarketChartCandle(occurred_at=stamp.astimezone(timezone.utc),
             open=row["open"], high=row["high"], low=row["low"], close=row["close"], volume=row["volume"]))
-    if years is not None and candles:
-        last = candles[-1].occurred_at.astimezone(SHANGHAI_TIME_ZONE)
-        cutoff = _calendar_year_cutoff(last, years).date()
+    if candles and any(value is not None for value in (years, calendar_days, calendar_months)):
+        last = candles[-1].occurred_at.astimezone(SHANGHAI_TIME_ZONE).date()
+        if years is not None:
+            cutoff = _calendar_year_cutoff(last, years)
+        elif calendar_days is not None:
+            cutoff = last - timedelta(days=calendar_days - 1)
+        else:
+            month_index = last.year * 12 + last.month - 1 - calendar_months
+            year, month = divmod(month_index, 12)
+            month += 1
+            cutoff = last.replace(year=year, month=month, day=min(last.day, monthrange(year, month)[1]))
         candles = [row for row in candles
                    if row.occurred_at.astimezone(SHANGHAI_TIME_ZONE).date() >= cutoff]
     native_source = {key: metadata[key] for key in (
@@ -112,8 +122,9 @@ def _daily_projection(response, request, symbol, period, limit, years):
     if 'current_day' in data:
         native_source['current_day']=data['current_day']
     source_count = len(candles)
+    first_source_at = None
     if period in ("1w", "1mo"):
-        candles, source_count = _calendar_projection(candles, period, limit)
+        candles, source_count, first_source_at = _calendar_projection(candles, period, limit)
     else:
         candles = candles[-limit:]
         source_count = len(candles)
@@ -121,17 +132,21 @@ def _daily_projection(response, request, symbol, period, limit, years):
         symbol=symbol, period=period, candles=candles,
         data_available=bool(candles), as_of=candles[-1].occurred_at if candles else None,
         missing_reason=None if candles else "当前查询没有已发布的来源日线，日期标签不表示实际闭合或可获知时刻",
-        source_period="1d", source_bar_count=source_count, source_kind="wondertrader",
+        source_period="1d", source_bar_count=source_count, first_source_at=first_source_at, source_kind="wondertrader",
         derived=period in ("1w", "1mo"),
         native_source=native_source)
 
 
-def _daily_source_limit(period, limit, daily_limit, years):
+def _daily_source_limit(period, limit, daily_limit, years, calendar_days, calendar_months):
     """为自然周期请求有界日线窗口；不足时按实际可聚合数据返回。"""
     if daily_limit is not None:
         return daily_limit
     if years is not None:
-        return 2000
+        return min(2000, years * 366 + 1)
+    if calendar_days is not None:
+        return calendar_days
+    if calendar_months is not None:
+        return calendar_months * 31 + 1
     if period == "1w":
         return min(2000, limit * 6 + 5)
     if period == "1mo":
@@ -151,6 +166,8 @@ def build_native_chart(
     timeout_seconds: float | None = None,
     daily_limit: int | None = None,
     years: int | None = None,
+    calendar_days: int | None = None,
+    calendar_months: int | None = None,
 ) -> MarketChartBundle:
     """单次 SDK 历史查询；before 含端点，输出以 UTC 传输。
 
@@ -179,8 +196,11 @@ def build_native_chart(
     if years is not None and (period not in ("1d", "1w", "1mo")
             or type(years) is not int or years < 1):
         raise ValueError("years 仅接受日周月查询的正整数公历年")
-    if daily_limit is not None and years is not None:
-        raise ValueError("daily_limit 与 years 不能同时使用")
+    for value, maximum in ((calendar_days, 31), (calendar_months, 12)):
+        if value is not None and (not daily or type(value) is not int or not 1 <= value <= maximum):
+            raise ValueError("公历日月范围仅适用于日、周、月线")
+    if sum(value is not None for value in (daily_limit, years, calendar_days, calendar_months)) > 1:
+        raise ValueError("每次仅可选择一种日线范围")
     if before is not None and (before.tzinfo is None or before.utcoffset() is None):
         raise ValueError("分钟图表 before 必须包含时区")
     minutes = 1 if period == "1m" else 5
@@ -232,7 +252,7 @@ def build_native_chart(
         "code": symbol[:6],
         "from": first,
         "to": end,
-        "limit": _daily_source_limit(period, limit, daily_limit, years) if daily else limit,
+        "limit": _daily_source_limit(period, limit, daily_limit, years, calendar_days, calendar_months) if daily else limit,
     }
     if not source_values:
         request["period_minutes"] = minutes
@@ -252,7 +272,7 @@ def build_native_chart(
                 symbol, period, _STATUS_REASONS.get(code, "WonderTrader 行情来源暂不可用")
             )
         if daily:
-            return _daily_projection(response, request, symbol, period, limit, years)
+            return _daily_projection(response, request, symbol, period, limit, years, calendar_days, calendar_months)
         data = response["data"]
         if source_values:
             from guanheng_market_client.source_history import validate_source_data

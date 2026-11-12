@@ -1,19 +1,19 @@
 /* 共享外观变量供工作区、独立市场观察和图表读取。 */
 :root[data-observer-theme="white"] {
   color-scheme: light;
-  --bg: #f5f7fb;
+  --bg: #f4f7f7;
   --panel-solid: #fff;
-  --panel-soft: #f0f4fa;
-  --sidebar-bg: #f8faff;
+  --panel-soft: #eef4f4;
+  --sidebar-bg: #eef3f3;
   --ink: #18253a;
   --muted: #53637a;
   --faint: #596b85;
-  --line: #e0e7f1;
-  --line-strong: #b9c7da;
-  --accent: #195bd0;
-  --accent-strong: #124baa;
-  --accent-soft: #e8f0ff;
-  --accent-border: #a8c3f2;
+  --line: #d9e4e5;
+  --line-strong: #aebfc2;
+  --accent: #006e62;
+  --accent-strong: #00584f;
+  --accent-soft: #dcefeb;
+  --accent-border: #94c2bb;
   --on-accent: #fff;
   --positive: #067553;
   --positive-soft: #e5f6ee;
@@ -62,11 +62,11 @@
   --faint: #a0afc3;
   --line: #2b3442;
   --line-strong: #4b5a6f;
-  --accent: #8ab6ff;
-  --accent-strong: #b0cdff;
-  --accent-soft: #22344f;
-  --accent-border: #476b9d;
-  --on-accent: #0e203a;
+  --accent: #70d4c5;
+  --accent-strong: #a6e8de;
+  --accent-soft: #223c3b;
+  --accent-border: #406e68;
+  --on-accent: #102728;
   --positive: #61d6a8;
   --positive-soft: #16382f;
   --negative: #ff8e9a;

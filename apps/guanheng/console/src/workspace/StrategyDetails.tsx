@@ -1,3 +1,4 @@
+import { WorkspaceDock } from './WorkspaceDock'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import { fetchStrategyDetails, type OptionalFact, type StrategyDetails as Details } from './strategyDetailsApi'
@@ -47,19 +48,28 @@ export default function StrategyDetails({ strategy }: {
     <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" observedAt={data.returns.valued_at} />
   </dl> : null
   return <section className="surface-card strategy-compact" aria-label="策略实际详情">
-    <div className="operations-heading"><h3>当前持仓与运行</h3><button disabled={query.isFetching} onClick={()=>void query.refetch()}>{query.isFetching?'正在读取详情…':'刷新策略详情'}</button></div>
+    <div className="operations-heading strategy-runtime-heading">
+      <h3>当前持仓与运行</h3>
+      {data ? <span className="strategy-execution-state" role="status"><StatusBadge state={data.execution.state} label={data.execution.label} /></span> : null}
+      <div className="strategy-runtime-actions">
+        {data ? <Link to="/account">查看券商账户</Link> : null}
+        <button disabled={query.isFetching} onClick={() => void query.refetch()}>{query.isFetching ? '正在读取详情…' : '刷新策略详情'}</button>
+      </div>
+    </div>
     {query.isError ? <p role="alert">{query.error.message}{data?'。当前保留上次成功结果和原数据时间。':''}</p> : null}
     {query.isPending ? <p role="status">正在读取策略详情…</p> : null}
     {data ? <>
-      <div className="compact-status-strip" role="status"><StatusBadge state={data.execution.state} label={data.execution.label} /><Link to="/account">查看券商账户</Link></div>
       {data.execution.state !== 'ready' ? <p role="status">{data.execution.reason}</p> : null}
       {currentGroups?.account.status !== 'complete' && moneyGroup?.status === 'complete' ? <p role="status">本轮资金未更新，当前保留上次成功资金及原查询时间。</p> : null}
-      <StrategyPositionTargets details={data} positionGroup={positionGroup} positionRefreshed={currentGroups?.position.status === 'complete'} />
+      <WorkspaceDock layoutId="strategy-runtime" primaryTitle="持仓与目标仓位" secondaryTitle="资金与决策" secondaryWidth={350}
+        primary={<StrategyPositionTargets details={data} positionGroup={positionGroup} positionRefreshed={currentGroups?.position.status === 'complete'} />}
+        secondary={<>
       <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
       {runFacts}
       {data.calculation_reason ? <p role="status">{data.calculation_reason}</p> : null}
       {data.calculation ? <p title={currentAuxiliaryPresentation(data.calculation).title}>策略最近计算：{data.calculation.status_label}；决策时间：{clock(data.calculation.decision_at)}；{currentAuxiliaryPresentation(data.calculation).label}</p> : null}
 
+        </>} />
     </> : null}
   </section>
 }

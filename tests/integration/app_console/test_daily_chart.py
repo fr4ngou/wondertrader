@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from guanheng_app.app import create_app
-from guanheng_app.contracts.market import MarketChartBundle
+from guanheng_app.contracts.market import MarketChartBundle, SHANGHAI_TIME_ZONE
 from guanheng_app.native_chart import build_native_chart
 from guanheng_app.settings import ConsoleSettings
 
@@ -206,6 +206,31 @@ def test_calendar_year_window_uses_last_actual_source_date_before_aggregation():
         before=None,settings=settings(),now=datetime(2026,11,1,tzinfo=timezone.utc),
         client_factory=DailyFactory(behavior))
     assert monthly.source_bar_count==2 and len(monthly.candles)==2
+
+
+@pytest.mark.parametrize("window,source_limit,first", [
+    ({"calendar_days": 7}, 7, 20260325),
+    ({"calendar_months": 1}, 32, 20260228),
+    ({"years": 1}, 367, 20260227),
+])
+def test_calendar_windows_bound_daily_reads_and_clip_before_aggregation(window, source_limit, first):
+    def behavior(request):
+        response = daily_response(request, empty=True)
+        dates = (20260227, 20260228, 20260324, 20260325, 20260331)
+        response["data"]["bars"] = [
+            {"symbol": f"{request['exchange']}.{request['code']}", "date": day,
+             "open": float(day), "high": float(day + 1), "low": float(day), "close": float(day), "volume": 1, "amount": 1}
+            for day in dates
+        ]
+        return response
+
+    factory = DailyFactory(behavior)
+    result = build_native_chart(symbol="510300.SH", period="1mo", limit=2000, before=None, settings=settings(),
+        now=datetime(2026, 4, 2, tzinfo=timezone.utc), client_factory=factory, **window)
+    assert factory.calls[0][0]["limit"] == source_limit
+    assert int(result.first_source_at.astimezone(SHANGHAI_TIME_ZONE).strftime("%Y%m%d")) == first
+    assert result.candles[0].open == first
+    assert result.candles[-1].close == 20260331
 
 
 def test_daily_earlier_observed_date_and_deployment_budget_are_respected():

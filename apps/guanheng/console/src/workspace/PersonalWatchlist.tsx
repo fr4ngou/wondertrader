@@ -23,8 +23,8 @@ function FiveDaySparkline({ values }: { values: number[] }) {
       : <polyline points={coordinates.map(point => point.join(',')).join(' ')} fill="none" stroke="currentColor" strokeWidth="1.6" />}
   </svg>
 }
-function WatchlistRow({ symbol, selected, model, onView, ready, dailySupported, timeoutMs }: {
-  symbol: string; selected: boolean; model: PersonalWatchlistModel; onView: (symbol: string) => void; ready: boolean; dailySupported: boolean; timeoutMs: number
+function WatchlistRow({ symbol, selected, held, model, onView, ready, dailySupported, timeoutMs }: {
+  symbol: string; selected: boolean; held: boolean; model: PersonalWatchlistModel; onView: (symbol: string) => void; ready: boolean; dailySupported: boolean; timeoutMs: number
 }) {
   const element = useRef<HTMLLIElement>(null)
   const client = useQueryClient()
@@ -52,13 +52,13 @@ function WatchlistRow({ symbol, selected, model, onView, ready, dailySupported, 
     <button type="button" className="market-watch-open" aria-pressed={selected} onClick={() => onView(symbol)}
       aria-label={`查看 ${identity.data?.name ?? symbol}`}>
       <span className="market-watch-identity"><strong title={identity.data?.name ?? symbol}>{identity.data?.name ?? symbol}</strong>
-        <small>{symbol} · {type === 'etf' ? 'ETF' : type === 'index' ? '指数' : type === 'stock' ? '股票' : '证券'}</small></span>
+        <small>{symbol} · {type === 'etf' ? 'ETF' : type === 'index' ? '指数' : type === 'stock' ? '股票' : '证券'}{held ? ' · 持仓' : ''}</small></span>
       {values.length ? <FiveDaySparkline values={values} /> : <span className="market-mini-empty">
         {!dailySupported ? '无日线来源' : history.isError ? '读取失败' : history.isPending ? '待更新' : '暂无日线'}</span>}
       <span className="market-watch-price">{values.at(-1)?.toLocaleString('zh-CN', { maximumFractionDigits: 3 }) ?? '—'}</span>
     </button>
-    <button type="button" className="market-watch-remove" aria-label={`移出 ${symbol} 的自选`} disabled={!model.canEdit}
-      onClick={() => void model.toggle(symbol)}><X size={13} /></button>
+    {model.symbols.includes(symbol) ? <button type="button" className="market-watch-remove" aria-label={`移出 ${symbol} 的自选`} disabled={!model.canEdit}
+      onClick={() => void model.toggle(symbol)}><X size={13} /></button> : null}
     {identity.isError || history.isError ? <button className="market-watch-retry" type="button"
       title={history.error?.message ?? identity.error?.message} disabled={!ready || identity.isFetching || history.isFetching}
       aria-label={`重试 ${symbol} 的名称和小图`} onClick={() => {
@@ -66,18 +66,19 @@ function WatchlistRow({ symbol, selected, model, onView, ready, dailySupported, 
       }}><RefreshCw size={12} />重试</button> : null}
   </li>
 }
-export default function PersonalWatchlist({ model, selected, onView, ready, dailySupported, timeoutMs }: {
-  model: PersonalWatchlistModel; selected: string; onView: (symbol: string) => void; ready: boolean; dailySupported: boolean; timeoutMs: number
+export default function PersonalWatchlist({ model, held = [], selected, onView, ready, dailySupported, timeoutMs }: {
+  model: PersonalWatchlistModel; held?: readonly string[]; selected: string; onView: (symbol: string) => void; ready: boolean; dailySupported: boolean; timeoutMs: number
 }) {
+  const symbols = [...new Set([...held, ...model.symbols])]
   return <aside className="market-watchlist" aria-label="我的自选">
-    <header><h2>自选 <span>{model.symbols.length}</span></h2>
+    <header><h2>自选 <span>{symbols.length}</span></h2>
       <button type="button" aria-label="刷新自选" disabled={model.loading || model.saving} onClick={() => void model.reread()}><RefreshCw size={15} /></button>
     </header>
     {model.message ? <div className="market-watch-message" role="status">{model.message}</div> : null}
     {model.needsReview && !model.needsRead ? <button onClick={model.confirm}>确认当前列表</button> : null}
-    <ul>{model.symbols.map(symbol => <WatchlistRow key={symbol} symbol={symbol} selected={symbol === selected}
-      model={model} onView={onView} ready={ready} dailySupported={dailySupported} timeoutMs={timeoutMs} />)}</ul>
-    {!model.symbols.length && !model.loading ? <div className="market-watch-empty">搜索证券后，点击星标加入自选。</div> : null}
+    <ul>{symbols.map(symbol => <WatchlistRow key={symbol} symbol={symbol} selected={symbol === selected}
+      model={model} held={held.includes(symbol)} onView={onView} ready={ready} dailySupported={dailySupported} timeoutMs={timeoutMs} />)}</ul>
+    {!symbols.length && !model.loading ? <div className="market-watch-empty">搜索证券后，点击星标加入自选。</div> : null}
     <footer>最近 5 个交易日</footer>
   </aside>
 }

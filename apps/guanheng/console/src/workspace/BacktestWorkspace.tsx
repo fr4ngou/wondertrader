@@ -49,10 +49,11 @@ export default function BacktestWorkspace() {
   }
   function back() { const next = new URLSearchParams(params); next.delete('run'); next.delete('compare'); setParams(next) }
   return <section className="workspace-page bt-workspace">
-    <header className="strategy-page-heading"><h1>{runId ? '回测' : '回测记录'}</h1>
+    <header className="strategy-page-heading">{runId ? null : <h1>回测记录</h1>}
       <div className="strategy-page-controls">
         <StrategyPicker selection={selection} archivePending={query.isPending} />
         {strategy ? <div className="strategy-page-actions">
+          {runId ? <button className="bt-back-list" onClick={back}>← 返回回测列表</button> : null}
           {!runId ? <button disabled={query.isFetching} onClick={() => void query.refetch()}>刷新列表</button> : null}
           <Link className="strategy-backtest-link" to={'/strategies?' + new URLSearchParams({ strategy: strategyKey(strategy) })}>查看策略 →</Link>
         </div> : null}
@@ -65,7 +66,6 @@ export default function BacktestWorkspace() {
       {unclassified ? <p role="alert">{unclassified} 份报告的归属读取失败，其他报告仍可查看。<button disabled={query.isFetching} onClick={() => void query.refetch()}>重读报告目录</button></p> : null}
     {strategy ? <>
       {runId ? <>
-        <button className="bt-back-list" onClick={back}>← 返回回测列表</button>
         {selected && compareId && !comparison ? <p role="status">当前策略下未取得该对比报告，请重新选择。<button onClick={() => open(runId)}>重新选择对比报告</button></p> : selected ? <BacktestAnalysisBoundary key={strategyKey(strategy) + selected.entry.run_id + selected.entry.receipt_sha256 + (compareId ?? '')}><Suspense fallback={<p role="status">正在读取所选报告…</p>}><BacktestPerformance
           entry={selected.entry} entries={reports.map(item => item.entry)} capitalLabels={capitals} initialComparison={params.get('compare') ?? ''}
           ready={true}

@@ -1,3 +1,5 @@
+import { mapAccountFills, type AccountFill } from '../workspace/marketAccountFacts'
+import { ChartZoomToolbar } from './ChartZoomToolbar'
 import { useEffect, useMemo, useRef } from 'react'
 import * as echarts from 'echarts/core'
 import { BarChart, CandlestickChart, LineChart } from 'echarts/charts'
@@ -30,17 +32,26 @@ echarts.use([
   SVGRenderer,
 ])
 
+const noFills: readonly AccountFill[] = []
+const amountFormat = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+
 export function MarketCandlestickChart({
   bundle,
   loading = false,
   visibleCount,
+  intradayCandles = false,
+  fills = noFills,
 }: {
   bundle?: MarketChartBundle
   loading?: boolean
   visibleCount: number | 'all'
+  intradayCandles?: boolean
+  fills?: readonly AccountFill[]
 }) {
   const root = useRef<HTMLDivElement>(null)
   const theme = useObserverTheme()
+  const intraday = bundle?.period === '1m' || bundle?.period === '5m'
+  const linePrice = intraday && !intradayCandles
   const continuity = useMemo(
     () => buildMarketChartContinuity(bundle?.candles ?? [], bundle?.period ?? '1d'),
     [bundle],
@@ -54,7 +65,6 @@ export function MarketCandlestickChart({
     const chart = echarts.init(root.current, undefined, {
       renderer: import.meta.env.MODE === 'test' ? 'svg' : 'canvas',
     })
-    const intraday = bundle.period === '1m' || bundle.period === '5m'
     const hasVolume = bundle.volume_available !== false
     const labels = bundle.candles.map((item) => {
       const date = new Date(item.occurred_at)
@@ -94,6 +104,21 @@ export function MarketCandlestickChart({
         tooltip: { formatter: item.label },
       }]
     })
+    const fillMarkers = mapAccountFills(bundle, fills).map(({ index, side, amounts }) => {
+      const buy = side === 'buy'
+      const name = buy ? '买入' : '卖出'
+      const known = amounts.filter((amount): amount is number => amount !== null)
+      const sum = known.reduce((total, amount) => total + amount, 0)
+      const amountLabel = !known.length ? '金额未知'
+        : known.length === amounts.length ? `成交金额 ¥${amountFormat.format(sum)}` : `已确认金额 ¥${amountFormat.format(sum)}，另有 ${amounts.length - known.length} 笔金额未知`
+      return {
+        name, coord: [index, buy ? bundle.candles[index].low : bundle.candles[index].high],
+        value: name, symbol: 'circle', symbolSize: 24, symbolOffset: [0, buy ? 14 : -14],
+        itemStyle: { color: buy ? '#bb3648' : '#08765b', borderColor: palette.panel, borderWidth: 1 },
+        label: { color: '#ffffff', fontSize: 9, formatter: '{c}' },
+        tooltip: { trigger: 'item' as const, formatter: () => `${name} · ${amounts.length} 笔<br/>${amountLabel}` },
+      }
+    })
     const benchmarkPoints = bundle.benchmark?.data_available
       ? bundle.benchmark.points
       : []
@@ -105,7 +130,7 @@ export function MarketCandlestickChart({
           return close === undefined ? null : (close / benchmarkBase) * 100
         })
       : []
-    const priceSeries = intraday
+    const priceSeries = linePrice
       ? continuity.segments.map((data) => {
           const pointCount = data.reduce<number>(
             (total, value) => total + (value === null ? 0 : 1),
@@ -129,9 +154,9 @@ export function MarketCandlestickChart({
         }]
     const priceWithEvidence = priceSeries.map((series, index) => ({
       ...series,
-      markPoint: index === 0 && overlayMarkers.length ? {
+      markPoint: index === 0 && (overlayMarkers.length || fillMarkers.length) ? {
         silent: false,
-        data: overlayMarkers,
+        data: [...overlayMarkers, ...fillMarkers],
       } : undefined,
     }))
     const benchmarkName = bundle.benchmark?.data_available
@@ -159,15 +184,15 @@ export function MarketCandlestickChart({
       ],
       legend: {
         top: 0, right: 4,
-        data: [intraday ? '分时价' : '价格', ...(hasVolume ? ['成交量'] : []), ...(benchmarkName ? [benchmarkName] : [])],
+        data: [linePrice ? '分时价' : '价格', ...(hasVolume ? ['成交量'] : []), ...(benchmarkName ? [benchmarkName] : [])],
         textStyle: { color: palette.muted, fontSize: 12 },
       },
       tooltip: { ...palette.tooltip, trigger: 'axis', axisPointer: { type: 'cross' } },
-      axisPointer: { link: [{ xAxisIndex: 'all' }] },
+      axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: palette.ink, color: palette.panel } },
       xAxis: [
         {
           type: 'category', data: labels, boundaryGap: true,
-          axisLine: { lineStyle: { color: palette.border } }, axisLabel: { color: palette.muted, fontSize: 11 },
+          axisLine: { lineStyle: { color: palette.border } }, axisLabel: { color: palette.muted, fontSize: 11, hideOverlap: true },
         },
         ...(hasVolume ? [{
           type: 'category', gridIndex: 1, data: labels, boundaryGap: true,
@@ -196,7 +221,7 @@ export function MarketCandlestickChart({
       dataZoom: [
         {
           type: 'inside', xAxisIndex: hasVolume ? [0, 1] : [0], startValue, endValue: bundle.candles.length - 1,
-          zoomOnMouseWheel: true, moveOnMouseWheel: false, moveOnMouseMove: true,
+          zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true,
         },
         {
           type: 'slider', xAxisIndex: hasVolume ? [0, 1] : [0], bottom: 0, height: 18,
@@ -224,7 +249,7 @@ export function MarketCandlestickChart({
       observer?.disconnect()
       chart.dispose()
     }
-  }, [bundle, continuity, visibleCount, theme])
+  }, [bundle, continuity, visibleCount, theme, fills, intraday, linePrice])
 
   // A background refresh retains the previous verified candles. Replacing the
   // chart DOM here would also orphan its ECharts instance until bundle changes.
@@ -246,7 +271,7 @@ export function MarketCandlestickChart({
       />
     )
   }
-  const kind = bundle.period === '1m' || bundle.period === '5m' ? '分时走势' : 'K 线'
+  const kind = linePrice ? '分时走势' : 'K 线'
   const volumeLabel = bundle.volume_partial
     ? '，近期报价聚合段成交量暂未提供'
     : bundle.volume_available === false ? '，成交量暂未提供' : '与成交量'
@@ -255,6 +280,7 @@ export function MarketCandlestickChart({
     : ''
   return (
     <div className="market-chart-frame">
+      <ChartZoomToolbar plot={root} />
       <div ref={root} className="market-chart" aria-label={`${bundle.symbol} ${bundle.period} ${kind}${volumeLabel}${continuityLabel}`} />
       {continuity.gapCount > 0 ? (
         <div className="market-chart-gap-note" role="status">

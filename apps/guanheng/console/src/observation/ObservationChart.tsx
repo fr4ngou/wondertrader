@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { BarChart, CandlestickChart, LineChart } from 'echarts/charts'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -109,6 +109,7 @@ export function ObservationChart({ definition, rows, history, historyLabel = '�
 }) {
   const plot = useRef<HTMLDivElement>(null); const navigator = useRef<HTMLDivElement>(null)
   const theme = useObserverTheme()
+  const [brushing, setBrushing] = useState(false)
   const callback = useRef(onRange); callback.current = onRange
   useEffect(() => {
     if (!plot.current) return
@@ -116,16 +117,16 @@ export function ObservationChart({ definition, rows, history, historyLabel = '�
     const options=chartOptions(definition, rows, hidden, focus, mode, activity, range, observerChartColors(plot.current))
     chart.setOption({...options,legend:{...options.legend,selectedMode:!!onHidden}})
     chart.on('legendselectchanged',((event:{selected:Record<string,boolean>})=>onHidden?.(legendHidden(definition.lines,hidden,event.selected))) as never)
-    if (definition.axis_type !== 'tenor') chart.dispatchAction({ type: 'takeGlobalCursor', key: 'brush', brushOption: { brushType: 'lineX', brushMode: 'single' } })
+    if (definition.axis_type !== 'tenor' && brushing) chart.dispatchAction({ type: 'takeGlobalCursor', key: 'brush', brushOption: { brushType: 'lineX', brushMode: 'single' } })
     chart.on('brushEnd', ((event: { areas: { coordRange?: [number, number] }[] }) => {
       const values = event.areas[0]?.coordRange
       if (!values) return
       const selected = brushRange(values,range)
-      if (selected) callback.current(selected)
+      if (selected) { setBrushing(false); callback.current(selected) }
     }) as never)
     const resize = new ResizeObserver(() => chart.resize()); resize.observe(plot.current)
     return () => { resize.disconnect(); chart.dispose() }
-  }, [definition, rows, hidden, focus, mode, activity, range.start, range.end, theme])
+  }, [definition, rows, hidden, focus, mode, activity, range.start, range.end, theme, brushing])
   useEffect(() => {
     if (!navigator.current || !history || definition.axis_type === 'tenor') return
     const palette = observerChartColors(navigator.current)
@@ -146,7 +147,9 @@ export function ObservationChart({ definition, rows, history, historyLabel = '�
   return <div className="observation-plot" tabIndex={0} role="group" aria-label="图表，方向键缩放和移动日期"
     onPointerDown={event => event.currentTarget.focus({ preventScroll: true })}
     onKeyDown={event => { if (definition.axis_type === 'tenor' || !history) return; const next = keyboardRange(event.key, range, history.coverage); if (next) { event.preventDefault(); event.stopPropagation(); callback.current(next) } }}>
+    {definition.axis_type !== 'tenor' ? <div className="observer-chart-tools"><button type="button" aria-pressed={brushing}
+      onClick={() => setBrushing(value => !value)}>{brushing ? '取消框选' : '框选日期'}</button></div> : null}
     <div ref={plot} style={definition.panel_groups?{height:definition.panel_groups.length*190+70}:undefined} className={'observation-chart'+(definition.board==='pcr' && focus==='both' ? ' observation-chart-pcr' : '')} />
-    {definition.axis_type !== 'tenor' && (history ? <><div ref={navigator} className="observation-history" /><p className="observation-note">{historyLabel}：{history.coverage.start} — {history.coverage.end} · {history.raw_count}条；拖选主图选日期，↑放大 ↓缩小 ←前移 →后移</p></> : <p className="observation-note">历史导航暂不可用，当前日期内的图表仍可查看。</p>)}
+    {definition.axis_type !== 'tenor' && (history ? <><div ref={navigator} className="observation-history" /><p className="observation-note">{historyLabel}：{history.coverage.start} — {history.coverage.end} · {history.raw_count}条；框选或使用下方导航调整日期，↑放大 ↓缩小 ←前移 →后移</p></> : <p className="observation-note">历史导航暂不可用，当前日期内的图表仍可查看。</p>)}
   </div>
 }

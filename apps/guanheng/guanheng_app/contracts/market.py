@@ -197,6 +197,7 @@ class MarketChartBundle(MarketModel):
     missing_reason: str | None = Field(default=None, max_length=500)
     source_period: Literal["1m", "1d"] = "1m"
     source_bar_count: int | None = Field(default=None, ge=0)
+    first_source_at: datetime | None = None  # 周月图首个参与聚合的上海交易日零点，保留首周期的实际起点。
     source_kind: Literal["wondertrader"] = "wondertrader"
     native_source: MarketChartNativeSource | MarketChartSourceLabelSource | MarketChartSourceDateSource | None = None
     source_observation: MarketChartSourceObservation | None = None
@@ -268,6 +269,12 @@ class MarketChartBundle(MarketModel):
         times = [c.occurred_at for c in self.candles]
         if times != sorted(set(times)):
             raise ValueError("分钟顺序或唯一性无效")
+        if self.first_source_at is not None and (
+            not calendar_derived or not times or self.first_source_at.utcoffset() is None
+            or self.first_source_at.astimezone(SHANGHAI_TIME_ZONE).time().isoformat() != "00:00:00"
+            or self.first_source_at > times[0]
+        ):
+            raise ValueError("周月图首个来源日期须落在首周期结束之前")
         if self.overlay_unavailable_sources != sorted(set(self.overlay_unavailable_sources)):
             raise ValueError("缺失来源须排序去重")
         return self
@@ -278,4 +285,6 @@ class MarketChartBundle(MarketModel):
         if self.schema_version != "1.7":
             value.pop("source_observation", None)
             value.pop("source_provenance", None)
+        if self.first_source_at is None:
+            value.pop("first_source_at", None)
         return value

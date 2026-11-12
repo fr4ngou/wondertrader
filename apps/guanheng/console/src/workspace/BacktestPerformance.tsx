@@ -1,3 +1,4 @@
+import { WorkspaceDock } from './WorkspaceDock'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { RefreshCw, Triangle, Circle } from 'lucide-react'
@@ -85,8 +86,8 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
       {rightValue ? <p className="bt-comparison-note">对比本金 {backtestMoney(rightValue.metrics.initial_capital_cny)} 元 · 至 {reportDate(Math.floor(rightValue.configuration.end / 10000))}。{comparison.data?.differences.length ? `条件差异：${comparison.data.differences.map(k => differenceNames[k]).join('、')}。` : '所列输入和模型条件一致。'}</p> : null}
       {leftValue.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA ? <OriginalNativeModel entry={entry} label="主报告" /> : null}
       {right && rightValue?.report_schema === ORIGINAL_NATIVE_REPORT_SCHEMA ? <OriginalNativeModel entry={right} label="对比报告" /> : null}
-      {!leftValue.observations.available ? <p role="status">暂无有效资金记录，绩效与曲线未知。</p> : <div className="bt-analysis-grid">
-        <section className="bt-chart-panel" aria-label="收益、回撤与日末仓位">
+      {!leftValue.observations.available ? <p role="status">暂无有效资金记录，绩效与曲线未知。</p> : <WorkspaceDock layoutId="backtest" primaryTitle="绩效图" secondaryTitle="日期明细" secondaryWidth={310}
+        primary={<section className="bt-chart-panel" aria-label="收益、回撤与日末仓位">
           <fieldset className="bt-benchmarks">
             <legend>对比基准 <span className="bt-muted">指数价格收益</span></legend>
             <div>{BACKTEST_BENCHMARKS.map(index => <label key={index.symbol}>
@@ -115,15 +116,14 @@ export default function BacktestPerformance({ entry, entries, ready = true, main
           <BacktestVisualChart left={leftValue} right={rightValue} visual={visual.data} rightVisual={rightVisual.data} mode={mode} markers={markers}
             onDay={setDay} selectedDay={selectedDay} summaries={summaryMap} summaryLabel={detailSide === 'right' ? '对比报告' : '主报告'}
             positions benchmarks={benchmarks.series} />
-          <p className="bt-muted bt-chart-caption">悬停查看当日持仓与买卖，点击固定日期详情；滚轮缩放，左右键切日。</p>
+          <p className="bt-muted bt-chart-caption">悬停查看当日持仓与买卖，点击固定日期详情；Ctrl + 滚轮缩放，左右键切日。</p>
           {summaries.isFetching ? <p className="bt-muted" role="status">正在准备持仓与买卖摘要…</p> : summaries.isError ? <p className="bt-muted">悬停摘要暂不可用，仍可点击读取日期详情。<button onClick={() => void summaries.refetch()}>重读摘要</button></p> : null}
-        </section>
-        <div className="bt-inspector-wrap">{right && rightValue ? <label className="bt-detail-source">日期明细所属报告<select aria-label="日期明细所属报告" value={detailSide} onChange={e => setDetailSide(e.target.value)}><option value="left">主报告</option><option value="right">对比报告</option></select></label> : null}
+        </section>}
+        secondary={<div className="bt-inspector-wrap">{right && rightValue ? <label className="bt-detail-source">日期明细所属报告<select aria-label="日期明细所属报告" value={detailSide} onChange={e => setDetailSide(e.target.value)}><option value="left">主报告</option><option value="right">对比报告</option></select></label> : null}
           <BacktestDateDetail key={detailEntry.run_id + detailEntry.receipt_sha256 + detailEntry.report_sha256} entry={detailEntry} day={selectedDay}
             dates={detailDates} onDay={setDay} position={dayPosition} showPosition
             ready={detailVisual.isError || !!detailVisual.data && !summaries.isPending} />
-        </div>
-      </div>}
+        </div>} />}
       <div className="bt-exact-values">
         <ExactDateTable key={leftValue.run_id + leftValue.receipt_sha256} value={leftValue} label="主报告" />
         {rightValue ? <ExactDateTable key={rightValue.run_id + rightValue.receipt_sha256} value={rightValue} label="对比报告" /> : null}

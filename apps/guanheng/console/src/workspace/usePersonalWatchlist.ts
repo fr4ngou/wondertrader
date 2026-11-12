@@ -161,7 +161,7 @@ export function usePersonalWatchlist(value: unknown) {
     unknown: '保存结果待确认，请刷新自选。', conflict: '自选已更新，请刷新后确认。',
     rejected: '保存未通过，请刷新自选。', review: '请确认当前列表后继续编辑。',
   }
-  const message = capability === null ? '自选资料格式无效' : !capability?.available ? '自选暂不可用'
+  const message = capability === null ? '手工自选资料格式无效' : !capability?.available ? '手工自选暂不可用'
     : query.isError ? '自选读取失败' : state.saving ? '正在保存…'
       : needsReview ? '请确认当前自选列表' : messages[state.phase] ?? ''
   return { snapshot, symbols: snapshot?.symbols ?? [], canEdit, message,

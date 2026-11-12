@@ -4,7 +4,7 @@
 
 ## 调用与职责
 
-沿既有`GET /v1/ui/market/chart/{symbol}`、BoundedReader和绝对请求截止调用SDK0.14的source_daily_history_query。显式source语义连接支持`period=1d|1w|1mo`；canonical分钟连接保持既有1m/5m合同。`limit=1..2000`表示返回周期根数，日线省略时默认为60，分钟省略时默认为240。周/月可用`daily_limit=1..2000`先选最近N根真实日线再聚合；`years>=1`按最后实际来源日回溯公历年，适用于日/周/月，并与daily_limit互斥。证券、带时区before和响应容量沿现有图表边界；日线查询上界取before与本次观察日期较早者，使用上海交易日期YYYYMMDD。历史起点沿原生2004-01-01。每次查询只读，来源缺口保持实际状态。
+沿既有`GET /v1/ui/market/chart/{symbol}`、BoundedReader和绝对请求截止调用SDK0.14的source_daily_history_query。显式source语义连接支持`period=1d|1w|1mo`；canonical分钟连接保持既有1m/5m合同。`limit=1..2000`表示返回周期根数，日线省略时默认为60，分钟省略时默认为240。周/月可用`daily_limit=1..2000`先选最近N根真实日线再聚合。日/周/月也支持 `calendar_days=1..31`、`calendar_months=1..12`、`years>=1`，四种窗口参数最多选一项。自然日窗口包含最后实际来源日，月和年从该日回溯，同月没有对应日期时取月末。来源读取按窗口的日历长度限制日线根数，先截取日线再聚合。证券、带时区before和响应容量沿现有图表边界；日线查询上界取before与本次观察日期较早者，使用上海交易日期YYYYMMDD。历史起点沿原生2004-01-01。每次查询只读，来源缺口保持实际状态。
 
 ## 图表合同
 
@@ -12,7 +12,7 @@
 
 日线采用schema1.6、period/source_period=1d、derived=false，source_bar_count为返回条数。周/月采用schema1.8、period=1w或1mo、source_period=1d、derived=true，source_bar_count记录实际参与本次聚合的日线根数。自然周按ISO周分组，自然月按公历年月分组；每组open取首根、high取最大、low取最小、close取末根、volume求和，标签使用该组最后一个实际交易日。首尾不完整周期按实际覆盖保留，不生成缺失交易日。native_source明确value_semantics=source、timestamp_semantics=source_date、chart_minute_boundary=source_date、source_minute_boundary=unknown，保留provider、dataset_version、content_id、qualification、coverage=Unknown、timezone、原价/量/额单位。沿原date逐日构造上海00:00的标签再以UTC传输；as_of表示末条来源日期标签，用户界面显示最新交易日，实际闭合/可获知时间归内部诊断与策略准入。源status非Ok、身份/周期/顺序/数量/时间/非有限值/OHLC范围错误、未知响应和来源断开均返回去敏中文不可用结果；期间无旧图或旧末日期。
 
-1.4 canonical分钟和1.5 source分钟保持各自时间边界；1.6绑定日线来源语义；1.8绑定日线来源及自然周期派生语义。日线原metadata period、source_date、selection与请求一致；空missing_dates不证明完整日历覆盖。金额单位原metadata保留，现有图表仍只展示OHLC与成交量。
+1.4 canonical分钟和1.5 source分钟保持各自时间边界；1.6绑定日线来源语义；1.8绑定日线来源及自然周期派生语义。非空周月图返回可选字段 `first_source_at`，表示第一根聚合K线的首个来源交易日零点，成交标记据此排除窗口开始前的成交。日线原metadata period、source_date、selection与请求一致；空missing_dates不证明完整日历覆盖。行情图显示OHLC及成交量，账户成交金额沿账户只读发布单独展示。
 
 ## 页面与验证
 

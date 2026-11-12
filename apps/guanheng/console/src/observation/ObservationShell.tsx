@@ -1,3 +1,4 @@
+import { WorkspaceDock } from '../workspace/WorkspaceDock'
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -25,7 +26,7 @@ function Message({ children, retry }: { children: ReactNode; retry?: () => void 
   return <div className="observation-message" role="status"><p>{children}</p>{retry && <button onClick={retry}>重新读取</button>}</div>
 }
 
-export default function ObservationShell({ appearance }: { appearance?: ReactNode }) {
+export default function ObservationShell({ appearance, embedded = false }: { appearance?: ReactNode; embedded?: boolean }) {
   const [search] = useSearchParams(); const pinned = search.get('snapshot_id') || undefined
   const catalog = useQuery({ retry: false, queryKey: ['observation', 'catalog', pinned], queryFn: ({ signal }) => getCatalog(signal, pinned), refetchInterval: pinned ? false : 60000 })
   const runtime = useQuery({ retry: false, queryKey: ['observation', 'updates'], queryFn: ({ signal }) => read<{ scheduler: { enabled: boolean;state?:string;last_heartbeat?:string|null };process?:{state:string;label:string;error?:string|null};schedule?:{timezone:string;times:string[]}|null;runs?:{status:string;completed_at:string;execution_mode?:string}[] }>('updates', {}, signal), refetchInterval: 60000 })
@@ -40,7 +41,7 @@ export default function ObservationShell({ appearance }: { appearance?: ReactNod
       {!remote && <><a href="/strategies">策略</a><a href="/orders">交易记录</a><a href="/operations">系统状态</a></>}
       <div className="observation-sidebar-note">行情与市场观察<br />交易执行保持隔离</div>
     </aside>
-    <main className="observation-workspace">{appearance ? <div className="observation-appearance">{appearance}</div> : null}<header><div><span className="observation-eyebrow">市场观察</span><h1>衡量市场的位置与变化</h1></div><span className="observation-auto">{runtime.isError ? '自动更新状态暂不可用' : runtime.isPending ? '正在检查更新状态…' : automaticUpdateLabel(runtimeData?.scheduler,latestRun?.status)}<br /><small>{runtimeData && <>{localSchedulerLabel(runtimeData.process)}<br /></>}{runtimeData?.schedule ? `${runtimeData.schedule.times.join(' / ')} · ${runtimeData.schedule.timezone==='Asia/Shanghai'?'北京时间':runtimeData.schedule.timezone}` : '更新时刻配置暂不可用'}{runtimeData?.scheduler?.last_heartbeat && <><br />最近心跳：{new Date(runtimeData.scheduler.last_heartbeat).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}{catalog.data && <><br />数据发布：{new Date(catalog.data.published_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}</small></span></header>
+    <main className="observation-workspace">{appearance ? <div className="observation-appearance">{appearance}</div> : null}<header className="observation-page-heading"><div>{embedded ? <h1>市场观察</h1> : <><span className="observation-eyebrow">市场观察</span><h1>衡量市场的位置与变化</h1></>}</div><details className="observation-auto"><summary>{runtime.isError ? '自动更新状态暂不可用' : runtime.isPending ? '正在检查更新状态…' : automaticUpdateLabel(runtimeData?.scheduler,latestRun?.status)}</summary><small>{runtimeData && <>{localSchedulerLabel(runtimeData.process)}<br /></>}{runtimeData?.schedule ? `${runtimeData.schedule.times.join(' / ')} · ${runtimeData.schedule.timezone==='Asia/Shanghai'?'北京时间':runtimeData.schedule.timezone}` : '更新时刻配置暂不可用'}{runtimeData?.scheduler?.last_heartbeat && <><br />最近心跳：{new Date(runtimeData.scheduler.last_heartbeat).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}{catalog.data && <><br />数据发布：{new Date(catalog.data.published_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}</small></details></header>
       <nav className="observation-tabs" aria-label="市场观察页面">{[['boards', '', '看板'], ['data', '/data', '指标说明'], ['quality', '/quality', '更新与缺口'], ['api', '/api', '导出']].map(([id, suffix, label]) => <NavLink key={id} className={tab === id ? 'active' : ''} to={'/observation' + suffix + location.search}>{label}</NavLink>)}</nav>
       <ReadNotice label="更新状态" query={runtime} />
       <ReadNotice label="观察目录" query={catalog} />
@@ -124,7 +125,8 @@ function Boards({ catalog }: { catalog: Catalog }) {
       <div className="observation-presets">{presets.map(([key, label]) => <button key={key} className={selectedPreset === key ? 'active' : ''} onClick={() => updateRange(presetRange(key, range.end, key==='all'?coverage:dateDomain), key)}>{label}</button>)}</div>
       <p className="observation-note">资料截至 {dataset.coverage.end}{dataset.board==='executive' && ' · 已披露资料，非盘中实时'}{d?.primary_coverage?.end && d.primary_coverage.end!==dataset.coverage.end && ` · 主指标截至 ${d.primary_coverage.end}`} {range.end<dataset.coverage.end && <button onClick={()=>updateRange(latestRange(range,selectedPreset,dataset.coverage,dateDomain),selectedPreset)}>查看最新数据</button>}</p>
     </section>
-    <section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{shareholder ? '最新日可计价净减持' : primaryLine?.name}</span><strong title={last&&d?exactObservationValue(primary,primaryUnit):undefined}>{last && d ? observationNumber(primary,primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
+    <WorkspaceDock layoutId="observation" primaryTitle="指标图" secondaryTitle="原始数据与原图" secondaryWidth={350}
+      primary={<section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{shareholder ? '最新日可计价净减持' : primaryLine?.name}</span><strong title={last&&d?exactObservationValue(primary,primaryUnit):undefined}>{last && d ? observationNumber(primary,primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
       {d?.id==='t2108.ashare' && <T2108Coverage row={last} definitionVersion={d.definition_version} mixedMethods={new Set(series.data?.rows.map(row=>row.method_version || d.definition_version || 'unregistered')).size>1} />}
       <FieldCoverage metric={dataset.id} row={series.data?.rows.at(-1)} />
       {d?.parameters && <div className="observation-inline"><label>窗口<input aria-label="计算窗口" type="number" min="2" max="2000" value={parameters.window} onChange={e => parameter('window', e.target.value)} /></label><label>倍数<input aria-label="通道倍数" type="number" min="0" max="10" step="0.5" value={parameters.k} onChange={e => parameter('k', e.target.value)} /></label><select aria-label="通道算法" value={parameters.method} onChange={e => parameter('method', e.target.value)}><option value="sma">算术均值</option><option value="ema">EMA中心</option><option value="ema_moments">EMA矩通道</option></select>{dataset.board === 'pcr' && <select aria-label="PCR口径" value={parameters.pcr_type} onChange={e => parameter('pcr_type', e.target.value)}><option value="oi">持仓</option><option value="volume">成交</option></select>}</div>}
@@ -140,11 +142,11 @@ function Boards({ catalog }: { catalog: Catalog }) {
       </>}
       {d && <details className="observation-reading"><summary>怎么看这张图 · 点击展开</summary><p><b>{d.how_to_read?.purpose || d.reading}</b></p>{d.how_to_read?.signals.map((signal, i) => <p key={i}>{signal}</p>)}<p>{d.how_to_read?.example}</p><p>{d.how_to_read?.boundary}</p>{d.lines.map(line => <p key={line.key}><b style={{ color: line.color }}>{line.name}（{line.unit}）</b>：{line.reading}</p>)}</details>}
       {d?.term_notes?.length ? <details className="observation-reading"><summary>名词小备注 · 点击展开</summary><dl>{d.term_notes.map(note => <div key={note.term}><dt>{note.term}</dt><dd>{note.note}</dd></div>)}</dl></details> : null}
-    </section>
-    {d && <section className="observation-panel"><div className="observation-tabs">{[['rows', '原始数据'], ['reference', '原图对照']].map(([id, label]) => <button key={id} className={detail === id ? 'active' : ''} onClick={() => setDetail(id)}>{label}</button>)}</div>
+    </section>}
+    secondary={d && <section className="observation-panel"><div className="observation-tabs">{[['rows', '原始数据'], ['reference', '原图对照']].map(([id, label]) => <button key={id} className={detail === id ? 'active' : ''} onClick={() => setDetail(id)}>{label}</button>)}</div>
       {detail === 'rows' && (!series.data ? series.isPending ? <Message>正在读取所选日期的数据表…</Message> : null : <><div className="observation-inline"><ObservationDownload params={{ metric_id: dataset.id, snapshot_id: catalog.snapshot_id, ...range, ...parameters, format: 'csv' }} filename={`${dataset.label}-${range.start}-${range.end}.csv`}>导出当前CSV</ObservationDownload><ObservationDownload params={{ metric_id: dataset.id, snapshot_id: catalog.snapshot_id, ...range, ...parameters, format: 'json' }} filename={`${dataset.label}-${range.start}-${range.end}.json`}>导出当前JSON</ObservationDownload><span>表格与图表固定同一版本</span></div><DataTable key={dataset.id + range.start + range.end} definition={d} rows={series.data.rows} /></>)}
       {detail === 'reference' && <Reference definition={d} version={catalog.snapshot_id} range={range} />}
-    </section>}
+    </section>} />
   </>
 }
 

@@ -18,6 +18,12 @@ const destinations = [
   { id: 'operations', label: '系统状态', icon: ServerCog },
 ] as const
 
+const navigationGroups = [
+  { label: '总览与市场', items: destinations.slice(0, 3) },
+  { label: '策略与账户', items: destinations.slice(3, 7) },
+  { label: '运维', items: destinations.slice(7) },
+]
+
 function chinaDate(now: Date) {
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'long',
@@ -45,10 +51,13 @@ export function ObserverLayout({ children, connected, failed = false }: {
       <NavLink className="brand-lockup" to="/dashboard" aria-label={brand.display_name}>
         <strong>{brand.short_name}</strong><span>量化观察平台</span>
       </NavLink>
-      <nav aria-label="主要工作区">{destinations.map(({ id, label, icon: Icon }) =>
+      <nav aria-label="主要工作区">{navigationGroups.map(group => <div key={group.label} className="observer-nav-group">
+        <span className="observer-nav-label">{group.label}</span>
+        {group.items.map(({ id, label, icon: Icon }) =>
         <NavLink key={id} to={`/${id}${strategy && (id === 'strategies' || id === 'backtests') ? `?${new URLSearchParams({ strategy })}` : ''}`} className={({ isActive }) => isActive ? 'nav-item nav-item-active' : 'nav-item'}>
           <Icon size={18} strokeWidth={1.7} aria-hidden="true" /><span>{label}</span>
         </NavLink>)}
+      </div>)}
       </nav>
       <div className="sidebar-footer"><BarChart3 size={15} aria-hidden="true" /><span>观衡 · 数据与策略观察</span></div>
     </aside>
@@ -57,7 +66,7 @@ export function ObserverLayout({ children, connected, failed = false }: {
         onSelect={term => navigate(`/market?${new URLSearchParams({ search: term })}`)} />
       <div className="observer-header-meta">
         <span className={`observer-service-state${failed ? ' observer-service-warning' : ''}`} role="status" title="表示观衡接口的读取状态；具体账户和行情时间见对应页面。">
-          <Circle size={8} fill="currentColor" aria-hidden="true" />{failed ? connected ? '刷新待重试' : '连接待恢复' : connected ? '服务在线' : '正在连接'}
+          <Circle size={8} fill="currentColor" aria-hidden="true" />{failed ? connected ? '刷新待重试' : '连接待恢复' : connected ? '观衡连接正常' : '正在连接'}
         </span>
         <span className="observer-mode">只读</span>
         <time dateTime={today.toISOString()}>{chinaDate(today)}</time>
@@ -65,7 +74,6 @@ export function ObserverLayout({ children, connected, failed = false }: {
       </div>
     </header>
     <Content className="workspace-main" id="workspace-content" tabIndex={-1}>
-      {observation ? <header className="observer-section-heading"><h1>市场观察</h1></header> : null}
       {children}
     </Content>
   </div>

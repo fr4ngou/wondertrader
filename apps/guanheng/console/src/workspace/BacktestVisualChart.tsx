@@ -1,3 +1,4 @@
+import { ChartZoomToolbar } from '../components/ChartZoomToolbar'
 import { observerChartColors, useObserverTheme } from './observerAppearance'
 import { useEffect, useMemo, useRef } from 'react'
 import * as echarts from 'echarts/core'
@@ -138,8 +139,8 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
         { left: 62, right: 22, top: '57%', bottom: '28%' },
         { left: 62, right: 22, top: '79%', bottom: 54 },
       ] : [{ left: 62, right: 22, top: 38, height: '57%' }, { left: 62, right: 22, top: '76%', bottom: 54 }],
-      axisPointer: { link: [{ xAxisIndex: 'all' }] },
-      tooltip: { ...palette.tooltip, trigger: 'axis', triggerOn: 'mousemove|click', confine: true, renderMode: 'richText', axisPointer: { type: 'line' },
+      axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: palette.ink, color: palette.panel } },
+      tooltip: { ...palette.tooltip, trigger: 'axis', triggerOn: 'mousemove|click', confine: true, renderMode: 'richText', axisPointer: { type: 'cross', lineStyle: { color: palette.border, type: 'dashed' } },
         textStyle: { color: palette.ink, fontSize: 12, lineHeight: 18 },
         position: (point: number[], _params: unknown, _dom: unknown, _rect: unknown, size: { contentSize: number[]; viewSize: number[] }) => {
           const top = root.current?.getBoundingClientRect().top ?? 0
@@ -166,7 +167,7 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
           nameTextStyle: { color: palette.muted, align: 'left' }, axisLabel: { color: palette.muted, formatter: '{value}%' }, splitLine: { lineStyle: { color: palette.line } } },
         ...(positions ? [{ type: 'value', gridIndex: 2, min: 0, max: ({ max }: { max: number }) => Math.max(100, max || 0),
           name: '日末仓位', nameGap: 8, nameTextStyle: { color: palette.muted, align: 'left' }, axisLabel: { color: palette.muted, formatter: '{value}%' }, splitLine: { lineStyle: { color: palette.line } } }] : [])],
-      dataZoom: [{ type: 'inside', xAxisIndex: axes, filterMode: 'none', ...zoom.current },
+      dataZoom: [{ type: 'inside', xAxisIndex: axes, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, ...zoom.current },
         { ...palette.slider, type: 'slider', xAxisIndex: axes, bottom: 8, height: 18, showDetail: false, ...zoom.current }], series })
     chart.on('datazoom', () => {
       const options = chart.getOption().dataZoom as { start: number; end: number }[] | undefined
@@ -186,12 +187,12 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
     const observer = new ResizeObserver(() => chart.resize()); observer.observe(root.current)
     return () => { observer.disconnect(); chart.dispose() }
   }, [left, right, visual, rightVisual, mode, markers, equityUnit, summaries, summaryLabel, positions, benchmarks, theme])
-  return <div ref={root} className={positions ? 'bt-visual-chart bt-visual-chart-positions' : 'bt-visual-chart'} role="img" tabIndex={0}
+  return <><ChartZoomToolbar plot={root} /><div ref={root} className={positions ? 'bt-visual-chart bt-visual-chart-positions' : 'bt-visual-chart'} role="img" tabIndex={0}
     aria-label={positions ? '真实日期收益、日末回撤与日末仓位曲线；点击固定详情，左右键切日' : '真实日期收益与日末回撤曲线；悬停看持仓买卖，点击固定详情，左右键切日'}
     onKeyDown={event => {
       if (event.altKey || event.ctrlKey || event.metaKey || !keyboardDays.length) return
       const index = keyboardDays.indexOf(selectedDay ?? keyboardDays.at(-1)!)
       const next = event.key === 'ArrowLeft' ? Math.max(0, index - 1) : event.key === 'ArrowRight' ? Math.min(keyboardDays.length - 1, index + 1) : event.key === 'Home' ? 0 : event.key === 'End' ? keyboardDays.length - 1 : null
       if (next !== null) { event.preventDefault(); onDayRef.current(keyboardDays[next]) }
-    }} />
+    }} /></>
 }

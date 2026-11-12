@@ -41,7 +41,7 @@ export default function IndependentApp() {
   const title = navigation.find(([id]) => location.pathname.startsWith(`/${id}`))?.[1] ?? '工作区'
   if (location.pathname === '/observation' || location.pathname.startsWith('/observation/')) {
     return <ObserverLayout connected={Boolean(capability.data)} failed={capability.isError}>
-      <Suspense fallback={<p role="status">正在加载市场观察…</p>}><ObservationShell /></Suspense>
+      <Suspense fallback={<p role="status">正在加载市场观察…</p>}><ObservationShell embedded /></Suspense>
     </ObserverLayout>
   }
   return <ObserverLayout connected={Boolean(capability.data)} failed={capability.isError}>
@@ -50,7 +50,7 @@ export default function IndependentApp() {
       <Suspense fallback={<p role="status">正在加载工作区…</p>}><Routes>
             <Route path="/" element={<Navigate to="/market" replace />} />
             <Route path="/dashboard" element={<AccountWorkspace key="overview" view="overview" capability={features.account ?? unknownFeatures.account} />} />
-            <Route path="/market" element={<MinuteWorkspace capability={features.minute_chart} capabilityPending={capability.isPending} watchlistCapability={features.personal_watchlist} searchCapability={features.security_search} initialSearch={new URLSearchParams(location.search).get('search') ?? ''} />} />
+            <Route path="/market" element={<MinuteWorkspace capability={features.minute_chart} capabilityPending={capability.isPending} accountCapability={features.account} watchlistCapability={features.personal_watchlist} searchCapability={features.security_search} initialSearch={new URLSearchParams(location.search).get('search') ?? ''} />} />
             <Route path="/account" element={<AccountWorkspace capability={features.account ?? unknownFeatures.account} />} />
             <Route path="/orders" element={<AccountWorkspace key="trading-records" view="trading-records" capability={features.account ?? unknownFeatures.account} />} />
             <Route path="/strategies" element={<StrategyWorkspace />} />

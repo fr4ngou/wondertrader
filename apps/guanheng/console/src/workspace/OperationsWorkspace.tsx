@@ -1,3 +1,4 @@
+import { WorkspaceDock } from './WorkspaceDock'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import { fetchOperations } from './operationsApi'
@@ -47,7 +48,8 @@ export default function OperationsWorkspace() {
       onClick={() => void Promise.all([runtime.refetch(), operations.refetch()])}>{fetching ? '正在读取…' : '重新读取状态'}</button></header>
     {runtime.isError ? <p role="alert">WT运行状态读取失败。{data ? '当前保留上次成功结果和时间。' : '请稍后重新读取。'}</p> : null}
     {data?.catalog_reason ? <p role="alert">{data.catalog_reason}</p> : null}
-    {data?.instances.map(instance => {
+    <WorkspaceDock layoutId="operations" primaryTitle="WT 运行实例" secondaryTitle="行情查询服务"
+      primary={<>{data?.instances.map(instance => {
       const retained = instance.state === 'unavailable' ? runtime.data?.successful[instance.scope_id] : undefined
       const published = instance.runtime ?? retained?.runtime
       return <section key={instance.scope_id} className="surface-card runtime-instance" aria-label={`${instance.label}运行状态`}>
@@ -63,14 +65,14 @@ export default function OperationsWorkspace() {
       </li>)}</ul><details className="compact-details"><summary>实例说明</summary><p>显示此WT实例最近发布的状态。</p>
         <p>本次读取：{time(data.observed_at)}</p><IssueDetail issue={published.issue} />
         <p>组件状态由WT发布，业务数据保留各自更新时间。</p></details></> : <p role="status">{instance.reason}</p>}
-    </section>})}
-    {operations.isError ? <p role="alert">行情查询状态读取失败。{query ? '当前保留上次成功结果和时间。' : '请稍后重新读取。'}</p> : null}
+    </section>})}</>}
+    secondary={<>{operations.isError ? <p role="alert">行情查询状态读取失败。{query ? '当前保留上次成功结果和时间。' : '请稍后重新读取。'}</p> : null}
     {query ? <section className="surface-card runtime-instance" aria-label="行情查询服务">
       <header><div><h2>行情查询服务</h2><StatusBadge state={query.state} label={queryLabels[query.state]} /></div>
         <time>{time(operations.data!.observed_at)}</time></header>
       <ul className="runtime-component-list"><li><span>历史查询</span><StatusBadge state={query.history_supported ? 'responding' : 'unknown'} label={support(query.history_supported)} /></li>
         <li><span>快照查询</span><StatusBadge state={query.snapshot_supported ? 'responding' : 'unknown'} label={support(query.snapshot_supported)} /></li></ul>
       <details className="compact-details"><summary>连接说明</summary><p>{query.reason}</p></details>
-    </section> : null}
+    </section> : null}</>} />
   </section>
 }

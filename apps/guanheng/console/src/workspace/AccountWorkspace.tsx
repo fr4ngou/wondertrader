@@ -1,11 +1,12 @@
+import { WorkspaceDock } from './WorkspaceDock'
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { FinancialValue } from './FinancialValue'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import type { Capabilities } from './IndependentApp'
-import { fetchAccountOverview, type AccountField, type AccountGroup, type AccountKind, type AccountRow } from './accountApi'
-import { accountReadView, type AccountReadView } from './accountPresentation'
+import type { AccountField, AccountGroup, AccountKind, AccountRow } from './accountApi'
+import { useAccountReadView } from './useAccountReadView'
 import { StatusBadge } from './StatusBadge'
 import { fetchRunningStrategies } from './strategyCatalogApi'
 
@@ -86,11 +87,7 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
   const tabs: ('position' | 'order' | 'deal')[] = recordsOnly ? ['order', 'deal'] : ['position', 'order', 'deal']
   const [tab, setTab] = useState<'position' | 'order' | 'deal'>(recordsOnly ? 'order' : 'position')
   const [page, setPage] = useState(0)
-  const client = useQueryClient()
-  const query = useQuery({ queryKey: ['independent-account-overview'],
-    queryFn: async ({ signal }) => accountReadView(await fetchAccountOverview(signal, capability.timeout_seconds ?? 30),
-      client.getQueryData<AccountReadView>(['independent-account-overview'])), enabled: capability.available,
-    retry: false, refetchInterval: 15_000, refetchOnWindowFocus: false, refetchOnReconnect: false })
+  const query = useAccountReadView(capability)
   const data = query.data?.current
   const publication=data?.schema_version==='4.0' ? data.publication : null
   const funds = query.data?.complete.account ?? data?.groups.account
@@ -110,14 +107,21 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
   const floatingProfit = accountProfit ?? positionTotal(positionGroup, 'float_profit')
   const fundsAt = funds?.execution_finished_at ?? null
   const positionsAt = positionGroup && ('received_at' in positionGroup ? positionGroup.received_at : positionGroup.execution_finished_at)
-  if (view === 'overview') return <section className="workspace-page account-workspace overview-workspace">
-    <header className="page-heading"><h1>总览</h1></header>
-    <div className="compact-status-strip" role="status"><StatusBadge state={state} label={stateLabel} />
-      <small>{latest ? `账户更新于 ${timeText(latest)}` : '等待账户数据'}</small>
-      <button onClick={() => void query.refetch()} disabled={query.isFetching}>{query.isFetching ? '更新中…' : '刷新'}</button>
+  const accountStatus = (overview: boolean) => <div className="account-heading-meta">
+    <div className="account-heading-status" role="status">
+      <StatusBadge state={state} label={`账户 · ${stateLabel}`} />
+      <small>{latest ? `${overview ? '账户更新于' : '数据时间'} ${timeText(latest)}` : overview ? '等待账户数据' : capability.reason ?? '等待首轮数据'}</small>
     </div>
+    <button onClick={() => void query.refetch()} disabled={query.isFetching}>
+      {overview ? (query.isFetching ? '更新中…' : '刷新') : (query.isFetching ? '正在读取账户…' : '刷新账户')}
+    </button>
+  </div>
+  if (view === 'overview') return <section className="workspace-page account-workspace overview-workspace">
+    <header className="page-heading account-page-heading"><h1>总览</h1>{accountStatus(true)}</header>
     {query.isError ? <p role="alert">{query.error.message}</p> : null}
-    <section className="overview-financials" aria-label="账户金额">
+    <WorkspaceDock layoutId="overview" primaryTitle="账户概况" secondaryTitle="正在运行的策略" secondaryWidth={340}
+      secondary={<RunningStrategies />}
+      primary={<><section className="overview-financials" aria-label="账户金额">
       <div className="overview-amounts">
         <article className="surface-card"><h2>总持仓金额（元）</h2><strong>{holdingValue === null ? '未知' : <FinancialValue value={holdingValue} />}</strong>
           {positionsAt ? <small>持仓 {timeText(positionsAt)}</small> : null}</article>
@@ -132,38 +136,31 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
         <div><dt>账户冻结现金（元）</dt><dd>{fieldText(fundRow?.fields.frozen_cash, false, true)}</dd></div>
       </dl>
     </section>
-    <RunningStrategies />
     <div className="overview-counts">{(['position', 'order', 'deal'] as const).map(kind => {
       const records = query.data?.complete[kind] ?? data?.groups[kind]
       return <article className="surface-card" key={kind}><h2>{names[kind]}记录</h2>
         <strong>{records?.status === 'complete' ? records.rows.length.toLocaleString('zh-CN') : '—'}</strong>
       </article>
-    })}</div>
+    })}</div></>} />
     <nav className="overview-links" aria-label="账户快捷入口"><NavLink to="/account">资金与持仓 →</NavLink>
       <NavLink to="/orders">委托与成交 →</NavLink><NavLink to="/operations">系统状态 →</NavLink></nav>
   </section>
-  return <section className="workspace-page account-workspace">
-    <header className="page-heading"><h1>{labels.title}</h1></header>
-    <div className="compact-status-strip" role="status"><StatusBadge state={state} label={stateLabel} />
-      <small>{latest ? `数据时间 ${timeText(latest)}` : capability.reason ?? '等待首轮数据'}</small>
-      <button className="account-refresh" onClick={() => void query.refetch()} disabled={query.isFetching}>{query.isFetching ? '正在读取账户…' : '刷新账户'}</button></div>
-    {query.isError ? <p role="alert">{query.error.message}{data ? ' · 保留上次成功结果' : ''}</p> : null}
-    {!capability.available && latest ? <p role="status">{capability.reason ?? '账户读取当前不可用'}。当前显示已读取的账户结果。</p> : null}
-    {data ? <>
-      {data.status !== 'complete' || publication?.state === 'degraded' ? <p role="status">{data.reason}</p> : null}
-      {!recordsOnly ? <div className="account-funds">{[['total_asset', '总资产'], ['available', '可用资金'], ['frozen_cash', '冻结现金'], ['commission', '来源手续费']].map(([key, label]) => <article className="surface-card" key={key}>
+  const fundsContent = data ? <>
+    <div className="account-funds">{[['total_asset', '总资产'], ['available', '可用资金'], ['frozen_cash', '冻结现金'], ['commission', '来源手续费']].map(([key, label]) => <article className="surface-card" key={key}>
         <h2>{label}（元）</h2><strong title={fundRow?.fields[key]?.reason ?? undefined}>{fieldText(fundRow?.fields[key], false, true)}</strong>
-      </article>)}</div> : null}
-      {!recordsOnly && funds ? <>{fundsPrevious || funds.status !== 'complete' || funds.rows.length === 0 ? <p>{fundsPrevious ? `本轮资金未更新，保留上次成功结果。${data.groups.account.reason ?? ''}` : funds.status !== 'complete' ? funds.reason ?? '本轮资金查询未完成，金额保持未知。' : funds.rows.length === 0 ? '本轮资金返回为空，未作为零资产处理。' : ''}</p> : null}
+      </article>)}</div>
+      {funds ? <>{fundsPrevious || funds.status !== 'complete' || funds.rows.length === 0 ? <p>{fundsPrevious ? `本轮资金未更新，保留上次成功结果。${data.groups.account.reason ?? ''}` : funds.status !== 'complete' ? funds.reason ?? '本轮资金查询未完成，金额保持未知。' : funds.rows.length === 0 ? '本轮资金返回为空，未作为零资产处理。' : ''}</p> : null}
         {fundRow ? <details><summary>更多资金字段</summary><dl className="account-money-details">{[['previous_balance', '前余额'], ['frozen_margin', '冻结保证金'], ['frozen_commission', '冻结手续费'], ['position_profit', '持仓盈亏'], ['float_profit', '浮动盈亏']].map(([key, label]) => <div key={key}><dt>{label}（元）</dt><dd title={fundRow.fields[key]?.reason ?? undefined}>{fieldText(fundRow.fields[key], false, true)}</dd></div>)}</dl></details> : null}</> : null}
-      <div role="tablist" aria-label={recordsOnly ? '交易记录类型' : '账户记录'} className="period-switch">{tabs.map((kind, index, kinds) => <button role="tab" className={tab === kind ? 'period-active' : ''} tabIndex={tab === kind ? 0 : -1} aria-selected={tab === kind} id={`account-tab-${kind}`} aria-controls={`account-panel-${kind}`} key={kind}
+  </> : null
+  const recordsContent = data ? <>
+    <div role="tablist" aria-label={recordsOnly ? '交易记录类型' : '账户记录'} className="period-switch">{tabs.map((kind, index, kinds) => <button role="tab" className={tab === kind ? 'period-active' : ''} tabIndex={tab === kind ? 0 : -1} aria-selected={tab === kind} id={`account-tab-${kind}`} aria-controls={`account-panel-${kind}`} key={kind}
         onClick={() => { setTab(kind); setPage(0) }} onKeyDown={event => {
           const target = event.key === 'ArrowRight' ? kinds[(index + 1) % kinds.length] : event.key === 'ArrowLeft' ? kinds[(index + kinds.length - 1) % kinds.length]
             : event.key === 'Home' ? kinds[0] : event.key === 'End' ? kinds[kinds.length - 1] : null
           if (target) { event.preventDefault(); setTab(target); setPage(0); document.getElementById(`account-tab-${target}`)?.focus() }
         }}>{names[kind]}</button>)}</div>
       {group ? <article className="surface-card" role="tabpanel" id={`account-panel-${tab}`} aria-labelledby={`account-tab-${tab}`}>
-        <h2>{names[tab]}</h2><small>数据时间 {timeText('received_at' in group ? group.received_at : group.execution_finished_at)}</small>{groupPrevious ? <p role="status">本轮{names[tab]}未更新，保留上次成功结果。{data.groups[tab].reason}</p> : null}
+        <div className="account-table-heading"><h2>{names[tab]}</h2><small>数据时间 {timeText('received_at' in group ? group.received_at : group.execution_finished_at)}</small></div>{groupPrevious ? <p role="status">本轮{names[tab]}未更新，保留上次成功结果。{data.groups[tab].reason}</p> : null}
         {group.status === 'unavailable' ? <p role="status">{group.reason ?? `本轮${names[tab]}查询未完成，请稍后重读。`}</p>
           : group.rows.length === 0 ? <p role="status">{group.source?.kind === 'wt_native_observation' ? `最近发布的${names[tab]}观察为空。` : `本轮${names[tab]}查询完整，返回 0 条记录。`}</p>
             : <div className="account-table-scroll" tabIndex={0} role="region" aria-label={`${names[tab]}明细，可横向滚动`}><table><thead><tr><th scope="col">证券</th>{tab !== 'position' ? <th scope="col">{tab === 'deal' ? '成交编号 / 委托编号' : '委托编号'}</th> : null}
@@ -172,6 +169,15 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
         {group.status === 'complete' && group.rows.length ? <div className="account-actions" aria-label="账户明细分页"><span>{group.rows.length} 条记录 · 第 {pageIndex + 1} / {pages} 页</span><button disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)}>上一页</button><button disabled={pageIndex + 1 === pages} onClick={() => setPage(pageIndex + 1)}>下一页</button></div> : null}
       </article> : null}
       <details className="compact-details"><summary>交易日</summary><p>券商交易日：{fieldText(data.trade_date)}。</p></details>
+  </> : null
+  return <section className="workspace-page account-workspace">
+    <header className="page-heading account-page-heading"><h1>{labels.title}</h1>{accountStatus(false)}</header>
+    {query.isError ? <p role="alert">{query.error.message}{data ? ' · 保留上次成功结果' : ''}</p> : null}
+    {!capability.available && latest ? <p role="status">{capability.reason ?? '账户读取当前不可用'}。当前显示已读取的账户结果。</p> : null}
+    {data ? <>
+      {data.status !== 'complete' || publication?.state === 'degraded' ? <p role="status">{data.reason}</p> : null}
+      {recordsOnly ? recordsContent : <WorkspaceDock layoutId="account" primaryTitle="资金" secondaryTitle="持仓、委托与成交" secondaryWidth={650}
+        primary={fundsContent} secondary={recordsContent} />}
     </> : null}
   </section>
 }

@@ -1,3 +1,5 @@
+import { ChartZoomToolbar } from '../components/ChartZoomToolbar'
+import { WorkspaceDock } from './WorkspaceDock'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { LineChart, ScatterChart, type LineSeriesOption, type ScatterSeriesOption } from 'echarts/charts'
@@ -39,17 +41,17 @@ function LiveChart({ days, onHover, onSelect }: {
     for (const direction of ['BUY', 'SELL']) series.push({ name: `账户${side(direction)}`, type: 'scatter', symbol: 'triangle', symbolRotate: direction === 'SELL' ? 180 : 0,
       symbolSize: 12, itemStyle: { color: direction === 'BUY' ? '#d74654' : '#008763' }, z: 4,
       data: days.flatMap((d, i) => chartValue(d) !== null && d.deals.some(t => t.side === direction) ? [[i, Number(chartValue(d))]] : []) })
-    chart.setOption({ animation: false, grid: { left: 80, right: 24, top: 25, bottom: 64 },
+    chart.setOption({ animation: false, grid: { left: 65, right: 26, top: 24, bottom: 58 },
       textStyle: { fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif', color: palette.muted },
-      xAxis: { type: 'category', data: days.map(d => d.date), boundaryGap: false, axisLabel: { color: palette.muted }, axisLine: { lineStyle: { color: palette.border } } },
+      xAxis: { type: 'category', data: days.map(d => d.date), boundaryGap: false, axisLabel: { color: palette.muted, hideOverlap: true }, axisLine: { lineStyle: { color: palette.border } } },
       yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: palette.line } }, axisLabel: { color: palette.muted, formatter: (n: number) => `${(n / 10000).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}万` } },
-      tooltip: { ...palette.tooltip, trigger: 'axis', renderMode: 'richText', formatter: (input: unknown) => {
+      tooltip: { ...palette.tooltip, trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'cross' }, formatter: (input: unknown) => {
         const p = Array.isArray(input) ? input[0] : input
         const index = p && typeof p === 'object' && 'dataIndex' in p ? Number(p.dataIndex) : -1
         const d = latestDays.current[index]; if (!d) return ''
         return [d.date, `${d.reference_nav_cny != null ? '参考净值（手续费待确认）' : '实际发布净值'}：${money(chartValue(d))}`, d.positions_state === 'unavailable' ? '持仓尚无观测' : `持仓 ${heldPositions(d).length} 项`,
           d.deals_state === 'unavailable' ? '成交来源尚未取得' : `实际成交 ${d.deals.length} 笔`, '点击固定当日详情'].join('\n')
-      } }, dataZoom: [{ type: 'inside' }, { ...palette.slider, type: 'slider', bottom: 10, height: 18, showDetail: false }], series })
+      } }, dataZoom: [{ type: 'inside', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false }, { ...palette.slider, type: 'slider', bottom: 10, height: 18, showDetail: false }], series })
     const dayAt = (x: number, y: number) => {
       if (!chart.containPixel({ gridIndex: 0 }, [x, y])) return null
       const index = Math.round(Number(chart.convertFromPixel({ xAxisIndex: 0 }, x)))
@@ -64,7 +66,7 @@ function LiveChart({ days, onHover, onSelect }: {
     // The financial shape owns chart updates; response/poll timestamps do not rebuild it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, theme])
-  return <div className="live-strategy-chart" ref={root} role="img" aria-label="实际发布净值曲线与实际成交标记；可悬停预览并点击固定日期，键盘可使用日期选择" />
+  return <><ChartZoomToolbar plot={root} /><div className="live-strategy-chart" ref={root} role="img" aria-label="实际发布净值曲线与实际成交标记；可悬停预览并点击固定日期，键盘可使用日期选择" /></>
 }
 
 /** 线上实际观察与运行详情分开；无历史时显示真实覆盖，保持完整空与未知的区别。 */
@@ -114,10 +116,13 @@ export default function LiveStrategyPerformance({ data }: {
     {data.coverage.valuation_state === 'unavailable' ? <p role="status">本轮自有组合估值未完成，保留最后已核点和原时间；正持仓报价缺失或过期时保持未知。</p> : null}
     {valuation === 'reference-fee-pending' ? <p className="live-strategy-note">参考曲线仅扣已知费用，实际手续费尚待确认；金额和配置资本变化率均属于参考值，投资收益率未核实。</p> : null}
     {data.coverage.deals_truncated ? <p role="status">当前窗口成交较多，界面显示有界明细，已观察历史继续保存。</p> : null}
-    {data.daily.length ? <>
+    {data.daily.length ? <WorkspaceDock layoutId="strategy-performance" primaryTitle="策略净值" secondaryTitle="持仓与成交" secondaryWidth={350}
+      primary={<>
       {totalPoints ? <LiveChart days={rows} onHover={setHover} onSelect={select} /> : <p role="status">当前还没有实际净值点，已取得的成交与持仓可在下方查看。</p>}
       {(data.coverage.reference_point_count ?? 0) > 0 ? <p className="live-strategy-note">蓝色实线表示实际净值，棕色虚线表示参考净值（手续费待确认）；两种资格分别保留。</p> : null}
       {data.coverage.point_count === 1 ? <p className="live-strategy-note">当前只有 1 个实际净值点。后续真实发布会继续累积，暂不连接成历史收益曲线。</p> : null}
+      </>}
+      secondary={<>
       <div className="live-day-picker"><label>观察日期<select value={date ?? ''} onChange={e => select(e.target.value)}>{data.daily.map(d => <option key={d.date} value={d.date}>{d.date}</option>)}</select></label>
         <button onClick={() => setExpanded(v => !v)} aria-expanded={expanded}>{expanded ? '收起详细信息' : '展开详细信息'}</button></div>
       {preview ? <div className="live-day-preview" aria-live="polite"><strong>{preview.date}{hover ? ' · 悬停预览' : ' · 所选日期'}</strong>
@@ -131,6 +136,6 @@ export default function LiveStrategyPerformance({ data }: {
         <section><h4>{allocated ? '策略实际成交' : '账户范围成交'} <small>{allocated ? 'ASA已确认归属' : '归属未确认'}</small></h4>{selected.deals_state === 'unavailable' ? <p>该日没有成交观测。</p> : selected.deals.length ? <div className="live-table-scroll"><table><thead><tr><th>时间</th><th>证券 / 方向</th><th>单价（元）</th><th>数量（份）</th>{expanded ? <th>金额（元）</th> : null}</tr></thead><tbody>{selected.deals.map(d => <tr key={d.id}><td>{d.time}</td><td><StrategySecurityLabel symbol={d.symbol} names={data.security_names} /><br />{side(d.side)}</td><td>{d.price_cny}</td><td>{d.quantity.toLocaleString('zh-CN')}</td>{expanded ? <td>{d.amount_cny}</td> : null}</tr>)}</tbody></table></div> : <p>当日完整查询无成交。</p>}{selected.deals_state === 'partial' ? <p role="status">部分成交字段不可用，当前保留已确认明细。</p> : null}</section>
       </div> : null}
       {expanded && selected ? <div className="live-day-financials"><span>{selected.reference_cash_cny != null ? '参考现金（手续费待确认）' : '现金'} {money(selected.cash_cny ?? selected.reference_cash_cny ?? null)}{(selected.reference_cash_cny != null ? selected.reference_cash_observed_at : selected.cash_observed_at) ? ` · 现金观察 ${sourceTime((selected.reference_cash_cny != null ? selected.reference_cash_observed_at : selected.cash_observed_at) ?? null)}` : ''}</span><span>市值 {money(selected.market_value_cny)}</span><span>原发布基准变化 {money(selected.pnl_cny)}</span><span>{sourceTime(selected.observed_at ?? selected.reference_observed_at ?? null)}</span></div> : null}
-    </> : <p role="status">{data.reason}</p>}
+      </>} /> : <p role="status">{data.reason}</p>}
   </section>
 }

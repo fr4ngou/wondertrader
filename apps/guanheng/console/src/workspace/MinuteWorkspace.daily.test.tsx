@@ -40,6 +40,14 @@ test('canonical分钟来源以已声明周期启动，保留5分钟入口',async
  const urls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const u=String(input);urls.push(u)
   return u.includes('/chart/')?Response.json({...daily,period:new URL(u,'http://test').searchParams.get('period')}):new Response('',{status:503})}))
  mount(['1m','5m']);await screen.findByRole('img',{name:'510300.SH 1m'})
- expect(screen.queryByRole('button',{name:'日线'})).toBeNull();fireEvent.click(screen.getByRole('button',{name:'5分钟'}))
- await screen.findByRole('img',{name:'510300.SH 5m'});expect(urls.filter(u=>u.includes('/chart/')).every(u=>!u.includes('period=1d')&&u.includes('limit=2000'))).toBe(true)
+ expect(screen.queryByRole('button',{name:'日线'})).toBeNull();fireEvent.click(screen.getByRole('button',{name:'1分K'}))
+ expect(screen.getByRole('button',{name:'1分K'})).toHaveAttribute('aria-pressed','true')
+ fireEvent.click(screen.getByRole('button',{name:'5分K'}))
+ await screen.findByRole('img',{name:'510300.SH 5m'})
+ fireEvent.click(screen.getByRole('button',{name:'最近15分钟'}))
+ await screen.findByRole('img',{name:'510300.SH 5m'})
+ expect(urls.filter(u=>u.includes('/chart/')).map(u=>{
+  const query=new URL(u,'http://test').searchParams
+  return [query.get('period'),query.get('limit')]
+ })).toEqual([['1m','30'],['5m','6'],['5m','3']])
 })
