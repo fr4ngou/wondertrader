@@ -1,5 +1,7 @@
 # 发布记录
 
+- [WT 交易 Host 账户只读持久超时恢复](2026-11-12-wt-trade-read-recovery.md)：新 Host 与 Runtime 采用、原模拟账户读回和正式启动入口验真。
+
 - [观衡132 持仓快照与证券名称正式采用](2026-11-12-observer132-position-snapshots.md)：两视图持仓范围与时钟、持仓与成交名称、正式桌面与窄屏验真。
 
 - [WT 行情输入重建正式采用](2026-11-12-wt-retained-quote-recovery.md)：原模拟账户自动成交、原账本续接与新代行情输入验证。
