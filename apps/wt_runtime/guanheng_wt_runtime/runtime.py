@@ -13,6 +13,7 @@ import time
 from uuid import UUID
 
 from .managed_local_process import _duration, _json, _path, _read, _require, _sha
+from .thread_owner import ThreadOwner
 
 
 _ORDER = ('host', 'trade_host', 'account_host', 'analysis_host', 'analysis_batch_host', 'account_observation',
@@ -28,6 +29,11 @@ _KINDS = {'host': ('qmt_read', 'qmt_history_preparation'),
           'history': ('source_market',), 'collection': ('quote_collection',),
           'analysis_window': ('analysis_window',),
           'execution': ('execution',)}
+
+# 仅原只读进程的已退出故障可用资源回收证明换代；交易组件保留各自恢复协议。
+_READ_ONLY_PROCESSES = frozenset(('qmt_read', 'qmt_history_preparation', 'source_market', 'quote_collection'))
+_PUBLICATION_FAILURES = {'native_account_observation': 'observation_runtime',
+                         'analysis_window': 'analysis_window_failed'}
 
 
 @dataclass(frozen=True)
@@ -127,15 +133,17 @@ class Runtime:
     """每组件一个owner；调用者串行start/close，request_close可来自信号或控制线程。
 
     status只读取安全DTO，不向来源发请求。初始化先验证全部组件，启动失败仍由本对象
-    逆依赖关闭已经启动的组件。失败及未知结果保留原组件状态，不自动构造第二代进程。
+    逆依赖关闭已经启动的组件。符合各自回收契约的只读组件可在本实例内恢复。
     """
     def __init__(self, config, *, factory=create_process, clock=time.monotonic):
         _require(type(config) is RuntimeConfig)
-        self.config, self._clock = config, clock
+        self.config, self._clock, self._factory = config, clock, factory
         self._stop = threading.Event()
         self._lock = threading.RLock()
         self._attempted, self._state, self._error = False, 'new', None
         self._stop_deadline = None
+        # 按组件位置持有换代线程及成功事件；线程退出须由运行控制线程确认。
+        self._recoveries: dict[int, tuple[ThreadOwner, threading.Event]] = {}
         # 工厂构造仅验证配置。全部成功后才允许任何start，避免缺执行模块时先启动半套服务。
         owners, capital_accounts, observation = [], [], None
         for name, component in config.components:
@@ -152,7 +160,7 @@ class Runtime:
         for account in capital_accounts:
             _require(observation is not None and observation.control_root == account.control_root
                      and observation.scan.configuration_sha256 == account.scan.configuration_sha256)
-        self._owners = tuple(owners)
+        self._owners = owners
 
     def status(self):
         """返回组件公开状态的值快照；PID/ready描述进程，qmt_connection沿组件原语义。"""
@@ -183,11 +191,67 @@ class Runtime:
             self._state = 'ready'
         return True
 
+    def _recover_component(self, index, owner, restored):
+        """旧owner证明已回收后，沿同一固定配置创建唯一后继。"""
+        name, component = self.config.components[index]
+        try:
+            if self._stop.is_set():
+                return
+            shutdown_seconds = getattr(owner, 'shutdown_seconds', self.config.stop_seconds)
+            closed = owner.close(min(shutdown_seconds, self.config.stop_seconds))
+            # 只读进程的异常退出保留close失败；pending明确确认进程树和线程均已回收。
+            if (not closed and component.kind not in _READ_ONLY_PROCESSES
+                    or owner.status()['pending'] or self._stop.is_set()):
+                return
+            successor = self._factory(component)
+            with self._lock:
+                if self._stop.is_set():
+                    return
+                self._owners[index] = (name, successor)
+            startup_seconds = getattr(successor, 'startup_seconds', self.config.startup_seconds)
+            if successor.start(self._clock() + min(startup_seconds, self.config.startup_seconds)):
+                restored.set()
+        except Exception:
+            # 恢复未完成，控制线程沿原组件故障收口；已登记后继仍由原关闭链回收。
+            return
+
+    def _check_component(self, index, owner):
+        if self._stop.is_set():
+            return True
+        recovery = self._recoveries.get(index)
+        if recovery is not None:
+            task, restored = recovery
+            if not task.join_until(self._clock(), clock=self._clock):
+                return True
+            del self._recoveries[index]
+            return restored.is_set()
+        status = owner.status()
+        error = status.get('error_code')
+        if status['ready'] and error is None:
+            return True
+        kind = self.config.components[index][1].kind
+        if kind in _READ_ONLY_PROCESSES:
+            recoverable = error == 'unexpected_exit'
+        else:
+            recoverable = kind in _PUBLICATION_FAILURES and error == _PUBLICATION_FAILURES[kind]
+            if kind == 'analysis_window' and status.get('state') == 'faulted':
+                recoverable = recoverable or status.get('phase') == 'stopped'
+        if not recoverable:
+            return False
+        try:
+            restored = threading.Event()
+            task = ThreadOwner(target=self._recover_component, args=(index, owner, restored),
+                               name='wt-component-recovery', daemon=True)
+            self._recoveries[index] = (task, restored)
+            task.start()
+        except Exception:
+            return False
+        return True
+
     def check(self):
-        """只查原owner状态；组件自行故障时停止整套依赖，保留有限错误码。"""
-        for name, owner in self._owners:
-            status = owner.status()
-            if not status['ready'] or status.get('error_code') is not None:
+        """核原组件健康；组件换代期间继续处理停止请求和其它组件状态。"""
+        for index, (name, owner) in enumerate(self._owners):
+            if not self._check_component(index, owner):
                 with self._lock:
                     self._state, self._error = 'faulted', 'component_runtime_' + name
                 return False
@@ -213,11 +277,16 @@ class Runtime:
             self._stop_deadline = min(end, self._stop_deadline) if self._stop_deadline is not None else end
             end = self._stop_deadline
             self._state = 'stopping'
+            owners = tuple(self._owners)
         success = True
-        for name, owner in reversed(self._owners):
+        for index in reversed(range(len(owners))):
+            name, owner = owners[index]
             try:
                 owner.request_close()
-                closed = owner.close(max(0, end - self._clock()))
+                recovery = self._recoveries.get(index)
+                # 已冻结owner列表；换代未退出时保持原资源责任，不并行调用同一个close。
+                recovery_joined = recovery is None or recovery[0].join_until(end, clock=self._clock)
+                closed = recovery_joined and owner.close(max(0, end - self._clock()))
             except Exception:
                 closed = False
             if not closed:

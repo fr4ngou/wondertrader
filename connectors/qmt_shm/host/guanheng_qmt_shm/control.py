@@ -335,13 +335,17 @@ class HostControlLoop:
 
     def run(self):
         while not self.runtime._stop.is_set():
+            self.exchange_step = 'read_admission'
             self._admit()
             batch=self.peer.prepare()
+            self.exchange_step = 'send'
             self.session.send(batch.packet,time.monotonic()+self.runtime.budget.io_seconds)
             self.peer.sent(batch)
+            self.exchange_step = 'receive'
             packet=self._receive_packet()
             if packet is None:
                 return
+            self.exchange_step = 'consume_reply'
             self.runtime.last_tick=self.peer.receive(packet)
             while True:
                 call=self.peer.take_call()
@@ -351,6 +355,7 @@ class HostControlLoop:
                     self.peer.reply(call['call_seq'],self.binding)
                 else:
                     self.peer.reply(call['call_seq'],error={'code':'capability_unavailable','message':'read-only capability unavailable'})
+            self.exchange_step = 'read_completion'
             self._complete()
             self._wake.wait(self.runtime.control_profile.poll_seconds);self._wake.clear()
 

@@ -286,12 +286,32 @@ def _allocated_strategy(identity,report,definition,symbols,allocation):
                 row.update(
                     market_value_cny=format(Decimal(quote['price_cny']) * quote['quantity'], 'f'),  # 自有份额乘已核原价，人民币元。
                     market_value_observed_at=quote['observed_at'])  # 该标的原报价时间，带时区。
+    from .strategy_capital_projection import project_baseline, project_capital_return
+    baseline = project_baseline(report.get('capital_baseline'))
+    capital_return = None
+    history_anchor = report.get('capital_history_anchor_sha256')
+    if baseline is None or type(history_anchor) is not str or not re.fullmatch(r'[0-9a-f]{64}', history_anchor):
+        history_anchor = None
+    reported_return = report.get('capital_return')
+    if baseline is not None and valuation_state == 'actual':
+        if (valuation['baseline_cny'] is not None and valuation['baseline_at'] == baseline['baseline_at']
+                and Decimal(valuation['baseline_cny']) == Decimal(baseline['total_cny'])):
+            capital_return = project_capital_return(reported_return, baseline, dict(
+                observed_at=valuation['observed_at'], account_observed_at=valuation['cash_observed_at'],
+                nav_cny=valuation['nav_cny']))
+    elif history_anchor is not None and isinstance(reported_return, dict) and reported_return.get('state') == 'available':
+        # 只有已核收益携带可展示的历史净值；时钟保持原截止，不补当前估值。
+        current_time = datetime.now(timezone.utc).isoformat()
+        capital_return = project_capital_return(reported_return, baseline, dict(
+            observed_at=current_time, account_observed_at=current_time, nav_cny=None))
     return dict(strategy_id=identity,display_name=definition['display_name'],strategy_version=definition['strategy_version'],
         owned_valuation=valuation,valuation_state=valuation_state,valuation_reason=valuation_reason,  # 原profile自有估值及独立缺失分类；App不估价。
         status=status,status_label=labels[status],decision_at=None if legacy is None else legacy['decision_at'],
         broker_observed_at=None if allocation is None else allocation['observed_at'],
         broker_position_qualified=False,execution_position_qualified=False,positions=rows,
-        capital_baseline=None,capital=None,  # 原ASA无价格/NAV合同；账户PnL不能代替策略估值。
+        capital_baseline=baseline, capital=None,  # 分账估值沿自有资金投影，基准沿原策略。
+        **({'capital_history_anchor_sha256': history_anchor} if history_anchor is not None else {}),
+        **({'capital_return': capital_return} if capital_return is not None else {}),
         ownership=allocation,  # 原ASA自有现金/实际D/完整目标，与账户P/A单独标识。
         position_basis='strategy-allocated',  # 同代码实际份额已由ASA唯一账本归属。
         **extra)

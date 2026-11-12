@@ -20,29 +20,42 @@ class AnalysisWindowProcess:
         _duration(stop_seconds, 120)
         self.owner, self.stop_seconds, self.clock = owner, stop_seconds, clock
         self._lock = threading.RLock()
-        self._started, self._closing, self._closed = False, False, False
+        self._started, self._starting, self._closing, self._closed = False, False, False, False
         self._deadline = None
+
+    @property
+    def shutdown_seconds(self):
+        """发布者原停止预算，供WT在组件换代时复用。"""
+        return self.stop_seconds
 
     def start(self, deadline):
         _require(type(deadline) in (int, float) and math.isfinite(deadline))
         with self._lock:
             if self._started or self._closing or self.clock() >= deadline:
                 return False
-            self._started = True
+            self._started = self._starting = True
+        try:
             self.owner.start(deadline=deadline)
-            return self.owner.status()['phase'] not in ('failed', 'stopped')
+        finally:
+            with self._lock:
+                self._starting = False
+                if self._closing:
+                    self.owner.request_close(deadline=self._deadline)
+        with self._lock:
+            return not self._closing and self.owner.status()['phase'] not in ('failed', 'stopped')
 
     def status(self):
         with self._lock:
-            source = self.owner.status()
+            source = (dict(phase='constructed', last_success=None, published_count=0, error=None)
+                      if self._starting else self.owner.status())
             failed = source['phase'] == 'failed'
-            ready = self._started and not self._closing and not failed and source['phase'] != 'stopped'
-            state = ('closed' if self._closed else 'stopping' if self._closing else
+            ready = self._started and not self._starting and not self._closing and not failed and source['phase'] != 'stopped'
+            state = ('closed' if self._closed else 'stopping' if self._closing else 'starting' if self._starting else
                      'faulted' if failed or self._started and source['phase'] == 'stopped' else
                      'ready' if ready else 'new')
             return dict(schema='guanheng.analysis-window-process-status.v1',
                 # 沿 WRI 公共状态字段供独立只读消费者显示；数据就绪仍单独表达。
-                state=state, ready=ready, pending=self._closing and not self._closed, forced=False,
+                state=state, ready=ready, pending=self._starting or self._closing and not self._closed, forced=False,
                 error_code='analysis_window_failed' if failed else None,
                 phase=source['phase'], data_ready=source['last_success'] is not None,
                 published_count=source['published_count'], last_success=source['last_success'],
@@ -53,7 +66,8 @@ class AnalysisWindowProcess:
             self._closing = True
             if self._deadline is None:
                 self._deadline = self.clock() + self.stop_seconds
-            self.owner.request_close(deadline=self._deadline)
+            if not self._starting:
+                self.owner.request_close(deadline=self._deadline)
 
     def close(self, seconds):
         _require(type(seconds) in (int, float) and math.isfinite(seconds) and 0 <= seconds <= 120)
@@ -63,6 +77,8 @@ class AnalysisWindowProcess:
             self._closing = True
             end = self.clock() + min(seconds, self.stop_seconds)
             self._deadline = end if self._deadline is None else min(end, self._deadline)
+            if self._starting:
+                return False
             deadline = self._deadline
             self.owner.request_close(deadline=deadline)
         # join 放在包装层锁外；发布线程不需要通过本层来更新自己的状态。

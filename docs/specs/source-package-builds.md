@@ -4,13 +4,13 @@
 
 ## SP1 永久源码与包边界
 
-Host、Agent 的包目录和元数据位于 `connectors/qmt_shm/host`、`connectors/qmt_shm/agent`。Core 独立元数据位于 `packages/native-analysis-core`，其算法继续使用 `integrations/guanheng` 的唯一实现。Core namespace 初始化与可选公开重导出由独立 Core 项目拥有；成员映射由 `config/source-packages.json` 声明。market-client 的元数据、基础模块清单与独立依赖保持原所有权。
+Host、Agent 的包目录和元数据位于 `connectors/qmt_shm/host`、`connectors/qmt_shm/agent`。Core 独立元数据位于 `packages/native-analysis-core`，其算法继续使用 `integrations/guanheng` 的唯一实现。Core namespace 初始化及实现成员由独立 Core 项目拥有，成员映射由 `config/source-packages.json` 声明。market-client 自身拥有公开回放入口，消费者安装 Core 后可经该入口使用原实现。
 
 源码更新逐文件核实，保留其他职责的改动。新的构建从永久源码获得全部产品成员；历史 wheel、临时源码快照和运行目录不作为产品源码来源。
 
 ## SP2 可重复普通构建
 
-构建使用声明的 Flit backend，按依赖锁校验 SHA。Host、Agent 直接普通构建；Core 从声明的永久文件组装临时 Flit 项目，再沿标准 wheel 映射添加可选公开重导出并重算 RECORD。构建前后核实完整输入身份，wheel 模块逐字对应源码，元数据版本取自所属 pyproject。固定 SOURCE_DATE_EPOCH 后，相同输入在两个独立输出目录生成相同三 wheel。
+构建使用声明的 Flit backend，按依赖锁校验 SHA。Host、Agent 直接普通构建；Core 从声明的永久文件组装其 namespace 并通过 Flit 生成 wheel，market-client 的公开入口由其自身 wheel 安装。构建前后核实完整输入身份，wheel 模块逐字对应源码，元数据版本取自所属 pyproject。固定 SOURCE_DATE_EPOCH 后，相同输入在两个独立输出目录生成相同三 wheel。
 
 构建收据记录解释器、backend、源码和 wheel 身份、实际命令结果及适用范围。旧制品和已运行实例保持其原字节；新输出使用新目录。
 

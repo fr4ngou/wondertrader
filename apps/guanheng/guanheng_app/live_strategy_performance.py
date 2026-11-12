@@ -405,6 +405,11 @@ class LiveStrategyPerformanceOwner:
         if book is not None:history_scope=_sha(['asa-owned-history-v1',book,strategy['strategy_id'],strategy['strategy_version']])
         if book is not None and valuation is not None and valuation['baseline_sha256'] is not None:
             history_scope=_sha(['asa-owned-valuation-history-v1',book,strategy['strategy_id'],strategy['strategy_version'],valuation['baseline_sha256']])
+        prior_anchor = strategy.get('capital_history_anchor_sha256')
+        prior_nav_scope = None
+        if allocated and baseline is not None and prior_anchor is not None:
+            prior_nav_scope = _sha(['published-cash-anchor-history-v1', configuration.instance_id,
+                                     strategy['strategy_id'], strategy['strategy_version'], _sha(baseline), prior_anchor])
         is_current,active=execution_process_state(runtime,reference,snapshot['lifecycle'],self._probe)
         current=dict(strategy_id=strategy['strategy_id'],strategy_version=strategy['strategy_version'],key_matches=True,
             runtime_state=runtime['state'],is_current=is_current,scope_id=scope,process_state='alive' if active is True else 'exited' if active is False else 'unknown')
@@ -446,7 +451,7 @@ class LiveStrategyPerformanceOwner:
         return dict(current=current,history_scope_id=history_scope,allocated=allocated,valuation_state=strategy.get('valuation_state'),valuation_reason=strategy.get('valuation_reason'),source_truncated=bool(ownership and ownership['fills_truncated']),continuity='asa-owned-book'if book else'stable-cash-anchor'if stable else'runtime-only-unproven-lineage',
             baseline=None if baseline is None else dict(total_cny=baseline['total_cny'],
             baseline_at=baseline['baseline_at'],scope_id=_sha(baseline)),summary=summary,
-            capital_return=strategy.get('capital_return'),events=events)
+            capital_return=strategy.get('capital_return'), prior_nav_scope=prior_nav_scope, events=events)
 
     def _record(self,projected,deadline,limit):
         events=projected['events'];scope=projected['history_scope_id']
@@ -479,9 +484,26 @@ class LiveStrategyPerformanceOwner:
                         sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED,sqlite3.SQLITE_PERM):raise
                 state='degraded-readonly-history'
             rows=self._history(database,scope,limit,deadline)
+            if projected['prior_nav_scope'] is not None:
+                rows = self._join_prior_nav(database, projected['prior_nav_scope'], rows, limit, deadline)
             rows,truncated=_view(rows,events if state=='degraded-readonly-history'else{},limit)
             _check(deadline)
             return rows,state,truncated
+
+    def _join_prior_nav(self, database, scope, rows, limit, deadline):
+        """只读接续分账前已核净值和原时点，账户级持仓、现金及成交留在原范围。"""
+        values = database.execute('SELECT CASE WHEN length(payload)<=? THEN payload ELSE NULL END '
+            'FROM observations WHERE scope=? AND json_extract(payload,\'$.nav_cny\') IS NOT NULL '
+            'ORDER BY day DESC LIMIT ?', (DAY_BYTES, scope, limit))
+        by_day = {row['date']: row for row in rows}
+        for (raw,) in values:
+            _check(deadline)
+            old = _stored_day(raw)
+            row = by_day.setdefault(old['date'], _blank(old['date']))
+            if row['nav_cny'] is None and row.get('valuation_state') is None:
+                row.update({key: old[key] for key in ('observed_at', 'nav_cny', 'market_value_cny',
+                    'pnl_cny', 'runtime_scope_id', 'price_observed_at', 'pnl_source') if key in old})
+        return [by_day[day] for day in sorted(by_day)[-limit:]]
 
     def _history(self,database,scope,limit,deadline):
         """按经济scope读取已核副本；写入降级不更换原租约/身份或绕过格式验证。"""
@@ -550,6 +572,11 @@ class LiveStrategyPerformanceOwner:
                 if summary is None or (latest.get('observed_at')or latest.get('reference_observed_at')or'')>=summary['observed_at']:
                     summary=_valuation_summary(latest)
             capital_return = projected['capital_return']
+            if (capital_return is not None and capital_return['state'] == 'available'
+                    and (summary is None or summary['nav_cny'] is None)):
+                summary = dict(summary or {}, nav_cny=capital_return['valuation_nav_cny'],
+                               observed_at=_stamp(capital_return['valued_at']), pnl_cny=None,
+                               price_observed_at=None, pnl_source='previous-verified-valuation')
             if (capital_return is not None and summary is not None and summary['nav_cny'] is not None
                     and _stamp(capital_return['valued_at']) <= summary['observed_at']):
                 summary.update(return_pct=capital_return['return_pct'], return_reason=capital_return['reason'],

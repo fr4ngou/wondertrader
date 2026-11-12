@@ -12,6 +12,7 @@ from uuid import uuid4
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/'apps/wt_runtime'))
 from guanheng_wt_runtime import __main__ as cli
+from guanheng_wt_runtime.runtime_diagnostics import flush_process_logs
 
 
 class OfflineRuntime:
@@ -60,10 +61,14 @@ class FailureDiagnostics(unittest.TestCase):
 
     def _run(self, runtime, directory, *, publish=None):
         configuration=SimpleNamespace(instance_id=str(uuid4()),startup_seconds=1,stop_seconds=1)
-        with patch.object(cli,'Runtime',return_value=runtime):
-            if publish is None:return cli.run(configuration,'a'*64,directory,str(uuid4()))
-            with patch.object(cli,'_publish',side_effect=publish):
-                return cli.run(configuration,'a'*64,directory,str(uuid4()))
+        try:
+            with patch.object(cli,'Runtime',return_value=runtime):
+                if publish is None:return cli.run(configuration,'a'*64,directory,str(uuid4()))
+                with patch.object(cli,'_publish',side_effect=publish):
+                    return cli.run(configuration,'a'*64,directory,str(uuid4()))
+        finally:
+            # 测试在同一进程内调用入口，清理临时目录前等候日志文件句柄关闭。
+            self.assertTrue(flush_process_logs(5))
 
     def test_normal_run_has_original_receipt_and_no_diagnostic(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build') as root:
@@ -103,6 +108,36 @@ class FailureDiagnostics(unittest.TestCase):
             self.assertNotIn(str(directory),raw)
             event=json.loads(raw)['failure']
             self.assertEqual(event,dict(phase='component_check',exception_type='Exception',errno=None,winerror=None))
+
+    def test_first_error_is_persisted_while_original_cleanup_is_in_progress(self):
+        class Failing(OfflineRuntime):
+            def check(self):raise OSError(errno.EIO,'private trigger')
+            def close(self,timeout):
+                self.assert_early_log()
+                return super().close(timeout)
+        with tempfile.TemporaryDirectory(dir=ROOT/'build') as root:
+            directory=Path(root)/str(uuid4())
+            runtime=Failing()
+
+            def assert_early_log():
+                self.assertTrue(flush_process_logs(5))
+                raw=(directory.parent/'process-events.jsonl').read_text(encoding='utf8')
+                self.assertNotIn('private trigger',raw)
+                events=[json.loads(row) for row in raw.splitlines()]
+                self.assertEqual(len(events),1)
+                ready=json.loads((directory/'ready.json').read_bytes())
+                event=events[0]
+                self.assertEqual((event['event'],event['control_id'],event['pid']),
+                                 ('runtime_exception',ready['control_id'],ready['pid']))
+                self.assertEqual((event['phase'],event['errno']),('component_check',errno.EIO))
+                self.assertTrue(event['captured_at'].endswith('+00:00'))
+                self.assertEqual([frame['file'] for frame in event['frames']],['__main__.py'])
+                self.assertTrue(all(frame['line'] > 0 for frame in event['frames']))
+                self.assertFalse((directory/'diagnostic.json').exists())
+
+            runtime.assert_early_log=assert_early_log
+            self.assertEqual(self._run(runtime,directory),2)
+            self.assertTrue((directory/'diagnostic.json').exists())
 
     def test_diagnostic_write_failure_keeps_original_failure_and_close(self):
         class Failing(OfflineRuntime):

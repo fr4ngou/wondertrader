@@ -23,6 +23,16 @@ _DIAGNOSTIC_CATEGORIES = frozenset(stage + '_' + kind
     for kind in ('transport', 'authentication_or_protocol', 'configuration', 'journal', 'fault')) | frozenset((
         'startup_timeout', 'manager_start_unconfirmed', 'retirement_unconfirmed'))
 
+_DIAGNOSTIC_IO_STEPS = frozenset(('accept', 'handshake', 'binding', 'dispatch',
+    'read_admission', 'send', 'receive', 'consume_reply', 'read_completion'))
+_DIAGNOSTIC_CLOSE_STEPS = frozenset(('request_close', 'admission_lock', 'worker_join',
+    'transport_release', 'control_close', 'journal_close'))
+
+
+def _diagnostic_error_number(value):
+    """只保存有界系统数字错误码；不复制异常正文。"""
+    return value if type(value) is int and -(2**31) <= value < 2**32 else None
+
 
 def _diagnostic_enum(value, allowed):
     """只复制固定类别；缺失与未知分别保留为null和other，禁止输出外部文本。"""
@@ -199,6 +209,9 @@ class ReconnectingReadService:
             if self._failure is None:
                 try:
                     runtime = self._runtime
+                    first = getattr(runtime, 'first_failure_diagnostic', None)
+                    reason, step, errno, winerror = (first if type(first) is tuple and len(first) == 4 else
+                                                     (getattr(runtime, 'failure', None), None, None, None))
                     self._failure_diagnostic = dict(
                         reason=_diagnostic_enum(category, _DIAGNOSTIC_CATEGORIES),  # 首次服务故障固定分类。
                         lifecycle=_diagnostic_enum(self._phase, frozenset((
@@ -207,7 +220,10 @@ class ReconnectingReadService:
                             and 0 <= self._generation <= 2**53-1 else None,  # 本服务创建代数，未知为null。
                         cleanup_reason=_diagnostic_enum(category if cleanup else self._cleanup_failure,
                             _DIAGNOSTIC_CATEGORIES),  # 首故障当时的清理分类，与后续退休失败分开。
-                        runtime_failure=_diagnostic_enum(getattr(runtime, 'failure', None), _DIAGNOSTIC_REASONS),  # 原单代首因。
+                        runtime_failure=_diagnostic_enum(reason, _DIAGNOSTIC_REASONS),  # 原单代首因。
+                        runtime_step=_diagnostic_enum(step, _DIAGNOSTIC_IO_STEPS),
+                        runtime_errno=_diagnostic_error_number(errno),
+                        runtime_winerror=_diagnostic_error_number(winerror),
                         runtime_cleanup=_diagnostic_enum(getattr(runtime, 'cleanup_failure', None), _DIAGNOSTIC_REASONS),  # 原资源清理类。
                         runtime_interruption=_diagnostic_enum(getattr(runtime, 'interruption_failure', None), _DIAGNOSTIC_REASONS),  # 原派发交接类。
                         read_rejection=_diagnostic_read_rejection(runtime))  # 最近合法拒绝的固定code/delivery/持久状态及计数，无请求正文。
@@ -350,7 +366,10 @@ class ReconnectingReadService:
                     if getattr(self, '_retirement_diagnostic', None) is None:
                         self._retirement_diagnostic = dict(
                             exception_type=_diagnostic_enum(type(exc).__name__, _DIAGNOSTIC_REASONS),  # 固定异常类，原正文保留私有。
-                            step=stage,  # 本方法固定步骤，区分引用等待、原close及owner确认。
+                            step=stage,  # 门面固定步骤，区分引用等待、原close及owner确认。
+                            runtime_step=_diagnostic_enum(getattr(runtime, 'close_step', None), _DIAGNOSTIC_CLOSE_STEPS),
+                            errno=_diagnostic_error_number(getattr(exc, 'errno', None)),
+                            winerror=_diagnostic_error_number(getattr(exc, 'winerror', None)),
                             remaining_budget_ms=max(-600000, min(600000,
                                 int((self._deadline(deadline)-time.monotonic())*1000))))  # 同机原D剩余毫秒，负值表示已超期。
             except Exception:

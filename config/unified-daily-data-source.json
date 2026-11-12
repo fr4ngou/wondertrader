@@ -158,7 +158,7 @@
       "source": "apps/guanheng/guanheng_app/thread_owner.py"
     },
     "guanheng_qmt_shm/__init__.py": {
-      "sha256": "c1eebe15aa5b61ee7a1626edf92856a5b0fc37ec8ca1c3b977b41e2fc45c6c3e",
+      "sha256": "87cf7629f4c27b6af981b74a1c351a8bcc1fbc11792dfdd3b704ae7b6b3594bd",
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/__init__.py"
     },
     "guanheng_qmt_shm/analysis_batch_source.py": {
@@ -650,7 +650,7 @@
       "source": "integrations/guanheng/source_reference_capture.py"
     },
     "integrations/guanheng_market_client/__init__.py": {
-      "sha256": "29dddf9698b683bfe45127c301de2c58cf8a6bb1acb7529a5964f70ccf0d2274",
+      "sha256": "3e91369bac0a9498703cae12e517e56afce78d6534af23c6002983ca902adbd4",
       "source": "integrations/guanheng_market_client/__init__.py"
     },
     "integrations/guanheng_market_client/daily_batch.py": {

@@ -153,7 +153,7 @@ class ManagedLocalProcess:
         self._error = None
         self._control_id = str(uuid4())
         self._directory = Path(config.control_root) / self._control_id if config else None
-        self._host_pid = self._exit_code = None
+        self._host_pid = self._exit_code = self._host_exit_code = None
         self._stop_written = False
         self._diagnostic = (ProcessEventLog(Path(config.control_root), self._control_id, self._thread_name)
                             if config else None)  # 与原部署根关联；不保存凭据或原始管道正文。
@@ -185,7 +185,8 @@ class ManagedLocalProcess:
         self.request_close()
         self._ready.set()
         if first and self._diagnostic is not None:
-            self._diagnostic.event('process_failure', code=code)
+            self._diagnostic.event('process_failure', code=code, exit_code=self._exit_code,
+                                   host_pid=self._host_pid, host_exit_code=self._host_exit_code)
 
     def request_close(self):
         with self._condition:
@@ -339,6 +340,10 @@ class ManagedLocalProcess:
             self._exit_code = job.wait(max(0, deadline - self._clock()))
             if job.poll() is None or job.active_processes() != 0:
                 return False
+            if self._host_handle is not None:
+                exit_code = wintypes.DWORD()
+                if job.api.GetExitCodeProcess(self._host_handle, ctypes.byref(exit_code)):
+                    self._host_exit_code = exit_code.value
             joined = [reader.join_until(deadline, clock=self._clock) for reader in self._readers]
             if not all(joined):
                 return False
@@ -347,10 +352,9 @@ class ManagedLocalProcess:
                 if self._error is None:
                     return False
             if self._host_handle is not None:
-                exit_code = wintypes.DWORD()
-                if not job.api.GetExitCodeProcess(self._host_handle, ctypes.byref(exit_code)):
+                if self._host_exit_code is None:
                     return False
-                if exit_code.value != 0:
+                if self._host_exit_code != 0:
                     self._failure('host_exit')
                 if not job.api.CloseHandle(self._host_handle):
                     return False
@@ -460,7 +464,8 @@ class ManagedLocalProcess:
             self._ready.set()
             self._wake.set()
             if self._diagnostic is not None:
-                self._diagnostic.event('process_closed', code=self._error, exit_code=self._exit_code)
+                self._diagnostic.event('process_closed', code=self._error, exit_code=self._exit_code,
+                                       host_pid=self._host_pid, host_exit_code=self._host_exit_code)
 
     def start(self, deadline):
         _require(type(deadline) in (int, float) and math.isfinite(deadline))

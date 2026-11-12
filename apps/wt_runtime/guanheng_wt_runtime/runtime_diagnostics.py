@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import atexit
+from collections import deque
 from contextlib import contextmanager
 import hashlib
 import json
@@ -26,10 +27,16 @@ _PHASES = frozenset((
 _TYPES = (FileNotFoundError, PermissionError, FileExistsError, TimeoutError,
           BrokenPipeError, ConnectionError, OSError, ValueError, TypeError,
           KeyError, RuntimeError, AssertionError, OverflowError, MemoryError, Exception)
+_RUNTIME_PACKAGE = Path(__file__).resolve().parent
 
 
 def _integer(value):
     return value if type(value) is int and -(2**31) <= value < 2**31 else None
+
+
+def _process_number(value):
+    # Windows进程退出码也可为无符号DWORD，例如0xC0000005。
+    return value if type(value) is int and -(2**31) <= value < 2**32 else None
 
 
 def _event(phase, error):
@@ -40,12 +47,28 @@ def _event(phase, error):
         winerror=_integer(getattr(error, 'winerror', None)) if isinstance(error, OSError) else None)
 
 
+def _runtime_exception(details, error):
+    frames = deque(maxlen=8)
+    cursor = error.__traceback__
+    while cursor is not None:
+        source = Path(cursor.tb_frame.f_code.co_filename)
+        if source.parent == _RUNTIME_PACKAGE and re.fullmatch(r'[a-zA-Z0-9_]+\.py', source.name):
+            frames.append(dict(file=source.name, line=cursor.tb_lineno))
+        cursor = cursor.tb_next
+    return dict(
+        details,
+        captured_at=datetime.now(timezone.utc).isoformat(),  # 捕获异常的UTC时刻。
+        frames=list(frames),  # 最近八处运行包代码位置，仅文件名和行号。
+    )
+
+
 class FailureDiagnostic:
-    """先纯值记录，原收口结束后另写版本化旁证；诊断写失败保持原异常和退出结果。"""
+    """首错先提交进程日志，收口后发布原旁证；诊断故障不替换业务异常。"""
     def __init__(self, directory, identity, publish):
         self.directory = directory  # 本代原控制目录；只发布固定diagnostic.json，不采集或输出目录正文。
         self.identity = identity  # 原control/instance/PID/config摘要；不含凭证、账户或业务结果。
         self.publish = publish  # 原严格发布接缝；旁证写入失败不改变原异常、清理及退出结果。
+        self.process_log = ProcessEventLog(directory.parent, identity['control_id'], 'wt-runtime')
         self.phase = 'runtime_construct'  # 当前边界固定阶段，捕获时只认_PHASES白名单。
         self.failure = None  # 首次异常的纯值分类；None表示未观察异常，后续清理错误独立保存。
 
@@ -56,6 +79,8 @@ class FailureDiagnostic:
         if self.failure is None:
             try:
                 self.failure = _event(self.phase, error)
+                details = _runtime_exception(self.failure, error)
+                self.process_log.runtime_exception(details, pid=self.identity['pid'])
             except Exception:
                 pass
 
@@ -67,6 +92,8 @@ class FailureDiagnostic:
             else:
                 try:
                     secondary = _event(self.phase, error)
+                    details = _runtime_exception(secondary, error)
+                    self.process_log.runtime_exception(details, pid=self.identity['pid'])
                 except Exception:
                     pass
         if self.failure is not None:
@@ -250,11 +277,13 @@ class ProcessEventLog:
         except Exception:
             self._dropped += 1
 
-    def event(self, event, *, code=None, error=None, exit_code=None):
+    def event(self, event, *, code=None, error=None, exit_code=None, host_pid=None, host_exit_code=None):
         """固定生命周期事件；异常正文、参数、路径及自定义类型名不进入记录。"""
         if event not in self._events:
             raise ValueError('process_log_event')
-        value = dict(code=code if code in self._codes else None, exit_code=_integer(exit_code))
+        value = dict(code=code if code in self._codes else None, exit_code=_process_number(exit_code))
+        if event == 'process_closed' or host_pid is not None or host_exit_code is not None:
+            value.update(host_pid=_process_number(host_pid), host_exit_code=_process_number(host_exit_code))
         if error is not None:
             try:
                 value['exception'] = _event('unknown', error)
@@ -262,6 +291,11 @@ class ProcessEventLog:
                 value['exception'] = dict(phase='unknown', exception_type='Exception', errno=None, winerror=None)
         with self._lock:
             self._append(event, value)
+
+    def runtime_exception(self, details, *, pid):
+        """提交运行包提取的脱敏异常证据；沿用进程日志队列及落盘预算。"""
+        with self._lock:
+            self._append('runtime_exception', dict(details, pid=_process_number(pid)))
 
     def _line(self, index, raw):
         # 只解析标准异常类别和Windows错误码；秘密出现在正文、普通输出或自定义

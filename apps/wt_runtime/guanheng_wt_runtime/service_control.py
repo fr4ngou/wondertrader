@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 from dataclasses import dataclass
 import hashlib
 import json
@@ -11,7 +10,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 import time
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from guanheng_market_client.runtime_status import (
@@ -84,6 +85,12 @@ def _json_file(path: Path, maximum: int) -> tuple[bytes, dict]:
     value = json.loads(raw.decode("utf-8"))
     _require(type(value) is dict)
     return raw, value
+
+
+def _pinned_json(path: Path, expected_sha256: str, maximum: int) -> dict:
+    raw, value = _json_file(path, maximum)
+    _require(hashlib.sha256(raw).hexdigest() == _sha(expected_sha256))
+    return value
 
 
 def _canonical_uuid(value: str) -> str:
@@ -537,107 +544,211 @@ class ServiceController:
             _require(transition_file is None)
         return transition_file
 
-    def _admit_history_bootstrap(self, previous: dict | None, status: dict | None) -> None:
-        """持原服务租约核纯历史显式采用；未知/故障保持原代，不生成或停止进程。"""
+    def _admit_bootstrap(self, previous: dict | None, status: dict | None) -> None:
+        """持原服务租约核退出证据及显式后继的作用范围。"""
         _require(previous is not None and status is not None)
-        closed = _terminal(previous, "closed.json")
-        _require(closed is not None and not (Path(previous["wt_status_file"]).parent / "failure.json").exists())
-        _require(closed.get("status") == "stopped" and closed.get("components_closed") is True
-                 and closed.get("error_code") is None and status.get("state") == "closed"
-                 and status.get("ready") is False and status.get("error_code") is None)
+        closed = _terminal(previous, "closed.json", allow_pending=False)
+        failure = _terminal(previous, "failure.json", allow_pending=False)
+        _require((closed is None) != (failure is None) and status.get("ready") is False)
         ready = read_status(Path(previous["wt_status_file"]).parent / "ready.json", 4096)
-        _require(type(closed.get("pid")) is int and closed["pid"] == status["pid"] == ready.get("pid"))
+        terminal = closed or failure
+        _require(type(terminal.get("pid")) is int and terminal["pid"] == status["pid"] == ready.get("pid"))
         _require(self._runtime_owner_active(previous) is False)
-        # 原Win32核查拒绝活PID、访问拒绝及未知退出；PID/创建身份另沿原owner材料核同。
-        require_process_exited(closed["pid"])
+        require_process_exited(terminal["pid"])
+
         old_path, old_sha = self._configuration_for(previous)
         before = RuntimeConfig.from_path(str(old_path), old_sha)
         after = RuntimeConfig.from_path(str(self.config.bootstrap_configuration), self.config.bootstrap_configuration_sha256)
-        _require(before.instance_id == after.instance_id == previous["wt_instance_id"]
-                 and tuple(name for name, _ in before.components) == ("history",)
-                 and tuple(name for name, _ in after.components) == ("history",)
-                 and before.components[0][1].kind == after.components[0][1].kind == "source_market")
-        _require(type(status.get("components")) is dict and set(status["components"]) == {"history"})
-        history = status["components"]["history"]
-        _require(type(history) is dict and history.get("state") == "closed"
-                 and history.get("ready") is False and history.get("error_code") is None)
+        _require(before.instance_id == after.instance_id == previous["wt_instance_id"])
+        old_components, new_components = dict(before.components), dict(after.components)
+        _require(old_components.keys() == new_components.keys())
+        components = status.get("components")
+        _require(type(components) is dict and components.keys() == old_components.keys())
+        if "execution" in old_components:
+            _require(all(new_components[name] == old for name, old in old_components.items()
+                         if name not in {"execution", "trade_host"}))
+        else:
+            _require(closed is not None and tuple(old_components) == ("history",)
+                     and old_components["history"].kind == new_components["history"].kind == "source_market")
+        if closed is not None:
+            _require(closed.get("status") == "stopped" and closed.get("components_closed") is True
+                     and closed.get("error_code") is None and status.get("state") == "closed"
+                     and status.get("error_code") is None)
+            for component in components.values():
+                _require(type(component) is dict and component.get("state") == "closed"
+                         and component.get("ready") is False and component.get("error_code") is None)
+        else:
+            _require(failure.get("status") == "faulted" and failure.get("components_closed") is False
+                     and status.get("state") == "faulted")
+            _require(self._record_process_loss(previous))
+
+    @staticmethod
+    def _trade_deployment_identity(component):
+        """从已固定的交易部署读取原Journal和绑定身份，沿Source协议解码。"""
+        from guanheng_qmt_shm.trade_deployment_identity import reference_deployment_identity
+
+        from .trade_host_process import TradeHostProcessConfig
+
+        config = TradeHostProcessConfig.from_path(component.descriptor, component.sha256)
+        pair = Path(config.pair_directory)
+        manifest = _pinned_json(pair / "manifest.json", config.pair_manifest_sha256, 2 * 1024 * 1024)
+        deployment = _read(pair / "deployment.json", 16 * 1024 * 1024)
+        _require(hashlib.sha256(deployment).hexdigest() == _sha(manifest["config_sha256"]))
+        identity = reference_deployment_identity(deployment)
+        host = json.loads(deployment)["host"]
+        return identity, (host["listen_host"], host["listen_port"])
+
+    @staticmethod
+    def _require_trade_endpoint(trader, endpoint):
+        base_url = trader["base_url"]
+        address = urlsplit(base_url)
+        port = 80 if address.port is None else address.port
+        _require(base_url == base_url.strip() and address.scheme == "http"
+                 and address.username is None and address.password is None
+                 and address.path in ("", "/") and not address.query and not address.fragment
+                 and (address.hostname, port) == endpoint)
+
+    @staticmethod
+    def _require_trade_source_origin(native, predecessor):
+        """迁移证明必须来自原Runtime实际管理的Host部署及原Journal。"""
+        reference = native["strategy_extension_origin"]["dependency_handoff"]
+        handoff = _pinned_json(_path(reference["file"], e_drive=True), reference["sha256"], 1024 * 1024)
+        proof = handoff["source_extension"]
+        _require(type(proof) is dict
+                 and _sha(proof["origin_deployment"]["sha256"]) == predecessor["deployment_sha256"])
+        identity = proof["origin_identity"]
+        origin = _pinned_json(_path(identity["file"], e_drive=True), identity["sha256"], 65536)
+        _require(origin == predecessor)
+
+    def _require_managed_trade_handoff(self, previous_runtime, candidate, native, new_native):
+        from .execution_dependency_handoff import TRANSPORT
+
+        old_trade = dict(previous_runtime.components).get("trade_host")
+        new_trade = dict(candidate.components).get("trade_host")
+        old_trader, new_trader = native["trader"], new_native["trader"]
+        old_binding, new_binding = old_trader["binding_sha256"], new_trader["binding_sha256"]
+        if old_trade is None:
+            _require(new_trade is None and old_binding == new_binding)
+            return
+        _require(new_trade is not None)
+        before, old_endpoint = self._trade_deployment_identity(old_trade)
+        after, new_endpoint = (before, old_endpoint) if old_trade == new_trade else self._trade_deployment_identity(new_trade)
+        _require(before["journal_path"] == after["journal_path"]
+                 and before["trade_binding_sha256"] == old_binding
+                 and after["trade_binding_sha256"] == new_binding)
+        self._require_trade_endpoint(old_trader, old_endpoint)
+        self._require_trade_endpoint(new_trader, new_endpoint)
+        if any(old_trader.get(key) != new_trader.get(key) for key in TRANSPORT):
+            self._require_trade_source_origin(new_native, before)
+
+    def _recover_execution(self, generation, previous_status, runtime_value, descriptor, candidate, previous_runtime):
+        """以实际前代为账本来源，使用普通重启与显式采用共用的执行交接。"""
+        execution_status = previous_status.get("components", {}).get("execution")
+        _require(type(execution_status) is dict)
+        observation = execution_status.get("business_observation")
+        _require(type(observation) is dict and observation.get("schema") == "guanheng.execution-observation-reference.v1")
+        predecessor_control = _path(observation["path"], e_drive=True).parent
+        _require(_path(observation["ready_path"], e_drive=True) == predecessor_control / "ready.json")
+        ready = read_status(predecessor_control / "ready.json", 4096)
+        previous_native = predecessor_control / "execution.json"
+        previous_native_sha = _sha(observation["config_sha256"])
+        native = _pinned_json(previous_native, previous_native_sha, 256 * 1024)
+        _require(ready.get("schema") == "guanheng.execution.ready.v1"
+                 and ready.get("control_id") == observation["control_id"]
+                 and ready.get("config_sha256") == previous_native_sha
+                 and ready.get("pid") == observation["pid"])
+        if candidate is not None:
+            _require(descriptor.get("python_strategies") is True)
+            new_native = _pinned_json(_path(descriptor["configuration"], e_drive=True),
+                                      descriptor["configuration_sha256"], 256 * 1024)
+            self._require_managed_trade_handoff(previous_runtime, candidate, native, new_native)
+            native = new_native
+        store = native.get("data", {}).get("store", {})
+        daily = store.get("daily", {})
+        if store.get("module") == "GuanhengRealtimeReader" and "publication" in daily:
+            # Reader独占创建本代缓存目录；其它来源继续沿原发布原件。
+            cache_root = generation / "daily-cache"
+            _require(not os.path.lexists(cache_root))
+            daily["publication"]["cache_root"] = str(cache_root)
+            _connect_daily_publication(runtime_value, daily["publication"])
+        transition_path = generation / "transition.json"
+        with TemporaryDirectory(dir=generation) as scratch:
+            native_template = Path(scratch) / "native.json"
+            _write_exclusive(native_template, native)
+            transition = prepare_transition(
+                native_template, previous_native, predecessor_control, transition_path,
+                successor_python=self.config.pythonw,
+            )
+        native["recovery"] = {"mode": "resume_reconciled", "transition": transition}
+        native_path = generation / "native.json"
+        native_sha = _write_exclusive(native_path, native)
+        descriptor["configuration"] = str(native_path)
+        descriptor["configuration_sha256"] = native_sha
+        descriptor.pop("initial_inventory", None)
+        successor_descriptor = generation / "execution.json"
+        descriptor_sha = _write_exclusive(successor_descriptor, descriptor)
+        if candidate is not None:
+            from .execution_process import create_process
+
+            # 与子进程采用同一描述符校验；此处只构造未启动的执行owner。
+            create_process(str(successor_descriptor), descriptor_sha)
+        execution = runtime_value["components"]["execution"]
+        execution["descriptor"] = str(successor_descriptor)
+        execution["sha256"] = descriptor_sha
+        return str(transition_path)
 
     def _new_generation(self, previous: dict | None, previous_status: dict | None, *, adopt_bootstrap=False) -> tuple[dict, Path]:
         control_id = str(uuid4())
         generation = self.config.generation_root / control_id
         generation.mkdir()
+        try:
+            return self._materialize_generation(control_id, generation, previous, previous_status, adopt_bootstrap)
+        except Exception:
+            self._discard_generation(control_id)
+            raise
+
+    def _discard_generation(self, control_id):
+        """仅删除本次未启动或未创建运行控制目录的私有材料。"""
+        generation = self.config.generation_root / _canonical_uuid(control_id)
+        _inspect(generation, directory=True)
+        for artifact in generation.iterdir():
+            artifact.unlink()
+        generation.rmdir()
+
+    def _materialize_generation(self, control_id, generation, previous, previous_status, adopt_bootstrap):
         owner_file = generation / "runtime-owner.json"
-        if previous is None or adopt_bootstrap:
-            runtime_path = self.config.bootstrap_configuration
-            runtime_sha = self.config.bootstrap_configuration_sha256
+        runtime_path = self.config.bootstrap_configuration
+        runtime_sha = self.config.bootstrap_configuration_sha256
+        transition_file = None
+        if previous is None:
             runtime = RuntimeConfig.from_path(str(runtime_path), runtime_sha)
-            transition_file = None
         else:
             _require(previous_status is not None and (
                 _terminal(previous, "closed.json") is not None or _terminal(previous, "failure.json") is not None
             ))
-            previous_runtime_path, previous_runtime_sha = self._configuration_for(previous)
-            previous_raw, previous_runtime_value = _json_file(previous_runtime_path, 64 * 1024)
-            _require(hashlib.sha256(previous_raw).hexdigest() == previous_runtime_sha)
-            runtime = RuntimeConfig.from_path(str(previous_runtime_path), previous_runtime_sha)
-            runtime_value = copy.deepcopy(previous_runtime_value)
-            execution = runtime_value["components"].get("execution")
-            transition_file = None
-            if execution is not None:
-                descriptor_path = _path(execution["descriptor"], e_drive=True)
-                descriptor_raw, descriptor = _json_file(descriptor_path, 256 * 1024)
-                _require(hashlib.sha256(descriptor_raw).hexdigest() == _sha(execution["sha256"]))
-                if self._execution_start_not_reached(previous, previous_status, runtime):
-                    # 本代没有实际Native；原已准备descriptor/transition继续绑定最后实际执行代。
-                    transition_file = self._retained_execution_transition(previous, descriptor)
-                else:
-                    execution_status = previous_status.get("components", {}).get("execution")
-                    _require(type(execution_status) is dict)
-                    observation = execution_status.get("business_observation")
-                    _require(type(observation) is dict and observation.get("schema") == "guanheng.execution-observation-reference.v1")
-                    predecessor_control = _path(observation["path"], e_drive=True).parent
-                    _require(_path(observation["ready_path"], e_drive=True) == predecessor_control / "ready.json")
-                    ready = read_status(predecessor_control / "ready.json", 4096)
-                    previous_native = predecessor_control / "execution.json"
-                    previous_native_raw, native = _json_file(previous_native, 256 * 1024)
-                    previous_native_sha = hashlib.sha256(previous_native_raw).hexdigest()
-                    _require(previous_native_sha == _sha(observation["config_sha256"])
-                             and ready.get("schema") == "guanheng.execution.ready.v1"
-                             and ready.get("control_id") == observation["control_id"]
-                             and ready.get("config_sha256") == previous_native_sha
-                             and ready.get("pid") == observation["pid"])
-                    store = native.get("data", {}).get("store", {})
-                    daily = store.get("daily", {})
-                    if store.get("module") == "GuanhengRealtimeReader" and "publication" in daily:
-                        # 新代只选择私有派生位置；Reader独占创建叶，旧缓存及全部来源原件保持。
-                        cache_root = generation / "daily-cache"
-                        _require(not os.path.lexists(cache_root))
-                        daily["publication"]["cache_root"] = str(cache_root)
-                        _connect_daily_publication(runtime_value, daily["publication"])
-                    native_template = generation / "native-template.json"
-                    _write_exclusive(native_template, native)
-                    transition_path = generation / "transition.json"
-                    transition = prepare_transition(
-                        native_template,
-                        previous_native,
-                        predecessor_control,
-                        transition_path,
-                        successor_python=self.config.pythonw,
-                    )
-                    native["recovery"] = {"mode": "resume_reconciled", "transition": transition}
-                    native_path = generation / "native.json"
-                    native_sha = _write_exclusive(native_path, native)
-                    descriptor["configuration"] = str(native_path)
-                    descriptor["configuration_sha256"] = native_sha
-                    descriptor.pop("initial_inventory", None)
-                    successor_descriptor = generation / "execution.json"
-                    descriptor_sha = _write_exclusive(successor_descriptor, descriptor)
-                    execution["descriptor"] = str(successor_descriptor)
-                    execution["sha256"] = descriptor_sha
-                    transition_file = str(transition_path)
-            runtime_path = generation / "runtime.json"
-            runtime_sha = _write_exclusive(runtime_path, runtime_value)
+            previous_path, previous_sha = self._configuration_for(previous)
+            previous_runtime = RuntimeConfig.from_path(str(previous_path), previous_sha)
+            if not adopt_bootstrap:
+                runtime_path, runtime_sha = previous_path, previous_sha
             runtime = RuntimeConfig.from_path(str(runtime_path), runtime_sha)
+            if not adopt_bootstrap or "execution" in dict(runtime.components):
+                runtime_value = _pinned_json(runtime_path, runtime_sha, 64 * 1024)
+                execution = runtime_value["components"].get("execution")
+                if execution is not None:
+                    descriptor = _pinned_json(_path(execution["descriptor"], e_drive=True),
+                                              execution["sha256"], 256 * 1024)
+                    if self._execution_start_not_reached(previous, previous_status, previous_runtime):
+                        _require(not adopt_bootstrap)
+                        # 本代没有实际Native；原交接继续绑定最后实际执行代。
+                        transition_file = self._retained_execution_transition(previous, descriptor)
+                    else:
+                        transition_file = self._recover_execution(
+                            generation, previous_status, runtime_value, descriptor,
+                            runtime if adopt_bootstrap else None, previous_runtime,
+                        )
+                runtime_path = generation / "runtime.json"
+                runtime_sha = _write_exclusive(runtime_path, runtime_value)
+                runtime = RuntimeConfig.from_path(str(runtime_path), runtime_sha)
             _require(runtime.instance_id == previous["wt_instance_id"])
         current = validate_current(
             {
@@ -697,11 +808,11 @@ class ServiceController:
         return 0, _safe_projection("status", current, status, state, changed=False)
 
     def start(self) -> tuple[int, dict]:
-        """默认按原代恢复；已有bootstrap变化由显式纯历史采用动作负责。"""
+        """默认按原代恢复；已有bootstrap变化由显式采用动作负责。"""
         return self._start()
 
     def adopt_bootstrap(self) -> tuple[int, dict]:
-        """正常旧纯历史owner退出后采用固定新bootstrap；保持稳定CURRENT与原实例。"""
+        """正常旧owner退出后采用固定新bootstrap；保持稳定CURRENT与原实例。"""
         return self._start(adopt_bootstrap=True)
 
     def _start(self, *, adopt_bootstrap=False) -> tuple[int, dict]:
@@ -710,7 +821,7 @@ class ServiceController:
             previous = self._owned_current()
             previous_status = _runtime_status(previous) if previous else None
             if adopt_bootstrap:
-                self._admit_history_bootstrap(previous, previous_status)
+                self._admit_bootstrap(previous, previous_status)
             elif previous is not None:
                 closed = _terminal(previous, "closed.json")
                 if closed is None:
@@ -724,6 +835,7 @@ class ServiceController:
                         pass
                     else:
                         return 2, _safe_projection(action, previous, previous_status, "process_lost", changed=False)
+            environment = self._environment()
             current, runtime_path = self._new_generation(previous, previous_status, adopt_bootstrap=adopt_bootstrap)
             control_directory = Path(current["wt_status_file"]).parent
             command = [
@@ -741,10 +853,16 @@ class ServiceController:
                 "--control-id",
                 current["wt_control_id"],
             ]
-            process = self._launcher(command, str(runtime_path.parent), self._environment())
-            deadline = self._clock() + RuntimeConfig.from_path(
-                str(runtime_path), current["wt_configuration_sha256"]
-            ).startup_seconds + 10
+            try:
+                startup_seconds = RuntimeConfig.from_path(
+                    str(runtime_path), current["wt_configuration_sha256"]
+                ).startup_seconds
+                process = self._launcher(command, str(runtime_path.parent), environment)
+            except (OSError, ValueError):
+                if not control_directory.exists():
+                    self._discard_generation(current["wt_control_id"])
+                raise
+            deadline = self._clock() + startup_seconds + 10
             published = False
             while self._clock() < deadline:
                 if not published and control_directory.exists():
@@ -763,7 +881,8 @@ class ServiceController:
                             return 0, _safe_projection(action, current, status, "ready", changed=True)
                     if _terminal(current, "failure.json") is not None:
                         return 2, _safe_projection(action, current, status, "faulted", changed=True)
-                if process.poll() is not None and not published:
+                if process.poll() is not None and not published and not control_directory.exists():
+                    self._discard_generation(current["wt_control_id"])
                     return 2, _safe_projection(action, previous, previous_status, "launch_failed", changed=False)
                 self._sleep(0.05)
             status = _runtime_status(current) if published else None

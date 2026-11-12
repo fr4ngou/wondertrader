@@ -15,6 +15,7 @@
     "minute_factory.py",
     "minute_owner.py",
     "minute_worker.py",
+    "qmt_native_replay.py",
     "reader_client.py",
     "reader_protocol.py",
     "runtime_status.py",

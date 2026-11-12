@@ -18,7 +18,7 @@ python -B scripts/source_packages.py build --work <新构建目录> --offline --
 
 输出为 `BUILD.json`、三个独立构建日志和 `wheels/`。`BUILD.json` 固定全部永久输入、解释器及 backend，记录三个 wheel 的实际 SHA。工具不读取历史产品 wheel 或临时源码快照。失败保留输出目录及日志；下一次构建使用新目录。
 
-Host/Agent 直接从各自项目构建。Core 只组装成员映射声明的 namespace，保持基础 market-client 元数据独立；公开回放重导出按原 Core 标准 wheel 映射发布。修改模块成员时同步映射；版本和依赖继续由各自 pyproject 唯一声明。
+Host/Agent 直接从各自项目构建。Core 组装成员映射声明的 namespace。公开回放入口从 market-client 0.21.1 起随其自身 wheel 发布，调用时加载已安装的 Core 实现。修改模块成员时同步映射；版本和依赖继续由各自 pyproject 唯一声明。
 
 ## 普通安装与模块回归
 

@@ -120,6 +120,40 @@ class ProcessLogTests(unittest.TestCase):
             self.assertEqual(raw.count('stream_exception'), 1)
             self.assertLessEqual(len(log._pending[1]), 8192)
 
+    def test_native_exit_code_and_pid_preserve_windows_dword(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = ProcessEventLog(directory, 'run', 'test')
+            log.event('process_closed', code='unexpected_exit', exit_code=2,
+                      host_pid=4321, host_exit_code=0xC0000005)
+            self.assertTrue(log.drain(5))
+            raw = (Path(directory) / 'process-events.jsonl').read_bytes()
+            event = json.loads(raw)
+            self.assertEqual((event['exit_code'], event['host_pid'], event['host_exit_code']),
+                             (2, 4321, 0xC0000005))
+
+    def test_native_exit_code_is_captured_before_unconfirmed_pipe_join(self):
+        import ctypes
+        from ctypes import wintypes
+
+        with tempfile.TemporaryDirectory() as directory:
+            owner = ManagedLocalProcess(SimpleNamespace(control_root=directory,
+                                        startup_seconds=1, stop_seconds=1))
+            owner._job_start_claimed = owner._job_start_finished = True
+            owner._host_handle = 123
+            owner._readers = [SimpleNamespace(join_until=lambda *args, **kwargs: False)]
+
+            def get_exit_code(handle, destination):
+                self.assertEqual(handle, 123)
+                ctypes.cast(destination, ctypes.POINTER(wintypes.DWORD)).contents.value = 0xC0000005
+                return True
+
+            owner._job = SimpleNamespace(process=object(), wait=lambda _: 2, poll=lambda: 2,
+                                         active_processes=lambda: 0,
+                                         api=SimpleNamespace(GetExitCodeProcess=get_exit_code))
+            self.assertFalse(owner._reap(time.monotonic() + 1))
+            self.assertEqual(owner._host_exit_code, 0xC0000005)
+            self.assertEqual(owner._host_handle, 123)
+
     def test_log_io_failure_does_not_replace_original_process_result(self):
         with tempfile.TemporaryDirectory() as directory:
             log = ProcessEventLog(Path(directory)/'missing', 'run', 'test')

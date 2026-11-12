@@ -190,17 +190,23 @@ def record_process_loss(config, configuration_sha256, directory, control_id):
                      and loss['reason'] == 'process_lost' and loss['component_pids'] == component_pids)
             _sha(loss['status_sha256'])
         failure_path = directory / 'failure.json'
+        failure = None
         if failure_path.exists():
             failure = _json(_read(failure_path, 4096))
-            _require(loss_path.exists() and failure.get('schema') == 'guanheng.wt-runtime-failure.v1'
+            _require(failure.get('schema') == 'guanheng.wt-runtime-failure.v1'
                      and all(failure.get(k) == v for k,v in identity.items())
-                     and failure.get('error_code') == 'owner_process_lost'
-                     and failure.get('status') == 'faulted' and failure.get('components_closed') is False)
+                     and failure.get('status') == 'faulted' and failure.get('components_closed') is False
+                     and (failure.get('error_code') != 'owner_process_lost' or loss_path.exists()))
         if 'execution' in components:
             reference = components['execution']['business_observation']
             _require(reference['schema'] == 'guanheng.execution-observation-reference.v1')
-            record_execution_process_loss(_path(reference['path']).parent,
-                expected={k:reference[k] for k in ('control_id','config_sha256','pid')})
+            _require(reference.get('pid') == component_pids['execution'])
+            execution_control = _path(reference['path']).parent
+            _require(_path(reference['ready_path']) == execution_control / 'ready.json')
+            if not any(os.path.lexists(execution_control / receipt) for receipt in
+                       ('closed.json', 'close-prepared.json', 'failure.json')):
+                record_execution_process_loss(execution_control,
+                    expected={k:reference[k] for k in ('control_id','config_sha256','pid')})
         if not loss_path.exists():
             _publish(directory, 'owner-loss.json', dict(
                 schema='guanheng.wt-runtime-owner-loss.v1',  # 独立故障核查收据，不证明正常join。
@@ -210,11 +216,11 @@ def record_process_loss(config, configuration_sha256, directory, control_id):
                 observed_at=datetime.now(timezone.utc).isoformat(),  # 核查UTC时间。
                 observer_pid=os.getpid(),  # 本次恢复核查者PID。
                 reason='process_lost'))  # 固定故障，原退出原因/退出码保持未知。
-        for component in components.values():
-            component.update(state='faulted', ready=False, error_code='owner_process_lost')
-        status.update(state='faulted', ready=False, error_code='owner_process_lost')
-        SnapshotPublisher(directory, replace=replace_status).publish(status)
-        if not failure_path.exists():
+        if failure is None:
+            for component in components.values():
+                component.update(state='faulted', ready=False, error_code='owner_process_lost')
+            status.update(state='faulted', ready=False, error_code='owner_process_lost')
+            SnapshotPublisher(directory, replace=replace_status).publish(status)
             _publish(directory, 'failure.json', dict(
                 schema='guanheng.wt-runtime-failure.v1', **identity,
                 components_closed=False,  # 原Job/线程join凭据缺失，不能声明正常关闭。

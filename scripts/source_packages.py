@@ -73,7 +73,7 @@ def sources():
 
 
 def append_core_export(wheel, additions):
-    """沿独立Core既有标准wheel映射补公开重导出；所有成员重算RECORD。"""
+    """按既有发行契约补写显式映射的wheel成员，并重算RECORD。"""
     with zipfile.ZipFile(wheel) as archive:
         payload = {n: archive.read(n) for n in archive.namelist()}
     record = next(n for n in payload if n.endswith('.dist-info/RECORD'))
@@ -127,10 +127,11 @@ def build(work, *, offline=False, backend_wheel=None):
             for name in ('pyproject.toml', 'README.md'):
                 shutil.copyfile(project / name, stage / name)
             for name, path in members[role].items():
-                if name.startswith('integrations/'):
-                    target = stage / name
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(path, target)
+                if not name.startswith('integrations/'):
+                    raise ValueError('native core members must belong to its package')
+                target = stage / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, target)
             provenance = dict(schema='guanheng.native-core-permanent-sources.v1',
                               members={name: dict(source=path.relative_to(ROOT).as_posix(), sha256=digest(path))
                                        for name, path in members[role].items()})
@@ -155,9 +156,6 @@ def build(work, *, offline=False, backend_wheel=None):
         if len(wheels) != 1:
             raise ValueError('source package wheel count')
         wheel = wheels[0]
-        if role == 'core':
-            append_core_export(wheel, {name: path.read_bytes() for name, path in members[role].items()
-                                      if not name.startswith('integrations/')})
         with zipfile.ZipFile(wheel) as archive:
             names = archive.namelist()
             if len(names) != len(set(names)):

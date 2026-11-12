@@ -370,12 +370,6 @@ class ServiceControlTests(unittest.TestCase):
         self.assertEqual(controller.start()[0], 0)
         self.assertEqual(controller.stop()[0], 0)
 
-        with patch.object(controller, "_runtime_owner_active", return_value=False), \
-                patch("guanheng_wt_runtime.service_control.require_process_exited"), \
-                patch("guanheng_wt_runtime.service_control.prepare_transition") as forbidden:
-            self._assert_adoption_rejected(controller)
-        forbidden.assert_not_called()
-
         def prepare(configuration, predecessor_configuration, predecessor_control, destination, **unused):
             self.assertEqual(Path(predecessor_configuration), Path(predecessor_control) / "execution.json")
             self.assertTrue(Path(predecessor_control).name.startswith("native-"))
@@ -396,13 +390,16 @@ class ServiceControlTests(unittest.TestCase):
         self.assertEqual(successor_runtime["instance_id"], self.instance_id)
         self.assertEqual(controller.stop()[0], 0)
 
-    def _dependency_failure_controller(self, *, fail_runs=(2,), execution_failure=False, incomplete_close=False):
+    def _dependency_failure_controller(self, *, fail_runs=(2,), execution_failure=False, incomplete_close=False, trading=False):
         """真实Runtime串行start/逆序close；只有来源/Native进程为隔离替身。"""
         from types import SimpleNamespace
         from guanheng_wt_runtime.runtime import Runtime, RuntimeConfig
         from guanheng_wt_runtime.execution_process import ManagedPythonExecutionProcess
 
-        native = _write(self.root / "pre-native.json", {"recovery": {"mode": "record_clean"}})
+        native_value = {"recovery": {"mode": "record_clean"}}
+        if trading:
+            native_value["trader"] = {"binding_sha256": "1" * 64, "base_url": "http://127.0.0.1:12345"}
+        native = _write(self.root / "pre-native.json", native_value)
         descriptor = _write(self.root / "pre-execution.json", {
             "schema": "guanheng.execution-deployment.v1", "configuration": str(native),
             "configuration_sha256": _sha(native), "initial_inventory": {"fixture": "original"}})
@@ -410,6 +407,9 @@ class ServiceControlTests(unittest.TestCase):
         value["components"] = {
             "analysis_host": {"kind": "qmt_read", "descriptor": str(self.host), "sha256": "0" * 64},
             "execution": {"kind": "execution", "descriptor": str(descriptor), "sha256": _sha(descriptor)}}
+        if trading:
+            value["components"]["trade_host"] = {"kind": "qmt_trade", "descriptor": str(self.host),
+                                                  "sha256": _sha(self.host)}
         _write(self.runtime, value)
         service = json.loads(self.service_path.read_bytes())
         service["bootstrap_configuration_sha256"] = _sha(self.runtime)
@@ -447,7 +447,7 @@ class ServiceControlTests(unittest.TestCase):
             identity = dict(control_id=args["--control-id"], instance_id=self.instance_id,
                 configuration_sha256=args["--config-sha256"], pid=os.getpid())
             def factory(component):
-                if component.kind == "qmt_read":return Source(len(entries)+1 in fail_runs and not execution_failure)
+                if component.kind in {"qmt_read", "qmt_trade"}:return Source(len(entries)+1 in fail_runs and not execution_failure)
                 item = json.loads(Path(component.descriptor).read_bytes())
                 return Execution(SimpleNamespace(control_root=self.control, configuration=item["configuration"],
                     configuration_sha256=item["configuration_sha256"], stop_seconds=5, startup_seconds=5))
@@ -609,6 +609,184 @@ class ServiceControlTests(unittest.TestCase):
         record=json.loads((self.generations/resumed['current']['wt_control_id']/'generation.json').read_bytes())
         self.assertEqual(json.loads(Path(record['runtime_configuration']).read_bytes())['components']['history']['descriptor'],str(self.root/'new-history.json'))
         self.assertEqual(controller.stop()[0],0)
+
+    def test_trading_adoption_uses_candidate_with_actual_predecessor_and_cleans_scratch(self):
+        self._check_trading_adoption()
+
+    def test_trading_adoption_preserves_runtime_fault_and_records_missing_native_exit(self):
+        self._check_trading_adoption(faulted=True)
+
+    def _check_trading_adoption(self, *, faulted=False):
+        from guanheng_wt_runtime import __main__ as runtime_cli
+        from guanheng_wt_runtime.runtime import RuntimeConfig
+
+        controller, entries, native_calls, ledger = self._dependency_failure_controller(fail_runs=(), trading=True)
+        ledger_raw = ledger.read_bytes()
+        self.assertEqual(controller.start()[0], 0)
+        self.assertEqual(controller.stop()[0], 0)
+        predecessor = self.control / native_calls[0] / "execution.json"
+        predecessor_raw = predecessor.read_bytes()
+        if faulted:
+            directory, _, runtime_identity, _ = entries[0]
+            (directory / "closed.json").unlink()
+            status_path = directory / "status.json"
+            status = json.loads(status_path.read_bytes())
+            status.update(state="faulted", error_code="component_runtime_analysis_host")
+            status["components"]["analysis_host"].update(state="faulted", pid=2002)
+            status["components"]["trade_host"].update(pid=2003)
+            status["components"]["execution"].update(state="faulted", pending=True, error_code="stop_timeout")
+            _write(status_path, status)
+            failure_path = _write(directory / "failure.json", dict(
+                schema="guanheng.wt-runtime-failure.v1", **runtime_identity,
+                status="faulted", error_code="component_runtime", components_closed=False))
+            fault_evidence = {path: path.read_bytes() for path in (status_path, failure_path)}
+
+            def record_process_loss(current):
+                path, digest = controller._configuration_for(current)
+                return runtime_cli.record_process_loss(RuntimeConfig.from_path(str(path), digest), digest,
+                                                       str(directory), runtime_identity["control_id"]) == 0
+
+            runtime_exit_check = patch("guanheng_wt_runtime.execution_recovery.require_process_exited")
+            runtime_exit_check.start()
+            self.addCleanup(runtime_exit_check.stop)
+            record = patch.object(controller, "_record_process_loss", side_effect=record_process_loss)
+            record.start()
+            self.addCleanup(record.stop)
+
+        prior_current = self.current.read_bytes()
+        prior_generations = set(self.generations.iterdir())
+
+        old_identity = {"journal_path": "original", "trade_binding_sha256": "1" * 64,
+                        "deployment_sha256": "a" * 64}
+        new_identity = {"journal_path": "original", "trade_binding_sha256": "2" * 64,
+                        "deployment_sha256": "b" * 64}
+        endpoint = ("127.0.0.1", 12345)
+        candidate_value = {"recovery": {"mode": "resume_clean"}, "deployment_revision": "new",
+                           "trader": {"binding_sha256": "2" * 64, "base_url": "http://127.0.0.1:12345"}}
+        candidate = self.root / "candidate-native.json"
+        descriptor = self.root / "candidate-execution.json"
+        origin_identity = self.root / "source-origin.json"
+        handoff = self.root / "source-handoff.json"
+        runtime = json.loads(self.runtime.read_bytes())
+        bootstrap = self.root / "candidate-runtime.json"
+        service = json.loads(self.service_path.read_bytes())
+        service_path = self.root / "candidate-service.json"
+
+        def pin_candidate(source_origin=old_identity, origin_sha=None):
+            _write(origin_identity, source_origin)
+            _write(handoff, {"source_extension": {
+                "origin_deployment": {"sha256": origin_sha or old_identity["deployment_sha256"]},
+                "origin_identity": {"file": str(origin_identity), "sha256": _sha(origin_identity)},
+            }})
+            candidate_value["strategy_extension_origin"] = {
+                "dependency_handoff": {"file": str(handoff), "sha256": _sha(handoff)}}
+            _write(candidate, candidate_value)
+            _write(descriptor, {
+                "schema": "guanheng.execution-deployment.v1",
+                "configuration": str(candidate),
+                "configuration_sha256": _sha(candidate),
+                "python_strategies": True,
+            })
+            runtime["components"]["execution"].update(descriptor=str(descriptor), sha256=_sha(descriptor))
+            _write(bootstrap, runtime)
+            service.update(bootstrap_configuration=str(bootstrap), bootstrap_configuration_sha256=_sha(bootstrap))
+            controller.config = ServiceConfig.from_path(_write(service_path, service))
+
+        pin_candidate()
+
+        def prepare(configuration, previous, control, destination, **unused):
+            self.assertEqual(json.loads(Path(configuration).read_bytes()), candidate_value)
+            self.assertEqual(Path(previous), predecessor)
+            self.assertEqual(Path(control), predecessor.parent)
+            _write(Path(destination), {"schema": "guanheng.execution-recovery-transition.v1"})
+            return dict(file=str(destination), sha256=_sha(Path(destination)))
+
+        def reject(configuration, previous, control, destination, **options):
+            prepare(configuration, previous, control, destination, **options)
+            raise ValueError("incompatible account")
+
+        with patch.object(controller, "_runtime_owner_active", return_value=False), \
+                patch("guanheng_wt_runtime.service_control.require_process_exited"), \
+                patch.object(controller, "_trade_deployment_identity", return_value=(old_identity, endpoint)) as identity:
+            with patch("guanheng_wt_runtime.service_control.prepare_transition") as forbidden:
+                with self.assertRaises(ValueError):
+                    controller.adopt_bootstrap()
+                forbidden.assert_not_called()
+                identity.assert_called_once()
+            host = _write(self.root / "candidate-trade-host.json", {"fixture": "trade host"})
+            runtime["components"]["trade_host"].update(descriptor=str(host), sha256=_sha(host))
+            pin_candidate()
+            identity.side_effect = [(old_identity, endpoint), ({**new_identity, "journal_path": "different"}, endpoint)]
+            with patch("guanheng_wt_runtime.service_control.prepare_transition") as forbidden:
+                with self.assertRaises(ValueError):
+                    controller.adopt_bootstrap()
+                forbidden.assert_not_called()
+            self.assertEqual(set(self.generations.iterdir()), prior_generations)
+            self.assertEqual(self.current.read_bytes(), prior_current)
+            with patch("guanheng_wt_runtime.service_control.prepare_transition") as forbidden:
+                for origin, origin_sha, port in (
+                        ({**old_identity, "journal_path": "other"}, None, 12345),
+                        (old_identity, "c" * 64, 12345),
+                        (old_identity, None, 23456)):
+                    with self.subTest(origin=origin, origin_sha=origin_sha, port=port):
+                        candidate_value["trader"]["base_url"] = f"http://127.0.0.1:{port}"
+                        pin_candidate(origin, origin_sha)
+                        identity.side_effect = [(old_identity, endpoint), (new_identity, endpoint)]
+                        with self.assertRaises(ValueError):
+                            controller.adopt_bootstrap()
+                forbidden.assert_not_called()
+            candidate_value["trader"]["base_url"] = "http://127.0.0.1:12345"
+            pin_candidate()
+            identity.side_effect = [(old_identity, endpoint), (new_identity, endpoint)] * 3
+            with patch("guanheng_wt_runtime.service_control.prepare_transition", side_effect=reject):
+                with self.assertRaisesRegex(ValueError, "incompatible account"):
+                    controller.adopt_bootstrap()
+            self.assertEqual(set(self.generations.iterdir()), prior_generations)
+            self.assertEqual(self.current.read_bytes(), prior_current)
+            self.assertEqual(len(entries), 1)
+            with patch("guanheng_wt_runtime.service_control.prepare_transition", side_effect=prepare) as handoff:
+                with patch("guanheng_wt_runtime.execution_process.create_process",
+                           side_effect=ValueError("invalid execution descriptor")):
+                    with self.assertRaisesRegex(ValueError, "invalid execution descriptor"):
+                        controller.adopt_bootstrap()
+                self.assertEqual(set(self.generations.iterdir()), prior_generations)
+                self.assertEqual(self.current.read_bytes(), prior_current)
+                with patch("guanheng_wt_runtime.execution_process.create_process") as validate:
+                    code, adopted = controller.adopt_bootstrap()
+            self.assertEqual(handoff.call_count, 2)
+        self.assertEqual((code, adopted["action"], adopted["state"]), (0, "adopt-bootstrap", "ready"))
+        generation = self.generations / adopted["current"]["wt_control_id"]
+        self.assertEqual({p.name for p in generation.iterdir()}, {
+            "generation.json", "runtime-owner.json", "runtime.json", "execution.json",
+            "native.json", "transition.json",
+        })
+        validate.assert_called_once_with(str(generation / "execution.json"), _sha(generation / "execution.json"))
+        adopted_native = json.loads((generation / "native.json").read_bytes())
+        self.assertEqual(adopted_native["deployment_revision"], "new")
+        self.assertEqual(adopted_native["recovery"]["mode"], "resume_reconciled")
+        self.assertEqual(predecessor.read_bytes(), predecessor_raw)
+        if faulted:
+            self.assertTrue((predecessor.parent / "owner-loss.json").is_file())
+            for path, original in fault_evidence.items():
+                self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(ledger.read_bytes(), ledger_raw)
+        self.assertEqual(json.loads(candidate.read_bytes()), candidate_value)
+        self.assertEqual(controller.stop()[0], 0)
+
+    def test_unpublished_launch_cleans_generated_files(self):
+        controller, _, _ = self._history_successor()
+        prior_current = self.current.read_bytes()
+        prior_generations = set(self.generations.iterdir())
+        with patch.object(controller, "_launcher", side_effect=FileNotFoundError):
+            with self.assertRaises(FileNotFoundError):
+                controller.start()
+        exited = _FakeProcess()
+        exited.code = 2
+        with patch.object(controller, "_launcher", return_value=exited):
+            code, result = controller.start()
+        self.assertEqual((code, result["state"], result["changed"]), (2, "launch_failed", False))
+        self.assertEqual(self.current.read_bytes(), prior_current)
+        self.assertEqual(set(self.generations.iterdir()), prior_generations)
 
     def test_adoption_requires_prior_normal_close_and_exited_owner(self):
         self._assert_adoption_rejected(self.controller)

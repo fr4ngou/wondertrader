@@ -221,3 +221,77 @@ def test_valuation_proof_failure_does_not_hide_ownership(tmp_path):
     projected=project_strategy(wrapper(rows),strategy_id=NEW)
     assert projected['valuation_state']=='unavailable' and projected['valuation_reason']=='invalid_owned_valuation'
     assert next(p for p in projected['positions']if p['symbol']=='510300.SH')['broker_quantity']==200
+
+def test_shared_valuation_keeps_funding_and_returns_separate_by_strategy(tmp_path):
+    from guanheng_wt_runtime.strategy_capital import _digest
+    from guanheng_wt_runtime.strategy_capital_flow import (
+        FILE_NAME, ReturnValuations, SharedReturnValuations, append_record, capital_identity, owned_return_basis,
+    )
+
+    store = cash_store(tmp_path/'asa')
+    ctx = Context()
+    ctx.prices[CODES[0]] = 2.0
+    now = datetime.now(timezone.utc)
+    start = (now-timedelta(days=4)).isoformat()
+    flow_at = (now-timedelta(days=2)).isoformat()
+    origin = dict(schema='guanheng.current-capital-baseline.v1', total_cny='9000', source='test',
+                  baseline_at=start, historical_initial_capital_cny=None)
+    anchor = dict(schema='guanheng.broker-cash-anchor.v1', baseline_sha256=_digest(origin),
+                  allocated_cash_cny='9000', market_value_cny='0', account_cash_cny='15000',
+                  account_observed_at=start, account_source_sha256='1'*64, account_binding_sha256=SHA,
+                  position_source_sha256='3'*64, price_source_sha256='4'*64)
+    own = store.strategy_observation(OLD, deadline=deadline())
+    valuation = owned_valuation(ctx, own, {CODES[0]: Fraction(1, 1000)},
+        baseline_cny='9000', baseline_at=start, baseline_source='retained.capital_baseline.total_cny',
+        max_age=60, deadline=deadline())
+    assert valuation['nav_cny'] == '10200.00'
+    path = tmp_path/FILE_NAME
+    scope = capital_identity(OLD, origin, anchor)
+    append_record(path, scope, origin, dict(kind='flow', id='previous-inflow', source_ref='cash-proof',
+        direction='inflow', amount_cny='1000', effective_at=flow_at, nav_before_cny='9000',
+        nav_observed_at=flow_at, nav_source_ref='nav-proof', nav_cash_receipt_ref='cash-in-ledger'), deadline=deadline())
+    basis = owned_return_basis(valuation, origin, anchor)
+    for direction in ('inflow', 'outflow'):
+        append_record(path, scope, origin, dict(kind='coverage', id=direction+'-check',
+            source_ref=direction+'-audit', direction=direction, through=valuation['observed_at']), deadline=deadline())
+    owner = SharedReturnValuations(path, OLD, origin, anchor)
+    result = owner.refresh(basis, deadline=deadline())
+    restarted = SharedReturnValuations(path, OLD, origin, anchor)
+    assert restarted.refresh(None, deadline=deadline()) == result
+    assert result['return_pct'] == '2' and result['flow_count'] == 1
+    assert ReturnValuations(path, NEW).observe(basis, deadline=deadline())['return_pct'] is None
+    assert owned_return_basis(dict(valuation, state='reference-fee-pending'), origin, anchor) is None
+
+    rows = {OLD: dict(status='holding', strategy_id=OLD, strategy_version='1.2.2',
+        allocation_observation=allocation_projection(own, include_read_projection=True),
+        owned_valuation=valuation, capital_baseline=origin, capital_return=result,
+        capital_history_anchor_sha256=_digest(anchor))}
+    wire = json.loads(json.dumps(rows))
+    projected = project_strategy(wrapper(wire), strategy_id=OLD)
+    assert projected['capital_baseline']['total_cny'] == '9000'
+    assert projected['capital_return'] == result
+    snap = snapshot(wire)
+    live = LiveStrategyPerformanceOwner(None, snapshot_reader=lambda _: snap, process_probe=lambda *_: True)
+    try:
+        summary = live.read(OLD, '1.2.2', deadline=deadline())['summary']
+        assert summary['nav_cny'] == '10200.00' and summary['return_pct'] == '2'
+    finally:
+        live.close()
+
+    rows[OLD]['owned_valuation'] = None  # 重启未到报价，独立观察端无历史缓存。
+    without_quote = json.loads(json.dumps(rows))
+    projected = project_strategy(wrapper(without_quote), strategy_id=OLD)
+    assert projected['owned_valuation'] is None and projected['capital_return'] == result
+    restart_snapshot = snapshot(without_quote)
+    live = LiveStrategyPerformanceOwner(None, snapshot_reader=lambda _: restart_snapshot, process_probe=lambda *_: True)
+    try:
+        history = live.read(OLD, '1.2.2', deadline=deadline())
+        summary = history['summary']
+        assert summary['nav_cny'] == '10200.00' and summary['return_pct'] == '2'
+        assert datetime.fromisoformat(summary['observed_at']) == datetime.fromisoformat(result['valued_at'])
+    finally:
+        live.close()
+    append_record(path, scope, origin, dict(kind='flow', id='newly-reconciled-outflow', source_ref='cash-proof-two',
+        direction='outflow', amount_cny='100', effective_at=(now-timedelta(days=1)).isoformat(),
+        nav_before_cny=None, nav_observed_at=None, nav_source_ref=None, nav_cash_receipt_ref=None), deadline=deadline())
+    assert restarted.refresh(None, deadline=deadline())['return_pct'] is None

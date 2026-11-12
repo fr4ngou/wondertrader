@@ -1,6 +1,5 @@
 {
   "core_members": {
-    "guanheng_market_client/qmt_native_replay.py": "packages/native-analysis-core/public/guanheng_market_client/qmt_native_replay.py",
     "integrations/__init__.py": "packages/native-analysis-core/namespace/integrations/__init__.py",
     "integrations/guanheng/__init__.py": "packages/native-analysis-core/namespace/integrations/guanheng/__init__.py",
     "integrations/guanheng/dependencies.py": "integrations/guanheng/dependencies.py",

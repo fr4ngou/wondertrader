@@ -201,6 +201,7 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(len(value['markers']),1)
 
     def test_partial_new_day_failure_rolls_back_whole_observation_transaction(self):
+        self.owner.initialize(monotonic() + 30)
         import guanheng_app.live_strategy_performance as live
         self.read();original=deepcopy(self.value);validate=live._stored_day
         self.value['strategy']['capital']['observed_at']='2026-11-06T07:00:00+00:00'
@@ -268,6 +269,42 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(after['daily'][0]['runtime_scope_id'],old_scope)
         self.assertEqual(after['daily'][-1]['runtime_scope_id'],after['current']['scope_id'])
 
+    def test_allocation_reads_old_nav_without_importing_broker_account_details(self):
+        from guanheng_app.live_strategy_performance import _sha
+
+        anchor = self.stable_anchor()
+        before = self.read()
+        self.assertEqual(len(before['markers']), 1)
+        self.assertEqual(before['daily'][-1]['positions'][0]['quantity'], 100)
+        self.owner.close()
+
+        old_snapshot = deepcopy(self.value)
+        strategy = self.value['strategy']
+        strategy['capital'] = None
+        strategy['capital_history_anchor_sha256'] = _sha(anchor)
+        strategy['positions'][0].update(broker_quantity=40, broker_sellable=30)
+        strategy['broker_observed_at'] = '2026-11-05T07:00:00+00:00'
+        strategy['ownership'] = dict(book_scope_sha256='d'*64, fills_truncated=False,
+            observed_at='2026-11-05T07:00:00+00:00', cash_cny='400',
+            fills=[dict(id='allocated-fill', symbol='510300.SH', side='BUY', quantity=40,
+                        price_cny='2.5', amount_cny='100', fee_cny='0.5', date='2026-11-05',
+                        source_time='2026-11-05T06:59:00+00:00')])
+        successor = self.new()
+        after = self.read(successor)
+        self.assertNotEqual(after['coverage']['history_scope_id'], before['coverage']['history_scope_id'])
+        self.assertEqual(after['coverage']['attribution'], 'strategy-allocated')
+        self.assertEqual([row['date'] for row in after['daily']], ['2026-11-02', '2026-11-05'])
+        old, new = after['daily']
+        self.assertEqual((old['nav_cny'], old['observed_at']), ('1000', before['daily'][0]['observed_at']))
+        self.assertEqual((old['cash_cny'], old['positions'], old['deals']), (None, [], []))
+        self.assertEqual((new['cash_cny'], new['positions'][0]['quantity']), ('400', 40))
+        self.assertEqual([marker['attribution'] for marker in after['markers']], ['strategy-allocated'])
+
+        self.value = old_snapshot
+        historical = self.read(successor)
+        self.assertEqual(historical['daily'], before['daily'])
+        self.assertEqual(historical['markers'], before['markers'])
+
     def test_anchor_account_and_strategy_version_change_split_history(self):
         anchor=self.stable_anchor();before=self.read()
         anchor['account_binding_sha256']='d'*64
@@ -316,6 +353,7 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(len(observed),1)
 
     def test_http_uses_existing_reader_enforces_key_query_and_readonly(self):
+        self.owner.initialize(monotonic() + 30)
         securities = SimpleNamespace(name={'510300.SH': '华泰柏瑞沪深300ETF', '000001.SZ': '未在观察范围内'}.get)
         app=FastAPI();app.include_router(router(securities));app.state.live_strategy_performance=self.owner
         reader=BoundedReader();reader.start();app.state.reader=reader

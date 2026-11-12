@@ -18,6 +18,8 @@ E:\guanheng\wt\venv\Scripts\guanheng-wt-service.exe stop --service-config E:\gua
 
 纯历史服务升级使用原稳定CURRENT与同instance_id：先准备新安装、固定新history descriptor/Runtime/ServiceConfig及逐级SHA，沿旧service执行stop，确认正常closed且旧owner实际退出，再用支持该动作的新WT安装执行`guanheng-wt-service.exe adopt-bootstrap --service-config <新service.json>`。该动作仅接受前后均只含history/source_market的正常关闭代；运行中、故障/未知、跨实例或含交易/账户等组件时保留原CURRENT并明确失败。它复用原租约和启动链，不自动停止。默认start继续按前代配置恢复，更新bootstrap路径后直接start仍沿前代；采用后普通start沿新代恢复。数据请求和未物化INPUTS/REQUEST迁移须在旧owner退出后再次核查。
 
+正式交易配置沿同一命令切换。先固定后继执行描述符、Native配置及其恢复所需的同账户证明。交易Host部署有变化时，核对前后绑定各自匹配Native及沿用同一委托Journal。沿旧配置正常stop并确认退出后，执行新配置的adopt-bootstrap。原WT已有故障回执且关闭未完成时，入口沿原进程退出核查保留故障原件并确认组件实际退出，随后才准备新代。成功后核对旧策略资金、持仓、委托归属、独立策略初始状态及观衡当前代。仅更新bootstrap后调用start会按前代配置恢复。
+
 `state=faulted`、`process_lost`、`start_timeout`或`stop_timeout`进入故障处理。保留公开`CURRENT.json`、本代控制目录、代际配置和业务原件，沿[故障处理规范](incidents.md)核查。服务入口不会自动重启故障代，也不会按进程名结束外部进程。
 
 固定公开路径`CURRENT.json`供观衡等只读消费者发现当前代。该文件严格为五字段协议，不存储环境、账户、凭证或启动命令。生产安装、配置变更和现场切换仍按[发布规范](release.md)执行。
@@ -95,5 +97,7 @@ WT 先启动分析通信，再启动持续发布，最后启动执行；没有�
 ```
 
 入口依次关闭执行、采集、历史、可选账户结果更新、可选账户Host、可选交易Host和原只读/HPR Host，使用首次关闭的共享截止；原组件各自确认进程树、管道、线程和句柄。账户结果更新先停止新轮并收回原Scan，再关闭其账户通信依赖。最终`closed.json`与进程退出码0共同表示正常退出。`failure.json`、组件`pending/forced`或非零退出码保留故障资格，沿相应组件记录核查，不重复下单或覆盖未知状态。
+
+退出异常时，先用原控制 ID 在运行控制根的`process-events.jsonl`及轮转文件查`runtime_exception`。它在清理开始前提交，包含时间、失败阶段、系统错误码和脱敏代码位置。运行目录内的`diagnostic.json`分别保存首错和清理异常。受管组件在各自控制根记录首错、PID及已取得的退出码。突然终止时保留已有文件，并用操作系统退出记录及原控制收据核查。
 
 同控制根下同一`instance_id`通过OS锁保持单一运行owner。每代控制目录独占创建，旧记录保留供恢复和审计。升级时先确认旧运行实例正常停止，再使用新发行及新控制身份启动；配置、金融状态和历史文件按各模块恢复协议处理。生产切换另按[发布规范](release.md)验收。

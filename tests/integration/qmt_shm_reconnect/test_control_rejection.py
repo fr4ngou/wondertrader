@@ -307,6 +307,40 @@ class ControlRejectionTests(unittest.TestCase):
                 self.assertNotIn(b'PRIVATE',canonical(service.failure_diagnostic_snapshot))
             finally:journal.close(time.monotonic()+2)
 
+    def test_host_diagnostic_preserves_first_system_error_and_inner_close_step(self):
+        runtime = HostReadRuntime.__new__(HostReadRuntime)
+        error = OSError(5, 'PRIVATE_PATH')
+        error.winerror = 1236
+        runtime.failure = runtime._control = runtime._session = None
+        runtime._failure_diagnostics = {}
+        runtime._stop, runtime.connected = threading.Event(), threading.Event()
+        runtime._binding_lock = threading.Lock()
+        runtime._listener = SimpleNamespace(close=lambda: None)
+
+        def fail_accept(deadline):
+            raise error
+
+        runtime._listener.accept = fail_accept
+        runtime._run(time.monotonic() + 2)
+        runtime.request_close = lambda: None
+        runtime.fail('journal_unavailable')
+        service = ReconnectingReadService.__new__(ReconnectingReadService)
+        service._condition = threading.Condition()
+        service._failure = service._cleanup_failure = None
+        service._phase, service._generation = 'retiring', 1
+        service._runtime, service.connected = runtime, threading.Event()
+        service._fault('runtime_transport')
+        first = service.failure_diagnostic_snapshot['first_failure']
+        self.assertEqual((first['runtime_failure'], first['runtime_step'], first['runtime_errno'], first['runtime_winerror']),
+                         ('OSError', 'accept', 5, 1236))
+        self.assertNotIn(b'PRIVATE', canonical(first))
+        runtime._closed_complete = False
+        runtime.request_close = lambda: None
+        with runtime._binding_lock:
+            with self.assertRaises(TimeoutError):
+                runtime.close(time.monotonic())
+        self.assertEqual(runtime.close_step, 'admission_lock')
+
     def test_bulk_close_uses_same_ordinary_read_rejection_persistence(self):
         with tempfile.TemporaryDirectory()as directory:
             journal,binding,runtime,requests=self.fixture(directory)

@@ -282,7 +282,11 @@ class RetainedStrategy:
             strategy_id=self.id,  # 本次WT绑定的策略身份，来自已准入运行配置。
             strategy_version=STRATEGY_VERSION,  # 本次实际安装并调用的kernel版本，非App依赖版本。
             symbols=list(self.execution))  # 本次已准入执行证券，业务SH/SZ代码；不含猜测持仓或目标权重。
-        if self.allocation is not None:value=dict(value,owned_valuation=getattr(self,'_owned_valuation',None))
+        if self.allocation is not None:
+            value = dict(value, owned_valuation=getattr(self, '_owned_valuation', None),
+                         capital_baseline=self.inputs.capital_baseline)
+            if self.inputs.cash_anchor is not None:
+                value['capital_history_anchor_sha256'] = _digest(self.inputs.cash_anchor)
         return self.publish(self.id,dict(value,definition=definition),preview=preview,deadline=deadline)
 
     def binding(self):
@@ -1012,7 +1016,7 @@ def main():
     _need(config.configuration_sha256 == args.config_sha256, 'configuration_identity')
     native = _json(_read(args.config, 256 * 1024, clock=time.monotonic, deadline=args.deadline))
     reports, publication_lock = {}, RLock()
-    from .strategy_capital_flow import FILE_NAME, ReturnValuations
+    from .strategy_capital_flow import FILE_NAME, ReturnValuations, SharedReturnValuations, owned_return_basis
     flow_path = Path(native['output_directory']) / FILE_NAME
 
     def publish(strategy_id, value, *, preview=False, deadline):
@@ -1027,7 +1031,12 @@ def main():
         _check_publication_deadline(deadline)
         value=dict(value,native_setter_count=runtime.status()['setters'])  # 原ManagedStrategy累计setter调用数；原子只读，不推导交易事实。
         previous = reports.get(strategy_id)
-        if not refresh and previous and 'capital_return' in previous and value.get('capital') == previous.get('capital'):
+        if (not refresh and previous and 'capital_return' in previous
+                and value.get('capital') == previous.get('capital')
+                and (value.get('owned_valuation') == previous.get('owned_valuation')
+                     or (previous['capital_return']['state'] == 'available'
+                         and value.get('capital_history_anchor_sha256') is not None
+                         and value['capital_history_anchor_sha256'] == previous.get('capital_history_anchor_sha256')))):
             value['capital_return'] = previous['capital_return']
         if refresh and value == previous:
             return
@@ -1069,12 +1078,38 @@ def main():
     from .strategy_capital import AccountCashReader, refresh_capital_report
     readers = {s.id:AccountCashReader(s.capital_reader.binding,s.max_age)
                for s in strategies if s.capital_reader is not None}
-    capital_strategies = {s.id:s for s in strategies if s.capital_reader is not None}
-    return_valuations = {strategy_id: ReturnValuations(flow_path, strategy_id) for strategy_id in readers}
+    capital_strategies = {s.id: s for s in strategies if isinstance(s, RetainedStrategy)
+                          and s.inputs.capital_baseline is not None and s.inputs.cash_anchor is not None}
+    return_valuations = {
+        strategy_id: (ReturnValuations(flow_path, strategy_id) if strategy_id in readers else
+                      SharedReturnValuations(flow_path, strategy_id, strategy.inputs.capital_baseline, strategy.inputs.cash_anchor))
+        for strategy_id, strategy in capital_strategies.items()
+    }
+    seeded = set()
+
+    def seed_shared_return(strategy_id, owner, deadline):
+        """首次分账回查已绑定前代，即使新报价尚未到齐也可接续旧收益截止。"""
+        if config.recovery_mode != 'resume_reconciled' or strategy_id in seeded or owner.settled is not None:
+            return
+        from .execution_recovery import prior_strategy_observations
+        try:
+            for previous, _ in prior_strategy_observations(native, strategy_id, deadline=deadline):
+                old = previous.get('capital')
+                if old is None:
+                    old = owned_return_basis(previous.get('owned_valuation'), owner.origin, owner.anchor)
+                if old is not None and old.get('baseline') == owner.origin and old.get('cash_anchor') == owner.anchor:
+                    result = owner.refresh(old, deadline=deadline)
+                    if result is not None and result['state'] == 'available':
+                        break
+            seeded.add(strategy_id)
+        except (OSError, ValueError, TypeError, KeyError, TimeoutError):
+            # 缺前代观察仅影响历史截止；本代实际净值仍可按资金流水验证。
+            pass
+
     def refresh_accounts():
         try:
             while not refresh_stop.wait(10):
-                for strategy_id, reader in readers.items():
+                for strategy_id, strategy in capital_strategies.items():
                     deadline = time.monotonic()+2
                     if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
                         continue
@@ -1085,15 +1120,25 @@ def main():
                     if report is None:
                         continue
                     try:
-                        strategy = capital_strategies[strategy_id]
-                        updated = dict(refresh_capital_report(report,reader,deadline,
-                            initial_basis=strategy._initial_capital_basis,
-                            origin=strategy.inputs.capital_baseline,anchor=strategy.inputs.cash_anchor))
+                        reader = readers.get(strategy_id)
+                        owner = return_valuations[strategy_id]
+                        if reader is not None:
+                            updated = dict(refresh_capital_report(report, reader, deadline,
+                                initial_basis=strategy._initial_capital_basis,
+                                origin=strategy.inputs.capital_baseline, anchor=strategy.inputs.cash_anchor))
+                            basis = updated.get('capital')
+                            result = owner.observe(basis, deadline=deadline) if basis is not None and basis.get('cash_anchor') else None
+                        else:
+                            updated = dict(report)
+                            basis = owned_return_basis(report.get('owned_valuation'), owner.origin, owner.anchor)
+                            result = owner.refresh(basis, deadline=min(deadline - .5, time.monotonic() + .35))
+                            if owner.settled is None:
+                                seed_shared_return(strategy_id, owner, min(deadline - .25, time.monotonic() + .75))
+                                if owner.settled is not None:
+                                    result = owner.refresh(basis, deadline=deadline - .1)
                         updated.pop('capital_return', None)
-                        capital = updated.get('capital')
-                        if capital is not None and capital.get('cash_anchor') is not None:
-                            updated['capital_return'] = return_valuations[strategy_id].observe(capital,
-                                deadline=min(deadline - .1, time.monotonic() + .25))
+                        if result is not None:
+                            updated['capital_return'] = result
                         if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
                             continue
                         try:
@@ -1108,7 +1153,7 @@ def main():
             # 账户约束更新局部故障保留原资金/时点；原过期规则会撤销可用资格。
             with (args.control/'capital-refresh-failure.json').open('x',encoding='ascii') as stream:
                 json.dump(dict(exception_type=type(error).__name__),stream)
-    refresher = ThreadOwner(target=refresh_accounts,name='capital-account-constraint') if readers else None
+    refresher = ThreadOwner(target=refresh_accounts,name='capital-account-constraint') if capital_strategies else None
     workers=tuple(s.signals for s in strategies if hasattr(s,'signals'))
     try:
         for worker in workers:worker.start()

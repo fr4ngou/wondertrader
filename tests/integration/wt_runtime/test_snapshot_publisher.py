@@ -13,6 +13,7 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'apps/wt_runtime'))
 from guanheng_wt_runtime import __main__ as entry
+from guanheng_wt_runtime.runtime_diagnostics import flush_process_logs
 from guanheng_wt_runtime.snapshot_publisher import MAX_SNAPSHOT_BYTES, SnapshotPublisher
 
 
@@ -64,6 +65,8 @@ class SnapshotPublisherTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / 'build')
         self.addCleanup(self.temporary.cleanup)
+        # 测试直接调用入口，先等异步日志关闭句柄再清理Windows临时目录。
+        self.addCleanup(lambda: self.assertTrue(flush_process_logs(5)))
         self.root = Path(self.temporary.name)
 
     def test_sustained_lock_has_one_candidate_then_unlock_publishes_latest(self):

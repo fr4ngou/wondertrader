@@ -218,6 +218,21 @@ def _check_deadline(deadline):
         raise TimeoutError('strategy_capital_flow_deadline')
 
 
+def owned_return_basis(valuation, origin, anchor):
+    """将已归属的实际净值接入原资金流水计算；现金范围继续使用原基准锚点。"""
+    if (origin is None or anchor is None or valuation is None or valuation['state'] != 'actual'
+            or valuation['baseline_cny'] is None or valuation['baseline_at'] != origin['baseline_at']
+            or Fraction(valuation['baseline_cny']) != Fraction(origin['total_cny'])):
+        return None
+    return dict(
+        baseline=origin,  # 既有策略资金基准，沿原起算时点和金额。
+        cash_anchor=anchor,  # 原账户及基准身份，只用于定位流水范围。
+        observed_at=valuation['observed_at'],  # 自有净值的原估值时点。
+        account_observed_at=valuation['cash_observed_at'],  # 同次自有账本现金观察时点。
+        nav_cny=valuation['nav_cny'],  # 已核实际自有净值，人民币元。
+    )
+
+
 def observe_return(path, strategy_id, capital, *, deadline):
     """消费同一估值和策略资金范围。流水读取异常只降级收益观察。"""
     origin, anchor = capital['baseline'], capital['cash_anchor']
@@ -286,6 +301,68 @@ class ReturnValuations:
             if result['state'] == 'available':
                 return result
         return current
+
+
+class SharedReturnValuations(ReturnValuations):
+    """分账收益沿原资金范围保存可重算的最后估值，账户线程独占内存视图。"""
+
+    def __init__(self, path, strategy_id, origin, anchor):
+        super().__init__(path, strategy_id)
+        self.origin = origin
+        self.anchor = anchor
+        self.scope = capital_identity(strategy_id, origin, anchor)
+        self.persisted = None
+
+    def _load(self, deadline):
+        if not self.path.is_file():
+            return
+        with closing(_db(self.path, readonly=True, deadline=deadline)) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settled_valuations'").fetchone():
+                return
+            row = db.execute('SELECT observed_at,cash_observed_at,nav_cny FROM settled_valuations WHERE scope=?',
+                             (self.scope,)).fetchone()
+        if row is not None:
+            observed, cash, nav = row
+            _need(_stamp(self.origin['baseline_at']) <= min(_stamp(observed), _stamp(cash))
+                  <= max(_stamp(observed), _stamp(cash)) <= datetime.now(timezone.utc))
+            _money(nav)
+            self.settled = self.persisted = dict(baseline=self.origin, cash_anchor=self.anchor,
+                observed_at=observed, account_observed_at=cash, nav_cny=nav)
+            self.pending = self.settled
+
+    def _save(self, deadline):
+        basis = self.settled
+        if basis is None or basis == self.persisted:
+            return
+        observed = _stamp(basis['observed_at']).isoformat(timespec='microseconds')
+        cash = _stamp(basis['account_observed_at']).isoformat(timespec='microseconds')
+        with closing(_db(self.path, readonly=False, deadline=deadline)) as db, db:
+            db.execute('CREATE TABLE IF NOT EXISTS settled_valuations(scope TEXT PRIMARY KEY, '
+                       'observed_at TEXT NOT NULL,cash_observed_at TEXT NOT NULL,nav_cny TEXT NOT NULL)')
+            db.execute('INSERT INTO settled_valuations VALUES(?,?,?,?) ON CONFLICT(scope) DO UPDATE SET '
+                       'observed_at=excluded.observed_at,cash_observed_at=excluded.cash_observed_at,nav_cny=excluded.nav_cny '
+                       'WHERE (excluded.observed_at,excluded.cash_observed_at) > '
+                       '(settled_valuations.observed_at,settled_valuations.cash_observed_at)',
+                       (self.scope, observed, cash, basis['nav_cny']))
+        self.persisted = basis
+
+    def refresh(self, basis, *, deadline):
+        """缺本轮估值时重核最后可用点；流水更正后旧收益也必须重核。"""
+        try:
+            if self.settled is None:
+                self._load(deadline)
+        except (OSError, sqlite3.Error, ValueError, TypeError, TimeoutError):
+            pass
+        result = self.observe(basis, deadline=deadline) if basis is not None else (
+            observe_return(self.path, self.strategy_id, self.settled, deadline=deadline)
+            if self.settled is not None else None)
+        if result is not None and result['state'] == 'available':
+            try:
+                self._save(deadline)
+            except (OSError, sqlite3.Error, ValueError, TimeoutError):
+                # 保存失败不改变当前核算事实；后续刷新沿同一截止重试。
+                pass
+        return result
 
 
 def main(argv=None):

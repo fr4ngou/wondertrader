@@ -99,6 +99,8 @@ class HostReadRuntime:
         self._worker,self._listener,self._session,self._control=None,None,None,None
         self.host_instance_id=uuid4().hex
         self.failure,self.last_tick=None,None
+        self._failure_diagnostics = {}  # 首次类别与操作系统错误同一条记录，后续故障不拆写。
+        self.close_step = None
         self._admission_stopped=False
         self._shutdown_state={}
         self._closed_complete=False
@@ -217,12 +219,15 @@ class HostReadRuntime:
         self._run(connect_deadline)
 
     def _run(self, connect_deadline):
+        step = 'accept'
         try:
             if self._stop.is_set():
                 return
             session=self._listener.accept(connect_deadline)
             self._session=session
+            step = 'handshake'
             session.handshake(time.monotonic()+self.budget.io_seconds,self.profile)
+            step = 'binding'
             if canonical(session.route)!=canonical(self.journal.route):
                 raise ValueError('authenticated Session route differs from its Journal owner')
             actual=self._channel_binding(session)
@@ -232,9 +237,11 @@ class HostReadRuntime:
                     raise OSError('Host admission is closing')
                 self._binding_bytes=canonical(actual)
                 self.connected.set()
+            step = 'dispatch'
             self._control.run()
         except Exception as exc:
             if self.failure is None:
+                self._remember_failure(type(exc).__name__, getattr(self._control, 'exchange_step', None) or step, exc)
                 self.failure=type(exc).__name__
             if self._control is not None:
                 try:
@@ -253,6 +260,7 @@ class HostReadRuntime:
                 if self.interruption_failure is None:
                     self.interruption_failure=type(interruption).__name__
                 if self.failure is None:
+                    self._remember_failure('control_interrupt_unconfirmed')
                     self.failure='control_interrupt_unconfirmed'
             # 原I/O线程逐项释放；保留原业务failure，关闭异常不能跳过下一owner。
             failed=False
@@ -355,7 +363,19 @@ class HostReadRuntime:
         return {'status':'available' if self.connected.is_set() and not self.admission_stopped else 'unavailable',
             'profile':'restricted-read-only','order_ready':False,'last_tick':self.last_tick,'reason':self.failure}
 
+    @property
+    def first_failure_diagnostic(self):
+        return self._failure_diagnostics.get('first')
+
+    def _remember_failure(self, reason, step=None, error=None):
+        try:
+            errno, winerror = getattr(error, 'errno', None), getattr(error, 'winerror', None)
+        except Exception:
+            errno = winerror = None
+        self._failure_diagnostics.setdefault('first', (reason, step, errno, winerror))
+
     def fail(self, reason):
+        self._remember_failure(reason)
         self.failure=reason
         self.request_close()
 
@@ -378,11 +398,14 @@ class HostReadRuntime:
             raise ValueError('close requires absolute monotonic deadline')
         if self._closed_complete:
             return
+        self.close_step = 'request_close'
         self.request_close()
+        self.close_step = 'admission_lock'
         if not self._binding_lock.acquire(timeout=max(0,deadline-time.monotonic())):
             raise TimeoutError('Host admission transaction busy; retain all owners')
         try:self.connected.clear()
         finally:self._binding_lock.release()
+        self.close_step = 'worker_join'
         if self._worker is threading.current_thread():
             raise RuntimeError('I/O owner cannot join itself')
         if self._worker is not None:
@@ -391,12 +414,16 @@ class HostReadRuntime:
             self._worker.join(max(0,deadline-time.monotonic()))
             if self._worker.is_alive():
                 raise TimeoutError('Host I/O worker busy; retain Journal and channel owners')
+        self.close_step = 'transport_release'
         if (not self._io_resources_closed or self.cleanup_failure is not None
                 or self._listener is not None and self._listener.io_resources_closed is False):
             raise RuntimeError('Host I/O release is unconfirmed; retain owners for process-level disposal')
+        self.close_step = 'control_close'
         if self._control is not None:
             self._control.close(deadline)
+        self.close_step = 'journal_close'
         if time.monotonic()>=deadline:
             raise TimeoutError('retain Journal owner until close can complete')
         self.journal.close(deadline)
         self._closed_complete=True
+        self.close_step = None
