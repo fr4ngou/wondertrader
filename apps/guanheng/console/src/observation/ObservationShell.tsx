@@ -13,6 +13,8 @@ import { T2108Coverage, sourceTypeLabel, methodVersionLabel } from './T2108Cover
 import { ReadNotice } from './ReadNotice'
 import { FieldCoverage } from './FieldCoverage'
 import { keyboardRange, latestRange, presetRange, presets } from './dates'
+import { sourceChartDate } from '../sourceChartPresentation'
+import { ChartHistoryTrack } from '../components/ChartHistoryTrack'
 import { boardDatasets, defaultMetric } from './presets'
 import {statusLabel,sourceLabel,failureLabel,displayedUnit,displayedPrimary,automaticUpdateLabel,localSchedulerLabel,frequencyLabel} from './presentation'
 import type { Catalog, Definition, Range, Row, Series } from './types'
@@ -60,7 +62,6 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const [search, setSearch] = useSearchParams()
   const requested = search.get('metric') || defaultMetric(catalog,catalog.preferences.default_board)
   const available = boardDatasets(catalog)
-  const dateDomain={start:catalog.datasets.reduce((day,item)=>item.coverage.start<day?item.coverage.start:day,catalog.datasets[0].coverage.start),end:catalog.datasets.reduce((day,item)=>item.coverage.end>day?item.coverage.end:day,catalog.datasets[0].coverage.end)}
   const requestedBoard = catalog.datasets.find(d => d.id === requested)?.board
   const dataset = available.find(d => d.id === requested) || available.find(d=>d.id===defaultMetric(catalog,requestedBoard || catalog.preferences.default_board)) || available[0]
   const [detail, setDetail] = useState('rows')
@@ -69,6 +70,8 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const weeklyExecutive = isExecutiveNet(dataset.id)
   const defaultPreset = weeklyExecutive ? 'all' : dataset.default_preset || 'd30'
   const coverage = !weeklyExecutive && groupedBoard(dataset.board) ? groupDateDomain(catalog, dataset.board, dataset.coverage) : dataset.coverage
+  const today = sourceChartDate(new Date().toISOString())
+  const dateDomain = { start: coverage.start, end: today }
   const selectedPreset = search.get('preset') || (search.get('start') ? '' : defaultPreset)
   const range = isShareholderNet(dataset.id) && selectedPreset === 'all' ? presetRange('all', coverage.end, coverage)
     : search.get('start') && search.get('end') ? { start: search.get('start')!, end: search.get('end')! }
@@ -105,27 +108,27 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const primary = shareholder && typeof last?.net_amount_cny === 'number' ? -last.net_amount_cny
     : d && primaryRows ? displayedPrimary(d, primaryRows, mode) : undefined
   useEffect(()=>{
-    if(d?.axis_type==='tenor' || !history.data)return
-    const keyboardCoverage = groupedBoard(dataset.board) ? coverage : history.data.coverage
+    if(d?.axis_type==='tenor')return
     const keydown=(event:KeyboardEvent)=>{
       const target=event.target
       if(event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
-        target instanceof Element && target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="dialog"],.observation-plot'))return
-      const next=keyboardRange(event.key,range,keyboardCoverage)
-      if(next){event.preventDefault();updateRange(next)}
+        target instanceof Element && target.closest('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="dialog"],.observation-plot,.observation-table-scroll'))return
+      const next=keyboardRange(event.key,range,dateDomain)
+      if(next){event.preventDefault();if(next.start!==range.start||next.end!==range.end)updateRange(next)}
     }
     window.addEventListener('keydown',keydown)
     return()=>window.removeEventListener('keydown',keydown)
-  },[d?.axis_type,history.data,range.start,range.end,search])
+  },[d?.axis_type,dateDomain.start,dateDomain.end,range.start,range.end,search])
   return <>
     <div className="observation-board-nav">{catalog.boards.filter(board => board.id !== 'pending').map((board, index) => <button key={board.id} className={dataset.board === board.id ? 'active' : ''} disabled={!defaultMetric(catalog,board.id)} onClick={() => select(defaultMetric(catalog,board.id)!)}><small>{String(index + 1).padStart(2, '0')}</small>{board.label}</button>)}</div>
     <section className="observation-panel observation-controls"><label>查看指标<select aria-label="观察口径" value={dataset.id} onChange={e => select(e.target.value)}>{available.filter(v => v.board === dataset.board).map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>
-      <label>起始<input aria-label="起始日期" type="date" min={dateDomain.start} max={range.end} value={range.start} onChange={e => e.target.value && updateRange({ ...range, start: e.target.value })} /></label>
-      <label>截止<input aria-label="截止日期" type="date" min={range.start} max={dateDomain.end} value={range.end} onChange={e => e.target.value && updateRange({ ...range, end: e.target.value })} /></label>
-      <div className="observation-presets">{presets.map(([key, label]) => <button key={key} className={selectedPreset === key ? 'active' : ''} onClick={() => updateRange(presetRange(key, range.end, key==='all'?coverage:dateDomain), key)}>{label}</button>)}</div>
+      {d?.axis_type !== 'tenor' ? <div className="observation-presets" role="group" aria-label="快捷日期">{presets.map(([key, label]) =>
+        <button key={key} aria-pressed={selectedPreset === key} className={selectedPreset === key ? 'active' : ''}
+          onClick={() => updateRange(presetRange(key, today, key==='all'?coverage:undefined), key)}>{label}</button>)}</div> : null}
+      <span className="observation-note" aria-label="当前日期范围">{range.start} 至 {range.end}</span>
       <p className="observation-note">资料截至 {dataset.coverage.end}{dataset.board==='executive' && ' · 已披露资料，非盘中实时'}{d?.primary_coverage?.end && d.primary_coverage.end!==dataset.coverage.end && ` · 主指标截至 ${d.primary_coverage.end}`} {range.end<dataset.coverage.end && <button onClick={()=>updateRange(latestRange(range,selectedPreset,dataset.coverage,dateDomain),selectedPreset)}>查看最新数据</button>}</p>
     </section>
-    <WorkspaceDock layoutId="observation" primaryTitle="指标图" secondaryTitle="原始数据与原图" secondaryWidth={350}
+    <WorkspaceDock layoutId="observation" primaryTitle="指标图" secondaryTitle="原始数据与原图" side="below"
       primary={<section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{shareholder ? '最新日可计价净减持' : primaryLine?.name}</span><strong title={last&&d?exactObservationValue(primary,primaryUnit):undefined}>{last && d ? observationNumber(primary,primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
       {d?.id==='t2108.ashare' && <T2108Coverage row={last} definitionVersion={d.definition_version} mixedMethods={new Set(series.data?.rows.map(row=>row.method_version || d.definition_version || 'unregistered')).size>1} />}
       <FieldCoverage metric={dataset.id} row={series.data?.rows.at(-1)} />
@@ -135,7 +138,7 @@ function Boards({ catalog }: { catalog: Catalog }) {
         {dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && <button onClick={() => setFuturesMatrix(!futuresMatrix)}>{futuresMatrix ? '切换单项详细' : '四品种2×2'}</button>}
       </div>}
       <ReadNotice label="指标数据" query={series} /><ReadNotice label="历史导航" query={history} /><ReadNotice label="指标说明" query={definition} />
-      {weeklyExecutive ? (series.data ? <ExecutiveWeeklyChart catalog={catalog} data={series.data} range={range} /> : series.isPending ? <Message>正在读取周度净减持…</Message> : null) : groupedBoard(dataset.board) ? <MarketObservationGroup catalog={catalog} metric={dataset.id} board={dataset.board} range={range} parameters={parameters} onRange={updateRange}/> : dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && futuresMatrix ? <div className="observation-matrix">{['if', 'ih', 'ic', 'im'].map(product => <FuturesCard key={product} product={product} version={catalog.snapshot_id} range={range} onRange={updateRange} />)}</div> : !series.data || !d ? series.isPending ? <Message>正在读取所选窗口…</Message> : null : !series.data.rows.length ? <Message>所选日期没有已发布观察。请选择来源覆盖内的日期；休市和未披露日期保持空值。</Message> : <>
+      {weeklyExecutive ? (series.data ? <><ExecutiveWeeklyChart catalog={catalog} data={series.data} range={range} navigationCoverage={dateDomain} onRange={updateRange} /><ChartHistoryTrack coverage={coverage} range={range} /></> : series.isPending ? <Message>正在读取周度净减持…</Message> : null) : groupedBoard(dataset.board) ? <MarketObservationGroup catalog={catalog} metric={dataset.id} board={dataset.board} range={range} parameters={parameters} onRange={updateRange}/> : dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && futuresMatrix ? <div className="observation-matrix">{['if', 'ih', 'ic', 'im'].map(product => <FuturesCard key={product} product={product} version={catalog.snapshot_id} range={range} onRange={updateRange} />)}</div> : !series.data || !d ? series.isPending ? <Message>正在读取所选窗口…</Message> : null : !series.data.rows.length ? <><Message>所选日期没有已发布观察。休市和未披露日期保持空值。</Message><ChartHistoryTrack coverage={coverage} range={range} /></> : <>
         {<ObservationChart definition={d} rows={series.data.rows} history={history.data} range={range} hidden={hidden} focus={focus} mode={mode} activity={activity} onRange={updateRange} onHidden={keys=>parameter('hidden',keys.join(','))} />}
         {dataset.board === 'crossmarket' && <p className="observation-note">本窗口国企涨幅 {change(series.data.rows, 'hscei_close')}，上证涨幅 {change(series.data.rows, 'a_close')}。</p>}
         <div className="observation-line-toggles">{shownLines.map(line => <label key={line.key}><input type="checkbox" checked={!hidden.includes(line.key)} onChange={() => parameter('hidden', hidden.includes(line.key) ? hidden.filter(key => key !== line.key).join(',') : [...hidden, line.key].join(','))} /><i style={{ background: line.color }} />{line.name} · {d && displayedUnit(line,d,mode)}</label>)}</div>
@@ -155,7 +158,7 @@ function DataTable({ definition, rows }: { definition: Definition; rows: Row[] }
   const [exact,setExact] = useState(false)
   const [page,setPage] = useState(0); const pages = Math.max(1,Math.ceil(rows.length / 100)); const selected = Math.min(page,pages - 1)
   const fields = ['date', ...Object.keys(definition.field_schema).filter(key => key !== 'date')]
-  return <><div className="observation-inline"><button disabled={selected === 0} onClick={() => setPage(selected - 1)}>上一页</button><span>第{selected + 1}/{pages}页 · 共{rows.length}条 · 每页100条</span><button disabled={selected + 1 >= pages} onClick={() => setPage(selected + 1)}>下一页</button><label><input type="checkbox" checked={exact} onChange={e=>setExact(e.target.checked)} />显示精确原值</label></div><div className="observation-table-scroll"><table><thead><tr>{fields.map(key => <th key={key}>{definition.field_schema[key]?.label || key}{definition.field_schema[key]?.unit ? `（${exact?definition.field_schema[key].unit:observationDisplayUnit(definition.field_schema[key].unit)}）` : ''}</th>)}</tr></thead><tbody>{rows.slice(selected * 100,(selected + 1) * 100).map((row, index) => <tr key={String(row.date) + '-' + index}>{fields.map(key => <td key={key} title={exactObservationValue(row[key],definition.field_schema[key]?.unit)}>{typeof row[key]==='number'?observationNumber(row[key],definition.field_schema[key]?.unit,exact):value(row[key],key)}</td>)}</tr>)}</tbody></table></div></>
+  return <><div className="observation-inline"><button disabled={selected === 0} onClick={() => setPage(selected - 1)}>上一页</button><span>第{selected + 1}/{pages}页 · 共{rows.length}条 · 每页100条</span><button disabled={selected + 1 >= pages} onClick={() => setPage(selected + 1)}>下一页</button><label><input type="checkbox" checked={exact} onChange={e=>setExact(e.target.checked)} />显示精确原值</label></div><div className="observation-table-scroll" tabIndex={0}><table><thead><tr>{fields.map(key => <th key={key}>{definition.field_schema[key]?.label || key}{definition.field_schema[key]?.unit ? `（${exact?definition.field_schema[key].unit:observationDisplayUnit(definition.field_schema[key].unit)}）` : ''}</th>)}</tr></thead><tbody>{rows.slice(selected * 100,(selected + 1) * 100).map((row, index) => <tr key={String(row.date) + '-' + index}>{fields.map(key => <td key={key} title={exactObservationValue(row[key],definition.field_schema[key]?.unit)}>{typeof row[key]==='number'?observationNumber(row[key],definition.field_schema[key]?.unit,exact):value(row[key],key)}</td>)}</tr>)}</tbody></table></div></>
 }
 function FuturesCard({ product, version, range, onRange }: { product: string; version: string; range: Range; onRange: (r: Range) => void }) {
   const id = 'cffex_' + product
@@ -200,6 +203,6 @@ function Quality({ catalog, schedule }: { catalog: Catalog; schedule?:{timezone:
   return <section className="observation-panel"><h2>更新与数据缺口</h2><p>{schedule ? `每日更新时刻 ${schedule.times.join(' / ')} · ${schedule.timezone==='Asia/Shanghai'?'北京时间':schedule.timezone}` : '更新时刻配置暂不可用'}；实际启用状态见页首。检查时间、源返回的观察末期和已加载末期分别记录。</p>
     <ReadNotice label="更新回执" query={query} />
     {query.isPending ? <Message>正在读取更新回执…</Message> : query.data && !query.data.runs.length && <Message>尚无自动任务回执，当前展示已接纳的历史版本。</Message>}
-    {visibleRuns?.filter((run,index,all)=>all.findIndex(item=>item.completed_at===run.completed_at)===index).slice(0,8).map((run,i)=><details key={i} open={i===0}><summary>{new Date(run.completed_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})} · {run.execution_mode==='source_capture'?'日终原件归档':run.execution_mode==='manual'?'手动来源核验':run.execution_mode==='scheduled'?'自动到期窗口':'历史回执'} · {run.execution_mode==='source_capture'?(run.status==='success'?'原件已保存，等待计划发布':'原件待补，继续提供原版本'):statusLabel(run.status)}</summary>{run.execution_mode==='source_capture'?<p>观察日 {run.date}。{run.status==='success'?'本次保存来源原件；页面数据沿每日更新窗口发布。':failureLabel(run.error_code)}</p>:<div className="observation-table-scroll"><table><thead><tr><th>来源</th><th>本次结果</th><th>本次取得末期</th><th>已加载末期</th><th>原因与处理</th></tr></thead><tbody>{run.sources?.map(source=><tr key={source.source_id}><td>{sourceLabel(source.source_id)}</td><td>{statusLabel(source.status)}</td><td>{source.status==='checked_disclosure'?'本次仅检查目录':source.latest_period || '本次未取得观察'}</td><td>{source.loaded_period || '见下方口径覆盖'}</td><td>{failureLabel(source.error_code)}</td></tr>)}</tbody></table></div>}</details>)}
-    <h3>全部来源覆盖</h3><div className="observation-table-scroll"><table><thead><tr><th>口径</th><th>真实频率</th><th>已加载末期</th><th>观察条数</th></tr></thead><tbody>{catalog.datasets.map(d=><tr key={d.id}><td>{d.label}</td><td>{frequencyLabel(d.frequency)}</td><td>{d.coverage.end}</td><td>{d.coverage.observations}</td></tr>)}</tbody></table></div></section>
+    {visibleRuns?.filter((run,index,all)=>all.findIndex(item=>item.completed_at===run.completed_at)===index).slice(0,8).map((run,i)=><details key={i} open={i===0}><summary>{new Date(run.completed_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})} · {run.execution_mode==='source_capture'?'日终原件归档':run.execution_mode==='manual'?'手动来源核验':run.execution_mode==='scheduled'?'自动到期窗口':'历史回执'} · {run.execution_mode==='source_capture'?(run.status==='success'?'原件已保存，等待计划发布':'原件待补，继续提供原版本'):statusLabel(run.status)}</summary>{run.execution_mode==='source_capture'?<p>观察日 {run.date}。{run.status==='success'?'本次保存来源原件；页面数据沿每日更新窗口发布。':failureLabel(run.error_code)}</p>:<div className="observation-table-scroll" tabIndex={0}><table><thead><tr><th>来源</th><th>本次结果</th><th>本次取得末期</th><th>已加载末期</th><th>原因与处理</th></tr></thead><tbody>{run.sources?.map(source=><tr key={source.source_id}><td>{sourceLabel(source.source_id)}</td><td>{statusLabel(source.status)}</td><td>{source.status==='checked_disclosure'?'本次仅检查目录':source.latest_period || '本次未取得观察'}</td><td>{source.loaded_period || '见下方口径覆盖'}</td><td>{failureLabel(source.error_code)}</td></tr>)}</tbody></table></div>}</details>)}
+    <h3>全部来源覆盖</h3><div className="observation-table-scroll" tabIndex={0}><table><thead><tr><th>口径</th><th>真实频率</th><th>已加载末期</th><th>观察条数</th></tr></thead><tbody>{catalog.datasets.map(d=><tr key={d.id}><td>{d.label}</td><td>{frequencyLabel(d.frequency)}</td><td>{d.coverage.end}</td><td>{d.coverage.observations}</td></tr>)}</tbody></table></div></section>
 }

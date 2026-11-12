@@ -66,5 +66,5 @@
 /* 历史区块内的宽表只在自身滚动；页面单列不继承其最小内容宽度。 */
 .backtest-workspace { grid-template-columns: minmax(0, 1fr); }
 .backtest-workspace select { display: block; padding: 10px; max-width: 100%; }
-.backtest-workspace .backtest-json { max-height: 420px; overflow: auto; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.backtest-workspace .backtest-json { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .backtest-hash { overflow-wrap: anywhere; }

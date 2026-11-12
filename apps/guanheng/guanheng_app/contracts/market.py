@@ -198,6 +198,7 @@ class MarketChartBundle(MarketModel):
     source_period: Literal["1m", "1d"] = "1m"
     source_bar_count: int | None = Field(default=None, ge=0)
     first_source_at: datetime | None = None  # 周月图首个参与聚合的上海交易日零点，保留首周期的实际起点。
+    archive_window: MarketChartSourceWindow | None = None  # 来源日线归档实际首末日期，不声明区间连续。
     source_kind: Literal["wondertrader"] = "wondertrader"
     native_source: MarketChartNativeSource | MarketChartSourceLabelSource | MarketChartSourceDateSource | None = None
     source_observation: MarketChartSourceObservation | None = None
@@ -287,4 +288,6 @@ class MarketChartBundle(MarketModel):
             value.pop("source_provenance", None)
         if self.first_source_at is None:
             value.pop("first_source_at", None)
+        if self.archive_window is None:
+            value.pop("archive_window", None)
         return value

@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { BarChart, CandlestickChart, LineChart } from 'echarts/charts'
 import { CanvasRenderer } from 'echarts/renderers'
-import { AxisPointerComponent, BrushComponent, DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
+import { AxisPointerComponent, BrushComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
 import type { Definition, History, Line, Range, Row } from './types'
 import { observerChartColors, useObserverTheme } from '../workspace/observerAppearance'
 import { keyboardRange } from './dates'
+import { ChartDateControls, ChartHistoryTrack } from '../components/ChartHistoryTrack'
+import { sourceChartDate } from '../sourceChartPresentation'
 import { observationNumber, observationDisplayUnit } from './numbers'
-echarts.use([LineChart, BarChart, CandlestickChart, CanvasRenderer, AxisPointerComponent, BrushComponent, DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, ToolboxComponent, TooltipComponent])
+echarts.use([LineChart, BarChart, CandlestickChart, CanvasRenderer, AxisPointerComponent, BrushComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, ToolboxComponent, TooltipComponent])
+
 
 const axis = (line: Line, gridColor: string, gridIndex: number, position = 'left') => ({ type: 'value', gridIndex, position, name: observationDisplayUnit(line.unit), scale: true,
   nameTextStyle: { color: line.color }, axisLine: { show: true, lineStyle: { color: line.color } },
@@ -107,7 +110,8 @@ export function ObservationChart({ definition, rows, history, historyLabel = '�
   definition: Definition; rows: Row[]; history?: History; range: Range; hidden: string[]; focus: string; mode: string; activity: string; onRange: (range: Range) => void; onHidden?: (hidden:string[])=>void
   historyLabel?: string // 导航数据的真实身份；组合图传基准名称，省略时表示当前指标的完整历史。
 }) {
-  const plot = useRef<HTMLDivElement>(null); const navigator = useRef<HTMLDivElement>(null)
+  const plot = useRef<HTMLDivElement>(null)
+  const navigationCoverage = history && { start: history.coverage.start, end: sourceChartDate(new Date().toISOString()) }
   const theme = useObserverTheme()
   const [brushing, setBrushing] = useState(false)
   const callback = useRef(onRange); callback.current = onRange
@@ -127,29 +131,13 @@ export function ObservationChart({ definition, rows, history, historyLabel = '�
     const resize = new ResizeObserver(() => chart.resize()); resize.observe(plot.current)
     return () => { resize.disconnect(); chart.dispose() }
   }, [definition, rows, hidden, focus, mode, activity, range.start, range.end, theme, brushing])
-  useEffect(() => {
-    if (!navigator.current || !history || definition.axis_type === 'tenor') return
-    const palette = observerChartColors(navigator.current)
-    const chart = echarts.init(navigator.current)
-    const lo = Date.parse(history.coverage.start); const hi = Date.parse(history.coverage.end)
-    const percent = (day: string) => hi === lo ? 0 : Math.max(0, Math.min(100, (Date.parse(day) - lo) / (hi - lo) * 100))
-    chart.setOption({ animation: false, useUTC: true, grid: { left: 74, right: 70, top: 0, bottom: 28 }, xAxis: { type: 'time', min: lo, max: hi, show: false }, yAxis: { type: 'value', show: false, scale: true },
-      series: [{ type: 'line', data: history.points.map(p => [Date.parse(p.date), p.value]), connectNulls: false, showSymbol: false, lineStyle: { color: palette.accent, width: 1 }, areaStyle: { color: palette.soft } }],
-      dataZoom: [{ ...palette.slider, type: 'slider', xAxisIndex: 0, filterMode: 'none', start: percent(range.start), end: percent(range.end), bottom: 0, height: 30, showDetail: true, labelFormatter: (v: number) => new Date(v).toISOString().slice(0, 10) }] })
-    chart.on('datazoom', ((event: { start: number; end: number; batch?: {start:number;end:number}[] }) => {
-      const selected = event.batch?.[0] || event
-      if (!Number.isFinite(selected.start) || !Number.isFinite(selected.end)) return
-      callback.current({ start: new Date(lo + (hi - lo) * selected.start / 100).toISOString().slice(0, 10), end: new Date(lo + (hi - lo) * selected.end / 100).toISOString().slice(0, 10) })
-    }) as never)
-    const resize = new ResizeObserver(() => chart.resize()); resize.observe(navigator.current)
-    return () => { resize.disconnect(); chart.dispose() }
-  }, [history, range.start, range.end, definition.axis_type, theme])
   return <div className="observation-plot" tabIndex={0} role="group" aria-label="图表，方向键缩放和移动日期"
     onPointerDown={event => event.currentTarget.focus({ preventScroll: true })}
-    onKeyDown={event => { if (definition.axis_type === 'tenor' || !history) return; const next = keyboardRange(event.key, range, history.coverage); if (next) { event.preventDefault(); event.stopPropagation(); callback.current(next) } }}>
-    {definition.axis_type !== 'tenor' ? <div className="observer-chart-tools"><button type="button" aria-pressed={brushing}
-      onClick={() => setBrushing(value => !value)}>{brushing ? '取消框选' : '框选日期'}</button></div> : null}
+    onKeyDown={event => { if (definition.axis_type === 'tenor' || !navigationCoverage || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return; const next = keyboardRange(event.key, range, navigationCoverage); if (next) { event.preventDefault(); event.stopPropagation(); callback.current(next) } }}>
+    {definition.axis_type !== 'tenor' ? <ChartDateControls range={range} coverage={navigationCoverage} onRange={onRange}>
+      <button type="button" aria-pressed={brushing} onClick={() => setBrushing(value => !value)}>{brushing ? '取消框选' : '框选日期'}</button>
+    </ChartDateControls> : null}
     <div ref={plot} style={definition.panel_groups?{height:definition.panel_groups.length*190+70}:undefined} className={'observation-chart'+(definition.board==='pcr' && focus==='both' ? ' observation-chart-pcr' : '')} />
-    {definition.axis_type !== 'tenor' && (history ? <><div ref={navigator} className="observation-history" /><p className="observation-note">{historyLabel}：{history.coverage.start} — {history.coverage.end} · {history.raw_count}条；框选或使用下方导航调整日期，↑放大 ↓缩小 ←前移 →后移</p></> : <p className="observation-note">历史导航暂不可用，当前日期内的图表仍可查看。</p>)}
+    {definition.axis_type !== 'tenor' && (history ? <ChartHistoryTrack coverage={history.coverage} range={range} label={historyLabel} /> : <p className="observation-note">历史范围暂不可用</p>)}
   </div>
 }

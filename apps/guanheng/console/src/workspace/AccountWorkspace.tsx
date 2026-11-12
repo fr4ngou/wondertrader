@@ -176,7 +176,7 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
     {!capability.available && latest ? <p role="status">{capability.reason ?? '账户读取当前不可用'}。当前显示已读取的账户结果。</p> : null}
     {data ? <>
       {data.status !== 'complete' || publication?.state === 'degraded' ? <p role="status">{data.reason}</p> : null}
-      {recordsOnly ? recordsContent : <WorkspaceDock layoutId="account" primaryTitle="资金" secondaryTitle="持仓、委托与成交" secondaryWidth={650}
+      {recordsOnly ? recordsContent : <WorkspaceDock layoutId="account" primaryTitle="资金" secondaryTitle="持仓、委托与成交" side="below"
         primary={fundsContent} secondary={recordsContent} />}
     </> : null}
   </section>

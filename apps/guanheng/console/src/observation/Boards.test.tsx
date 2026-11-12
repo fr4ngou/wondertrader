@@ -42,7 +42,7 @@ async function open(initial='/observation?metric=pcr_510050&preset=d30') {
   else {await screen.findByRole('heading',{name:'上证50ETF'});await screen.findByText('图表已读取')}
   return {query,...result}
 }
-const dates=()=>['起始日期','截止日期'].map(label=>(screen.getByLabelText(label) as HTMLInputElement).value)
+const dates=()=>screen.getByLabelText('当前日期范围').textContent!.split(' 至 ')
 
 it('定时失败记录保留，顶部数据时间取当前实际已发布目录',async()=>{
   const {query,container}=await open()
@@ -144,15 +144,15 @@ it('更晚的参照行情不覆盖主指标实际最近数值和日期',async()=
 
 it('共享选定日期跨模块和品种保持，主菜单系统C只有恒科价量压力',async()=>{
   await open(); fireEvent.click(screen.getByRole('button',{name:'6个月'}))
-  expect(dates()).toEqual(['2026-04-16','2026-10-16'])
+  const selected=dates()
   fireEvent.click(screen.getByRole('button',{name:'02系统 C'}))
   await screen.findByRole('heading',{name:'恒科价量压力'})
-  expect(dates()).toEqual(['2026-04-16','2026-10-16'])
+  expect(dates()).toEqual(selected)
   expect(screen.queryByRole('option',{name:/旧日频候选/})).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button',{name:'01PCR'}))
   fireEvent.change(screen.getByLabelText('观察口径'),{target:{value:'pcr_510300'}})
   await screen.findByRole('heading',{name:'沪深300ETF'})
-  expect(dates()).toEqual(['2026-04-16','2026-10-16'])
+  expect(dates()).toEqual(selected)
 })
 
 it('日期按钮取得焦点后四方向键连续生效，表单输入保留原生按键',async()=>{
@@ -166,7 +166,8 @@ it('日期按钮取得焦点后四方向键连续生效，表单输入保留原�
   await waitFor(()=>expect(dates()).not.toEqual(expanded)); const left=dates()
   fireEvent.keyDown(window,{key:'ArrowRight'})
   await waitFor(()=>expect(dates()).not.toEqual(left)); const after=dates()
-  fireEvent.keyDown(screen.getByLabelText('起始日期'),{key:'ArrowUp'})
+  expect(screen.queryByLabelText('起始日期')).not.toBeInTheDocument()
+  fireEvent.keyDown(screen.getByLabelText('观察口径'),{key:'ArrowUp'})
   expect(dates()).toEqual(after)
 })
 
@@ -209,10 +210,12 @@ it('重要股东全历史随新快照延长，手选区间保持原日期',async
     await waitFor(()=>expect(request()).toEqual([metric,newer.snapshot_id,
       expect.objectContaining({start:'2018-01-01',end:'2026-10-19'}),expect.anything()]))
     expect(request()?.[2]).not.toHaveProperty('observations')
-    fireEvent.change(screen.getByLabelText('截止日期'),{target:{value:'2026-10-10'}})
+    fireEvent.keyDown(window,{key:'ArrowUp'})
+    await waitFor(()=>expect(dates()).not.toEqual(['2018-01-01','2026-10-19']))
+    const selected=dates()
     act(()=>query.setQueryData(['observation','catalog',undefined],{...newer,snapshot_id:'e'.repeat(64),
       datasets:newer.datasets.map(d=>d.id===metric ? {...d,coverage:{...d.coverage,end:'2026-10-20'}} : d)}))
-    await waitFor(()=>expect(dates()).toEqual(['2018-01-01','2026-10-10']))
+    await waitFor(()=>expect(dates()).toEqual(selected))
   } finally {
     catalog.boards.pop();catalog.datasets.pop()
     delete definitions[metric];delete catalog.preferences.default_datasets.executive

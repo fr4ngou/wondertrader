@@ -1,7 +1,7 @@
 """单次独立SDK查询投影原生图表；分钟聚合和日线原值由来源服务拥有。"""
 
 from calendar import monthrange
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import math
 import re
 
@@ -121,6 +121,11 @@ def _daily_projection(response, request, symbol, period, limit, years, calendar_
         source_minute_boundary=metadata["minute_boundary"], chart_minute_boundary="source_date")
     if 'current_day' in data:
         native_source['current_day']=data['current_day']
+    archive = data.get("archive")
+    archive_window = {
+        bound: datetime.strptime(str(archive[key]), "%Y%m%d").replace(tzinfo=SHANGHAI_TIME_ZONE).astimezone(timezone.utc)
+        for bound, key in (("from_at", "first_date"), ("to_at", "last_date"))
+    } if archive else None
     source_count = len(candles)
     first_source_at = None
     if period in ("1w", "1mo"):
@@ -134,7 +139,7 @@ def _daily_projection(response, request, symbol, period, limit, years, calendar_
         missing_reason=None if candles else "当前查询没有已发布的来源日线，日期标签不表示实际闭合或可获知时刻",
         source_period="1d", source_bar_count=source_count, first_source_at=first_source_at, source_kind="wondertrader",
         derived=period in ("1w", "1mo"),
-        native_source=native_source)
+        native_source=native_source, archive_window=archive_window)
 
 
 def _daily_source_limit(period, limit, daily_limit, years, calendar_days, calendar_months):
@@ -168,6 +173,8 @@ def build_native_chart(
     years: int | None = None,
     calendar_days: int | None = None,
     calendar_months: int | None = None,
+    from_date: date | None = None,
+    archive_bounds: bool = False,
 ) -> MarketChartBundle:
     """单次 SDK 历史查询；before 含端点，输出以 UTC 传输。
 
@@ -199,7 +206,9 @@ def build_native_chart(
     for value, maximum in ((calendar_days, 31), (calendar_months, 12)):
         if value is not None and (not daily or type(value) is not int or not 1 <= value <= maximum):
             raise ValueError("公历日月范围仅适用于日、周、月线")
-    if sum(value is not None for value in (daily_limit, years, calendar_days, calendar_months)) > 1:
+    if from_date is not None and (not daily or type(from_date) is not date):
+        raise ValueError("起始日期仅适用于日、周、月线")
+    if sum(value is not None for value in (daily_limit, years, calendar_days, calendar_months, from_date)) > 1:
         raise ValueError("每次仅可选择一种日线范围")
     if before is not None and (before.tzinfo is None or before.utcoffset() is None):
         raise ValueError("分钟图表 before 必须包含时区")
@@ -217,6 +226,8 @@ def build_native_chart(
     upper = upper.replace(second=0, microsecond=0)
     end = int(upper.strftime("%Y%m%d" if daily else "%Y%m%d%H%M"))
     first = NATIVE_HISTORY_FIRST_MINUTE // 10000 if daily else NATIVE_HISTORY_FIRST_MINUTE
+    if from_date is not None:
+        first = max(first, from_date.year * 10000 + from_date.month * 100 + from_date.day)
     if end < first:
         return unavailable_native_chart(symbol, period, "查询时间早于 WonderTrader 原生历史支持起点")
     timeout = settings.wondertrader_market_timeout_seconds
@@ -258,7 +269,11 @@ def build_native_chart(
         request["period_minutes"] = minutes
     if daily:
         # 行情图显式请求形成中日K；策略/回测的默认归档视图沿原SDK调用保持。
-        request['view']='current'
+        request['view']='archive' if archive_bounds else 'current'
+        if archive_bounds:
+            request['include_archive'] = True
+        if from_date is not None:
+            request['limit'] = min(2000, (upper.date() - from_date).days + 1)
     try:
         response = (client.source_daily_history_query(request) if daily else
             client.source_history_query(request) if source_values else client.history_query(request))

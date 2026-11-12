@@ -76,6 +76,11 @@ describe('观察日期和图形语义', () => {
     expect(keyboardRange('ArrowLeft', range, coverage)!.end).toBe('2026-10-10')
     expect(keyboardRange('Enter', range, coverage)).toBeNull()
   })
+  it('近五日包含当天，三个月按公历和月末回退', () => {
+    expect(presetRange('d5', '2026-11-12')).toEqual({ start: '2026-11-08', end: '2026-11-12' })
+    expect(presetRange('m3', '2026-11-12')).toEqual({ start: '2026-08-12', end: '2026-11-12' })
+    expect(presetRange('m3', '2024-05-31')).toEqual({ start: '2024-02-29', end: '2024-05-31' })
+  })
   it('双轴颜色和图线一致，并保留空值', () => {
     const definition = { id: 'pb_shsz_daily', board: 'pb', primary_field: 'equal_pb', lines: [
       { key: 'equal_pb', name: 'PB', color: '#2768b2', unit: '倍', panel: 'main', shown: true },

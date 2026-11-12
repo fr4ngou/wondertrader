@@ -1,4 +1,8 @@
 /* 统一工作区外壳与共享组件。 */
+html:has(.observer-design, .guanheng) { scrollbar-width: none; }
+.observer-design :is(.account-table-scroll, .table-wrap, .live-table-scroll, .bt-report-list, .bt-trade-table, .observer-search-dropdown ul) {
+  scrollbar-width: none;
+}
 .app-shell.observer-design {
   --sidebar: 184px;
   display: grid;
@@ -141,7 +145,7 @@
   .observer-design .sidebar { position: static; width: 100%; gap: 10px; padding: 12px 12px 0; border: 0; border-bottom: 1px solid var(--line); }
   .observer-design .brand-lockup { display: flex; align-items: baseline; gap: 9px; padding: 0 4px; }
   .observer-design .brand-lockup strong { font-size: 23px; }
-  .observer-design .sidebar nav { display: flex; flex-wrap: nowrap; gap: 3px; overflow-x: auto; padding-bottom: 6px; }
+  .observer-design .sidebar nav { display: flex; flex-wrap: wrap; gap: 3px; padding-bottom: 6px; }
   .observer-design .nav-item { flex: 0 0 auto; gap: 6px; min-height: 35px; padding: 7px 9px; white-space: nowrap; }
   .observer-design .nav-item > span { font-size: 12px; }
   .observer-design .nav-item svg { width: 15px; height: 15px; }

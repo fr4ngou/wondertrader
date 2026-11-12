@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import IndependentApp from './IndependentApp'
 import { fetchMarketChart } from '../api'
+import { sourceChartDate } from '../sourceChartPresentation'
+import { presetRange } from '../observation/dates'
 
 vi.mock('../api', async original => ({ ...await original<typeof import('../api')>(), fetchMarketChart: vi.fn() }))
 vi.mock('../components/MarketCandlestickChart', () => ({ MarketCandlestickChart: () => null }))
@@ -22,16 +24,20 @@ test('直达日线等能力后再读取，手动刷新共用预算，日周月�
   complete(Response.json({ read_only: true, features: { minute_chart: { available: true, timeout_seconds: 30 } } }))
   await waitFor(() => expect(chart).toHaveBeenCalledWith('300308.SZ', '1d', undefined, expect.any(AbortSignal), 60, undefined, 30700, undefined))
   expect(screen.getByRole('button', { name: '日线' })).toHaveAttribute('aria-pressed', 'true')
-  fireEvent.change(screen.getByRole('combobox', { name: '按交易日选择范围' }), { target: { value: '5' } })
-  await waitFor(() => expect(chart).toHaveBeenLastCalledWith('300308.SZ', '1d', undefined, expect.any(AbortSignal), 5, undefined, 30700, undefined))
+  const today = sourceChartDate(new Date().toISOString())
+  const before = `${today}T23:59:59+08:00`
+  const assertRange = (period: string, preset: string) => expect(chart).toHaveBeenLastCalledWith(
+    '300308.SZ', period, undefined, expect.any(AbortSignal), 2000, before, 30700, { fromDate: presetRange(preset, today).start })
+  fireEvent.click(screen.getByRole('button', { name: '近 5 日' }))
+  await waitFor(() => assertRange('1d', 'd5'))
   fireEvent.keyDown(window, { key: 'w' })
-  await waitFor(() => expect(chart).toHaveBeenLastCalledWith('300308.SZ', '1w', undefined, expect.any(AbortSignal), 2000, undefined, 30700, { dailyLimit: 5 }))
+  await waitFor(() => assertRange('1w', 'd5'))
   fireEvent.click(screen.getByRole('button', { name: '2年' }))
-  await waitFor(() => expect(chart).toHaveBeenLastCalledWith('300308.SZ', '1w', undefined, expect.any(AbortSignal), 2000, undefined, 30700, { years: 2 }))
+  await waitFor(() => assertRange('1w', 'y2'))
   fireEvent.click(screen.getByRole('button', { name: '最近7天' }))
-  await waitFor(() => expect(chart).toHaveBeenLastCalledWith('300308.SZ', '1w', undefined, expect.any(AbortSignal), 2000, undefined, 30700, { calendarDays: 7 }))
-  fireEvent.click(screen.getByRole('button', { name: '3个月' }))
-  await waitFor(() => expect(chart).toHaveBeenLastCalledWith('300308.SZ', '1w', undefined, expect.any(AbortSignal), 2000, undefined, 30700, { calendarMonths: 3 }))
+  await waitFor(() => assertRange('1w', 'w1'))
+  fireEvent.click(screen.getByRole('button', { name: '近 3 月' }))
+  await waitFor(() => assertRange('1w', 'm3'))
 })
 test('唯一自动搜索选择ETF，快捷键不抢输入', async () => {
   const chart = vi.mocked(fetchMarketChart).mockImplementation(async symbol => ({ schema_version: '1.0', symbol, period: '1d', data_available: false, candles: [] }))

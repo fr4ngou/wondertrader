@@ -137,8 +137,8 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
       grid: positions ? [
         { left: 62, right: 22, top: 38, bottom: '49%' },
         { left: 62, right: 22, top: '57%', bottom: '28%' },
-        { left: 62, right: 22, top: '79%', bottom: 54 },
-      ] : [{ left: 62, right: 22, top: 38, height: '57%' }, { left: 62, right: 22, top: '76%', bottom: 54 }],
+        { left: 62, right: 22, top: '79%', bottom: 30 },
+      ] : [{ left: 62, right: 22, top: 38, height: '57%' }, { left: 62, right: 22, top: '76%', bottom: 30 }],
       axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: palette.ink, color: palette.panel } },
       tooltip: { ...palette.tooltip, trigger: 'axis', triggerOn: 'mousemove|click', confine: true, renderMode: 'richText', axisPointer: { type: 'cross', lineStyle: { color: palette.border, type: 'dashed' } },
         textStyle: { color: palette.ink, fontSize: 12, lineHeight: 18 },
@@ -167,8 +167,7 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
           nameTextStyle: { color: palette.muted, align: 'left' }, axisLabel: { color: palette.muted, formatter: '{value}%' }, splitLine: { lineStyle: { color: palette.line } } },
         ...(positions ? [{ type: 'value', gridIndex: 2, min: 0, max: ({ max }: { max: number }) => Math.max(100, max || 0),
           name: '日末仓位', nameGap: 8, nameTextStyle: { color: palette.muted, align: 'left' }, axisLabel: { color: palette.muted, formatter: '{value}%' }, splitLine: { lineStyle: { color: palette.line } } }] : [])],
-      dataZoom: [{ type: 'inside', xAxisIndex: axes, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, ...zoom.current },
-        { ...palette.slider, type: 'slider', xAxisIndex: axes, bottom: 8, height: 18, showDetail: false, ...zoom.current }], series })
+      dataZoom: [{ type: 'inside', xAxisIndex: axes, filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, ...zoom.current }], series })
     chart.on('datazoom', () => {
       const options = chart.getOption().dataZoom as { start: number; end: number }[] | undefined
       if (options?.[0]) zoom.current = { start: options[0].start, end: options[0].end }

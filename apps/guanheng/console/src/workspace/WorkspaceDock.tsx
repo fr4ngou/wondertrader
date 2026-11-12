@@ -14,8 +14,8 @@ type DockProps = {
   /** 关联明细面板的标题与原业务内容。 */
   secondaryTitle: string
   secondary: ReactNode
-  /** 默认副面板方向及宽度。窄屏沿主任务、明细顺序显示。 */
-  side?: 'left' | 'right'
+  /** 默认副面板方向及并排宽度。窄屏沿主任务、明细顺序显示。 */
+  side?: 'left' | 'right' | 'below'
   secondaryWidth?: number
 }
 
@@ -50,8 +50,13 @@ export function WorkspaceDock({ layoutId, primaryTitle, primary, secondaryTitle,
     const key = `guanheng.workspace-dock.v1.${layoutId}`
     const primaryHost = document.createElement('div')
     const secondaryHost = document.createElement('div')
+    const primaryBody = document.createElement('div')
+    const secondaryBody = document.createElement('div')
     primaryHost.className = 'observer-dock-content observer-dock-primary'
     secondaryHost.className = 'observer-dock-content observer-dock-secondary'
+    primaryBody.className = secondaryBody.className = 'observer-dock-body'
+    primaryHost.append(primaryBody)
+    secondaryHost.append(secondaryBody)
     const api = createDockview(root, {
       className: 'observer-dock-surface',
       defaultTabComponent: 'observer-tab',
@@ -70,7 +75,8 @@ export function WorkspaceDock({ layoutId, primaryTitle, primary, secondaryTitle,
     api.layout(root.clientWidth, root.clientHeight)
     const primaryPanel = api.addPanel({ id: 'primary', component: 'workspace', title: primaryTitle, minimumWidth: 260 })
     api.addPanel({ id: 'secondary', component: 'workspace', title: secondaryTitle,
-      minimumWidth: 230, initialWidth: secondaryWidth, position: { referencePanel: primaryPanel, direction: side } })
+      minimumWidth: 230, initialWidth: side === 'below' ? undefined : secondaryWidth,
+      position: { referencePanel: primaryPanel, direction: side } })
     primaryPanel.api.setActive()
     const defaults = api.toJSON()
     const reset = () => api.fromJSON(defaults)
@@ -91,17 +97,61 @@ export function WorkspaceDock({ layoutId, primaryTitle, primary, secondaryTitle,
       if (!api.getPanel('primary') || !api.getPanel('secondary')) return
       try { localStorage.setItem(key, JSON.stringify(api.toJSON())) } catch { /* 存储禁用时当前布局仍可使用。 */ }
     }
+    // 内容的自然高度独立于 Dockview 分配的高度，避免在表格加载或换行后形成内层滚动。
+    const minimums = new WeakMap<HTMLElement, number>()
+    let frame = 0
+    const fit = () => {
+      frame = 0
+      const grid: { top: number; height: number }[] = []
+      let floatingBottom = 0
+      for (const group of api.groups) {
+        const panel = group.activePanel
+        const box = group.api.boundingBox
+        if (!panel || !box) continue
+        const body = panel.id === 'primary' ? primaryBody : secondaryBody
+        if (!body.offsetWidth || !body.isConnected) continue
+        const header = group.element.querySelector<HTMLElement>('.dv-tabs-and-actions-container')
+        const height = Math.max(80, body.offsetHeight + (header?.offsetHeight ?? 0))
+        if (group.api.location.type === 'floating') {
+          const floatingWindow = group.element.closest<HTMLElement>('.dv-resize-container')
+          if (floatingWindow) floatingWindow.style.minHeight = `${height}px`
+          floatingBottom = Math.max(floatingBottom, Math.ceil(box.top + height))
+        } else {
+          if (minimums.get(group.element) !== height) {
+            minimums.set(group.element, height)
+            group.api.setConstraints({ minimumHeight: height })
+          }
+          grid.push({ top: box.top, height })
+        }
+      }
+      const stacked = grid.length > 1 && Math.abs(grid[0].top - grid[1].top) > 1
+      const gridHeight = stacked ? grid.reduce((sum, group) => sum + group.height, 0)
+        : Math.max(0, ...grid.map(group => group.height))
+      const height = Math.max(80, gridHeight, floatingBottom)
+      if (root.clientHeight !== height) {
+        root.style.height = `${height + 2}px`
+        api.layout(root.clientWidth, root.clientHeight)
+      }
+    }
+    const scheduleFit = () => { if (!frame) frame = requestAnimationFrame(fit) }
+    const resize = new ResizeObserver(scheduleFit)
+    resize.observe(primaryBody)
+    resize.observe(secondaryBody)
     let timer: number | undefined
     const events = api.onDidLayoutChange(() => {
+      scheduleFit()
       window.clearTimeout(timer)
       timer = window.setTimeout(() => { timer = undefined; save() }, 150)
     })
     apiRef.current = api
     resetRef.current = reset
-    setHosts({ primary: primaryHost, secondary: secondaryHost })
+    setHosts({ primary: primaryBody, secondary: secondaryBody })
+    scheduleFit()
     return () => {
       if (timer !== undefined) { window.clearTimeout(timer); save() }
       events.dispose()
+      resize.disconnect()
+      cancelAnimationFrame(frame)
       apiRef.current = null
       resetRef.current = null
       api.dispose()

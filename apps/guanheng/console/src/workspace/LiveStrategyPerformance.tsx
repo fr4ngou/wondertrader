@@ -41,7 +41,7 @@ function LiveChart({ days, onHover, onSelect }: {
     for (const direction of ['BUY', 'SELL']) series.push({ name: `账户${side(direction)}`, type: 'scatter', symbol: 'triangle', symbolRotate: direction === 'SELL' ? 180 : 0,
       symbolSize: 12, itemStyle: { color: direction === 'BUY' ? '#d74654' : '#008763' }, z: 4,
       data: days.flatMap((d, i) => chartValue(d) !== null && d.deals.some(t => t.side === direction) ? [[i, Number(chartValue(d))]] : []) })
-    chart.setOption({ animation: false, grid: { left: 65, right: 26, top: 24, bottom: 58 },
+    chart.setOption({ animation: false, grid: { left: 65, right: 26, top: 24, bottom: 32 },
       textStyle: { fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif', color: palette.muted },
       xAxis: { type: 'category', data: days.map(d => d.date), boundaryGap: false, axisLabel: { color: palette.muted, hideOverlap: true }, axisLine: { lineStyle: { color: palette.border } } },
       yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: palette.line } }, axisLabel: { color: palette.muted, formatter: (n: number) => `${(n / 10000).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}万` } },
@@ -51,7 +51,7 @@ function LiveChart({ days, onHover, onSelect }: {
         const d = latestDays.current[index]; if (!d) return ''
         return [d.date, `${d.reference_nav_cny != null ? '参考净值（手续费待确认）' : '实际发布净值'}：${money(chartValue(d))}`, d.positions_state === 'unavailable' ? '持仓尚无观测' : `持仓 ${heldPositions(d).length} 项`,
           d.deals_state === 'unavailable' ? '成交来源尚未取得' : `实际成交 ${d.deals.length} 笔`, '点击固定当日详情'].join('\n')
-      } }, dataZoom: [{ type: 'inside', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false }, { ...palette.slider, type: 'slider', bottom: 10, height: 18, showDetail: false }], series })
+      } }, dataZoom: [{ type: 'inside', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false }], series })
     const dayAt = (x: number, y: number) => {
       if (!chart.containPixel({ gridIndex: 0 }, [x, y])) return null
       const index = Math.round(Number(chart.convertFromPixel({ xAxisIndex: 0 }, x)))

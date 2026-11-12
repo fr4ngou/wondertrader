@@ -2,17 +2,18 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { init, type ComposeOption } from 'echarts/core'
 import type { BarSeriesOption, LineSeriesOption } from 'echarts/charts'
-import type { DataZoomComponentOption, GridComponentOption, LegendComponentOption, TooltipComponentOption } from 'echarts/components'
+import type { GridComponentOption, LegendComponentOption, TooltipComponentOption } from 'echarts/components'
 import { getSeries } from './api'
 import { ReadNotice } from './ReadNotice'
 import { buildExecutiveWeeks, executiveWeekStats, readWeeklyIndex, shanghaiToday, WEEKLY_INDEXES } from './executiveWeekly'
 import type { DailyClose, ExecutiveWeek, WeeklyIndex } from './executiveWeekly'
 import type { Catalog, Range, Series } from './types'
 import { observerChartColors, useObserverTheme } from '../workspace/observerAppearance'
+import { ChartDateControls } from '../components/ChartHistoryTrack'
 import './executive-weekly.css'
 
 // 图表组件与渲染器由同路由加载的 ObservationChart 注册。
-type Options = ComposeOption<BarSeriesOption | LineSeriesOption | GridComponentOption | LegendComponentOption | DataZoomComponentOption | TooltipComponentOption>
+type Options = ComposeOption<BarSeriesOption | LineSeriesOption | GridComponentOption | LegendComponentOption | TooltipComponentOption>
 const barName = '周度净减持'
 const benchmark = 'market.sh000001'
 const format = (value: number | null) => value === null ? '—' : value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -20,7 +21,7 @@ const format = (value: number | null) => value === null ? '—' : value.toLocale
 export function weeklyExecutiveOptions(weeks: ExecutiveWeek[], narrow: boolean, archived: boolean, palette?: ReturnType<typeof observerChartColors>): Options {
   return {
     animation: false,
-    grid: { left: narrow ? 42 : 63, right: narrow ? 42 : 67, top: 37, bottom: narrow ? 125 : 107 },
+    grid: { left: narrow ? 42 : 63, right: narrow ? 42 : 67, top: 37, bottom: narrow ? 100 : 82 },
     xAxis: {
       type: 'category', data: weeks.map(week => week.label), boundaryGap: true,
       axisLabel: { color: palette?.muted ?? '#777', rotate: 50, hideOverlap: true, fontSize: narrow ? 9 : 11,
@@ -48,12 +49,6 @@ export function weeklyExecutiveOptions(weeks: ExecutiveWeek[], narrow: boolean, 
       } },
     legend: { bottom: narrow ? 2 : 0, itemWidth: 18, itemHeight: 9, textStyle: { color: palette?.muted ?? '#555', fontSize: narrow ? 10 : 12 },
       data: [barName, ...WEEKLY_INDEXES.map(index => index.name)] },
-    dataZoom: [
-      { type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false },
-      { type: 'slider', filterMode: 'none', bottom: narrow ? 52 : 31, height: 19, showDetail: false,
-        borderColor: '#c5d1e2', fillerColor: 'rgba(86,127,186,.17)', ...palette?.slider,
-        dataBackground: { lineStyle: { color: palette?.accent ?? '#90acd0' }, areaStyle: { color: palette?.soft ?? '#d4e1f2' } } },
-    ],
     series: [
       { type: 'bar', name: barName, yAxisIndex: 1, barMaxWidth: 18, data: weeks.map(week => week.netSales),
         itemStyle: { color: item => typeof item.value === 'number' && item.value < 0 ? '#cd5754' : '#80a5cf', opacity: .85 } },
@@ -93,10 +88,12 @@ function WeeklyPlot({ weeks, archived }: { weeks: ExecutiveWeek[]; archived: boo
 export const isShareholderNet = (metric: string) => metric === 'shareholder.net.ashare'
 export const isExecutiveNet = (metric: string) => isShareholderNet(metric) || metric === 'executive.net.shsz' || metric === 'executive.net.ashare'
 
-export function ExecutiveWeeklyChart({ catalog, data, range }: {
+export function ExecutiveWeeklyChart({ catalog, data, range, navigationCoverage, onRange }: {
   catalog: Catalog
   data: Series
   range: Range
+  navigationCoverage?: Range
+  onRange?: (range: Range) => void
 }) {
   const archived = isShareholderNet(data.definition.id)
   const local = import.meta.env.VITE_OBSERVATION_ONLY !== 'true'
@@ -138,6 +135,7 @@ export function ExecutiveWeeklyChart({ catalog, data, range }: {
     {indexes.map((query, i) => <ReadNotice key={WEEKLY_INDEXES[i].symbol} label={WEEKLY_INDEXES[i].name} query={query} />)}
     {indexes.some(query => query.isFetching) && <p role="status" className="executive-weekly-note">正在读取指数日线…</p>}
     {!archived && !local && <p className="executive-weekly-note">中证全指、创业板指、科创50由观衡本地行情提供。</p>}
+    {onRange ? <ChartDateControls range={range} coverage={navigationCoverage} onRange={onRange} /> : null}
     <WeeklyPlot weeks={weeks} archived={archived} />
     <p className="executive-weekly-note">{archived
       ? <>沪深北重要股东已披露买卖，按公告日汇总。区间内 {estimated.toLocaleString('zh-CN')} 笔使用历史价格估算，{unpriced.toLocaleString('zh-CN')} 笔缺价。* 标注部分周或缺价周，统计使用完整可计价周。</>

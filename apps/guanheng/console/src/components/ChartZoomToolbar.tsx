@@ -3,8 +3,11 @@ import { getInstanceByDom } from 'echarts/core'
 import { Minus, Plus, RotateCcw } from 'lucide-react'
 
 /** 只改变当前图的可见范围，仍由原图处理数据、日期和选中点。 */
-export function ChartZoomToolbar({ plot }: { plot: RefObject<HTMLDivElement | null> }) {
+export function ChartZoomToolbar({ plot, onNavigate }: {
+  plot: RefObject<HTMLDivElement | null>; onNavigate?: (key: 'ArrowUp' | 'ArrowDown' | 'End') => void
+}) {
   function zoom(factor?: number) {
+    if (onNavigate) { onNavigate(factor === undefined ? 'End' : factor < 1 ? 'ArrowUp' : 'ArrowDown'); return }
     const chart = plot.current ? getInstanceByDom(plot.current) : undefined
     if (!chart) return
     if (factor === undefined) {
@@ -20,6 +23,7 @@ export function ChartZoomToolbar({ plot }: { plot: RefObject<HTMLDivElement | nu
   return <div className="observer-chart-tools" role="group" aria-label="图表缩放">
     <button type="button" onClick={() => zoom(0.75)} aria-label="放大图表" title="放大图表"><Plus size={15} /></button>
     <button type="button" onClick={() => zoom(1.33)} aria-label="缩小图表" title="缩小图表"><Minus size={15} /></button>
-    <button type="button" onClick={() => zoom()} aria-label="显示完整区间" title="显示完整区间"><RotateCcw size={14} /></button>
+    <button type="button" onClick={() => zoom()} aria-label={onNavigate ? '回到最新区间' : '显示完整区间'}
+      title={onNavigate ? '回到最新区间' : '显示完整区间'}><RotateCcw size={14} /></button>
   </div>
 }

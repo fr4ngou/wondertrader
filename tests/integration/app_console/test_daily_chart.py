@@ -1,7 +1,7 @@
 """来源日线App投影；SDK替身只证明合同，固定真实来源与安装SPA由组合另验。"""
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import time
 
 from fastapi.testclient import TestClient
@@ -70,6 +70,31 @@ def test_main_daily_single_sdk_preserves_source_date_and_units():
     assert source.price_unit == source.volume_unit == source.amount_unit == "unknown"
     assert factory.calls == [({"exchange": "SSE", "code": "510300", "from": 20040101, "to": 20261023, "limit": 2, "view":"current"}, {"timeout": .125})]
     assert MarketChartBundle.model_validate_json(value.model_dump_json()) == value
+
+
+def test_explicit_window_and_archive_bounds_use_original_date_facts():
+    factory = DailyFactory()
+    result = chart(factory, from_date=date(2026, 10, 21))
+    assert result.data_available
+    assert factory.calls[0][0] == {
+        "exchange": "SSE", "code": "510300", "from": 20261021, "to": 20261023,
+        "limit": 3, "view": "current",
+    }
+
+    def archived(request):
+        response = daily_response(request)
+        response["data"]["bars"] = response["data"]["bars"][-1:]
+        response["data"]["archive"] = {"first_date": 20190102, "last_date": 20261023, "count": 1800}
+        return response
+
+    source = DailyFactory(archived)
+    with TestClient(create_app(settings=settings(), market_client_factory=source)) as client:
+        path = "/v1/ui/market/chart/510300.SH"
+        response = client.get(path, params={"period": "1d", "limit": 1, "archive_bounds": "true"})
+        assert response.status_code == 200
+        assert response.json()["archive_window"] == {"from_at": "2019-01-01T16:00:00Z", "to_at": "2026-10-22T16:00:00Z"}
+        assert client.get(path, params={"period": "1m", "from_date": "2026-10-01"}).status_code == 422
+    assert source.calls[0][0]["view"] == "archive" and source.calls[0][0]["include_archive"] is True
 
 
 @pytest.mark.parametrize('provider', ['Qmt', 'Tdx', 'BaoStock', 'Tencent', 'CSI', 'CNI'])

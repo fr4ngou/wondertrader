@@ -88,7 +88,7 @@ it('目录刷新失败保留看板，指标刷新失败保留图表和数据，�
 it('切换日期后的首次失败不显示其他日期图表', async () => {
   open(); await screen.findByTestId('chart')
   state.failure = 'series:pb_test'
-  fireEvent.change(screen.getByLabelText('起始日期'), { target: { value: '2026-10-15' } })
+  fireEvent.click(screen.getByRole('button', { name: '近 5 日' }))
   await screen.findByText(/指标数据读取失败：指标读取失败/)
   expect(screen.queryByTestId('chart')).not.toBeInTheDocument()
   expect(screen.queryByText('7', { selector: 'td' })).not.toBeInTheDocument()

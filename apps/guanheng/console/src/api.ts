@@ -474,13 +474,15 @@ export async function fetchMarketChart(
   limit = 2000,
   before?: string,
   timeoutMs = INTERACTIVE_STATUS_TIMEOUT_MS,
-  range?: { dailyLimit?: number; years?: number; calendarDays?: number; calendarMonths?: number; preview?: boolean },
+  range?: { dailyLimit?: number; years?: number; calendarDays?: number; calendarMonths?: number; fromDate?: string; archiveBounds?: boolean; preview?: boolean },
 ): Promise<MarketChartBundle> {
   const params = new URLSearchParams({ period, limit: String(limit) })
   if (range?.dailyLimit !== undefined) params.set('daily_limit', String(range.dailyLimit))
   if (range?.years !== undefined) params.set('years', String(range.years))
   if (range?.calendarDays !== undefined) params.set('calendar_days', String(range.calendarDays))
   if (range?.calendarMonths !== undefined) params.set('calendar_months', String(range.calendarMonths))
+  if (range?.fromDate !== undefined) params.set('from_date', range.fromDate)
+  if (range?.archiveBounds) params.set('archive_bounds', 'true')
   if (before) params.set('before', before)
   if (benchmarkSymbol && benchmarkSymbol !== symbol) {
     params.set('benchmark_symbol', benchmarkSymbol)

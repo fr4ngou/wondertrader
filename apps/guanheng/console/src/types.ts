@@ -1266,6 +1266,8 @@ export interface MarketChartBundle {
   source_bar_count?: number | null
   /** 周月图首个参与聚合的上海交易日零点。 */
   first_source_at?: string
+  /** 已验证的日线归档首末日期标签。 */
+  archive_window?: { from_at: string; to_at: string }
   source_kind?: 'market_bars' | 'resonance_daily' | 'mixed' | 'quote_observations' | 'wondertrader' | null
   native_source?: MarketChartNativeSource | null
   source_observation?: {

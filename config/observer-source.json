@@ -37,6 +37,7 @@
       "apps/guanheng/console/src/components/InfoTip.tsx",
       "apps/guanheng/console/src/components/InformationWorkspace.css",
       "apps/guanheng/console/src/components/ChartZoomToolbar.tsx",
+      "apps/guanheng/console/src/components/ChartHistoryTrack.tsx",
       "apps/guanheng/console/src/components/MarketCandlestickChart.tsx",
       "apps/guanheng/console/src/components/PortfolioEquityChart.tsx",
       "apps/guanheng/console/src/components/PortfolioPositionTable.tsx",

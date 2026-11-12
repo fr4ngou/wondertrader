@@ -48,6 +48,5 @@ export function observerChartColors(element: HTMLElement) {
   return {
     ink, muted, line, border, accent, soft, panel,
     tooltip: { backgroundColor: panel, borderColor: border, textStyle: { color: ink } },
-    slider: { borderColor: border, fillerColor: soft, handleStyle: { color: accent }, textStyle: { color: muted } },
   }
 }

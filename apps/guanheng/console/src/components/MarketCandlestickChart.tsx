@@ -40,16 +40,19 @@ export function MarketCandlestickChart({
   loading = false,
   visibleCount,
   intradayCandles = false,
+  onNavigate,
   fills = noFills,
 }: {
   bundle?: MarketChartBundle
   loading?: boolean
   visibleCount: number | 'all'
   intradayCandles?: boolean
+  onNavigate?: (key: 'ArrowUp' | 'ArrowDown' | 'End') => void
   fills?: readonly AccountFill[]
 }) {
   const root = useRef<HTMLDivElement>(null)
   const theme = useObserverTheme()
+  const externalNavigation = !!onNavigate
   const intraday = bundle?.period === '1m' || bundle?.period === '5m'
   const linePrice = intraday && !intradayCandles
   const continuity = useMemo(
@@ -218,15 +221,10 @@ export function MarketCandlestickChart({
           axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false },
         },
       ],
-      dataZoom: [
+      dataZoom: externalNavigation ? [] : [
         {
           type: 'inside', xAxisIndex: hasVolume ? [0, 1] : [0], startValue, endValue: bundle.candles.length - 1,
           zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, moveOnMouseMove: true,
-        },
-        {
-          type: 'slider', xAxisIndex: hasVolume ? [0, 1] : [0], bottom: 0, height: 18,
-          startValue, endValue: bundle.candles.length - 1,
-          ...palette.slider, textStyle: { color: palette.muted, fontSize: 10 },
         },
       ],
       series: [
@@ -249,7 +247,7 @@ export function MarketCandlestickChart({
       observer?.disconnect()
       chart.dispose()
     }
-  }, [bundle, continuity, visibleCount, theme, fills, intraday, linePrice])
+  }, [bundle, continuity, visibleCount, theme, fills, intraday, linePrice, externalNavigation])
 
   // A background refresh retains the previous verified candles. Replacing the
   // chart DOM here would also orphan its ECharts instance until bundle changes.
@@ -280,7 +278,7 @@ export function MarketCandlestickChart({
     : ''
   return (
     <div className="market-chart-frame">
-      <ChartZoomToolbar plot={root} />
+      <ChartZoomToolbar plot={root} onNavigate={onNavigate} />
       <div ref={root} className="market-chart" aria-label={`${bundle.symbol} ${bundle.period} ${kind}${volumeLabel}${continuityLabel}`} />
       {continuity.gapCount > 0 ? (
         <div className="market-chart-gap-note" role="status">
