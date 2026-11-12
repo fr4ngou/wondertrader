@@ -1,5 +1,7 @@
 # 验证证据
 
+- [WT 交易 Host 恢复后分析自动续跑](2026-11-12-wt-trade-read-recovery-postflight.md)：同捕获自动发布、同代账户复读及观衡数据核对。
+
 - [因子研究库 Windows 验证](2026-11-11-factor-library-windows.md)：Alpha144 成交额核对、CPU 搜索、日线读取与指标诊断的本机结果。
 
 - [BigQuant SDK 开通后读取验证](../research/2026-11-09-bigquant-data-source.md)记录 11 月 9 日业务回包及交易所对照，接续市场广度备用来源的权限核查。
