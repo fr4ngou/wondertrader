@@ -19,7 +19,7 @@ const clock = (v?: string | null) => v ? absoluteChinaTime(v) : '尚未取得'
 function Fact({ name, fact, unit, observedAt }: { name: string; fact: OptionalFact; unit: '元' | '%'; observedAt?: string }) {
   return <div><dt>{name}</dt><dd>{fact.value === null ? '暂不可用' : unit === '元'
     ? <FinancialValue value={fact.value} /> : `${fact.value}%`}
-    {observedAt ? <small> · 截至 {clock(observedAt)}</small> : null}
+    {observedAt ? <small className="strategy-fact-observed">估值截至 <time dateTime={observedAt}>{clock(observedAt)}</time></small> : null}
     {fact.reason ? <details className="compact-details"><summary>说明</summary><small>{fact.reason}</small></details> : null}</dd></div>
 }
 
@@ -43,7 +43,7 @@ export default function StrategyDetails({ strategy }: {
   const currentGroups = data?.account?.groups
   const moneyGroup = query.data?.account?.complete.account ?? currentGroups?.account
   const positionGroup = query.data?.account?.complete.position ?? currentGroups?.position
-  const runFacts = data ? <dl className="operations-facts">
+  const runFacts = data ? <dl className="strategy-run-facts">
     {!data.capital_baseline ? <Fact name="策略预算（元）" fact={data.budget_cny} unit="元" /> : null}
     <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" observedAt={data.returns.valued_at} />
   </dl> : null
