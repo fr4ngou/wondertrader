@@ -84,19 +84,23 @@ function mount(strategy?: { strategy_id: string; strategy_version: string }, tar
  render(<QueryClientProvider client={c}><MemoryRouter><StrategyDetails strategy={strategy}/></MemoryRouter></QueryClientProvider>)
 }
 
-test('同表显示实际与目标，可单独看策略范围和有持仓标的', async () => {
+test('两种范围只显示有实际持仓的标的，同表保留持仓标的的零目标', async () => {
  const value = { ...fixture(), calculation: structuredClone(runtimeFixture.strategy), security_names: { '510300.SH': '沪深300ETF' } }
  const row = value.account.groups.position.rows[0]
  row.identity = { wt_symbol: 'SSE.ETF.510300' }
  row.fields.quantity = { availability: 'present', value: 1200, reason: null }
  row.fields.sellable = { availability: 'present', value: 800, reason: null }
  value.account.groups.position.rows.push({ ...row, identity: { m_strInstrumentID: '600000', m_strExchangeID: 'SH' } })
+ value.account.groups.position.rows.push({ ...row, identity: { m_strInstrumentID: '510050', m_strExchangeID: 'SH' },
+   fields: { ...row.fields, quantity: { availability: 'present', value: 0, reason: null } } })
  const changed = { id: 'c'.repeat(64), sequence: 1, changed_at: '2026-11-01T09:31:00+08:00',
    symbol: '510300.SH', previous_target_quantity: 1200, target_quantity: 0, change_quantity: -1200,
    kind: 'changed', reference_price_cny: '4.28', target_weight: null, strategy_version: null, reason: null }
+ const targetOnly = { ...changed, id: 'd'.repeat(64), sequence: 2, symbol: '510500.SH', previous_target_quantity: null,
+   target_quantity: 100, change_quantity: null, kind: 'initial' }
  const source = { kind: 'wt-native-signals', source_id: 'a'.repeat(64), snapshot_sha256: 'b'.repeat(64),
-   raw_count: 2, changed_count: 1, initial_count: 1, unchanged_count: 0, incomplete_tail: false,
-   first_at: changed.changed_at, last_at: changed.changed_at, latest_targets: [changed] }
+   raw_count: 3, changed_count: 1, initial_count: 2, unchanged_count: 0, incomplete_tail: false,
+   first_at: changed.changed_at, last_at: changed.changed_at, latest_targets: [targetOnly, changed] }
  const history = { schema_version: 'guanheng.strategy-target-history.v1', read_only: true,
    observed_at: value.observed_at, state: 'available', reason: '原生记录', requested: value.strategy,
    source, items: [], next_cursor: null }
@@ -109,9 +113,9 @@ test('同表显示实际与目标，可单独看策略范围和有持仓标的',
  expect(screen.getAllByRole('table')).toHaveLength(1)
  expect(screen.getByText(/持仓归属未确认/)).toBeVisible()
  expect(within(table).queryByText('600000.SH')).toBeNull()
- const unobserved = within(table).getByRole('row', { name: /510050.SH/ })
- expect(within(unobserved).getAllByRole('cell')[0]).toHaveTextContent(/^—$/)
- fireEvent.click(screen.getByRole('checkbox', { name: '仅看有持仓' }))
+ expect(within(table).queryByText('510050.SH')).toBeNull()
+ expect(within(table).queryByText('510500.SH')).toBeNull()
+ expect(screen.queryByRole('checkbox', { name: '仅看有持仓' })).toBeNull()
  expect(within(table).getAllByRole('row')).toHaveLength(2)
  fireEvent.click(screen.getByRole('button', { name: '全账户' }))
  expect(within(table).getByText('600000.SH')).toBeVisible()

@@ -4,11 +4,9 @@
 .operations-heading button { min-height: 44px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 8px 16px; cursor: pointer; background: var(--surface, #fff); }
 .operations-heading button:disabled { opacity: .6; cursor: wait; }
 .strategy-position-targets { min-width: 0; }
-.strategy-position-controls, .strategy-position-controls > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.strategy-position-controls { gap: 8px 16px; }
+.strategy-position-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .strategy-position-controls button { min-height: 44px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface, #fff); color: var(--ink); }
 .strategy-position-controls button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-.strategy-position-controls label { display: inline-flex; align-items: center; min-height: 44px; gap: 6px; cursor: pointer; }
 .strategy-position-targets th small { display: block; color: var(--muted); font-weight: normal; }
 .operations-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
 .operations-workspace .surface-card { padding: 20px; min-width: 0; overflow-wrap: anywhere; }

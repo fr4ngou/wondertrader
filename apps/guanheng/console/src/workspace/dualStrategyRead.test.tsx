@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import StrategyDetails from './StrategyDetails'
@@ -48,8 +48,8 @@ test('现有详情布局按所选id查询，展示自有持仓及未知市值', 
   expect(holdings.getByText('159352.SZ')).toBeVisible()
   const row = holdings.getByRole('row', { name: /^510300.SH/ })
   expect(within(row).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['200','100','—','—','—','—','—'])
-  fireEvent.click(screen.getByRole('checkbox', { name: '仅看有持仓' }))
   expect(holdings.getAllByRole('row')).toHaveLength(3)
+  expect(screen.queryByRole('checkbox', { name: '仅看有持仓' })).toBeNull()
   expect(screen.queryByRole('button', { name: '全账户' })).toBeNull()
 })
 

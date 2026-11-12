@@ -32,7 +32,6 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
   /** 本轮是否取得完整券商持仓，区分缓存与新读取。 */ positionRefreshed: boolean
 }) {
   const [scope, setScope] = useState<'strategy' | 'account'>('strategy')
-  const [holdingsOnly, setHoldingsOnly] = useState(false)
   const query = useStrategyTargetHistory(details.strategy, null, details.runtime_scope_id)
   const summary = query.data?.source?.latest_targets
   const latest = new Map(summary?.map(row => [row.symbol, row]))
@@ -49,11 +48,7 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
     : (accountRows ?? []).map(row => ({ symbol: accountSymbol(row), held: quantityValue(row.fields.quantity),
       sellable: quantityValue(row.fields.sellable), marketValue: row.fields.market_value, profit: row.fields.float_profit }))
       .filter(row => accountWide || strategySymbols.has(row.symbol))
-  const displayedSymbols = new Set(actual.map(row => row.symbol))
-  const targetsOnly = [...new Set([...strategySymbols, ...latest.keys()])].sort()
-    .filter(symbol => !displayedSymbols.has(symbol))
-    .map(symbol => ({ symbol, held: null, sellable: null, marketValue: undefined, profit: undefined }))
-  const rows = holdingsOnly ? actual.filter(row => row.held !== null && row.held !== 0) : [...actual, ...targetsOnly]
+  const rows = actual.filter((row): row is typeof row & { held: number } => row.held !== null && row.held !== 0)
   const basis = allocated ? '策略自有持仓' : accountWide ? '账户聚合持仓' : '策略范围内的账户持仓'
   const positionMessage = allocated ? !positionTime ? '策略自有持仓尚未取得。' : null
     : !accountRows ? positionGroup?.reason ?? '当前持仓尚未取得。'
@@ -61,13 +56,10 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
 
   return <section className="strategy-position-targets" aria-label="持仓和目标">
     <h4>持仓与目标仓位</h4>
-    <div className="strategy-position-controls">
-      {scoped ? <div role="group" aria-label="持仓范围">
-        <button type="button" aria-pressed={!accountWide} onClick={() => setScope('strategy')}>策略相关</button>
-        <button type="button" aria-pressed={accountWide} onClick={() => setScope('account')}>全账户</button>
-      </div> : null}
-      <label><input type="checkbox" checked={holdingsOnly} onChange={event => setHoldingsOnly(event.target.checked)} />仅看有持仓</label>
-    </div>
+    {scoped ? <div className="strategy-position-controls" role="group" aria-label="持仓范围">
+      <button type="button" aria-pressed={!accountWide} onClick={() => setScope('strategy')}>策略相关</button>
+      <button type="button" aria-pressed={accountWide} onClick={() => setScope('account')}>全账户</button>
+    </div> : null}
     <p className="strategy-catalog-note"><span>{basis}</span>{positionTime ? <> · 持仓观察时间 <time dateTime={positionTime}>{absoluteChinaTime(positionTime)}</time></> : null}</p>
     <p className="strategy-catalog-note">{allocated || accountWide ? details.assignment.reason : '按当前策略标的筛选，持仓归属未确认。'}</p>
     {details.account_reason ? <p role="alert">{details.account_reason}</p> : null}
@@ -85,7 +77,7 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
           const target = latest.get(symbol)
           return <tr key={`${symbol}-${index}`}>
             <th scope="row"><StrategySecurityLabel symbol={symbol} names={details.security_names} /></th>
-            <td>{held === null ? '—' : quantity(held)}</td>
+            <td>{quantity(held)}</td>
             <td>{sellable === null ? '—' : quantity(sellable)}</td>
             <td>{target ? quantity(target.target_quantity) : '—'}</td>
             <td>{target ? target.previous_target_quantity === null ? '首次记录' : `${quantity(target.previous_target_quantity)} → ${quantity(target.target_quantity)}` : '—'}</td>
@@ -93,7 +85,7 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
             <td>{money(marketValue)}</td><td>{money(profit)}</td>
           </tr>
         })}</tbody></table>
-    </div> : !positionMessage && <p>{holdingsOnly ? '当前范围内没有可显示的实际持仓。' : '当前范围内没有持仓与目标记录。'}</p>}
+    </div> : !positionMessage && <p>当前范围内没有可显示的实际持仓。</p>}
   </section>
 }
 
