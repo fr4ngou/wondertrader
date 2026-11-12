@@ -631,17 +631,67 @@ int dependency_date(const rj::Value& value){
     day.wMonth=static_cast<WORD>(std::stoi(s.substr(5,2)));day.wDay=static_cast<WORD>(std::stoi(s.substr(8,2)));
     FILETIME file{};need(SystemTimeToFileTime(&day,&file)!=0);return day.wYear*10000+day.wMonth*100+day.wDay;
 }
+std::vector<std::string> retired_target_symbols(const rj::Value& marker,const rj::Value& origin){
+    if(!marker.HasMember("retired_targets"))return {};
+    const auto& retirement=member(marker,"retired_targets");keys(retirement,{"strategy_id","symbols"});
+    const auto& strategies=member(origin,"strategies");
+    need(strategies.IsArray()&&strategies.Size()==1&&text(retirement,"strategy_id")==text(strategies[0],"id",63));
+    const auto& symbols=member(retirement,"symbols");need(symbols.IsArray()&&!symbols.Empty());
+    const auto& rows=member(member(member(origin,"data"),"store"),"symbols");need(rows.IsArray());
+    std::set<std::string> selected;
+    for(const auto& item:symbols.GetArray()){
+        need(item.IsString());const std::string code(item.GetString(),item.GetStringLength());
+        const auto prefix=code.compare(0,8,"SSE.ETF.")==0?8u:9u;
+        need((prefix==8||code.compare(0,9,"SZSE.ETF.")==0)&&code.size()==prefix+6
+            &&std::all_of(code.begin()+prefix,code.end(),[](char digit){return digit>='0'&&digit<='9';})
+            &&selected.insert(code).second);
+        for(const auto& row:rows.GetArray())need(text(row,"std_code")!=code);
+    }
+    return {selected.begin(),selected.end()};
+}
 void normalize_dependencies(rj::Document& current,const rj::Value& origin,const rj::Value& reference,
-                            const std::string& origin_sha,const std::string& execution_symbol,bool confirmation){
+                            const std::string& origin_sha,const std::string& execution_symbol,bool confirmation,
+                            const rj::Value* execution_securities,const std::vector<std::string>& retired_targets){
     auto proof=dependency_proof(reference,1024*1024);const auto& value=proof.first;
-    keys(value,{"schema","origin_configuration_sha256","previous_installation","current_installation","reader_additions","contract_addition","contract_reference","source_extension"});
-    need(text(value,"schema")=="guanheng.strategy-dependency-handoff.v1"&&text(value,"origin_configuration_sha256",64)==origin_sha);
+    keys(value,{"schema","origin_configuration_sha256","previous_installation","current_installation","reader_additions","contract_addition","contract_additions","contract_reference","source_extension"});
+    const bool generic=execution_securities!=nullptr;
+    need(generic||retired_targets.empty());
+    need(value.MemberCount()==8&&value.HasMember(generic?"contract_additions":"contract_addition")
+        &&text(value,"schema")== (generic?"guanheng.strategy-dependency-handoff.v2":"guanheng.strategy-dependency-handoff.v1")
+        &&text(value,"origin_configuration_sha256",64)==origin_sha);
     std::string execution_code;
-    if(!execution_symbol.empty()){
+    if(!generic&&!execution_symbol.empty()){
         need(!confirmation&&execution_symbol.size()==14&&execution_symbol.compare(0,8,"SSE.ETF.")==0
             &&execution_symbol!="SSE.ETF.589680");
         execution_code=execution_symbol.substr(8);
         for(char digit:execution_code)need(digit>='0'&&digit<='9');
+    }
+    const auto& old_rows=member(member(member(origin,"data"),"store"),"symbols");
+    need(old_rows.IsArray());
+    std::set<std::string> declared;
+    auto expected=parse("{\"rows\":[]}");
+    if(generic){
+        need(execution_securities->IsArray()&&!execution_securities->Empty());
+        for(const auto& item:execution_securities->GetArray()){
+            need(item.IsString());const std::string code(item.GetString(),item.GetStringLength());
+            need(code.size()>=14&&declared.insert(code).second);
+        }
+        for(const auto& standard:declared){
+            const bool shanghai=standard.compare(0,8,"SSE.ETF.")==0;
+            const auto prefix=shanghai?8u:9u;
+            need((shanghai||standard.compare(0,9,"SZSE.ETF.")==0)&&standard.size()==prefix+6);
+            const auto code=standard.substr(prefix);
+            need(std::all_of(code.begin(),code.end(),[](char digit){return digit>='0'&&digit<='9';}));
+            const auto symbol=code+(shanghai?".SH":".SZ");
+            const auto old=std::find_if(old_rows.Begin(),old_rows.End(),[&](const auto& row){return text(row,"std_code")==standard;});
+            if(old!=old_rows.End())need(text(*old,"symbol")==symbol);
+            else{
+                auto& a=expected.GetAllocator();rj::Value row(rj::kObjectType);
+                row.AddMember("std_code",rj::Value(standard.c_str(),a),a);
+                row.AddMember("symbol",rj::Value(symbol.c_str(),a),a);
+                expected["rows"].PushBack(row,a);
+            }
+        }
     }
     auto manifest=[](const rj::Value& ref,const rj::Value& config){
         const auto root=absolute(text(config,"installation_root"));
@@ -671,8 +721,7 @@ void normalize_dependencies(rj::Document& current,const rj::Value& origin,const 
         need(it->value.IsString());const std::string name=it->value.GetString();
         const auto before=installed_body(old_root,previous,name);const auto after=installed_body(root,next,name);
         if(it->name!="contracts"){need(before==after);continue;}
-        const auto old=parse(before);auto fresh=parse(after);const auto& row=member(value,"contract_addition");
-        need(!member(old,"SZSE").HasMember("159352")&&member(member(fresh,"SZSE"),"159352")==row);
+        const auto old=parse(before);auto fresh=parse(after);
         const auto reference=dependency_proof(member(value,"contract_reference"),16*1024*1024);
         const auto schema=text(reference.first,"schema");need(schema=="guanheng.security-reference.v1"||schema=="guanheng.security-reference.v2"||schema=="guanheng.security-reference.v3");
         const auto validate_contract=[&](const std::string& exchange,const std::string& code,const rj::Value& contract){
@@ -687,6 +736,33 @@ void normalize_dependencies(rj::Document& current,const rj::Value& origin,const 
                 &&dependency_date(member(security,"listed_on"))==member(contract,"opendate").GetInt()
                 &&(member(security,"expires_on").IsNull()?20991231:dependency_date(security["expires_on"]))==member(contract,"expiredate").GetInt());
         };
+        if(generic){
+            const auto& claims=member(value,"contract_additions");need(claims.IsObject());
+            rj::Document unclaimed;unclaimed.CopyFrom(claims,unclaimed.GetAllocator());
+            for(const auto& standard:declared){
+                const auto exchange=standard.substr(0,standard.find('.'));
+                const auto code=standard.substr(standard.size()-6);
+                const auto identity=exchange+"."+code;
+                const auto& security=member(member(reference.first,"securities"),identity.c_str());
+                need(text(security,"symbol")==identity&&text(security,"market")==exchange&&text(security,"security_type")=="etf");
+                if(old.HasMember(exchange.c_str())&&member(old,exchange.c_str()).HasMember(code.c_str())){
+                    const auto& prior_contract=member(member(old,exchange.c_str()),code.c_str());
+                    need(text(prior_contract,"exchg")==exchange&&text(prior_contract,"product")=="ETF");
+                    continue;
+                }
+                const auto& row=member(member(claims,exchange.c_str()),code.c_str());
+                need(member(member(fresh,exchange.c_str()),code.c_str())==row);
+                validate_contract(exchange,code,row);
+                fresh[exchange.c_str()].RemoveMember(code.c_str());
+                auto& unmatched=unclaimed[exchange.c_str()];unmatched.RemoveMember(code.c_str());
+                if(unmatched.MemberCount()==0)unclaimed.RemoveMember(exchange.c_str());
+                if(!old.HasMember(exchange.c_str())&&fresh[exchange.c_str()].MemberCount()==0)fresh.RemoveMember(exchange.c_str());
+            }
+            need(unclaimed.MemberCount()==0&&fresh==old);
+            continue;
+        }
+        const auto& row=member(value,"contract_addition");
+        need(!member(old,"SZSE").HasMember("159352")&&member(member(fresh,"SZSE"),"159352")==row);
         validate_contract("SZSE","159352",row);
         fresh["SZSE"].RemoveMember("159352");
         if(!execution_code.empty()){
@@ -699,24 +775,34 @@ void normalize_dependencies(rj::Document& current,const rj::Value& origin,const 
         need(fresh==old);
     }
     need(member(current,"environment")==member(origin,"environment"));
+    if(!retired_targets.empty())need(!text(member(origin,"environment"),"filters").empty());
     for(const char* key:{"filters","fees"}){
         const auto& env=member(origin,"environment");if(!env.HasMember(key))continue;
         need(env[key].IsString());const std::string name=env[key].GetString();
-        if(!name.empty())need(installed_body(root,next,name)==installed_body(old_root,previous,name));
+        if(name.empty())continue;
+        const auto before=installed_body(old_root,previous,name),after=installed_body(root,next,name);
+        if(std::strcmp(key,"filters")==0&&!retired_targets.empty()){
+            auto prior_filters=parse(before);
+            const auto expected_filter=parse("{\"action\":\"ignore\"}");
+            for(const auto& code:retired_targets){
+                need(member(member(prior_filters,"code_filters"),code.c_str())==expected_filter);
+                prior_filters["code_filters"].RemoveMember(code.c_str());
+            }
+            need(parse(after)==prior_filters);
+        }else need(before==after);
     }
-    auto expected=parse("{\"rows\":[{\"std_code\":\"SSE.ETF.589680\",\"symbol\":\"589680.SH\"},{\"std_code\":\"SZSE.ETF.159352\",\"symbol\":\"159352.SZ\"}]}");
+    if(!generic)expected=parse("{\"rows\":[{\"std_code\":\"SSE.ETF.589680\",\"symbol\":\"589680.SH\"},{\"std_code\":\"SZSE.ETF.159352\",\"symbol\":\"159352.SZ\"}]}");
     if(!execution_code.empty()){
         const auto symbol=execution_code+".SH";
         expected["rows"][0]["std_code"].SetString(execution_symbol.c_str(),expected.GetAllocator());
         expected["rows"][0]["symbol"].SetString(symbol.c_str(),expected.GetAllocator());
     }
-    if(confirmation)expected["rows"].Erase(expected["rows"].Begin());
+    if(!generic&&confirmation)expected["rows"].Erase(expected["rows"].Begin());
     const auto& additions=member(value,"reader_additions");need(additions==member(expected,"rows"));
-    const auto& old_rows=member(member(member(origin,"data"),"store"),"symbols");
-    auto& rows=current["data"]["store"]["symbols"];need(old_rows.IsArray()&&old_rows.Size()==8&&rows.IsArray()&&rows.Size()==old_rows.Size()+additions.Size());
+    auto& rows=current["data"]["store"]["symbols"];need((generic||old_rows.Size()==8)&&rows.IsArray()&&rows.Size()==old_rows.Size()+additions.Size());
     std::set<std::string> standard,symbols;
     for(rj::SizeType i=0;i<rows.Size();++i){
-        need(rows[i]==(i<8?old_rows[i]:additions[i-8]));
+        need(rows[i]==(i<old_rows.Size()?old_rows[i]:additions[i-old_rows.Size()]));
         need(standard.insert(text(rows[i],"std_code")).second&&symbols.insert(text(rows[i],"symbol")).second);
     }
     rows.CopyFrom(old_rows,current.GetAllocator());
@@ -752,39 +838,65 @@ void normalize_dependencies(rj::Document& current,const rj::Value& origin,const 
     }
     current["installation_root"].CopyFrom(member(origin,"installation_root"),current.GetAllocator());
 }
-bool extension_strategy_id(const std::string& id){
-    return id=="resonance-original-wt-351f9d5-stable"||id=="resonance-kc50-pullback-confirm";
+std::string extension_instance_name(const rj::Value& row){
+    auto id=text(row,"id",63);
+    const auto ascii_alnum=[](char ch){return (ch>='0'&&ch<='9')||(ch>='A'&&ch<='Z')||(ch>='a'&&ch<='z');};
+    need(!id.empty()&&ascii_alnum(id.front())&&std::all_of(id.begin(),id.end(),[&](char ch){
+        return ascii_alnum(ch)||ch=='_'||ch=='-';
+    }));
+    std::transform(id.begin(),id.end(),id.begin(),[](unsigned char ch){return static_cast<char>(std::toupper(ch));});
+    need(id!="CON"&&id!="PRN"&&id!="AUX"&&id!="NUL");
+    need(!(id.size()==4&&(id.compare(0,3,"COM")==0||id.compare(0,3,"LPT")==0)&&id[3]>='1'&&id[3]<='9'));
+    return id;
+}
+rj::Document extension_row(const rj::Value& marker){
+    return std::move(dependency_proof(member(marker,"added_strategy"),64*1024).first);
+}
+bool positive_capital(const std::string& amount){
+    const auto point=amount.find('.');
+    const auto whole=point==std::string::npos?amount.size():point;
+    if(whole==0||whole>25||(point!=std::string::npos&&(amount.size()-point<2||amount.size()-point>3)))return false;
+    bool positive=false;
+    for(std::size_t i=0;i<amount.size();++i){
+        if(i==point)continue;
+        if(amount[i]<'0'||amount[i]>'9')return false;
+        if(amount[i]!='0')positive=true;
+    }
+    return positive;
 }
 // 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
 rj::Document market_model(const rj::Value& config){
     if(!config.HasMember("strategy_extension_origin"))return legacy_market_model(config);
     const auto& marker=member(config,"strategy_extension_origin");
-    keys(marker,{"schema","file","sha256","added_strategy","dependency_handoff"});
+    keys(marker,{"schema","file","sha256","added_strategy","dependency_handoff","retired_targets"});
     need(text(marker,"schema")=="guanheng.strategy-extension-origin.v1");
     const auto path=absolute(text(marker,"file"));need(path.filename()=="execution.json");
     const auto raw=read(path,256*1024);need(sha(raw)==text(marker,"sha256",64));
     const auto original=parse(raw);need(!original.HasMember("strategy_extension_origin"));
-    const auto& reference=member(marker,"added_strategy");keys(reference,{"file","sha256"});
-    const auto row_raw=read(absolute(text(reference,"file")),64*1024);need(sha(row_raw)==text(reference,"sha256",64));
-    const auto added=parse(row_raw);const auto& p=member(member(added,"parameters"),"python_strategy");
-    const auto strategy_id=text(added,"id");
-    const auto confirmation=strategy_id=="resonance-kc50-pullback-confirm";
-    need(extension_strategy_id(strategy_id)&&(!confirmation||!p.HasMember("execution_symbol_589680"))
-        &&text(p,"schema")=="guanheng.original-live-cta.v1"&&text(p,"strategy_version")== (confirmation?"0.3.0a1":"0.2.0a1")
-        &&text(p,"initial_capital_cny")=="1000000"&&text(p,"state_mode")=="new"
+    const auto added=extension_row(marker);const auto& p=member(member(added,"parameters"),"python_strategy");
+    const auto version=text(p,"strategy_version",64);
+    const auto confirmation=version=="0.3.0a1"; // 旧版证券接续材料的形状由模型版本选择。
+    need(!version.empty()&&(!confirmation||!p.HasMember("execution_symbol_589680"))
+        &&text(p,"schema")=="guanheng.original-live-cta.v1"
+        &&positive_capital(text(p,"initial_capital_cny",28))&&text(p,"state_mode")=="new"
         &&text(p,"activation_mode")=="signals-from-activation");
     const auto& prior=member(original,"strategies");const auto& rows=member(config,"strategies");
-    need(prior.IsArray()&&prior.Size()==1&&text(prior[0],"id")=="resonance-regime-v1"
-        &&rows.IsArray()&&rows.Size()==2);
+    need(prior.IsArray()&&prior.Size()==1&&rows.IsArray()&&rows.Size()==2);
+    const auto retained_id=text(prior[0],"id",63);
+    need(extension_instance_name(prior[0])!=extension_instance_name(added)
+        &&text(member(member(prior[0],"parameters"),"python_strategy"),"schema")=="guanheng.retained-cta.v1");
     rj::Document projected;projected.CopyFrom(config,projected.GetAllocator());projected.RemoveMember("strategy_extension_origin");
     auto& keep=projected["strategies"];unsigned removed=0,retained=0;
     for(auto it=keep.Begin();it!=keep.End();){
         if(*it==added){it=keep.Erase(it);++removed;}
-        else{need(text(*it,"id")=="resonance-regime-v1");++retained;++it;}
+        else{need(text(*it,"id")==retained_id);++retained;++it;}
     }
     need(removed==1&&retained==1);
+    const auto retirements=retired_target_symbols(marker,original);
     if(marker.HasMember("dependency_handoff"))normalize_dependencies(projected,original,marker["dependency_handoff"],
-        text(marker,"sha256",64),p.HasMember("execution_symbol_589680")?text(p,"execution_symbol_589680",14):std::string{},confirmation);
+        text(marker,"sha256",64),p.HasMember("execution_symbol_589680")?text(p,"execution_symbol_589680",14):std::string{},
+        confirmation,p.HasMember("execution_securities")?&p["execution_securities"]:nullptr,retirements);
+    else need(retirements.empty());
     auto before=legacy_market_model(original);auto after=legacy_market_model(projected);
     before.RemoveMember("recovery");after.RemoveMember("recovery");
     need(same_business(before,after));return legacy_market_model(projected);
@@ -797,12 +909,7 @@ bool compatible_model(const rj::Value& previous,const rj::Value& current){
         after.CopyFrom(current["strategy_extension_origin"],after.GetAllocator());
         need(!before.HasMember("dependency_handoff")||after.HasMember("dependency_handoff"));
         before.RemoveMember("dependency_handoff");after.RemoveMember("dependency_handoff");need(before==after);
-        const auto find=[](const rj::Value& value)->const rj::Value*{
-            for(const auto& row:member(value,"strategies").GetArray())
-                if(extension_strategy_id(text(row,"id")))return &row;
-            return nullptr;
-        };
-        const auto* left=find(previous);const auto* right=find(current);need(left&&right&&*left==*right);
+        // market_model 逐代核冻结行与实际配置相等，前后引用已在上方逐字节比较。
     }
     auto before=market_model(previous);auto after=market_model(current);
     before.RemoveMember("recovery");after.RemoveMember("recovery");
@@ -814,7 +921,8 @@ rj::Document transition_state_identity(const fs::path& output,const rj::Value& c
         const auto id=text(row,"id",63);bool existed=false;
         for(const auto& old:member(owner,"strategies").GetArray())if(text(old,"id",63)==id)existed=true;
         if(!existed){
-            need(current.HasMember("strategy_extension_origin")&&extension_strategy_id(id));
+            need(current.HasMember("strategy_extension_origin")
+                &&row==extension_row(current["strategy_extension_origin"]));
             // Windows原加载器按大小写不敏感路径打开；直接核同一路径，不能借异大小写隐匿旧ctx。
             need(!fs::exists(output/"stradata"/(id+".json"))
                 &&!fs::exists(output/"userdata"/("ud_"+id+".json")));
@@ -1371,11 +1479,49 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                 &&execution->status().fault==guanheng::ExecutionHostFault::None);Sleep(1);});
             publish_broker(*execution,*environment);
         }
+        std::string retirement_strategy;
+        std::vector<std::string> retirements;
+        if(cfg.HasMember("strategy_extension_origin")&&cfg["strategy_extension_origin"].HasMember("retired_targets")){
+            const auto& marker=cfg["strategy_extension_origin"];
+            const auto prior_bytes=read(absolute(text(marker,"file")),256*1024);
+            need(sha(prior_bytes)==text(marker,"sha256",64));
+            retirements=retired_target_symbols(marker,parse(prior_bytes));
+            retirement_strategy=text(marker["retired_targets"],"strategy_id",63);
+            const auto& recovery=member(cfg,"recovery");
+            const auto mode=text(recovery,"mode");
+            need(mode=="resume_clean"||mode=="resume_reconciled");
+            bool already_active=mode=="resume_clean"; // 原 clean 准入稍后核实同配置实际状态。
+            if(mode=="resume_reconciled"){
+                const auto transition=dependency_proof(member(recovery,"transition"),1024*1024);
+                const auto old_bytes=read(absolute(text(transition.first,"predecessor_configuration")),256*1024);
+                need(sha(old_bytes)==text(transition.first,"predecessor_configuration_sha256",64));
+                const auto old=parse(old_bytes);
+                already_active=old.HasMember("strategy_extension_origin")
+                    &&old["strategy_extension_origin"].HasMember("retired_targets")
+                    &&old["strategy_extension_origin"]["retired_targets"]==marker["retired_targets"];
+            }
+            if(!already_active){
+                need(execution->broker_observation().positions_known);
+                auto* rows=execution->orders("");need(rows!=nullptr);
+                struct OrdersOwner{wtp::OrderMap* value;~OrdersOwner(){value->release();}} owned{rows};
+                for(const auto& standard:retirements){
+                    const auto market=standard.substr(0,standard.find('.')),code=standard.substr(standard.size()-6);
+                    need(base.getContract(code.c_str(),market.c_str())
+                        &&execution->position(standard.c_str())==0&&execution->undone(standard.c_str())==0);
+                    for(auto it=rows->begin();it!=rows->end();++it){
+                        const auto* order=static_cast<wtp::WTSOrderInfo*>(it->second);
+                        need(!order->isAlive()||market!=order->getExchg()||code!=order->getCode());
+                    }
+                }
+            }
+        }
         if(cfg.HasMember("role_replacement")){
             // 同owner读取已完成的真实P/O；退役证券零持仓、两证券无活动委托，原订单恢复已完成。
             const auto observed=execution->broker_observation();need(observed.positions_known);
-            need(execution->position("SSE.ETF.589680")==0);
-            need(execution->undone("SSE.ETF.589680")==0);
+            if(std::find(retirements.begin(),retirements.end(),"SSE.ETF.589680")==retirements.end()){
+                need(execution->position("SSE.ETF.589680")==0);
+                need(execution->undone("SSE.ETF.589680")==0);
+            }
             // 历史标记沿用时，新基金可带自有挂单；首次角色换代仍要求新角色没有旧委托。
             const auto& recovery=member(cfg,"recovery");
             if(text(recovery,"mode")=="resume_reconciled"){
@@ -1401,7 +1547,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             factories.push_back(std::move(owner));need(text(item,"factory")==factories.back().value->getName());
             parameters.push_back(load_variant(member(item,"parameters")));
             auto* strategy=factories.back().value->createStrategy(text(item,"name").c_str(),text(item,"id",63).c_str());need(strategy!=nullptr);
-            unowned.push_back({strategy,factories.back().value,parameters.back().get()});
+            unowned.push_back({strategy,factories.back().value,parameters.back().get(),
+                retirement_strategy==text(item,"id",63)?retirements:std::vector<std::string>{}});
         }
         if(recovery_enabled&&strategies.Size()==1){
             target_status=reinterpret_cast<decltype(target_status)>(GetProcAddress(factories[0].library->module,"gh_ms_status"));

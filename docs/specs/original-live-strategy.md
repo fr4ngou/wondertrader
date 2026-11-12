@@ -50,7 +50,7 @@ BUY/SELL信号一致性、目标数量规则、实际执行时点和成交结果
 
 ## OLS-6 显式单账策略扩展材料
 
-配置可选 `strategy_extension_origin` 固定为 `guanheng.strategy-extension-origin.v1`，字段 `file`、`sha256` 绑定扩展前单策略 `execution.json` 的原字节；`added_strategy` 的 `file`、`sha256` 绑定一个独立JSON策略行原件。所有文件在受控绝对路径下，沿原读取边界核SHA及大小。前代必须只有原retained ctx，新增行使用固定原版 ID `resonance-original-wt-351f9d5-stable@0.2.0a1` 或独立七只版 ID `resonance-kc50-pullback-confirm@0.3.0a1`，二者均使用固定 Original profile，新增资金1000000 CNY、`state_mode=new`、`signals-from-activation`。该原件承担新增配置的明确授权边界，不代替账户资金及ASA种子准入。
+配置可选 `strategy_extension_origin` 固定为 `guanheng.strategy-extension-origin.v1`，字段 `file`、`sha256` 绑定扩展前单策略 `execution.json` 的原字节；`added_strategy` 的 `file`、`sha256` 绑定一个独立 JSON 策略行原件。所有文件在受控绝对路径下，沿原读取边界核 SHA 及大小。前代保留原 retained ctx，新增行由冻结配置声明实例 ID、策略版本及正的初始 CNY 金额，金额精确到分。策略工厂按已登记的 Original 模型版本选择实现。`state_mode=new` 和 `signals-from-activation` 继续表达空仓起跑。实例 ID 与原策略按 Windows 路径身份去重。冻结配置承担新增配置的授权边界，资金可用性及实际归属继续由 ASA 核验。
 
 仅从比较副本移除经原件核同的新增行和扩展标记，再使用既有业务、角色、行情接入准入。其余账户、账根、原策略行、预算模型、合约和证券权限沿原约束；本扩展不增加价格、合约、Source绑定或过滤器豁免。后继双策略配置继续携带相同新增行；双策略不能沿此协议退回单策略或替换新增行。
 

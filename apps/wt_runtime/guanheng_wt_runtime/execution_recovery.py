@@ -6,6 +6,7 @@ import copy
 import math
 import json
 import os
+import re
 from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from pathlib import Path
@@ -305,10 +306,18 @@ def market_origin_configuration(native, *, deadline=float('inf')):
     return origin
 
 
-STRATEGY_EXTENSION_VERSIONS = {
-    'resonance-original-wt-351f9d5-stable': '0.2.0a1',
-    'resonance-kc50-pullback-confirm': '0.3.0a1',
-}
+def _extension_row(native, *, deadline=float('inf')):
+    marker = native.get('strategy_extension_origin')
+    if marker is None:
+        return None
+    reference = marker['added_strategy']
+    _require(type(reference) is dict and set(reference) == {'file', 'sha256'})
+    raw = _read(_path(reference['file']), 64 * 1024, deadline=deadline, clock=time.monotonic)
+    _require(hashlib.sha256(raw).hexdigest() == _sha(reference['sha256']))
+    added = _json(raw)
+    rows = native['strategies']
+    _require(type(rows) is list and sum(row == added for row in rows) == 1)
+    return added
 
 
 def strategy_extension_configuration(native, *, deadline=float('inf')):
@@ -316,7 +325,7 @@ def strategy_extension_configuration(native, *, deadline=float('inf')):
     marker=native.get('strategy_extension_origin')
     if marker is None:return native
     _require(type(marker)is dict and {'schema','file','sha256','added_strategy'}<=set(marker)
-        <={'schema','file','sha256','added_strategy','dependency_handoff'}
+        <={'schema','file','sha256','added_strategy','dependency_handoff','retired_targets'}
         and marker['schema']=='guanheng.strategy-extension-origin.v1')
     def pinned(reference,maximum):
         _require(type(reference)is dict and set(reference)=={'file','sha256'})
@@ -325,39 +334,47 @@ def strategy_extension_configuration(native, *, deadline=float('inf')):
         return _json(raw)
     _require(_path(marker['file']).name=='execution.json')
     origin=pinned({k:marker[k]for k in ('file','sha256')},256*1024)
-    added=pinned(marker['added_strategy'],64*1024)
-    _require('strategy_extension_origin'not in origin and type(origin.get('strategies'))is list
-        and len(origin['strategies'])==1 and origin['strategies'][0]['id']=='resonance-regime-v1')
+    added = _extension_row(native, deadline=deadline)
+    from .original_live import CONFIRM_LIVE_VERSION
+    from .strategy_profiles import ORIGINAL_PROFILE, RETAINED_PROFILE, valid_strategy_id
+
+    _require('strategy_extension_origin' not in origin and type(origin.get('strategies')) is list
+             and len(origin['strategies']) == 1)
+    retained = origin['strategies'][0]
+    _require(retained['parameters']['python_strategy']['schema'] == RETAINED_PROFILE)
     p=added['parameters']['python_strategy']
     strategy_id = added['id']
-    confirmation = strategy_id == 'resonance-kc50-pullback-confirm'
-    _require(strategy_id in STRATEGY_EXTENSION_VERSIONS
-        and p['schema']=='guanheng.original-live-cta.v1' and p['strategy_version']==STRATEGY_EXTENSION_VERSIONS[strategy_id]
+    confirmation = p['strategy_version'] == CONFIRM_LIVE_VERSION
+    amount = p['initial_capital_cny']
+    _require(valid_strategy_id(strategy_id) and valid_strategy_id(retained['id'])
+        and strategy_id.casefold() != retained['id'].casefold()
+        and p['schema'] == ORIGINAL_PROFILE and type(p['strategy_version']) is str and 0 < len(p['strategy_version']) <= 64
+        and type(amount) is str and re.fullmatch(r'[0-9]{1,25}(?:\.[0-9]{1,2})?', amount) is not None
+        and any(digit in '123456789' for digit in amount)
         and (not confirmation or 'execution_symbol_589680' not in p)
-        and p['initial_capital_cny']=='1000000' and p['state_mode']=='new'
+        and p['state_mode']=='new'
         and p['activation_mode']=='signals-from-activation')
     rows=native['strategies']
-    _require(type(rows)is list and len(rows)==2 and sum(r==added for r in rows)==1
-        and sum(r['id']=='resonance-regime-v1'for r in rows)==1)
+    _require(len(rows) == 2 and sum(row['id'] == retained['id'] for row in rows) == 1)
     projected=copy.deepcopy(native);projected.pop('strategy_extension_origin')
-    projected['strategies']=[r for r in projected['strategies']if r['id']=='resonance-regime-v1']
+    projected['strategies']=[row for row in projected['strategies'] if row['id'] == retained['id']]
     if 'dependency_handoff'in marker:
-        from .execution_dependency_handoff import normalize_dependencies
+        from .execution_dependency_handoff import normalize_dependencies, retired_target_symbols
         projected=normalize_dependencies(projected,origin,marker['dependency_handoff'],marker['sha256'],
-            execution_symbol=p.get('execution_symbol_589680'),confirmation=confirmation,deadline=deadline)
+            execution_symbol=p.get('execution_symbol_589680'),confirmation=confirmation,
+            execution_securities=p.get('execution_securities'),retired_targets=retired_target_symbols(marker, origin),
+            deadline=deadline)
+    else:
+        _require('retired_targets' not in marker)
     _require(compatible_business_configuration(projected,origin,deadline=deadline))
     return projected
-
-
-def _extension_row(native):
-    return next((r for r in native.get('strategies',[])if r.get('id') in STRATEGY_EXTENSION_VERSIONS),None)
 
 
 def compatible_business_configuration(current, previous, *, deadline=float('inf')):
     """同一原模型允许显式市场引用接入；原窗口内容继续由数据owner发布。"""
     # 旧双ctx不能在投影时被丢弃；后继新增行必须逐值保持。
     if 'strategy_extension_origin'in previous:
-        _require('strategy_extension_origin'in current and _extension_row(current)==_extension_row(previous)
+        _require('strategy_extension_origin'in current and _extension_row(current,deadline=deadline)==_extension_row(previous,deadline=deadline)
             and {k:v for k,v in current['strategy_extension_origin'].items()if k!='dependency_handoff'}
                 =={k:v for k,v in previous['strategy_extension_origin'].items()if k!='dependency_handoff'}
             and ('dependency_handoff'not in previous['strategy_extension_origin']or'dependency_handoff'in current['strategy_extension_origin']))
@@ -635,7 +652,7 @@ def strategy_state_mode(native, strategy_id, *, deadline=float('inf')):
     if present:
         _require(names[0]in transition['state_files'])
         return 'resume'
-    added = _extension_row(native)
+    added = _extension_row(native, deadline=deadline)
     _require(added is not None and strategy_id == added['id']
         and all(name.casefold()not in {key.casefold()for key in transition['state_files']}for name in names))
     return 'new'

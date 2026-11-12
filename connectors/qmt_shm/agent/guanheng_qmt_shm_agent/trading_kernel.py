@@ -153,10 +153,9 @@ class TradingKernel(object):
             code = self._admission(command['operation'])
         args = None
         if code is None and command['operation'] == 'order.insert':
-            rule = binding['symbol_rules'].get(command['symbol'])
-            if rule is None:
-                code = 'symbol_not_allowed'
-            else:
+            rules = binding.get('symbol_rules')
+            rule = None if rules is None else rules.get(command['symbol'])
+            if rule is not None:
                 minimum = rule[command['side'] + '_min']
                 step = rule[command['side'] + '_step']
                 price_num, price_den = _fraction(command['limit_price'], 'invalid_command')
@@ -166,15 +165,17 @@ class TradingKernel(object):
                     code = 'quantity_off_grid'
                 elif price_num * tick_den % (price_den * tick_num):
                     code = 'price_off_grid'
+            elif rules is not None:
+                code = 'symbol_not_allowed'
+            if code is None:
+                price = float(command['limit_price'])
+                if not math.isfinite(price) or price <= 0:
+                    code = 'price_not_representable'
                 else:
-                    price = float(command['limit_price'])
-                    if not math.isfinite(price) or price <= 0:
-                        code = 'price_not_representable'
-                    else:
-                        args = (23 if command['side'] == 'buy' else 24, 1101,
-                            binding['account_id'], command['symbol'], 11, price,
-                            command['quantity'], binding['strategy_name'], 2,
-                            command['sdk_user_order_id'], self._context)
+                    args = (23 if command['side'] == 'buy' else 24, 1101,
+                        binding['account_id'], command['symbol'], 11, price,
+                        command['quantity'], binding['strategy_name'], 2,
+                        command['sdk_user_order_id'], self._context)
         elif code is None:
             args = (command['broker_order_id'], binding['account_id'], 'STOCK', self._context)
         if code is None:

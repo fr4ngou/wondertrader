@@ -8,7 +8,7 @@ import json,math,re,time
 from .execution_strategy import StrategyBinding,_need
 from .execution_facts import canonical_raw_price
 from .original_signal_runtime import OriginalSignalConfig,OriginalSignalWorker,_sha
-from .profile_facts import configured_native_facts,digest,quote_value,common_prices,allocation_projection
+from .profile_facts import configured_etf_mapping,configured_native_facts,digest,quote_value,common_prices,allocation_projection
 
 ORIGINAL_PROFILE='guanheng.original-live-cta.v1'
 ORIGINAL_STRATEGY_ID='resonance-original-wt-351f9d5-stable'
@@ -36,11 +36,13 @@ class OriginalLiveStrategy:
         from guanheng_strategy_original.reference import DEFAULT_CODES
         p=item['parameters']['python_strategy'];required={'schema','strategy_version','main_symbol','price_policy','timing_policy','activation_mode',
             'initial_capital_cny','state_mode','signal_source','quote_max_age_seconds','evaluation_seconds','broker_max_age_seconds'}
-        self.confirmation = item['id'] == CONFIRM_LIVE_ID
-        self.version = CONFIRM_LIVE_VERSION if self.confirmation else ORIGINAL_LIVE_VERSION
+        self.version = p.get('strategy_version')
+        _need(self.version in (ORIGINAL_LIVE_VERSION, CONFIRM_LIVE_VERSION), 'original_live_profile')
+        self.confirmation = self.version == CONFIRM_LIVE_VERSION
         allowed = {'shared_account'} if self.confirmation else {'shared_account','execution_symbol_589680'}
-        _need(type(p)is dict and required<=set(p)<=required|allowed and p['schema']==ORIGINAL_PROFILE
-              and p['strategy_version']==self.version,'original_live_profile')
+        allowed.add('execution_securities')
+        _need(type(p)is dict and required<=set(p)<=required|allowed and p['schema']==ORIGINAL_PROFILE,
+              'original_live_profile')
         _need(p['price_policy'] in ('executor-price','signal-close-cap') and p['timing_policy']=='next-session-first-schedule'
               and p['activation_mode']=='signals-from-activation'
               and p['state_mode'] in ('new','resume'),'original_live_model')
@@ -57,16 +59,20 @@ class OriginalLiveStrategy:
         if self.confirmation:
             from guanheng_strategy_original.kc50_confirmation import CODES
             self.codes = CODES
-        self.mapping={c:('SZSE' if c.startswith('159') else 'SSE')+'.ETF.'+c for c in self.codes}
+        substitutions = {}
         if 'execution_symbol_589680' in p:
             execution_symbol=p['execution_symbol_589680']
             _need(type(execution_symbol) is str and re.fullmatch(r'SSE\.ETF\.[0-9]{6}',execution_symbol)
-                  and execution_symbol not in self.mapping.values()
                   and p['price_policy']=='executor-price','original_execution_symbol')
-            self.mapping['589680']=execution_symbol
+            substitutions['589680'] = execution_symbol
+        self.mapping = configured_etf_mapping(native, self.codes, substitutions)
         # 实际账本使用执行证券，信号状态仍使用原六位代码。
         self.analysis_codes={symbol:code for code,symbol in self.mapping.items()}
         self.reads=self.targets=tuple(sorted(self.mapping.values()));self.main=p['main_symbol'];_need(self.main in self.reads,'main_symbol')
+        if 'execution_securities' in p:
+            declared = p['execution_securities']
+            _need(type(declared) is list and all(type(code) is str for code in declared)
+                  and tuple(sorted(declared)) == self.targets, 'original_execution_securities')
         _,_,self.ticks=configured_native_facts(configuration,native,self.mapping,deadline=deadline)
         self.signals=signals or OriginalSignalWorker(OriginalSignalConfig.from_dict(p['signal_source']),confirmation=self.confirmation)
         self.seconds=p['evaluation_seconds'];self.max_age=p['broker_max_age_seconds'];self.capital_reader=None;self.participants={}

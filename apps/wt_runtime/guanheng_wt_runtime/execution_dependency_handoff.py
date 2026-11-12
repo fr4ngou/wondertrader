@@ -20,6 +20,8 @@ ADDITIONS=[
     dict(std_code='SZSE.ETF.159352',  # 原WT三段ETF身份，独立新增读取映射。
          symbol='159352.SZ'),  # Source两段证券身份，须有固定ETF资料依据。
 ]
+GENERIC_SCHEMA = 'guanheng.strategy-dependency-handoff.v2'
+GENERIC_FIELDS = (FIELDS - {'contract_addition'}) | {'contract_additions'}
 TRANSPORT=(
     'base_url',  # 当前已绑定Source的HTTP定位；实际认证由原Source握手验证。
     'binding_sha256',  # 当前完整交易绑定的Source规范摘要；原binding_id保持。
@@ -60,7 +62,42 @@ def _source_origin(proof,binding_sha256,pinned,pinned_raw):
         and plan['schema_version']=='qmt.trade-binding-extension-plan.v1')
     return plan
 
-def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_symbol=None,confirmation=False,deadline):
+def dependency_shape(value):
+    if type(value) is not dict:
+        return False
+    schema = value.get('schema')
+    return (schema == 'guanheng.strategy-dependency-handoff.v1' and set(value) == FIELDS
+            or schema == GENERIC_SCHEMA and set(value) == GENERIC_FIELDS)
+
+
+def retired_target_symbols(marker, origin):
+    """退役只作用于已退出前代活动集合的旧策略代码。"""
+    if 'retired_targets' not in marker:
+        return ()
+    retirement = marker['retired_targets']
+    _require(type(retirement) is dict and set(retirement) == {'strategy_id', 'symbols'}
+             and len(origin['strategies']) == 1 and retirement['strategy_id'] == origin['strategies'][0]['id'])
+    symbols = retirement['symbols']
+    _require(type(symbols) is list and symbols
+             and all(type(code) is str and re.fullmatch(r'(SSE|SZSE)\.ETF\.[0-9]{6}', code) for code in symbols)
+             and len(set(symbols)) == len(symbols)
+             and not set(symbols) & {row['std_code'] for row in origin['data']['store']['symbols']})
+    return tuple(symbols)
+
+
+def without_retired_filters(raw, symbols):
+    """只移除明确退役证券的原 ignore 行。"""
+    filters = _json(raw)
+    by_code = filters['code_filters']
+    _require(type(by_code) is dict)
+    for code in symbols:
+        _require(by_code.get(code) == {'action': 'ignore'})
+        del by_code[code]
+    return filters
+
+
+def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_symbol=None,confirmation=False,
+                           execution_securities=None,retired_targets=(),deadline):
     """调用方提供去新增ctx/标记后的副本；只回投已核依赖，不改实际配置。"""
     def pinned_raw(ref,maximum):
         _require(type(ref)is dict and set(ref)=={'file','sha256'})
@@ -70,10 +107,15 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_sy
     def pinned(ref,maximum):
         raw=pinned_raw(ref,maximum);return _json(raw),raw
     value,unused=pinned(reference,1024*1024)
-    _require(type(value)is dict and set(value)==FIELDS and value['schema']=='guanheng.strategy-dependency-handoff.v1'
+    _require(dependency_shape(value)
         and value['origin_configuration_sha256']==_sha(origin_sha256))
+    generic = value['schema'] == GENERIC_SCHEMA
+    _require(generic == (execution_securities is not None) and (generic or not retired_targets))
+    old_rows = origin['data']['store']['symbols']
+    catalog, unused = pinned(value['contract_reference'], 16 * 1024 * 1024)
+    from .execution_security import etf_mapping_and_contract, required_etf_dependencies
     additions=ADDITIONS[1:] if confirmation else ADDITIONS
-    if execution_symbol is not None:
+    if not generic and execution_symbol is not None:
         _require(not confirmation and type(execution_symbol)is str and re.fullmatch(r'SSE\.ETF\.[0-9]{6}',execution_symbol)
             and execution_symbol!='SSE.ETF.589680')
         execution_code=execution_symbol.rsplit('.',1)[1]
@@ -101,10 +143,17 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_sy
     for kind,name in current['base_data'].items():
         before=installed(previous_root,previous,name);after=installed(root,files,name)
         if kind!='contracts':_require(before==after);continue
-        old,new=_json(before),_json(after);row=value['contract_addition']
+        old,new=_json(before),_json(after)
+        if generic:
+            additions, required = required_etf_dependencies(catalog, execution_securities, old_rows, old)
+            _require(value['contract_additions'] == required)
+            expected = deepcopy(old)
+            for market, contracts in required.items():
+                expected.setdefault(market, {}).update(contracts)
+            _require(new == expected)
+            continue
+        row=value['contract_addition']
         _require('159352'not in old['SZSE'] and new['SZSE'].get('159352')==row)
-        catalog,unused=pinned(value['contract_reference'],16*1024*1024)
-        from .execution_security import etf_mapping_and_contract
         def validate_contract(exchange,code,row):
             mapping, expected = etf_mapping_and_contract(catalog, exchange+'.'+code)
             _require(mapping in additions and row == expected
@@ -116,14 +165,20 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_sy
             if execution_code not in old['SSE']:
                 validate_contract('SSE',execution_code,new['SSE'].pop(execution_code))
         _require(new==old)
-    # 原忽略过滤及其它environment字段仍归旧业务；新根的同名原件必须逐字节相同。
+    # 同名环境原件保持字节身份，只有显式退役的全局 ignore 可精确移除。
     _require(current['environment']==origin['environment'])
     for key in ('filters','fees'):
         if key in origin['environment']:
             name=origin['environment'][key];_require(type(name)is str)
-            if name:_require(installed(root,files,name)==installed(previous_root,previous,name))
-    old_rows=origin['data']['store']['symbols'];rows=current['data']['store']['symbols'];added=value['reader_additions']
-    _require(type(old_rows)is list and len(old_rows)==8 and added==additions and rows==old_rows+added
+            if key == 'filters' and retired_targets:
+                _require(bool(name))
+                _require(_json(installed(root,files,name)) == without_retired_filters(
+                    installed(previous_root,previous,name), retired_targets))
+            elif name:
+                _require(installed(root,files,name)==installed(previous_root,previous,name))
+    _require(not retired_targets or 'filters' in origin['environment'])
+    rows=current['data']['store']['symbols'];added=value['reader_additions']
+    _require(type(old_rows)is list and (generic or len(old_rows)==8) and added==additions and rows==old_rows+added
         and len({r['std_code']for r in rows})==len(rows) and len({r['symbol']for r in rows})==len(rows))
     current['data']['store']['symbols']=deepcopy(old_rows)
     proof=value['source_extension'];old=origin['trader'];new=current['trader']

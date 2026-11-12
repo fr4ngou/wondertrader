@@ -55,6 +55,32 @@ def etf_mapping_and_contract(catalog, identity):
     return mapping, contract
 
 
+def required_etf_dependencies(catalog, execution_securities, old_rows, old_contracts):
+    """从冻结策略执行范围推导新增行。历史映射和合约保留原值。"""
+    if (type(execution_securities) is not list or not execution_securities
+            or any(type(code) is not str or re.fullmatch(r'(SSE|SZSE)\.ETF\.[0-9]{6}', code) is None
+                   for code in execution_securities)
+            or len(set(execution_securities)) != len(execution_securities)):
+        raise ValueError('策略执行证券声明无效')
+    by_standard = {row['std_code']: row for row in old_rows}
+    if len(by_standard) != len(old_rows):
+        raise ValueError('原行情映射重复')
+    mappings, contracts = [], {}
+    for standard in sorted(execution_securities):
+        market, _, code = standard.split('.')
+        mapping, contract = etf_mapping_and_contract(catalog, market + '.' + code)
+        if standard not in by_standard:
+            mappings.append(mapping)
+        elif by_standard[standard] != mapping:
+            raise ValueError(f'{standard} 与原行情映射冲突')
+        previous = old_contracts.get(market, {}).get(code)
+        if previous is None:
+            contracts.setdefault(market, {})[code] = contract
+        elif previous.get('exchg') != market or previous.get('product') != 'ETF':
+            raise ValueError(f'{standard} 与原合约品种冲突')
+    return mappings, contracts
+
+
 def generate_etf_execution_security(reference_path, reference_sha256, identities):
     """读取固定证券资料并生成候选配置。重复证券合并，结果按证券标识排序。"""
     raw = _read(_path(str(reference_path)), 16 * 1024 * 1024)

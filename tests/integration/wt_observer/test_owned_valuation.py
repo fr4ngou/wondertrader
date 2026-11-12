@@ -58,8 +58,13 @@ def profile(monkeypatch,store):
         timing_policy='next-session-first-schedule',activation_mode='signals-from-activation',initial_capital_cny='1000000',state_mode='new',
         signal_source={},quote_max_age_seconds=60,evaluation_seconds=2,broker_max_age_seconds=60,shared_account={'path':'E:/synthetic.json','sha256':SHA})
     published=[]
+    reader_rows = []
+    for standard in CODES:
+        market, _, code = standard.split('.')
+        reader_rows.append(dict(std_code=standard, symbol=code + ('.SZ' if market == 'SZSE' else '.SH')))
+    native = {'trader': {'writes_enabled': False}, 'data': {'store': {'symbols': reader_rows}}}
     value=original.OriginalLiveStrategy(dict(id=NEW,parameters={'python_strategy':p}),lambda sid,v,**kw:published.append(v),NS(),
-        {'trader':{'writes_enabled':False}},deadline=deadline(),code_identity='f'*64,allocation=Bridge(store),
+        native,deadline=deadline(),code_identity='f'*64,allocation=Bridge(store),
         signals=NS(latest=lambda:NS(value=None,ready=False,reason='synthetic_signal_unavailable')))
     return value,published
 

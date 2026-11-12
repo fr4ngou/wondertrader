@@ -1,4 +1,5 @@
 #include "CtaExecutionSession.h"
+#include "RetiredTargetContext.h"
 #include "StandardExecutionHost.h"
 #include "WtCore/WtCtaEngine.h"
 #include "WtCore/WtDtMgr.h"
@@ -204,7 +205,9 @@ bool CtaExecutionSession::initialize(wtp::WTSVariant* env,wtp::WTSVariant* data,
         }
         for(auto& value:x.strategies){
             auto& binding=value.binding;
-            auto context=std::make_shared<CtaStraContext>(&x.engine,value.id.c_str(),0);
+            std::shared_ptr<CtaStraContext> context;
+            if(binding.retired_targets.empty())context=std::make_shared<CtaStraContext>(&x.engine,value.id.c_str(),0);
+            else context=std::make_shared<RetiredTargetContext>(&x.engine,value.id.c_str(),binding.retired_targets);
             context->set_strategy(binding.strategy);x.engine.addContext(context);
         }
         x.engine.addExecuter(x.execution.command());x.phase=CtaExecutionPhase::Configured;return true;

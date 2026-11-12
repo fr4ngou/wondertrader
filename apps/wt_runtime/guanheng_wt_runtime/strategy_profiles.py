@@ -32,9 +32,8 @@ def source_handoff(native, *, deadline=float('inf')):
     raw = _read(_path(reference['file']), 1024 * 1024, deadline=deadline, clock=time.monotonic)
     _require(hashlib.sha256(raw).hexdigest() == _sha(reference['sha256']))
     value = _json(raw)
-    from .execution_dependency_handoff import FIELDS, SOURCE_FIELDS
-    _require(type(value) is dict and set(value) == FIELDS
-             and value['schema'] == 'guanheng.strategy-dependency-handoff.v1')
+    from .execution_dependency_handoff import SOURCE_FIELDS, dependency_shape
+    _require(dependency_shape(value))
     proof = value['source_extension']
     _require(proof is None or type(proof) is dict and set(proof) == SOURCE_FIELDS)
     if proof is not None:
@@ -58,6 +57,11 @@ def shared_account_reference(native):
     return current
 
 
+def valid_strategy_id(value):
+    return (type(value) is str and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,62}', value) is not None
+            and not PureWindowsPath(value).is_reserved())
+
+
 def shared_profiles(native):
     """策略ID是运行实例身份，profile schema选择已登记的策略实现。"""
     rows = native.get('strategies')
@@ -67,8 +71,7 @@ def shared_profiles(native):
     for row in rows:
         strategy_id = row['id']
         schema = row['parameters'].get('python_strategy', {}).get('schema')
-        if (type(strategy_id) is not str or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,62}', strategy_id)
-                or PureWindowsPath(strategy_id).is_reserved() or strategy_id.casefold() in seen
+        if (not valid_strategy_id(strategy_id) or strategy_id.casefold() in seen
                 or schema not in (RETAINED_PROFILE, ORIGINAL_PROFILE)
                 or (schema == RETAINED_PROFILE and strategy_id != RETAINED_ID)
                 or (strategy_id == RETAINED_ID and schema != RETAINED_PROFILE)):

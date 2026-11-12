@@ -54,7 +54,7 @@ def small(actions=None):
         signal_close_prices={c:9.5 for c in DEFAULT_CODES},model_state={c:dict(held=True) for c in DEFAULT_CODES},route_qualification={c:dict(qualified=True,reasons=[]) for c in DEFAULT_CODES})
 
 def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=None,allocation=None,
-         strategy_id=ORIGINAL_ID,capital='1000000',execution_symbol=None,version='0.2.0a1',writes_enabled=True):
+         strategy_id=ORIGINAL_ID,capital='1000000',execution_symbol=None,version='0.2.0a1',writes_enabled=True, reader_rows=None):
     monkeypatch.setattr(mod,'configured_native_facts',
         lambda config,native,mapping,**kw:((),{},dict.fromkeys(mapping.values(),Fraction(1,1000))))
     p=dict(schema=ORIGINAL_PROFILE,strategy_version=version,main_symbol='SSE.ETF.510300',price_policy=policy,
@@ -71,10 +71,23 @@ def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=N
     def publish(sid,value,**kw):
         from guanheng_wt_runtime.execution_configured import _encode
         _encode(value);out.append((value,kw))
-    owner=mod.OriginalLiveStrategy(dict(id=strategy_id,parameters={'python_strategy':p}),publish,NS(),{'trader':{'writes_enabled':writes_enabled}},deadline=time.monotonic()+3,code_identity='f'*64,allocation=allocation,signals=sig)
+    if reader_rows is None:
+        reader_rows = [dict(std_code=f'{"SZSE" if code.startswith("159") else "SSE"}.ETF.{code}',
+                            symbol=f'{code}.{"SZ" if code.startswith("159") else "SH"}') for code in DEFAULT_CODES]
+        if execution_symbol is not None and all(row['std_code'] != execution_symbol for row in reader_rows):
+            reader_rows.append(dict(std_code=execution_symbol, symbol=execution_symbol.rsplit('.', 1)[-1] + '.SH'))
+    native = {'trader': {'writes_enabled': writes_enabled}, 'data': {'store': {'symbols': reader_rows}}}
+    owner=mod.OriginalLiveStrategy(dict(id=strategy_id,parameters={'python_strategy':p}),publish,NS(),native,deadline=time.monotonic()+3,code_identity='f'*64,allocation=allocation,signals=sig)
     ctx=Context(owner.codes[0]);return owner,ctx,allocation,sig,out
 
 def schedule(owner,ctx):ctx.event=NS(kind=4,epoch=2,tdate=20261109);owner.callback(ctx)
+
+def test_strategy_instance_uses_declared_model_version_and_reader_mappings(monkeypatch):
+    owner, *_ = make(monkeypatch, strategy_id='another-cta-instance', version=mod.CONFIRM_LIVE_VERSION)
+    assert owner.confirmation and owner.mapping['159352'] == 'SZSE.ETF.159352'
+    with pytest.raises(CtaBridgeError, match='native_reader_mapping_missing_or_ambiguous'):
+        make(monkeypatch, reader_rows=[])
+
 
 def test_activation_actual_empty_ignores_model_holdings(monkeypatch):
     owner,ctx,asa,sig,out=make(monkeypatch);owner.callback(ctx);schedule(owner,ctx)

@@ -281,3 +281,60 @@ def test_confirmation_extension_uses_only_a500_dependency(tmp_path,source_versio
     base.native(dict(mode='compare',previous=old,current=current),tmp_path)
     base.native(dict(mode='state',previous=old,current=current,output=old['output_directory']),tmp_path)
     base.native(dict(mode='compare',previous=old,current=wrong),tmp_path,False)
+
+
+@pytest.mark.parametrize(('market', 'code', 'suffix', 'retire'), [('SZSE', '159352', 'SZ', False), ('SSE', '588230', 'SH', True)])
+def test_prepare_generic_execution_uses_frozen_universe_and_preserves_old_install(tmp_path, source_versions, market, code, suffix, retire):
+    from guanheng_wt_runtime.execution_process import write_installation_manifest
+    from guanheng_wt_runtime.execution_security_startup import prepare_startup_configuration
+
+    old, current, _ = fixture(tmp_path, source_versions)
+    app = Path(old['installation_root'])
+    (app / 'GuanhengCtaHost.exe').write_bytes(b'synthetic installed executable')
+    (app.parent / 'execution-install.json').unlink()
+    write_installation_manifest(app.parent)
+    originals = {path: path.read_bytes() for path in app.rglob('*') if path.is_file()}
+
+    added = current['strategies'][1]
+    added['id'] = 'another-cta-instance'
+    declared = 'SZSE.ETF.159780'
+    new_standard = f'{market}.ETF.{code}'
+    added['parameters']['python_strategy'].update(execution_securities=[declared, new_standard], initial_capital_cny='250000.05')
+    native = deepcopy(old)
+    native['strategies'].append(added)
+    marker = deepcopy(current['strategy_extension_origin'])
+    marker.pop('dependency_handoff')
+    marker['added_strategy'] = base.put(tmp_path / 'added-generic.json', added)
+    if retire:
+        marker['retired_targets'] = dict(strategy_id=old['strategies'][0]['id'], symbols=['SSE.ETF.589680'])
+    native['strategy_extension_origin'] = marker
+    native['recovery'] = dict(mode='resume_reconciled')
+    template = base.put(tmp_path / 'successor-template.json', native)
+    securities = {}
+    for exchange, instrument in [('SZSE', '159780'), (market, code)]:
+        identity = f'{exchange}.{instrument}'
+        securities[identity] = dict(symbol=identity, name='synthetic ETF', market=exchange, security_type='etf',
+                                    listed_on='2024-10-15', expires_on=None, observed_at=None)
+    reference = base.put(tmp_path / 'security-generic.json', dict(schema='guanheng.security-reference.v3', securities=securities))
+    prepared_path = prepare_startup_configuration(
+        Path(template['file']), template['sha256'], Path(reference['file']), reference['sha256'], tmp_path / 'prepared')
+    prepared = json.loads(prepared_path.read_bytes())
+    assert prepared['data']['store']['symbols'] == old['data']['store']['symbols'] + [
+        dict(std_code=new_standard, symbol=f'{code}.{suffix}')]
+    assert recovery.compatible_business_configuration(prepared, old)
+    assert all(path.read_bytes() == raw for path, raw in originals.items())
+    prepared_filter = Path(prepared['installation_root']) / prepared['environment']['filters']
+    assert json.loads(prepared_filter.read_bytes()) == dict(code_filters={} if retire else {'SSE.ETF.589680': {'action': 'ignore'}})
+    if retire:
+        wrong_scope = deepcopy(prepared)
+        wrong_scope['strategy_extension_origin']['retired_targets']['strategy_id'] = added['id']
+        with pytest.raises(ValueError):
+            recovery.compatible_business_configuration(wrong_scope, old)
+        base.native(dict(mode='compare', previous=old, current=wrong_scope), tmp_path, False)
+        base.native(dict(mode='retire-context', symbol='SSE.ETF.589680'), tmp_path)
+    base.native(dict(mode='compare', previous=old, current=prepared), tmp_path)
+    base.native(dict(mode='state', previous=old, current=prepared, output=old['output_directory']), tmp_path)
+    prepared['data']['store']['symbols'][-1]['symbol'] = f'000001.{suffix}'
+    with pytest.raises(ValueError):
+        recovery.compatible_business_configuration(prepared, old)
+    base.native(dict(mode='compare', previous=old, current=prepared), tmp_path, False)

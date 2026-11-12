@@ -130,6 +130,20 @@ class TradingKernelTests(unittest.TestCase):
         self.assert_code('invalid_binding', calls.kernel, binding=binding(account_id=''))
         self.assert_code('invalid_command', run, calls.kernel(), command(account_id=''))
 
+    def test_generic_binding_accepts_new_symbols_with_one_kernel(self):
+        calls = Calls()
+        config = binding(schema_version='qmt.trade-binding.v2')
+        config.pop('symbol_rules')
+        kernel = calls.kernel(binding=config)
+        for number, symbol in enumerate(('159352.SZ', '510300.SH'), 1):
+            self.assertEqual(run(kernel, command(number, symbol=symbol))['stage'], 'sdk_returned')
+        self.assertEqual([call[1][3] for call in calls.calls], ['159352.SZ', '510300.SH'])
+        wrong_account = run(kernel, command(3, symbol='159352.SZ', account_id='OTHER'))
+        self.assertEqual(wrong_account['error_code'], 'binding_mismatch')
+        self.assert_code('invalid_command', run, kernel, command(4, symbol='bad'))
+        self.assertEqual(len(calls.calls), 2)
+        self.assert_code('invalid_binding', calls.kernel, binding=binding(schema_version='qmt.trade-binding.v2'))
+
     def test_cancel_preserves_signal_and_official_account_type(self):
         for signal in (True, False):
             calls = Calls()

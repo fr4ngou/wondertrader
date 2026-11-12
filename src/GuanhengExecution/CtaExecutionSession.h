@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <functional>
+#include <string>
 #include <vector>
 namespace wtp { class IBaseDataMgr;class IHotMgr;class WTSVariant; }
 class CtaStrategy;class ICtaStrategyFact;
@@ -25,6 +26,7 @@ struct CtaExecutionStrategy {
     CtaStrategy* strategy=nullptr;
     ICtaStrategyFact* factory=nullptr;
     wtp::WTSVariant* parameters=nullptr; // 借用至close；每项保持本策略的独立参数。
+    std::vector<std::string> retired_targets; // 已核退役的前代理论代码，只作用于本策略恢复。
 };
 // 同owner、输出根租约内的生命周期证明；回调不得触发交易、调度或原生save。
 // admit在原init前消费上代证明；closed在全部资源关闭后、释放根租约前记录本代。

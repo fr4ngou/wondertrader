@@ -1,7 +1,8 @@
 """原HostTradingJournal的绑定版本值；不拥有连接、线程、队列或SDK。"""
 from contextlib import contextmanager
 from guanheng_qmt_shm_agent.protocol import canonical,decode
-from guanheng_qmt_shm_agent.trading_contract import validate_trade_binding
+from guanheng_qmt_shm_agent.trading_contract import (
+    LEGACY_BINDING_SCHEMA, TRADE_BINDING_SCHEMA, validate_trade_binding)
 from guanheng_qmt_shm_agent.read_capabilities import validate_read_profile
 from guanheng_qmt_shm_agent.trade_capabilities import validate_trade_profile_binding
 from .bound import digest,sha256_text
@@ -19,7 +20,7 @@ _FIELDS={
     'event_identity',  # 此版期望事件身份；没有事件owner时为None，原创世表不重写。
     'retention_identity',  # 原读票据创世身份；未选择票据能力时为None。
     'authorization_sha256',  # 本次受控授权原件SHA；创世无新增授权，保持None。
-    'symbol_additions',  # 此版明确新增证券列表，原许可证券始终保留。
+    'symbol_additions',  # 旧名单扩展的新增证券；通用绑定迁移记录为空。
     'rule_changes',  # 逐证券before/after及ETF合同证据SHA，不推断账户可卖数量。
     'protected_facts_sha256',  # 采用时全部原表及原字节的有序摘要，不含本扩展两张表。
     'plan_sha256',  # 本次prepare规范计划SHA；创世为None，重试沿同计划识别。
@@ -44,8 +45,14 @@ def _need(ok):
 
 
 def _delta(before,after,changes):
-    """只核明确授权的ETF规则差异；实际可卖与订单仍由原金融owner负责。"""
+    """核旧名单扩展或向通用绑定的同账户单向迁移。"""
     old,new=validate_trade_binding(before),validate_trade_binding(after)
+    if new['schema_version'] == TRADE_BINDING_SCHEMA:
+        expected = dict(old, schema_version=TRADE_BINDING_SCHEMA)
+        expected.pop('symbol_rules', None)
+        _need(old['schema_version'] == LEGACY_BINDING_SCHEMA and new == expected and changes == {})
+        return []
+    _need(old['schema_version'] == LEGACY_BINDING_SCHEMA)
     _need({k:v for k,v in old.items() if k!='symbol_rules'}=={k:v for k,v in new.items() if k!='symbol_rules'})
     previous,current=old['symbol_rules'],new['symbol_rules'];_need(set(previous)<set(current))
     _need(type(changes)is dict and set(changes)<=set(previous))

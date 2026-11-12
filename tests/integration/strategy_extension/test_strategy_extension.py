@@ -50,6 +50,25 @@ def test_explicit_extension_main_and_native_state(tmp_path):
     native(dict(mode='state',previous=before,current=after,output=before['output_directory']),tmp_path)
     assert files=={str(p):p.read_bytes()for p in Path(before['output_directory']).rglob('*.json')}
 
+@pytest.mark.parametrize(('strategy_id', 'capital', 'accepted'), [
+    ('another-cta', '250000.05', True),
+    ('RESONANCE-REGIME-V1', '250000.05', False),
+    ('another-cta', '0.00', False),
+])
+def test_extension_uses_frozen_instance_id_and_capital(tmp_path, strategy_id, capital, accepted):
+    before, after = fixture(tmp_path)
+    added = after['strategies'][1]
+    added['id'] = strategy_id
+    added['parameters']['python_strategy']['initial_capital_cny'] = capital
+    after['strategy_extension_origin']['added_strategy'] = put(tmp_path / 'added.json', added)
+    if accepted:
+        assert recovery.compatible_business_configuration(after, before)
+    else:
+        with pytest.raises(ValueError):
+            recovery.compatible_business_configuration(after, before)
+    native(dict(mode='compare', previous=before, current=after), tmp_path, accepted)
+
+
 @pytest.mark.parametrize('tamper',[None,'state_sha','old_missing'])
 def test_native_actual_fault_admission_preserves_files(tmp_path,tamper):
     before,current=fixture(tmp_path);previous=tmp_path/'old';control=tmp_path/'new-control';control.mkdir()

@@ -51,6 +51,14 @@ python -B -m guanheng_wt_runtime.execution_security --security-reference <资料
 
 输出包含可供 Reader 和 Native 使用的 `reader_mappings` 与 `contracts`，并保留来源摘要。候选文件由发布准备阶段消费，执行器仍按原安装、行情和恢复证据核对。完整接入和切换验收见[证券接入规格](../specs/execution-security-onboarding.md)。
 
+新策略发布模板声明 `strategy_extension_origin`，冻结的新增策略行列出 `execution_securities`。准备下一代安装及执行配置时运行以下命令。
+
+```powershell
+python -B -m guanheng_wt_runtime.execution_security_startup --template <Native模板> --template-sha256 <模板SHA256> --security-reference <资料绝对路径> --security-reference-sha256 <原件SHA256> --output <新发布准备目录>
+```
+
+交易绑定也变更时，附上 `--source-extension` 和 `--source-extension-sha256`，使用原 Journal 已采用的迁移证明。准备器输出的 `native-template.json` 交给原执行接续流程生成状态恢复材料。发布采用由正式 WT 启停流程负责。
+
 ## 只读观察
 
 ### 策略部署选择

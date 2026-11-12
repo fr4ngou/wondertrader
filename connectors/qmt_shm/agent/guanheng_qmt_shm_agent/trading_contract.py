@@ -13,9 +13,10 @@ from .protocol import canonical
 
 
 _MAX_INTEGER = 2 ** 53 - 1
+LEGACY_BINDING_SCHEMA = 'qmt.trade-binding.v1'  # 冻结证券规则，供旧部署和历史核查。
+TRADE_BINDING_SCHEMA = 'qmt.trade-binding.v2'  # 证券规则由 WT 与券商处理。
 _BINDING_KEYS = frozenset(('schema_version', 'binding_id', 'account_id',
-    'account_type', 'account_environment', 'strategy_name', 'max_commands',
-    'symbol_rules'))
+    'account_type', 'account_environment', 'strategy_name', 'max_commands'))
 _RULE_KEYS = frozenset(('price_tick', 'buy_min', 'buy_step', 'sell_min', 'sell_step'))
 _COMMON_KEYS = frozenset(('schema_version', 'command_id', 'operation',
     'binding_id', 'account_id', 'account_type', 'entrust_id', 'user_tag'))
@@ -131,10 +132,13 @@ def _fraction(value, code):
 
 def validate_trade_binding(value):
     """校验并深拷贝绑定；只保留普通 dict/精确标量，不保留外部配置别名。"""
-    _shape(value, _BINDING_KEYS, 'invalid_binding')
+    schema = value.get('schema_version') if type(value) is dict else None
+    if type(schema) is not str or schema not in (LEGACY_BINDING_SCHEMA, TRADE_BINDING_SCHEMA):
+        _fail('invalid_binding')
+    legacy = schema == LEGACY_BINDING_SCHEMA
+    _shape(value, _BINDING_KEYS | {'symbol_rules'} if legacy else _BINDING_KEYS, 'invalid_binding')
     if (any(type(value[name]) is not str for name in
             ('schema_version', 'account_type', 'account_environment'))
-            or value['schema_version'] != 'qmt.trade-binding.v1'
             or value['account_type'] != 'stock'
             or value['account_environment'] != 'live'):
         _fail('invalid_binding')
@@ -143,6 +147,8 @@ def validate_trade_binding(value):
     _text(result['account_id'], 63, 'invalid_binding')
     _text(result['strategy_name'], 128, 'invalid_binding')
     _integer(result['max_commands'], 1, 4096, 'invalid_binding')
+    if not legacy:
+        return result
     rules = result['symbol_rules']
     if type(rules) is not dict or not 1 <= len(rules) <= 4096:
         _fail('invalid_binding')

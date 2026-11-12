@@ -6,13 +6,13 @@
 
 旧构造默认保持完整身份严格相等。新增可选Host配置`trade_binding_extension="qmt.trade-binding-extension.v1"`只选择版本化能力，不直接扩大证券。原HostTradingJournal沿同一SQLite、文件owner租约、事务和截止，维护`trade_binding_versions`（完整规范配置、前代SHA、授权及差异）与`trade_binding_current`（唯一当前版本）。原`trade_identity`创世字节、read_operations、56条原command UUID/body/admitted/dispatch/result及事件/读ticket均保留。
 
-扩展后的原库必须以显式能力和当前完整绑定/profile重新打开；旧配置、无显式能力、链/当前指针/原件损坏均拒绝。旧UUID查询沿原body和来源返回，不借新scope重派。私有wire schema仍沿已有`qmt.trade-binding.v1`；版本链单独表达规则的版本，不重标历史命令。
+扩展后的原库必须以显式能力和当前完整绑定/profile重新打开。旧配置、无显式能力、链或当前指针损坏均拒绝。旧 UUID 查询沿原正文和来源返回。委托命令继续使用 `qmt.trade-command.v1`，版本链保存各代完整绑定及规则，不重标历史命令。
 
 ## TBE-2 prepare/adopt
 
 维护者只复用原Journal维护owner，先取得原独占租约。未停止的原owner使租约失败；构造会恢复queued/dispatching或补schema时，维护只读验证在提交前拒绝，不混入本次变更。维护不构造Runtime/运输/SDK。
 
-`prepare_binding_extension(new_binding,authorization_sha256,rule_changes,deadline)`纯核所有身份和原表摘要，返回`qmt.trade-binding-extension-plan.v1`。账户、环境、币种语义、binding_id、strategy_name、全部读/交易/事件预算及存储路径保持。只允许严格新增证券，已有规则除明确授权差异外逐字段保持。新profile唯一变化是其trade_profile.binding_sha256。
+`prepare_binding_extension(new_binding,authorization_sha256,rule_changes,deadline)`纯核所有身份和原表摘要，返回`qmt.trade-binding-extension-plan.v1`。账户、环境、币种语义、binding_id、strategy_name、全部读/交易/事件预算及存储路径保持。旧 `qmt.trade-binding.v1` 可严格新增证券，已有规则除明确授权差异外逐字段保持。切换至通用 `qmt.trade-binding.v2` 时，仅修改绑定 schema 并移除 `symbol_rules`，`rule_changes` 与 `symbol_additions` 为空。通用版本作为该名单版本链的最终形态。新profile唯一变化是其trade_profile.binding_sha256。
 
 `rule_changes`逐证券显式记录before/after和ETF合同证据SHA，只允许原BUY100格/price_tick保持、SELL100格到正整数1格。该静态规则赋予指定ETF整数SELL能力；原Source Kernel不读取P，因此不宣称其单独强制“全部余股退出”。实际可卖/剩余量由原WT股票执行器及ASA核同；未授权的既有588120规则保持。Kernel原能力已支持配置sell_min/sell_step=1，不改SDK调用、WT核心或单元算法。
 

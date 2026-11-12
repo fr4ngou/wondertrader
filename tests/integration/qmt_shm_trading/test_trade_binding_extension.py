@@ -56,6 +56,37 @@ def seed(owner,route,kw,count=1):
 
 def maintain(path,route,kw):return open_binding_extension_owner(path,route,deadline=end(),**kw)
 
+def test_generic_binding_migration_preserves_original_commands(tmp_path):
+    path, route, old = make(tmp_path)
+    owner = HostTradingJournal(path, route, **old)
+    records = seed(owner, route, old, 2)
+    owner.close()
+    binding = dict(old['trade_binding'], schema_version='qmt.trade-binding.v2')
+    binding.pop('symbol_rules')
+    owner = maintain(path, route, old)
+    try:
+        with pytest.raises(JournalConflict):
+            owner.prepare_binding_extension(dict(binding, account_id='OTHER'), SHA, {}, deadline=end())
+        plan = owner.prepare_binding_extension(binding, SHA, {}, deadline=end())
+        assert plan['symbol_additions'] == []
+        receipt = owner.adopt_binding_extension(plan, deadline=end())
+        assert owner.adopt_binding_extension(plan, deadline=end()) == receipt
+    finally:
+        owner.close()
+
+    new = dict(old, trade_binding=binding, read_profile=_profile(old['read_profile'], binding, old['max_result_bytes']),
+               trade_binding_extension=VERSION)
+    owner = HostTradingJournal(path, route, **new)
+    try:
+        assert all(owner.get_trade(row['command_id'], deadline=end()) == row for row in records)
+        for number, symbol in enumerate(('159352.SZ', '510300.SH'), 3):
+            body = canonical(dict(command(number), symbol=symbol))
+            saved = owner.submit_trade(body, source(route, new['read_profile'], 'c'), ttl_ms=1000, deadline=end())
+            assert saved['body'] == body
+    finally:
+        owner.close()
+
+
 def test_56_original_commands_preserved_and_new_kernel_scope(tmp_path):
     path,route,kw=make(tmp_path);owner=HostTradingJournal(path,route,**kw);records=seed(owner,route,kw,56);owner.close()
     owner=maintain(path,route,kw)

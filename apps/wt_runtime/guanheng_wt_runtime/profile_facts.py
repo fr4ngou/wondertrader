@@ -6,10 +6,38 @@ from pathlib import Path
 from types import SimpleNamespace
 from fractions import Fraction
 import hashlib,json,time,math
+import re
 from zoneinfo import ZoneInfo
 from .managed_local_process import _read
 from .execution_strategy import _need
 from .execution_facts import admit_native_files,native_price_ticks,canonical_raw_price
+
+
+def configured_etf_mapping(native, codes, substitutions):
+    """把策略信号代码绑定到本代 Reader 的已声明执行代码。"""
+    from .execution_security import MARKET_SUFFIX
+
+    rows = native.get('data', {}).get('store', {}).get('symbols')
+    _need(type(rows) is list, 'native_reader_mappings_missing')
+    by_code = {}
+    for row in rows:
+        standard = row['std_code']
+        if re.fullmatch(r'(SSE|SZSE)\.ETF\.[0-9]{6}', standard) is None:
+            continue
+        market, _, code = standard.split('.')
+        _need(row['symbol'] == f'{code}.{MARKET_SUFFIX[market]}', 'native_reader_mapping_invalid_' + code)
+        by_code.setdefault(code, []).append(standard)
+
+    mapping = {}
+    for code in codes:
+        override = substitutions.get(code)
+        matches = by_code.get(code if override is None else override.rsplit('.', 1)[1], ())
+        if override is not None:
+            matches = [item for item in matches if item == override]
+        _need(len(matches) == 1, 'native_reader_mapping_missing_or_ambiguous_' + code)
+        mapping[code] = matches[0]
+    _need(len(set(mapping.values())) == len(mapping), 'original_execution_symbol')
+    return mapping
 
 
 def digest(value):
