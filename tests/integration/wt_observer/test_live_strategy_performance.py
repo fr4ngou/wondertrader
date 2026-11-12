@@ -293,13 +293,15 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(len(observed),1)
 
     def test_http_uses_existing_reader_enforces_key_query_and_readonly(self):
-        app=FastAPI();app.include_router(router());app.state.live_strategy_performance=self.owner
+        securities = SimpleNamespace(name={'510300.SH': '华泰柏瑞沪深300ETF', '000001.SZ': '未在观察范围内'}.get)
+        app=FastAPI();app.include_router(router(securities));app.state.live_strategy_performance=self.owner
         reader=BoundedReader();reader.start();app.state.reader=reader
         try:
             with TestClient(app)as client:
                 path='/v1/ui/live-strategy-performance?strategy_id=resonance-regime-v1&strategy_version=1.2.2'
                 response=client.get(path);self.assertEqual(response.status_code,200)
                 self.assertTrue(response.json()['current']['key_matches'])
+                self.assertEqual(response.json()['security_names'], {'510300.SH': '华泰柏瑞沪深300ETF'})
                 self.assertEqual(client.get(path+'&limit=367').status_code,422)
                 self.assertEqual(client.get(path+'&strategy_version=1.1.2').status_code,422)
                 self.assertEqual(client.get(path+'&private=secret').status_code,422)

@@ -39,11 +39,13 @@ export type LiveDay = {
   /** 原资本变化，元；不推断投资收益。 */ pnl_cny: string | null
   /** 投资收益口径尚缺，保持空。 */ return_pct: null
   /** 当日实际观察持仓。 */ positions: LivePosition[]
+  /** 当日持仓原观察时间，独立于估值。旧响应可沿明细时间。 */ positions_observed_at?: string
   /** 当日实际账户证券范围成交。 */ deals: LiveDeal[]
   /** 区分完整空持仓和未知。 */ positions_state: 'available' | 'empty' | 'unavailable'
   /** 区分完整空成交、部分和未知。 */ deals_state: 'available' | 'empty' | 'partial' | 'unavailable'
 }
 export type LivePerformance = {
+  /** 已准入证券目录按本窗口出现的代码投影；旧 App 或缺项时显示代码。 */ security_names?: Record<string, string>
   /** 只读观察协议。 */ schema_version: 'guanheng.live-strategy-performance.v1'
   /** 本接口不授交易权限。 */ read_only: true
   /** 本轮App读取时间。 */ observed_at: string
@@ -113,6 +115,7 @@ export function validateLivePerformance(value: unknown, id: string, version: str
     || !text(value.coverage.reason) || typeof value.coverage.deals_truncated !== 'boolean'
     || !Array.isArray(value.daily) || value.daily.length > 366 || !Array.isArray(value.markers) || value.markers.length > 2000) return invalid()
   if (value.coverage.attribution !== undefined && !['account-universe-only','strategy-allocated'].includes(String(value.coverage.attribution))) return invalid()
+  if (value.security_names !== undefined && (!object(value.security_names) || Object.entries(value.security_names).some(([symbol, name]) => !text(symbol) || !text(name)))) return invalid()
   const current = value.current
   if (current.is_current && (!current.key_matches || current.strategy_id !== id || current.strategy_version !== version || current.process_state !== 'alive')) return invalid()
   if (value.state === 'not_current' && (value.summary !== null || value.baseline !== null || value.daily.length || value.markers.length || current.is_current)) return invalid()
@@ -134,6 +137,7 @@ export function validateLivePerformance(value: unknown, id: string, version: str
       || !['available', 'empty', 'unavailable'].includes(String(d.positions_state)) || !['available', 'empty', 'partial', 'unavailable'].includes(String(d.deals_state))
       || ![d.nav_cny, d.cash_cny, d.market_value_cny, d.pnl_cny].every(m => m === null || money(m)) || d.return_pct !== null
       || d.positions.some(p => !object(p) || !text(p.symbol) || !count(p.quantity) || !count(p.sellable) || !text(p.observed_at))
+      || d.positions_observed_at !== undefined && (!text(d.positions_observed_at) || !Number.isFinite(Date.parse(String(d.positions_observed_at))))
       || ['reference_nav_cny','reference_cash_cny','reference_change_cny','reference_return_pct','valuation_baseline_cny'].some(k => d[k] !== undefined && d[k] !== null && !money(d[k]))
       || d.valuation_state !== undefined && !['actual','reference-fee-pending'].includes(String(d.valuation_state))
       || d.cash_observed_at !== undefined && (!text(d.cash_observed_at) || !Number.isFinite(Date.parse(String(d.cash_observed_at))))

@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import LiveStrategyPerformance from './LiveStrategyPerformance'
 import type { LivePerformance } from './liveStrategyApi'
 
@@ -33,6 +33,23 @@ test('历史成交日缺持仓不沿用今天持仓，完整无成交与未知�
   expect(screen.queryByText('10:00:00')).toBeNull()
   expect(screen.getAllByText('该日没有持仓观测。').length).toBeGreaterThan(0)
   expect(screen.getAllByText('当日完整查询无成交。').length).toBeGreaterThan(0)
+})
+
+test('持仓只数正仓位，持仓和成交使用目录名称及原持仓时间', () => {
+  const observation = { ...data, security_names: { '510300.SH': '华泰柏瑞沪深300ETF', '510050.SH': '华夏上证50ETF' },
+    daily: data.daily.map(day => day.date === '2026-01-05' ? { ...day,
+      positions_observed_at: '2026-01-05T07:59:12Z',
+      positions: [...day.positions, { ...day.positions[0], symbol: '510050.SH', quantity: 0 }],
+    } : day),
+  }
+  render(<LiveStrategyPerformance data={observation} />)
+  const details = within(screen.getByRole('region', { name: '2026-01-05每日持仓和成交' }))
+  expect(details.getAllByText(/华泰柏瑞沪深300ETF/)).toHaveLength(2)
+  expect(details.getAllByText('510300.SH')).toHaveLength(2)
+  expect(details.getByText(/持仓观察时间.*15:59:12/)).toBeVisible()
+  expect(details.getByText('策略证券范围内的账户持仓')).toBeVisible()
+  expect(screen.queryByText('510050.SH')).toBeNull()
+  expect(screen.getByText('持仓 1 项')).toBeVisible()
 })
 
 test('净值和成交笔数相同时新持仓观察仍及时进入悬停摘要', () => {

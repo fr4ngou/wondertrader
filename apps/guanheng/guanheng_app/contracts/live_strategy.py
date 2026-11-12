@@ -116,6 +116,7 @@ class LiveCoverage(CoverageRange):
 
 
 class LiveResponse(TypedDict):
+    security_names: NotRequired[dict[str, str]]  # 本次持仓和成交涉及的已准入证券简称，缺项沿规范代码展示。
     schema_version: Literal['guanheng.live-strategy-performance.v1']  # 本接口冻结版本。
     read_only: Literal[True]  # 无交易操作；App只保存本地观察副本。
     observed_at: str  # 本次App读取响应时刻，与各组原时间分别表达。

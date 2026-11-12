@@ -171,7 +171,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
     application.add_exception_handler(ObservationError,observation_error)
     application.include_router(observation_router())
     application.include_router(security_router(securities))
-    application.include_router(live_strategy_router())
+    application.include_router(live_strategy_router(securities))
     application.include_router(strategy_target_history_router(configured))
 
     @application.exception_handler(RequestValidationError)

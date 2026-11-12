@@ -79,7 +79,7 @@ export default function StrategyDetails({ strategy }: {
     {query.isPending ? <p role="status">正在读取策略详情…</p> : null}
     {data ? <>
       {query.isFetching ? <p role="status">正在刷新，当前显示上次成功详情。</p> : null}
-      <div className="compact-status-strip" role="status"><StatusBadge state={data.execution.state} label={data.execution.label} /><small>数据时间 {clock(allocated ? data.calculation?.broker_observed_at : groupTime(positionGroup))}</small><Link to="/account">查看券商账户</Link></div>
+      <div className="compact-status-strip" role="status"><StatusBadge state={data.execution.state} label={data.execution.label} /><small>持仓观察时间 {clock(allocated ? data.calculation?.broker_observed_at : groupTime(positionGroup))}</small><Link to="/account">查看券商账户</Link></div>
       <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
       {!data.capital_baseline || hasRunFacts ? runFacts : <details className="compact-details"><summary>运行与收益</summary>{runFacts}</details>}
       {data.execution.state !== 'ready' ? <p role="status">{data.execution.reason}</p> : null}

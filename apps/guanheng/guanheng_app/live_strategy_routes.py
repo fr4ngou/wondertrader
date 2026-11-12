@@ -5,8 +5,10 @@ from time import monotonic
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
+from .security_catalog import SecurityCatalog
 
-def router():
+
+def router(securities: SecurityCatalog):
     """只消费App生命周期登记的LiveStrategyPerformanceOwner，不创建运行角色。"""
     routes = APIRouter()
     path = '/v1/ui/live-strategy-performance'
@@ -28,6 +30,8 @@ def router():
             wrapped = asyncio.wrap_future(future)
             wrapped.add_done_callback(lambda done: None if done.cancelled() else done.exception())
             value = await asyncio.wait_for(asyncio.shield(wrapped),max(0,deadline-monotonic()))
+            symbols = {row['symbol'] for day in value['daily'] for group in ('positions', 'deals') for row in day[group]}
+            value['security_names'] = {symbol: name for symbol in sorted(symbols) if (name := securities.name(symbol))}
             return JSONResponse(value,headers={'Cache-Control':'no-store'})
         except Exception:
             return JSONResponse({'detail':'线上策略观察暂不可用，请稍后重试'},status_code=503,
