@@ -18,7 +18,8 @@ from .backtest_reports import (validate_report_dict, project_session_record,
                                normalize_session, report_schema_for_input, PER_DATE_REPORT_SCHEMA,
                                project_input_business_diagnostics, ORIGINAL_REPORT_SCHEMA, ORIGINAL_INPUT_SCHEMA,
                                verify_original_native_input)
-from .backtest_performance import build_performance, build_comparison, MAX_RESPONSE, _fraction, _money
+from .backtest_performance import (build_performance, build_performance_preview, build_comparison,
+                                   MAX_RESPONSE, _fraction, _money)
 
 SCHEMA = "nbw-completed-archive-v1"
 SCOPE = "isolated-raw-BT; real-source/RT/broker/production-unqualified"
@@ -247,7 +248,7 @@ class BacktestArchive:
             self._lock.release()
 
     def _summary(self, read, directory, receipt):
-        """只投影完成证明绑定的报告归属及本金，不授完整报告/绩效读取资格。
+        """投影完成证明绑定的归属、本金和轻量绩效，不授完整报告读取资格。
 
         每次仍核原请求、结果、安装及报告摘要，沿原文件/容量/截止合同；
         完整来源、领域、原生输出和绩效仍在用户选择该报告时由_originals核验。
@@ -272,7 +273,8 @@ class BacktestArchive:
                  and report['schema'] == result['report_schema']
                  and len(report['records']) == receipt['record_count'])
         from .backtest_reports import RETAINED_REPORT_SCHEMAS
-        if report['schema'] in (*RETAINED_REPORT_SCHEMAS, ORIGINAL_REPORT_SCHEMA):
+        packed = report['schema'] not in (*RETAINED_REPORT_SCHEMAS, ORIGINAL_REPORT_SCHEMA)
+        if not packed:
             strategy = dict(id=report['strategy_id'],  # 原报告中的策略业务ID。
                             version=report['strategy_version'])  # 该份原报告的实际策略版本。
             initial = report['policy']['initial_capital_cny']
@@ -299,6 +301,15 @@ class BacktestArchive:
             _require(type(first_day) is int and receipt['configuration']['start']//10000 <= first_day
                      <= receipt['configuration']['end']//10000)
             summary['evaluation_start'] = first_day
+        try:
+            # 日末净值取报告原值；逐笔、模型与原生文件仍由详情核验。
+            summary['performance'] = build_performance_preview(report, amount, check=read.check, packed=packed)
+        except ArchiveError:
+            raise
+        except (KeyError, ValueError, TypeError, OverflowError) as error:
+            logging.getLogger(__name__).warning('backtest_preview_unavailable run_id=%s report_schema=%s error_type=%s',
+                                               receipt['run_id'], report['schema'], type(error).__name__)
+            summary['performance'] = None
         if receipt['run_id'] not in self._summaries and len(self._summaries) >= MAX_RUNS:
             del self._summaries[next(iter(self._summaries))]
         self._summaries[receipt['run_id']] = identity, _wire(summary)

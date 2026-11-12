@@ -46,7 +46,7 @@ def router(root):
 
     @routes.get('/archive-summaries')
     async def summaries(request: Request):
-        """轻量原件归属目录；完整报告与绩效仍沿用户选中的原读取入口。"""
+        """完成归档的轻量归属及绩效预览；完整分析仍沿用户选中的原读取入口。"""
         return await read(request, lambda deadline: archive.list(deadline, summaries=True))
 
     @routes.get('/source')

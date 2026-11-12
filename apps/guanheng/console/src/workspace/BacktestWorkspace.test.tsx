@@ -78,15 +78,25 @@ test('主报告和对比选择先保留身份，打开分析才交给完整读�
   expect(screen.getByText('可选3')).toBeVisible()
 })
 
-test('列表可以复用已打开分析的完整身份缓存，保持零额外绩效请求',async()=>{
-  vi.mocked(api.fetchBacktestArchiveSummaries).mockResolvedValue(index([left,right]))
-  const client=new QueryClient({defaultOptions:{queries:{retry:false}}})
-  client.setQueryData(['backtest-performance',left.run_id,left.receipt_sha256,left.report_sha256],fixture.left)
-  mount('/backtests',client)
-  await screen.findByText('当前策略的回测 · 2 份已完成报告')
-  expect(screen.getByRole('region',{name:'策略回测列表'})).toBeVisible()
-  fireEvent.click(screen.getByRole('radio',{name:'主报告 2'}))
-  expect(screen.getByText('0%',{selector:'.bt-return'})).toBeVisible()
+test('冷打开列表直接显示各报告收益、回撤和带缺口的收益曲线',async()=>{
+  const report = {...left, summary: {...left.summary, performance: {
+    total_return_pct: 28.16855, observed_max_drawdown_pct: 20.904506631892552,
+    points: [[0, 0], [1, null], [2, 28.16855]] as [number, number | null][],
+  }}}
+  const zero = {...right, summary: {...right.summary, performance: {
+    total_return_pct: 0, observed_max_drawdown_pct: 0, points: [[0, 0]] as [number, number | null][],
+  }}}
+  vi.mocked(api.fetchBacktestArchiveSummaries).mockResolvedValue(index([report,zero,{...extra,summary:{...extra.summary,performance:null}}]))
+  mount()
+  expect(await screen.findByText('28.1686%')).toBeVisible()
+  expect(screen.getByText('20.9045%')).toBeVisible()
+  expect(screen.getAllByText('0%')).toHaveLength(2)
+  expect(screen.getAllByText('未知')).toHaveLength(2)
+  const charts=screen.getAllByRole('img',{name:'累计收益率小图'})
+  expect(charts).toHaveLength(2)
+  const chart=charts.find(image=>image.querySelectorAll('circle').length===2)!
+  expect(chart.querySelectorAll('circle')).toHaveLength(2)
+  expect(chart.querySelector('polyline')).toBeNull()
   expect(performance.fetchBacktestPerformance).not.toHaveBeenCalled()
 })
 

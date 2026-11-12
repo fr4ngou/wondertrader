@@ -8,7 +8,7 @@ import json
 import math
 import re
 
-from .strategy_session import _decimal
+from .strategy_session import _decimal, _unpack_record, MAX_EXPANDED_REPORT_BYTES
 from .backtest_reports import project_session_record, RETAINED_REPORT_SCHEMAS, PER_DATE_REPORT_SCHEMA
 
 
@@ -73,6 +73,58 @@ def _position_point(day, nav, cash_value):
     return [day, None, None, None]
 
 
+def _nav_metrics(initial, navs):
+    """从原日末净值精确计算，首个峰值为初始本金，缺值不参与运算。"""
+    peak, drawdown, last = initial, Fraction(0), None
+    for nav in navs:
+        if nav is not None:
+            peak = max(peak, nav)
+            drawdown = max(drawdown, (peak - nav) / peak * 100)
+            last = nav
+    return {
+        "total_return_pct": None if last is None else _percentage((last / initial - 1) * 100),
+        "observed_max_drawdown_pct": None if last is None else _percentage(drawdown),
+    }
+
+
+def build_performance_preview(report, initial, *, check, packed):
+    """只读完成证明绑定的日末值，保留分段极值和缺口；完整分析另行准入。"""
+    records = report["records"]
+    _require(len(records) <= MAX_POINTS)
+    navs = []
+    expanded = 0
+    for record in records:
+        check()
+        if packed:
+            expanded += record["payload_bytes"]
+            _require(expanded <= MAX_EXPANDED_REPORT_BYTES)
+            record = _unpack_record(record, check=check)
+        capture = record["capture"]
+        navs.append(None if capture is None else _fraction(capture["basis"]["nav_cny"]))
+
+    metrics = _nav_metrics(initial, navs)
+    returns = [_percentage((nav / initial - 1) * 100) if nav is not None else None for nav in navs]
+    valid = [index for index, value in enumerate(returns) if value is not None]
+    if not valid:
+        return {**metrics, "points": []}
+
+    samples = {valid[0], valid[-1]}
+    # 每段最多两个极值，另保留首末；相邻样本间有缺值就增加一个断点。
+    buckets = 11
+    stride = max(1, (len(returns) + buckets - 1) // buckets)
+    for start in range(0, len(returns), stride):
+        observed = [index for index in range(start, min(start + stride, len(returns))) if returns[index] is not None]
+        if observed:
+            samples.add(min(observed, key=returns.__getitem__))
+            samples.add(max(observed, key=returns.__getitem__))
+    ordered = sorted(samples)
+    for left, right in zip(ordered, ordered[1:]):
+        missing = next((index for index in range(left + 1, right) if returns[index] is None), None)
+        if missing is not None:
+            samples.add(missing)
+    return {**metrics, "points": [[index, returns[index]] for index in sorted(samples)]}
+
+
 def build_performance(*, receipt, receipt_sha256, request, session, report, admitted, check, position_points=None):
     """从已准入记录读取绩效；visuals 同轮收集日末仓位，保持原绩效响应契约。"""
     check()
@@ -80,8 +132,8 @@ def build_performance(*, receipt, receipt_sha256, request, session, report, admi
     initial = _fraction(session["policy"]["initial_capital_cny"])
     _require(initial > 0)
     initial_text = _money(initial)
-    peak, drawdown, last, fees, available, last_date = initial, Fraction(0), None, None, 0, None
-    points = []
+    last, fees, available, last_date = None, None, 0, None
+    points, navs = [], []
     for index in range(admitted.record_count):
         check()
         record = project_session_record(admitted, index, check=check)["record"]
@@ -89,6 +141,7 @@ def build_performance(*, receipt, receipt_sha256, request, session, report, admi
         capture = record["capture"]
         if capture is None:
             points.append([day, None])
+            navs.append(None)
             if position_points is not None:
                 position_points.append([day, None, None, None])
             continue
@@ -99,8 +152,7 @@ def build_performance(*, receipt, receipt_sha256, request, session, report, admi
         points.append([day, _money(nav)])
         if position_points is not None:
             position_points.append(_position_point(day, nav, basis.get("cash_cny")))
-        peak = max(peak, nav)
-        drawdown = max(drawdown, (peak - nav) / peak * 100)
+        navs.append(nav)
         last, fees, last_date, available = nav, fee, day, available + 1
     retained = report['schema'] in RETAINED_REPORT_SCHEMAS
     algorithm=None
@@ -126,8 +178,7 @@ def build_performance(*, receipt, receipt_sha256, request, session, report, admi
             "fee_source": session["fee_source"], "policy_sha256": _hash(session["policy"], check),
             "configuration_sha256": _hash(strategy, check)},
         "metrics": {"initial_capital_cny": initial_text, "last_nav_cny": None if last is None else _money(last),
-            "total_return_pct": None if last is None else _percentage((last / initial - 1) * 100),
-            "observed_max_drawdown_pct": None if last is None else _percentage(drawdown),
+            **_nav_metrics(initial, navs),
             "native_cumulative_fees_cny": None if fees is None else _money(fees)},
         "observations": {"total": admitted.record_count, "available": available, "missing": admitted.record_count - available,
             "last_trading_date": last_date}, "points": points, "scope": report["scope"]}

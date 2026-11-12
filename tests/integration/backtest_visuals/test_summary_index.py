@@ -15,7 +15,7 @@ def wire(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':')).encode('ascii')
 
 
-def archive(root, run, version='1.2.2', capital='1000000', *, legacy=False):
+def archive(root, run, version='1.2.2', capital='1000000', *, legacy=False, navs=None):
     directory = root / run
     directory.mkdir()
     session = dict(policy=dict(initial_capital_cny=capital), strategy=dict(strategy_id='fixture', strategy_version=version))
@@ -24,12 +24,15 @@ def archive(root, run, version='1.2.2', capital='1000000', *, legacy=False):
     report = dict(schema='nsb-report-v2' if legacy else 'guanheng.retained-replay-report.v1',
                   strategy_id='fixture', strategy_version=version,
                   policy=dict(initial_capital_cny=capital), records=[dict(trading_date=20260105)])
+    if navs is not None:
+        report['records'] = [dict(capture=None if nav is None else dict(basis=dict(nav_cny=nav)))
+                             for nav in navs]
     result = wire(dict(schema='nsh-run-v1', run_id=run, request_sha256=sha256(request).hexdigest(),
                        installation_sha256=sha256(install).hexdigest(), report=report, report_schema=report['schema']))
     receipt = dict(schema=SCHEMA, run_id=run, owner_id='a'*32, request_id='b'*32,
                    request_sha256=sha256(request).hexdigest(), installation_sha256=sha256(install).hexdigest(),
                    result_sha256=sha256(result).hexdigest(), report_sha256=sha256(wire(report)).hexdigest(),
-                   record_count=1, pid=1234, exit_code=0, forced=False, pid_reaped=True, pipes_joined=True,
+                   record_count=len(report['records']), pid=1234, exit_code=0, forced=False, pid_reaped=True, pipes_joined=True,
                    elapsed_ms=1, scope=SCOPE, configuration=dict(label='unrelated label 9.9.9', name='fixture',
                        start=202601050930, end=202601051500, session_sha256='c'*64, max_seconds=30))
     for name, raw in [('request.json', request), ('installation.json', install), ('result.json', result),
@@ -61,6 +64,19 @@ class SummaryIndexTests(unittest.TestCase):
         old = self.archive.list(monotonic()+5)
         self.assertEqual(old['schema'], 'nbw-archive-index-v1')
         self.assertTrue(all('summary' not in item for item in old['runs']))
+
+    def test_cold_index_returns_performance_from_bound_daily_nav_and_keeps_unknown_local(self):
+        archive(self.root, '1'*32, capital='100', navs=['100', '120', None, '90', '105'])
+        archive(self.root, '2'*32, capital='100', navs=[None])
+        archive(self.root, '3'*32, capital='100', navs=['invalid'])
+        with patch('guanheng_app.backtest_archive.build_performance', side_effect=AssertionError('full performance')):
+            rows = self.archive.list(monotonic()+5, summaries=True)['runs']
+        self.assertEqual(rows[0]['summary']['performance'], dict(total_return_pct=5.0,
+            observed_max_drawdown_pct=25.0, points=[[0, 0.0], [1, 20.0], [2, None], [3, -10.0], [4, 5.0]]))
+        self.assertEqual(rows[1]['summary']['performance'], dict(total_return_pct=None,
+            observed_max_drawdown_pct=None, points=[]))
+        self.assertIsNone(rows[2]['summary']['performance'])
+        self.assertEqual(rows[2]['summary']['strategy']['version'], '1.2.2')
 
     def test_changed_original_affects_its_summary_only(self):
         broken, _ = archive(self.root, '1'*32)

@@ -59,6 +59,18 @@ it('轻量目录严格绑定真实归属和本金，单份未知与原目录合�
   await expect(fetchBacktestArchive()).rejects.toThrow('格式或身份无效')
 })
 
+it('轻量绩效接受缺口并校验样本的报告期数和顺序', async () => {
+  const performance = {total_return_pct: 7, observed_max_drawdown_pct: 10, points: [[0, 0], [1, null], [4, 7]]}
+  const reply = (points: unknown) => ({...archiveIndex, schema: 'nbw-archive-summary-index-v1', runs: [{...archiveEntry,
+    summary: {strategy: {id: 'model', version: '1'}, initial_capital_cny: '100', performance: {...performance, points}}}]})
+  vi.mocked(fetchReadJson).mockResolvedValueOnce(reply(performance.points))
+  expect((await fetchBacktestArchiveSummaries()).runs[0].summary?.performance).toEqual(performance)
+  for (const points of [[[0, 0], [5, 7]], [[1, 0], [1, 7]], [[0, Infinity]]]) {
+    vi.mocked(fetchReadJson).mockResolvedValueOnce(reply(points))
+    await expect(fetchBacktestArchiveSummaries()).rejects.toThrow('格式或身份无效')
+  }
+})
+
 it.each([{strategy:{id:'model',version:''},initial_capital_cny:'100'},
   {strategy:{id:'model',version:'1'},initial_capital_cny:'-1'},
   {strategy:{id:'model',version:'1'},initial_capital_cny:'0'},

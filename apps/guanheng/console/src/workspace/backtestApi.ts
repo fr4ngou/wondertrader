@@ -36,7 +36,7 @@ const digest = /^[a-f0-9]{64}$/
 export const validId = (value: unknown): value is string => typeof value === 'string' && id.test(value)
 export const validDigest = (value: unknown): value is string => typeof value === 'string' && digest.test(value)
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
-const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value)
+const number = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const boundedText = (value: unknown, max = 512): value is string => typeof value === 'string' && value.length <= max && !/[\u0000-\u001f]/.test(value)
 export function tradingDate(value: unknown): value is number {
   if (!Number.isSafeInteger(value) || (value as number) < 19000101 || (value as number) > 99981231) return false
@@ -222,13 +222,19 @@ export async function fetchBacktestDay(ownerId: string, requestId: string, index
 }
 
 export type ArchiveSelection = { runId: string; receiptSha: string; reportSha?: string }
+export type ArchivePerformancePreview = {
+  /** 以初始本金为基数的末个有效日末累计收益率，单位%；空值为原观测不可用。 */ total_return_pct: number | null
+  /** 日末净值对历史峰值的最大跌幅，单位%；空值为原观测不可用。 */ observed_max_drawdown_pct: number | null
+  /** 按原记录序号排列的累计收益率样本，单位%；null 表示观测缺口，空数组表示无可画观测。 */ points: [number, number | null][]
+}
 export type ArchiveSummary = {
   /** 评价首日 YYYYMMDD。原版报告的运行开始还包含预热日。 */ evaluation_start?: number
   /** 完成证明绑定的原报告策略身份；名称和文件名均不参与归属推断。 */ strategy: {
     /** 原报告声明的策略业务ID。 */ id: string
     /** 该份报告实际使用的策略版本。 */ version: string
   }
-  /** 原模型初始本金，人民币十进制文本；完整绩效在选择后另行核验。 */ initial_capital_cny: string
+  /** 原模型初始本金，人民币十进制文本。 */ initial_capital_cny: string
+  /** 完成报告的轻量绩效，null 为该报告预览读取失败，缺省为旧目录。 */ performance?: ArchivePerformancePreview | null
 }
 export type ArchiveEntry = {
   /** 原完成归档的运行ID，用于选择同一份报告。 */ run_id: string
@@ -294,6 +300,21 @@ export async function fetchBacktestArchiveSummaries(signal?: AbortSignal): Promi
   const value = await fetchBacktestReadJson<unknown>('/v1/ui/backtest/archive-summaries', '回测报告目录', signal)
   return archiveIndex(value, true) as ArchiveSummaryIndex
 }
+function validPerformancePreview(value: unknown, count: number): boolean {
+  if (!object(value)) return false
+  exactKeys(value, ['total_return_pct', 'observed_max_drawdown_pct', 'points'])
+  const total = value.total_return_pct
+  const drawdown = value.observed_max_drawdown_pct
+  if (!(total === null || number(total)) || !(drawdown === null || number(drawdown) && drawdown >= 0)
+    || !Array.isArray(value.points) || value.points.length > 47) return false
+  let previous = -1
+  for (const point of value.points) {
+    if (!Array.isArray(point) || point.length !== 2 || !Number.isInteger(point[0]) || point[0] <= previous
+      || point[0] >= count || !(point[1] === null || number(point[1]))) return false
+    previous = point[0]
+  }
+  return !value.points.length || value.points.some(point => number(point[1]))
+}
 function archiveIndex(value: unknown, summaries: boolean): ArchiveIndex | ArchiveSummaryIndex {
   boundedBacktestTree(value)
   if (!object(value)) return invalid()
@@ -312,7 +333,9 @@ function archiveIndex(value: unknown, summaries: boolean): ArchiveIndex | Archiv
     ids.add(entry.run_id)
     if (summaries && entry.summary !== null) {
       if (!object(entry.summary) || !object(entry.summary.strategy)) return invalid()
-      exactKeys(entry.summary, ['strategy', 'initial_capital_cny'], ['evaluation_start']); exactKeys(entry.summary.strategy, ['id', 'version'])
+      exactKeys(entry.summary, ['strategy', 'initial_capital_cny'], ['evaluation_start', 'performance']); exactKeys(entry.summary.strategy, ['id', 'version'])
+      const preview = entry.summary.performance
+      if (preview != null && !validPerformancePreview(preview, entry.record_count as number)) return invalid()
       if (entry.summary.evaluation_start !== undefined && !tradingDate(entry.summary.evaluation_start)) return invalid()
       if (!boundedText(entry.summary.strategy.id, 256) || !entry.summary.strategy.id.length
         || !boundedText(entry.summary.strategy.version, 256) || !entry.summary.strategy.version.length
