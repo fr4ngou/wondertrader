@@ -1,3 +1,4 @@
+import { observerChartColors, useObserverTheme } from './observerAppearance'
 import { useEffect, useMemo, useRef } from 'react'
 import * as echarts from 'echarts/core'
 import { LineChart, ScatterChart, type LineSeriesOption, type ScatterSeriesOption } from 'echarts/charts'
@@ -78,12 +79,14 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
   /** 已选且有合格基点的价格指数收益，与主报告交易日对齐。 */ benchmarks?: readonly BenchmarkSeries[]
 }) {
   const root = useRef<HTMLDivElement>(null)
+  const theme = useObserverTheme()
   const zoom = useRef({ start: 0, end: 100 })
   const keyboardDays = useMemo(() => [...new Set([...left.points, ...(right?.points ?? [])].map(p => p[0]))].sort((a, b) => a - b), [left, right])
   const onDayRef = useRef(onDay)
   onDayRef.current = onDay
   useEffect(() => {
     if (!root.current || !left.points.length) return
+    const palette = observerChartColors(root.current)
     const chart = echarts.init(root.current, undefined, { renderer: 'svg' })
     const days = [...new Set([...left.points, ...(right?.points ?? [])].map(p => p[0]))].sort((a, b) => a - b)
     const dates = days.map(reportDate)
@@ -91,7 +94,7 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
     const dayByLabel = new Map(dates.map((label, index) => [label, days[index]]))
     const series: (LineSeriesOption | ScatterSeriesOption)[] = []
     const indexes = mode === 'return' ? benchmarks : emptyBenchmarks
-    const reports = [{ report: left, visual, color: '#1763ee', name: '主报告' }, ...(right ? [{ report: right, visual: rightVisual, color: '#d99117', name: '对比报告' }] : [])].map(item => ({ ...item,
+    const reports = [{ report: left, visual, color: palette.accent, name: '主报告' }, ...(right ? [{ report: right, visual: rightVisual, color: '#d99117', name: '对比报告' }] : [])].map(item => ({ ...item,
       navs: new Map(item.report.points), auxiliary: new Map(item.visual?.points.map(p => [p[0], p])),
       positionByDay: new Map(item.visual?.position_points?.map(p => [p[0], p[1]])) }))
     for (const item of reports) {
@@ -128,16 +131,16 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
     for (const index of indexes) series.push({ id: `index-${index.symbol}`, name: index.name, type: 'line',
       showSymbol: false, connectNulls: false, data: days.map(day => reports[0].navs.has(day) ? index.values[day] ?? null : null),
       lineStyle: { color: index.color, type: 'dashed', width: 1.5 }, itemStyle: { color: index.color } })
-    chart.setOption({ animation: false, textStyle: { fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif', color: '#6e7e98' },
-      legend: { show: !!right || indexes.length > 0, selectedMode: false, type: 'scroll', data: [...reports.map(r => r.name), ...indexes.map(index => index.name)], top: 0 },
+    chart.setOption({ animation: false, textStyle: { fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif', color: palette.muted },
+      legend: { show: !!right || indexes.length > 0, selectedMode: false, type: 'scroll', textStyle: { color: palette.muted }, data: [...reports.map(r => r.name), ...indexes.map(index => index.name)], top: 0 },
       grid: positions ? [
         { left: 62, right: 22, top: 38, bottom: '49%' },
         { left: 62, right: 22, top: '57%', bottom: '28%' },
         { left: 62, right: 22, top: '79%', bottom: 54 },
       ] : [{ left: 62, right: 22, top: 38, height: '57%' }, { left: 62, right: 22, top: '76%', bottom: 54 }],
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
-      tooltip: { trigger: 'axis', triggerOn: 'mousemove|click', confine: true, renderMode: 'richText', axisPointer: { type: 'line' },
-        textStyle: { fontSize: 12, lineHeight: 18 },
+      tooltip: { ...palette.tooltip, trigger: 'axis', triggerOn: 'mousemove|click', confine: true, renderMode: 'richText', axisPointer: { type: 'line' },
+        textStyle: { color: palette.ink, fontSize: 12, lineHeight: 18 },
         position: (point: number[], _params: unknown, _dom: unknown, _rect: unknown, size: { contentSize: number[]; viewSize: number[] }) => {
           const top = root.current?.getBoundingClientRect().top ?? 0
           const minimum = Math.max(8, 62 - top)
@@ -157,14 +160,14 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
         }), ...indexes.map(index => `${index.name}：${reportPct(reports[0].navs.has(day) ? index.values[day] ?? null : null)}`), '', ...daySummaryLines(summaries.get(day), summaryLabel)].join('\n')
       } },
       xAxis: axes.map(index => ({ type: 'category', gridIndex: index, data: dates, boundaryGap: false,
-        axisLabel: { show: !positions || index === 2, hideOverlap: true, showMinLabel: true, showMaxLabel: true, formatter: (v: string) => v.slice(0, 7) }, axisLine: { lineStyle: { color: '#cfdaea' } } })),
-      yAxis: [{ type: 'value', scale: true, axisLabel: { formatter: (n: number) => mode === 'return' ? `${n.toFixed(0)}%` : equityUnit === 'normalized-equity' ? n.toFixed(3) : `${(n / 10000).toFixed(1)}万` }, splitLine: { lineStyle: { color: '#e7edf5' } } },
+        axisLabel: { color: palette.muted, show: !positions || index === 2, hideOverlap: true, showMinLabel: true, showMaxLabel: true, formatter: (v: string) => v.slice(0, 7) }, axisLine: { lineStyle: { color: palette.border } } })),
+      yAxis: [{ type: 'value', scale: true, axisLabel: { color: palette.muted, formatter: (n: number) => mode === 'return' ? `${n.toFixed(0)}%` : equityUnit === 'normalized-equity' ? n.toFixed(3) : `${(n / 10000).toFixed(1)}万` }, splitLine: { lineStyle: { color: palette.line } } },
         { type: 'value', gridIndex: 1, max: 0, name: positions ? '日末回撤' : '', nameGap: 8,
-          nameTextStyle: { align: 'left' }, axisLabel: { formatter: '{value}%' }, splitLine: { lineStyle: { color: '#e7edf5' } } },
+          nameTextStyle: { color: palette.muted, align: 'left' }, axisLabel: { color: palette.muted, formatter: '{value}%' }, splitLine: { lineStyle: { color: palette.line } } },
         ...(positions ? [{ type: 'value', gridIndex: 2, min: 0, max: ({ max }: { max: number }) => Math.max(100, max || 0),
-          name: '日末仓位', nameGap: 8, nameTextStyle: { align: 'left' }, axisLabel: { formatter: '{value}%' }, splitLine: { lineStyle: { color: '#e7edf5' } } }] : [])],
+          name: '日末仓位', nameGap: 8, nameTextStyle: { color: palette.muted, align: 'left' }, axisLabel: { color: palette.muted, formatter: '{value}%' }, splitLine: { lineStyle: { color: palette.line } } }] : [])],
       dataZoom: [{ type: 'inside', xAxisIndex: axes, filterMode: 'none', ...zoom.current },
-        { type: 'slider', xAxisIndex: axes, bottom: 8, height: 18, showDetail: false, ...zoom.current }], series })
+        { ...palette.slider, type: 'slider', xAxisIndex: axes, bottom: 8, height: 18, showDetail: false, ...zoom.current }], series })
     chart.on('datazoom', () => {
       const options = chart.getOption().dataZoom as { start: number; end: number }[] | undefined
       if (options?.[0]) zoom.current = { start: options[0].start, end: options[0].end }
@@ -182,7 +185,7 @@ export default function BacktestVisualChart({ left, right, visual, rightVisual, 
     }
     const observer = new ResizeObserver(() => chart.resize()); observer.observe(root.current)
     return () => { observer.disconnect(); chart.dispose() }
-  }, [left, right, visual, rightVisual, mode, markers, equityUnit, summaries, summaryLabel, positions, benchmarks])
+  }, [left, right, visual, rightVisual, mode, markers, equityUnit, summaries, summaryLabel, positions, benchmarks, theme])
   return <div ref={root} className={positions ? 'bt-visual-chart bt-visual-chart-positions' : 'bt-visual-chart'} role="img" tabIndex={0}
     aria-label={positions ? '真实日期收益、日末回撤与日末仓位曲线；点击固定详情，左右键切日' : '真实日期收益与日末回撤曲线；悬停看持仓买卖，点击固定详情，左右键切日'}
     onKeyDown={event => {

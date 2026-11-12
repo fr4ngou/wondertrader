@@ -3,18 +3,18 @@
 .bt-list-count { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
 .bt-report-list { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-solid, #fff); }
 .bt-report-list table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.bt-report-list th { text-align: left; background: #f2f6fd; padding: 11px 12px; white-space: nowrap; }
+.bt-report-list th { text-align: left; background: var(--panel-soft); padding: 11px 12px; white-space: nowrap; }
 .bt-report-list td { padding: 13px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .bt-report-list tr:last-child td { border-bottom: 0; }
 .bt-report-list td:nth-child(2) { min-width: 170px; max-width: 330px; white-space: normal; overflow-wrap: anywhere; }
 .bt-report-list :is(td, th):nth-child(n+3):nth-child(-n+5) { text-align: right; font-variant-numeric: tabular-nums; }
 .bt-report-list td small { display: block; color: var(--muted); margin-top: 7px; font-size: 12px; }
 .bt-report-list input { width: 16px; height: 16px; accent-color: var(--accent); }
-.bt-list-main { background: #edf3ff; }
+.bt-list-main { background: var(--accent-soft); }
 .bt-list-actions { display: flex; gap: 10px; }
-.bt-list-actions button:first-child, .bt-list-selection button { background: var(--accent); border-color: var(--accent); color: #fff; }
+.bt-list-actions button:first-child, .bt-list-selection button { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .bt-list-actions button { white-space: nowrap; }
-.bt-list-selection { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #f4f7fc; font-size: 13px; }
+.bt-list-selection { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); font-size: 13px; }
 .bt-list-selection span b + b { margin-left: 18px; }
 .bt-list-selection span { line-height: 2; }
 .bt-list-selection button { white-space: nowrap; padding: 10px 22px; }
@@ -45,8 +45,8 @@
 .bt-chart-panel, .bt-date-detail { border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; background: var(--panel-solid, #fff); }
 .bt-chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; min-height: 36px; }
 .bt-segments { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 5px; overflow: hidden; }
-.bt-segments button { border: 0; border-radius: 0; padding: 7px 14px; color: var(--ink); background: #fff; white-space: nowrap; }
-.bt-segments button[aria-pressed=true], .bt-segments button[aria-selected=true] { background: var(--accent); color: #fff; }
+.bt-segments button { border: 0; border-radius: 0; padding: 7px 14px; color: var(--ink); background: var(--panel-solid); white-space: nowrap; }
+.bt-segments button[aria-pressed=true], .bt-segments button[aria-selected=true] { background: var(--accent); color: var(--on-accent); }
 .bt-marker-toggle { display: flex; align-items: center; gap: 5px; margin-left: auto; font-size: 12px; white-space: nowrap; }
 .bt-marker-toggle input { width: 15px; height: 15px; accent-color: var(--accent); }
 .bt-marker-key { display: flex; align-items: center; gap: 5px; font-size: 11px; }
@@ -73,20 +73,20 @@
 .bt-visual-chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 .bt-date-detail .bt-segments { display: flex; margin-bottom: 16px; }
 .bt-date-detail .bt-segments button { flex: 1; padding: 8px 9px; }
-.bt-holding-head { display: flex; justify-content: space-between; padding: 9px 5px; background: #f3f6fb; font-size: 12px; }
+.bt-holding-head { display: flex; justify-content: space-between; padding: 9px 5px; background: var(--panel-soft); font-size: 12px; }
 .bt-holding { border-bottom: 1px solid var(--line); padding: 13px 2px; }
 .bt-holding summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; cursor: pointer; }
 .bt-holding small, .bt-trade-table small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
 .bt-holding > div { font-size: 11px; padding-top: 12px; }
-.bt-gain { color: #008c63; }
-.bt-loss { color: #e54351; }
+.bt-gain { color: var(--positive); }
+.bt-loss { color: var(--negative); }
 .bt-all-button { margin-top: auto; width: 100%; color: var(--accent); border: 1px solid var(--accent); padding: 10px; }
-.observer-design .bt-analysis .bt-date-detail .bt-all-button { color: var(--accent); border-color: var(--accent); background: #fff; }
+.observer-design .bt-analysis .bt-date-detail .bt-all-button { color: var(--accent); border-color: var(--accent); background: var(--panel-solid); }
 .bt-read-time { margin: 20px 0; font-size: 10px; }
 .bt-trade-table { width: 100%; overflow-x: auto; }
 .bt-all-records .bt-trade-table { max-height: 440px; overflow: auto; }
 .bt-trade-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.bt-trade-table th { white-space: nowrap; text-align: left; background: #f3f6fb; }
+.bt-trade-table th { white-space: nowrap; text-align: left; background: var(--panel-soft); }
 .bt-trade-table td, .bt-trade-table th { padding: 9px 5px; border-bottom: 1px solid var(--line); }
 .bt-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 15px; font-size: 11px; }
 .bt-pagination button { padding: 5px 8px; }

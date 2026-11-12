@@ -8,6 +8,7 @@ import { ReadNotice } from './ReadNotice'
 import { buildExecutiveWeeks, executiveWeekStats, readWeeklyIndex, shanghaiToday, WEEKLY_INDEXES } from './executiveWeekly'
 import type { DailyClose, ExecutiveWeek, WeeklyIndex } from './executiveWeekly'
 import type { Catalog, Range, Series } from './types'
+import { observerChartColors, useObserverTheme } from '../workspace/observerAppearance'
 import './executive-weekly.css'
 
 // 图表组件与渲染器由同路由加载的 ObservationChart 注册。
@@ -16,26 +17,26 @@ const barName = '周度净减持'
 const benchmark = 'market.sh000001'
 const format = (value: number | null) => value === null ? '—' : value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-export function weeklyExecutiveOptions(weeks: ExecutiveWeek[], narrow: boolean, archived: boolean): Options {
+export function weeklyExecutiveOptions(weeks: ExecutiveWeek[], narrow: boolean, archived: boolean, palette?: ReturnType<typeof observerChartColors>): Options {
   return {
     animation: false,
     grid: { left: narrow ? 42 : 63, right: narrow ? 42 : 67, top: 37, bottom: narrow ? 125 : 107 },
     xAxis: {
       type: 'category', data: weeks.map(week => week.label), boundaryGap: true,
-      axisLabel: { color: '#777', rotate: 50, hideOverlap: true, fontSize: narrow ? 9 : 11,
+      axisLabel: { color: palette?.muted ?? '#777', rotate: 50, hideOverlap: true, fontSize: narrow ? 9 : 11,
         formatter: (value, i) => weeks[i]?.partial || weeks[i]?.unpriced ? value + '*' : value },
-      axisLine: { lineStyle: { color: '#aeb7c4' } },
+      axisLine: { lineStyle: { color: palette?.border ?? '#aeb7c4' } },
       axisTick: { alignWithLabel: true },
     },
     yAxis: [
-      { type: 'value', scale: true, name: '指数点位', nameTextStyle: { color: '#747474' },
-        axisLabel: { color: '#555', formatter: value => narrow ? String(value) : Number(value).toFixed(2) },
-        splitLine: { lineStyle: { color: '#e5e7ea' } } },
-      { type: 'value', name: '净减持(亿元)', position: 'right', nameTextStyle: { color: '#747474' },
-        axisLabel: { color: '#555', formatter: value => Number(value).toFixed(narrow ? 1 : 2) },
+      { type: 'value', scale: true, name: '指数点位', nameTextStyle: { color: palette?.muted ?? '#747474' },
+        axisLabel: { color: palette?.muted ?? '#555', formatter: value => narrow ? String(value) : Number(value).toFixed(2) },
+        splitLine: { lineStyle: { color: palette?.line ?? '#e5e7ea' } } },
+      { type: 'value', name: '净减持(亿元)', position: 'right', nameTextStyle: { color: palette?.muted ?? '#747474' },
+        axisLabel: { color: palette?.muted ?? '#555', formatter: value => Number(value).toFixed(narrow ? 1 : 2) },
         splitLine: { show: false } },
     ],
-    tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'line' },
+    tooltip: { ...palette?.tooltip, trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'line' },
       formatter: (input) => {
         if (!Array.isArray(input) || !input.length) return ''
         const week = weeks[input[0].dataIndex]
@@ -45,12 +46,13 @@ export function weeklyExecutiveOptions(weeks: ExecutiveWeek[], narrow: boolean, 
           ...(week.estimated ? [`其中 ${week.estimated} 笔以历史价格估算`] : []),
           ...input.map(item => `${item.seriesName}  ${format(typeof item.value === 'number' ? item.value : null)}${item.seriesName === barName ? ' 亿元' : ' 点'}`)].join('\n')
       } },
-    legend: { bottom: narrow ? 2 : 0, itemWidth: 18, itemHeight: 9, textStyle: { color: '#555', fontSize: narrow ? 10 : 12 },
+    legend: { bottom: narrow ? 2 : 0, itemWidth: 18, itemHeight: 9, textStyle: { color: palette?.muted ?? '#555', fontSize: narrow ? 10 : 12 },
       data: [barName, ...WEEKLY_INDEXES.map(index => index.name)] },
     dataZoom: [
       { type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false },
       { type: 'slider', filterMode: 'none', bottom: narrow ? 52 : 31, height: 19, showDetail: false,
-        borderColor: '#c5d1e2', fillerColor: 'rgba(86,127,186,.17)', dataBackground: { lineStyle: { color: '#90acd0' }, areaStyle: { color: '#d4e1f2' } } },
+        borderColor: '#c5d1e2', fillerColor: 'rgba(86,127,186,.17)', ...palette?.slider,
+        dataBackground: { lineStyle: { color: palette?.accent ?? '#90acd0' }, areaStyle: { color: palette?.soft ?? '#d4e1f2' } } },
     ],
     series: [
       { type: 'bar', name: barName, yAxisIndex: 1, barMaxWidth: 18, data: weeks.map(week => week.netSales),
@@ -66,23 +68,25 @@ export function weeklyExecutiveOptions(weeks: ExecutiveWeek[], narrow: boolean, 
 
 function WeeklyPlot({ weeks, archived }: { weeks: ExecutiveWeek[]; archived: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
+  const theme = useObserverTheme()
   useEffect(() => {
     const element = ref.current
     if (!element) return
+    const palette = observerChartColors(element)
     const chart = init(element)
     let narrow = element.clientWidth < 520
-    chart.setOption(weeklyExecutiveOptions(weeks, narrow, archived))
+    chart.setOption(weeklyExecutiveOptions(weeks, narrow, archived, palette))
     const observer = new ResizeObserver(() => {
       const next = element.clientWidth < 520
       chart.resize()
       if (next !== narrow) {
         narrow = next
-        chart.setOption(weeklyExecutiveOptions(weeks, narrow, archived))
+        chart.setOption(weeklyExecutiveOptions(weeks, narrow, archived, palette))
       }
     })
     observer.observe(element)
     return () => { observer.disconnect(); chart.dispose() }
-  }, [weeks, archived])
+  }, [weeks, archived, theme])
   return <div ref={ref} className="executive-weekly-plot" role="img" aria-label="蓝柱为周度净减持，红柱为周度净增持，曲线为四个指数的周收盘点位" />
 }
 

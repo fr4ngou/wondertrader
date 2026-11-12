@@ -25,7 +25,7 @@ function Message({ children, retry }: { children: ReactNode; retry?: () => void 
   return <div className="observation-message" role="status"><p>{children}</p>{retry && <button onClick={retry}>重新读取</button>}</div>
 }
 
-export default function ObservationShell() {
+export default function ObservationShell({ appearance }: { appearance?: ReactNode }) {
   const [search] = useSearchParams(); const pinned = search.get('snapshot_id') || undefined
   const catalog = useQuery({ retry: false, queryKey: ['observation', 'catalog', pinned], queryFn: ({ signal }) => getCatalog(signal, pinned), refetchInterval: pinned ? false : 60000 })
   const runtime = useQuery({ retry: false, queryKey: ['observation', 'updates'], queryFn: ({ signal }) => read<{ scheduler: { enabled: boolean;state?:string;last_heartbeat?:string|null };process?:{state:string;label:string;error?:string|null};schedule?:{timezone:string;times:string[]}|null;runs?:{status:string;completed_at:string;execution_mode?:string}[] }>('updates', {}, signal), refetchInterval: 60000 })
@@ -40,7 +40,7 @@ export default function ObservationShell() {
       {!remote && <><a href="/strategies">策略</a><a href="/orders">交易记录</a><a href="/operations">系统状态</a></>}
       <div className="observation-sidebar-note">行情与市场观察<br />交易执行保持隔离</div>
     </aside>
-    <main className="observation-workspace"><header><div><span className="observation-eyebrow">市场观察</span><h1>衡量市场的位置与变化</h1></div><span className="observation-auto">{runtime.isError ? '自动更新状态暂不可用' : runtime.isPending ? '正在检查更新状态…' : automaticUpdateLabel(runtimeData?.scheduler,latestRun?.status)}<br /><small>{runtimeData && <>{localSchedulerLabel(runtimeData.process)}<br /></>}{runtimeData?.schedule ? `${runtimeData.schedule.times.join(' / ')} · ${runtimeData.schedule.timezone==='Asia/Shanghai'?'北京时间':runtimeData.schedule.timezone}` : '更新时刻配置暂不可用'}{runtimeData?.scheduler?.last_heartbeat && <><br />最近心跳：{new Date(runtimeData.scheduler.last_heartbeat).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}{catalog.data && <><br />数据发布：{new Date(catalog.data.published_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}</small></span></header>
+    <main className="observation-workspace">{appearance ? <div className="observation-appearance">{appearance}</div> : null}<header><div><span className="observation-eyebrow">市场观察</span><h1>衡量市场的位置与变化</h1></div><span className="observation-auto">{runtime.isError ? '自动更新状态暂不可用' : runtime.isPending ? '正在检查更新状态…' : automaticUpdateLabel(runtimeData?.scheduler,latestRun?.status)}<br /><small>{runtimeData && <>{localSchedulerLabel(runtimeData.process)}<br /></>}{runtimeData?.schedule ? `${runtimeData.schedule.times.join(' / ')} · ${runtimeData.schedule.timezone==='Asia/Shanghai'?'北京时间':runtimeData.schedule.timezone}` : '更新时刻配置暂不可用'}{runtimeData?.scheduler?.last_heartbeat && <><br />最近心跳：{new Date(runtimeData.scheduler.last_heartbeat).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}{catalog.data && <><br />数据发布：{new Date(catalog.data.published_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}</small></span></header>
       <nav className="observation-tabs" aria-label="市场观察页面">{[['boards', '', '看板'], ['data', '/data', '指标说明'], ['quality', '/quality', '更新与缺口'], ['api', '/api', '导出']].map(([id, suffix, label]) => <NavLink key={id} className={tab === id ? 'active' : ''} to={'/observation' + suffix + location.search}>{label}</NavLink>)}</nav>
       <ReadNotice label="更新状态" query={runtime} />
       <ReadNotice label="观察目录" query={catalog} />

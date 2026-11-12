@@ -7,6 +7,7 @@ import { absoluteChinaTime } from '../components/RelativeTime'
 import type { LiveDay, LivePerformance } from './liveStrategyApi'
 import { FinancialValue } from './FinancialValue'
 import { StrategySecurityLabel } from './StrategyPositionTargets'
+import { observerChartColors, useObserverTheme } from './observerAppearance'
 import './live-strategy.css'
 
 echarts.use([LineChart, ScatterChart, GridComponent, TooltipComponent, DataZoomComponent, SVGRenderer])
@@ -23,30 +24,32 @@ function LiveChart({ days, onHover, onSelect }: {
   /** 点击固定详细日期。 */ onSelect: (day: string) => void
 }) {
   const root = useRef<HTMLDivElement>(null)
+  const theme = useObserverTheme()
   const latestDays = useRef(days); latestDays.current = days
   const callbacks = useRef({ onHover, onSelect }); callbacks.current = { onHover, onSelect }
   const key = JSON.stringify(days.map(d => [d.date, d.nav_cny, d.reference_nav_cny, d.valuation_state, d.deals.filter(x => x.side === 'BUY').length, d.deals.filter(x => x.side === 'SELL').length]))
   useEffect(() => {
     if (!root.current || !days.some(d => chartValue(d) !== null)) return
+    const palette = observerChartColors(root.current)
     const chart = echarts.init(root.current, undefined, { renderer: 'svg' })
     const series: (LineSeriesOption | ScatterSeriesOption)[] = [{ name: '实际发布净值', type: 'line', showSymbol: true, symbolSize: 7, connectNulls: false,
-      data: days.map(d => d.nav_cny === null ? null : Number(d.nav_cny)), lineStyle: { color: '#1763ee', width: 2 }, itemStyle: { color: '#1763ee' } },
+      data: days.map(d => d.nav_cny === null ? null : Number(d.nav_cny)), lineStyle: { color: palette.accent, width: 2 }, itemStyle: { color: palette.accent } },
       { name: '参考净值（手续费待确认）', type: 'line', showSymbol: true, symbolSize: 7, connectNulls: false,
         data: days.map(d => d.reference_nav_cny == null ? null : Number(d.reference_nav_cny)), lineStyle: { color: '#a66b16', width: 2, type: 'dashed' }, itemStyle: { color: '#a66b16' } }]
     for (const direction of ['BUY', 'SELL']) series.push({ name: `账户${side(direction)}`, type: 'scatter', symbol: 'triangle', symbolRotate: direction === 'SELL' ? 180 : 0,
       symbolSize: 12, itemStyle: { color: direction === 'BUY' ? '#d74654' : '#008763' }, z: 4,
       data: days.flatMap((d, i) => chartValue(d) !== null && d.deals.some(t => t.side === direction) ? [[i, Number(chartValue(d))]] : []) })
     chart.setOption({ animation: false, grid: { left: 80, right: 24, top: 25, bottom: 64 },
-      textStyle: { fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif' },
-      xAxis: { type: 'category', data: days.map(d => d.date), boundaryGap: false },
-      yAxis: { type: 'value', scale: true, axisLabel: { formatter: (n: number) => `${(n / 10000).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}万` } },
-      tooltip: { trigger: 'axis', renderMode: 'richText', formatter: (input: unknown) => {
+      textStyle: { fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif', color: palette.muted },
+      xAxis: { type: 'category', data: days.map(d => d.date), boundaryGap: false, axisLabel: { color: palette.muted }, axisLine: { lineStyle: { color: palette.border } } },
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: palette.line } }, axisLabel: { color: palette.muted, formatter: (n: number) => `${(n / 10000).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}万` } },
+      tooltip: { ...palette.tooltip, trigger: 'axis', renderMode: 'richText', formatter: (input: unknown) => {
         const p = Array.isArray(input) ? input[0] : input
         const index = p && typeof p === 'object' && 'dataIndex' in p ? Number(p.dataIndex) : -1
         const d = latestDays.current[index]; if (!d) return ''
         return [d.date, `${d.reference_nav_cny != null ? '参考净值（手续费待确认）' : '实际发布净值'}：${money(chartValue(d))}`, d.positions_state === 'unavailable' ? '持仓尚无观测' : `持仓 ${heldPositions(d).length} 项`,
           d.deals_state === 'unavailable' ? '成交来源尚未取得' : `实际成交 ${d.deals.length} 笔`, '点击固定当日详情'].join('\n')
-      } }, dataZoom: [{ type: 'inside' }, { type: 'slider', bottom: 10, height: 18, showDetail: false }], series })
+      } }, dataZoom: [{ type: 'inside' }, { ...palette.slider, type: 'slider', bottom: 10, height: 18, showDetail: false }], series })
     const dayAt = (x: number, y: number) => {
       if (!chart.containPixel({ gridIndex: 0 }, [x, y])) return null
       const index = Math.round(Number(chart.convertFromPixel({ xAxisIndex: 0 }, x)))
@@ -60,7 +63,7 @@ function LiveChart({ days, onHover, onSelect }: {
     return () => { observer?.disconnect(); chart.dispose() }
     // The financial shape owns chart updates; response/poll timestamps do not rebuild it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [key, theme])
   return <div className="live-strategy-chart" ref={root} role="img" aria-label="实际发布净值曲线与实际成交标记；可悬停预览并点击固定日期，键盘可使用日期选择" />
 }
 

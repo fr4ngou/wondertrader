@@ -5,6 +5,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import brand from '../../config/project-branding.json'
 import './observer-theme.css'
 import { SecurityAutocomplete } from './SecurityAutocomplete'
+import { ObserverThemeSwitch } from './ObserverTheme'
 
 const destinations = [
   { id: 'dashboard', label: '总览', icon: LayoutDashboard },
@@ -60,6 +61,7 @@ export function ObserverLayout({ children, connected, failed = false }: {
         </span>
         <span className="observer-mode">只读</span>
         <time dateTime={today.toISOString()}>{chinaDate(today)}</time>
+        <ObserverThemeSwitch />
       </div>
     </header>
     <Content className="workspace-main" id="workspace-content" tabIndex={-1}>

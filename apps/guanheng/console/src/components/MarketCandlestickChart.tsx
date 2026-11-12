@@ -13,6 +13,7 @@ import { CanvasRenderer, SVGRenderer } from 'echarts/renderers'
 import type { MarketChartBundle } from '../types'
 import { diagnosticLabel } from '../diagnosticPresentation'
 import { sourceChartDate } from '../sourceChartPresentation'
+import { observerChartColors, useObserverTheme } from '../workspace/observerAppearance'
 import { EmptyState } from './EmptyState'
 import { buildMarketChartContinuity, formatMarketGapDuration } from './marketChartContinuity'
 
@@ -39,6 +40,7 @@ export function MarketCandlestickChart({
   visibleCount: number | 'all'
 }) {
   const root = useRef<HTMLDivElement>(null)
+  const theme = useObserverTheme()
   const continuity = useMemo(
     () => buildMarketChartContinuity(bundle?.candles ?? [], bundle?.period ?? '1d'),
     [bundle],
@@ -48,6 +50,7 @@ export function MarketCandlestickChart({
     if (!root.current || !bundle?.data_available || bundle.candles.length === 0) {
       return undefined
     }
+    const palette = observerChartColors(root.current)
     const chart = echarts.init(root.current, undefined, {
       renderer: import.meta.env.MODE === 'test' ? 'svg' : 'canvas',
     })
@@ -86,7 +89,7 @@ export function MarketCandlestickChart({
         value: item.kind === 'signal' ? '信号' : '成交',
         symbol: 'pin',
         symbolSize: item.kind === 'execution' ? 38 : 32,
-        itemStyle: { color: markerStyle, borderColor: '#f6f7f8', borderWidth: 1 },
+        itemStyle: { color: markerStyle, borderColor: palette.panel, borderWidth: 1 },
         label: { color: '#ffffff', fontSize: 9, formatter: '{c}' },
         tooltip: { formatter: item.label },
       }]
@@ -112,8 +115,8 @@ export function MarketCandlestickChart({
             name: '分时价', type: 'line' as const,
             showSymbol: pointCount === 1, symbolSize: 6,
             smooth: false, connectNulls: false, data,
-            lineStyle: { color: '#477a98', width: 1.6 },
-            areaStyle: { color: 'rgba(71,122,152,.10)' },
+            lineStyle: { color: palette.accent, width: 1.6 },
+            areaStyle: { color: palette.accent, opacity: .1 },
           }
         })
       : [{
@@ -147,7 +150,7 @@ export function MarketCandlestickChart({
       : []
     chart.setOption({
       animationDuration: 220,
-      textStyle: { color: '#4f5964', fontFamily: 'Inter, system-ui, sans-serif', fontSize: 12 },
+      textStyle: { color: palette.muted, fontFamily: 'Inter, system-ui, sans-serif', fontSize: 12 },
       grid: hasVolume ? [
         { left: 12, right: 12, top: 38, height: '64%', containLabel: true },
         { left: 12, right: 12, top: '77%', height: '13%', containLabel: true },
@@ -157,36 +160,36 @@ export function MarketCandlestickChart({
       legend: {
         top: 0, right: 4,
         data: [intraday ? '分时价' : '价格', ...(hasVolume ? ['成交量'] : []), ...(benchmarkName ? [benchmarkName] : [])],
-        textStyle: { color: '#596570', fontSize: 12 },
+        textStyle: { color: palette.muted, fontSize: 12 },
       },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      tooltip: { ...palette.tooltip, trigger: 'axis', axisPointer: { type: 'cross' } },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       xAxis: [
         {
           type: 'category', data: labels, boundaryGap: true,
-          axisLine: { lineStyle: { color: '#aeb5bd' } }, axisLabel: { color: '#697580', fontSize: 11 },
+          axisLine: { lineStyle: { color: palette.border } }, axisLabel: { color: palette.muted, fontSize: 11 },
         },
         ...(hasVolume ? [{
           type: 'category', gridIndex: 1, data: labels, boundaryGap: true,
-          axisLine: { lineStyle: { color: '#aeb5bd' } }, axisLabel: { show: false },
+          axisLine: { lineStyle: { color: palette.border } }, axisLabel: { show: false },
         }] : []),
       ],
       yAxis: [
         {
-          scale: true, axisLabel: { color: '#697580', fontSize: 11 },
-          splitLine: { lineStyle: { color: 'rgba(79, 91, 103, .13)' } },
+          scale: true, axisLabel: { color: palette.muted, fontSize: 11 },
+          splitLine: { lineStyle: { color: palette.line } },
         },
         ...(hasVolume ? [{
           gridIndex: 1, scale: true, splitNumber: 2,
           axisLabel: {
-            color: '#697580', fontSize: 10,
+            color: palette.muted, fontSize: 10,
             formatter: (value: number) => `${Math.round(value / 10_000)}万`,
           },
           splitLine: { show: false },
         }] : []),
         {
           scale: true, position: 'right', offset: 2,
-          axisLabel: { color: '#697580', fontSize: 10, formatter: (value: number) => `${value.toFixed(0)}` },
+          axisLabel: { color: palette.muted, fontSize: 10, formatter: (value: number) => `${value.toFixed(0)}` },
           axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false },
         },
       ],
@@ -198,8 +201,7 @@ export function MarketCandlestickChart({
         {
           type: 'slider', xAxisIndex: hasVolume ? [0, 1] : [0], bottom: 0, height: 18,
           startValue, endValue: bundle.candles.length - 1,
-          borderColor: '#aeb5bd', fillerColor: 'rgba(93,113,133,.16)',
-          handleStyle: { color: '#5d7185' }, textStyle: { color: '#697580', fontSize: 10 },
+          ...palette.slider, textStyle: { color: palette.muted, fontSize: 10 },
         },
       ],
       series: [
@@ -222,7 +224,7 @@ export function MarketCandlestickChart({
       observer?.disconnect()
       chart.dispose()
     }
-  }, [bundle, continuity, visibleCount])
+  }, [bundle, continuity, visibleCount, theme])
 
   // A background refresh retains the previous verified candles. Replacing the
   // chart DOM here would also orphan its ECharts instance until bundle changes.

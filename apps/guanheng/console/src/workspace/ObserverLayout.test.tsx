@@ -2,8 +2,14 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test } from 'vitest'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { ObserverLayout } from './ObserverLayout'
+import { ObserverThemeProvider } from './ObserverTheme'
+import { observerThemeKey } from './observerAppearance'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  window.localStorage.removeItem(observerThemeKey)
+  delete document.documentElement.dataset.observerTheme
+})
 
 function Location() {
   const location = useLocation()
@@ -31,5 +37,21 @@ test('服务刷新失败保留当前工作区和完整导航，状态说明不�
   expect(screen.getByRole('heading', { name: '账户' })).toBeVisible()
   expect(screen.getByText('已读取的账户结果')).toBeVisible()
   expect(screen.getByRole('link', { name: '账户' })).toHaveAttribute('aria-current', 'page')
-  expect(screen.getByRole('navigation', { name: '主要工作区' }).querySelectorAll('a')).toHaveLength(7)
+  expect(screen.getByRole('navigation', { name: '主要工作区' }).querySelectorAll('a')).toHaveLength(8)
+})
+
+test('可切换三套主题并恢复保存的外观，无效存储值回到白色', () => {
+  const workspace = <MemoryRouter><ObserverThemeProvider><ObserverLayout connected>工作区</ObserverLayout></ObserverThemeProvider></MemoryRouter>
+  window.localStorage.setItem(observerThemeKey, 'unknown')
+  const mounted = render(workspace)
+  expect(screen.getByRole('button', { name: '白色', pressed: true })).toBeVisible()
+  for (const [name, theme] of [['护眼黄', 'yellow'], ['黑色', 'black'], ['白色', 'white'], ['护眼黄', 'yellow']]) {
+    fireEvent.click(screen.getByRole('button', { name }))
+    expect(screen.getByRole('button', { name, pressed: true })).toBeVisible()
+    expect(document.documentElement).toHaveAttribute('data-observer-theme', theme)
+    expect(window.localStorage.getItem(observerThemeKey)).toBe(theme)
+  }
+  mounted.unmount()
+  render(workspace)
+  expect(screen.getByRole('button', { name: '护眼黄', pressed: true })).toBeVisible()
 })

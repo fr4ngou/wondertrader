@@ -2,10 +2,10 @@
 .live-strategy-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .live-strategy-heading h3 { margin: 0 0 18px; }
 .live-strategy-heading span, .live-strategy-note { color: var(--muted); font-size: 12px; line-height: 1.7; }
-.live-strategy-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; background: var(--panel-muted, #f3f6fc); padding: 18px; border-radius: 6px; }
+.live-strategy-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; background: var(--panel-soft); padding: 18px; border-radius: 6px; }
 .live-strategy-metrics small { display: block; font-size: 12px; color: var(--muted); margin-bottom: 7px; }
 .live-strategy-metrics strong { font-size: 20px; font-variant-numeric: tabular-nums; }
-.live-strategy-attribution { font-size: 12px; line-height: 1.7; color: var(--muted); padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--panel-muted, #f3f6fc); }
+.live-strategy-attribution { font-size: 12px; line-height: 1.7; color: var(--muted); padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--panel-soft); }
 .live-strategy-chart { width: 100%; min-width: 0; height: 320px; }
 .live-day-picker { display: flex; gap: 16px; justify-content: space-between; align-items: center; flex-wrap: wrap; margin: 14px 0; }
 .live-day-picker label { display: flex; align-items: center; gap: 12px; font-size: 13px; }
@@ -22,7 +22,7 @@
 .live-table-scroll th { position: sticky; top: 0; background: var(--panel-solid, white); color: var(--muted); font-weight: normal; }
 .live-table-scroll th, .live-table-scroll td { padding: 10px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .live-day-financials { display: flex; gap: 12px 24px; flex-wrap: wrap; border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; font-size: 12px; color: var(--muted); }
-.strategy-live-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 4px; padding: 5px 9px; background: #e9f7f1; color: #08724f !important; font-size: 12px; }
+.strategy-live-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 4px; padding: 5px 9px; background: var(--positive-soft); color: var(--positive) !important; font-size: 12px; }
 .strategy-live-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .strategy-offline-badge { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; }
 .target-history-table { max-height: none; }

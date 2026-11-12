@@ -3,4 +3,4 @@
 .strategy-runtime-summary .runtime-table th,
 .strategy-runtime-summary .runtime-table td { padding: 9px 5px; white-space: normal; }
 .strategy-runtime-summary .runtime-table tbody th { white-space: nowrap; }
-.strategy-runtime-summary .runtime-table small { margin-top: 4px; color: var(--text-secondary, #5b6778); }
+.strategy-runtime-summary .runtime-table small { margin-top: 4px; color: var(--muted); }
