@@ -54,10 +54,10 @@ def small(actions=None):
         signal_close_prices={c:9.5 for c in DEFAULT_CODES},model_state={c:dict(held=True) for c in DEFAULT_CODES},route_qualification={c:dict(qualified=True,reasons=[]) for c in DEFAULT_CODES})
 
 def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=None,allocation=None,
-         strategy_id=ORIGINAL_ID,capital='1000000',execution_symbol=None):
+         strategy_id=ORIGINAL_ID,capital='1000000',execution_symbol=None,version='0.2.0a1',writes_enabled=True):
     monkeypatch.setattr(mod,'configured_native_facts',
         lambda config,native,mapping,**kw:((),{},dict.fromkeys(mapping.values(),Fraction(1,1000))))
-    p=dict(schema=ORIGINAL_PROFILE,strategy_version='0.2.0a1',main_symbol='SSE.ETF.510300',price_policy=policy,
+    p=dict(schema=ORIGINAL_PROFILE,strategy_version=version,main_symbol='SSE.ETF.510300',price_policy=policy,
         timing_policy='next-session-first-schedule',activation_mode='signals-from-activation',initial_capital_cny=capital,state_mode=mode,
         signal_source={},quote_max_age_seconds=60,evaluation_seconds=2,broker_max_age_seconds=60,shared_account={'path':'E:/fixed.json','sha256':'a'*64})
     if execution_symbol is not None:
@@ -71,7 +71,7 @@ def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=N
     def publish(sid,value,**kw):
         from guanheng_wt_runtime.execution_configured import _encode
         _encode(value);out.append((value,kw))
-    owner=mod.OriginalLiveStrategy(dict(id=strategy_id,parameters={'python_strategy':p}),publish,NS(),{'trader':{'writes_enabled':True}},deadline=time.monotonic()+3,code_identity='f'*64,allocation=allocation,signals=sig)
+    owner=mod.OriginalLiveStrategy(dict(id=strategy_id,parameters={'python_strategy':p}),publish,NS(),{'trader':{'writes_enabled':writes_enabled}},deadline=time.monotonic()+3,code_identity='f'*64,allocation=allocation,signals=sig)
     ctx=Context(owner.codes[0]);return owner,ctx,allocation,sig,out
 
 def schedule(owner,ctx):ctx.event=NS(kind=4,epoch=2,tdate=20261109);owner.callback(ctx)
@@ -492,3 +492,90 @@ def test_unit_descriptor_worker_real_collector_sdk_resolver_fixed_compute(tmp_pa
         assert not output['route_qualification']['510300']['qualified']
         assert {kind for kind,_ in client.calls}=={'snapshot','history','supplement'}
     finally:assert worker.close(time.monotonic()+2)
+
+
+class ConfirmationSignals(Signals):
+    def latest(self):
+        read = super().latest()
+        return replace(read, value=replace(read.value, confirmation_recovery_json=json.dumps(self.recovery).encode()))
+
+
+def confirmation_fixture(monkeypatch, *, actions=None, recovery=None):
+    from guanheng_strategy_original.kc50_confirmation import CODES, STRATEGY_ID, STRATEGY_VERSION
+    projection = small(actions)
+    for key in ('signals_today', 'signal_close_prices', 'model_state', 'route_qualification'):
+        projection[key] = {code: projection[key][code] for code in CODES}
+    projection['confirmation'] = dict(previous_date='2026-11-05', style_state=[.01, .01, .01],
+        atr_inputs={code:dict(close=10., atr=1., multiplier=2., qualified=True) for code in CODES})
+    signals = ConfirmationSignals(projection)
+    signals.recovery = recovery or {}
+    return make(monkeypatch, signals=signals, strategy_id=STRATEGY_ID, version=STRATEGY_VERSION, writes_enabled=False)
+
+
+def test_confirmation_no_write_plans_seven_growth_targets(monkeypatch):
+    owner, ctx, allocation, _, out = confirmation_fixture(monkeypatch, actions={'588000':'BUY','510300':'BUY'})
+    owner.callback(ctx)
+    schedule(owner, ctx)
+    row = out[-1][0]
+    assert row['style'] == '成长' and len(row['desired_targets']) == 7
+    assert row['desired_targets']['SSE.ETF.588000'] == 60000 and row['desired_targets']['SSE.ETF.510300'] == 40000
+    assert not owner.binding().execution_symbols and 'set' not in ctx.calls
+    assert not any(isinstance(x,tuple) and x[0]=='prepare' for x in allocation.calls)
+
+
+@pytest.mark.parametrize(('buy','exit_codes','line'), [(False,['588000'],13.),(True,[],None)])
+def test_confirmation_replays_missed_atr_breach_and_preserves_buy_priority(monkeypatch,buy,exit_codes,line):
+    code = '588000'
+    owner,ctx,asa,_,out = confirmation_fixture(monkeypatch, actions={code:'BUY'} if buy else {},
+        recovery={code:{'2026-11-04':[15.,1.],'2026-11-05':[12.,1.]}})
+    owner.callback(ctx)
+    symbol=owner.mapping[code]
+    asa.own=replace(asa.own,strategy=replace(asa.own.strategy,positions=(PositionView(symbol,100,100,0),)),
+        opening_cycles={symbol:OpeningCycle(symbol,'actual-cycle','2026-11-04T09:31:00+08:00','b'*64,'held')})
+    schedule(owner,ctx)
+    observed=out[-1][0]
+    assert observed['atr_exit_codes']==exit_codes and observed['atr_protection'][code]['line']==line
+    if not buy:
+        assert observed['atr_protection'][code]['breach_date']=='2026-11-05'
+        assert observed['desired_targets'][symbol]==0
+        assert json.loads(ctx.kv)['atr_protection'][code]['line']==13.
+    assert 'set' not in ctx.calls
+
+
+def test_confirmation_atr_exit_preserves_pending_buy_cap(monkeypatch):
+    bought, exited = '510300', '588000'
+    owner,ctx,asa,signals,out = confirmation_fixture(monkeypatch,actions={bought:'BUY'},
+        recovery={exited:{'2026-11-06':[15.,1.]}})
+    owner.callback(ctx)
+    schedule(owner,ctx)
+    first=json.loads(ctx.kv)
+    symbol=owner.mapping[exited]
+    asa.own=replace(asa.own,strategy=replace(asa.own.strategy,positions=(PositionView(symbol,100,100,0),)),
+        opening_cycles={symbol:OpeningCycle(symbol,'actual-cycle','2026-11-06T09:31:00+08:00','b'*64,'held')})
+    signals.small.update(decision_date='2026-11-09',eligible_date='2026-11-10',signal_sha256='e'*64,
+        decision_at='2026-11-09T16:00:00+08:00',signal_close_prices=dict.fromkeys(owner.codes,11.),
+        signals_today={code:[] for code in owner.codes})
+    signals.small['confirmation']['previous_date']='2026-11-06'
+    ctx.event=NS(kind=4,epoch=3,tdate=20261110)
+    owner.callback(ctx)
+    last=json.loads(ctx.kv)
+    assert out[-1][0]['atr_exit_codes']==[exited] and out[-1][0]['desired_targets'][symbol]==0
+    assert last['last_source']==first['last_source'] and last['intent_prices'][bought]==9.5
+    assert 'set' not in ctx.calls
+
+
+def test_confirmation_same_day_qualified_buy_resets_existing_line(monkeypatch):
+    code='588000'
+    owner,ctx,asa,signals,out=confirmation_fixture(monkeypatch,actions={code:'BUY'})
+    owner.callback(ctx)
+    symbol=owner.mapping[code]
+    asa.own=replace(asa.own,strategy=replace(asa.own.strategy,positions=(PositionView(symbol,100,100,0),)),
+        opening_cycles={symbol:OpeningCycle(symbol,'actual-cycle','2026-11-06T09:31:00+08:00','b'*64,'held')})
+    signals.small['route_qualification'][code]['qualified']=False
+    schedule(owner,ctx)
+    assert json.loads(ctx.kv)['atr_protection'][code]['line']==8.
+    signals.small['route_qualification'][code]['qualified']=True
+    signals.small['signal_sha256']='e'*64
+    schedule(owner,ctx)
+    assert out[-1][0]['atr_protection'][code]['status']=='buy_resets_protection'
+    assert json.loads(ctx.kv)['atr_protection'][code]['line'] is None and 'set' not in ctx.calls

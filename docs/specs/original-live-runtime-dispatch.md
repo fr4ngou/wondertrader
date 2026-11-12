@@ -45,3 +45,9 @@ Native回调只读已准备内存、原ctx报价及ASA策略观察。原桥on_ti
 `signal_source`旧白名单字段保持；唯一可选扩展为`unit_evidence:{path,sha256}`，允许省略或null。descriptor严格仅两字段，path为D/E绝对路径，SHA为64位小写十六进制。后台首次轮询前沿原query_seconds绝对截止读取最多1MiB、核固定原件SHA，再调用普通SDK `guanheng_market_client.source_units.parse_unit_evidence(raw)`取得唯一UnitEvidence DTO；该DTO传给`collect_current_facts(unit_evidence=...)`，来源资格逐SDK响应provenance由原reader和SDK resolver核同。默认省略仍不提升unknown。
 
 Native回调不读取证据、不解析DTO；不复制ETF/指数官方映射、不另读官方文档或运行包装源码。当前worker只在整个生命周期初始化时解析一次，证据文件发生后继变化须用新固定descriptor重启/过渡，不能悄然刷新原SHA。坏SHA/坏协议使后台明确不可用，保留最后成功投影的展示身份。
+
+## ORD-7 七只 ETF 收复确认线上 profile
+
+`guanheng.original-live-cta.v1` 的显式 `resonance-kc50-pullback-confirm@0.3.0a1` 走七证券独立 ctx 和原 ASA 执行路径。后台沿同一已发布快照计算七只信号、风格、原价 ATR14 及校准倍数。原版继续按原配置选择。读回价单位按同一 SDK 响应的来源区段核对。拆分复核按事件前一交易日和事件日的双价单位分别核对，保留未证实日期。
+
+新实例从空仓启动，只有实际归属持仓才生成 ATR 保护线。保护线和高点沿实际开仓周期保存在原 ctx 意图 KV，决策日更新一次。错过调度时从已核闭合日序列补算，保留首次跌破日。单位证据不足或开仓周期未知时保留原线和归属，原路由合格卖点仍独立消费。旧档的单位资格不足时暂缓新增风险。新买点触发时按已发布决策日风格调整目标，沿 ASA 及原生执行核资金和权限。无写权限时只发布模拟目标与保护状态，不提交 Native 目标。

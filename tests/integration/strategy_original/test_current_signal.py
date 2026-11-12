@@ -238,3 +238,23 @@ def test_identical_facts_keep_identity_across_worker_hash_seeds(source, facts, t
         result = json.loads(output.read_bytes())
         identities.append((result['prepared_sha256'], digest(result['signals_today']), digest(result['model_state'])))
     assert len(set(identities)) == 1
+
+
+@pytest.mark.parametrize('price_jump', [False, True])
+def test_verified_event_days_resolve_split_in_mixed_archive(source, facts, tmp_path, price_jump):
+    packet = facts['raw']['510300']
+    packet['price_unit'] = 'unknown'
+    event = packet['bars'][29]['date']
+    packet['qualified_price_dates'] = [b['date'] for b in packet['bars'][28:30]]
+    for i in range(29, 40):
+        facts['shares'][i]['value'] = 2 * (100000000 + i * 1000000)
+        if price_jump:
+            packet['bars'][i].update(open=.5, close=.5, high=.6, low=.4)
+    result = build_current_signal(source, facts, work_directory=tmp_path)
+    coverage = result['diagnostics']['coverage']['510300']
+    assert not coverage['unresolved_split_dates'] and not coverage['factor_pair']['units_qualified']
+    if price_jump:
+        assert coverage['split_events'][0]['date'] == event
+        assert coverage['split_events'][0]['basis'] == 'validated-unit-pair'
+    else:
+        assert coverage['split_events'] == []

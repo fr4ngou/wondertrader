@@ -74,6 +74,8 @@ class PreparedOriginalSignal:
     projection_json:bytes  # 完整小型投影的不可变编码；没有行情大数组或可变借用。
     completed_at:str  # 本机准备完成UTC时刻，不冒充首次发布时间。
 
+    confirmation_recovery_json:bytes|None=None  # 只在持仓断点恢复时解析的原价ATR历史。
+
     def projection(self):return json.loads(self.projection_json)
 
 @dataclass(frozen=True)
@@ -112,19 +114,63 @@ def read_original_publication(config,*,deadline):
     return OriginalPublication(day,identity,hashlib.sha256(raw).hexdigest(),eligible,calendar_sha)
 
 
-def route_qualification(facts,result):
+def _price_ready(packet, day, unit, segment_units):
+    if segment_units and 'qualified_price_dates' in packet:
+        return day in packet['qualified_price_dates']
+    return packet.get('price_unit') == unit
+
+
+def confirmation_projection(facts, *, include_recovery=False):
+    """后台从同一 WT 快照准备风格及原价 ATR，回调只消费当日数值。"""
+    from guanheng_strategy_original.kc50_confirmation import START, market_state
+    from .kc50_atr_protection import AtrProtection
+
+    day = facts['decision_date']
+    history = {code: facts['raw'][code]['bars'] for code in facts['codes']}
+    prices = {code: [dict(row, **{k: float(row[k]) for k in ('close', 'high', 'low')}) for row in rows]
+              for code, rows in history.items()}
+    style = dict(market_state(prices, facts['calendar'])).get(day)
+    atr = AtrProtection(prices, START)
+    rows = {}
+    for code, observations in atr.observations.items():
+        packet = facts['raw'][code]
+        qualified = set(packet.get('qualified_price_dates', ()))
+        missing = 0 if 'qualified_price_dates' not in packet and packet['price_unit'] == 'CNY/share' else len(set(observations) - qualified)
+        close, value = observations.get(day, (None, None))
+        multiplier = atr.multiplier.get(code) if code in atr.ready and day >= atr.ready[code] else None
+        rows[code] = dict(
+            close=close,  # 决策日原价收盘，CNY/份；缺当日bar为None。
+            atr=value,  # Wilder ATR14，原价CNY/份；预热不足为None。
+            multiplier=multiplier,  # 10%除以原样本ATR/收盘中位数，无量纲。
+            unqualified_history_bars=missing,  # 本证券原价序列中单位未证明的日线数。
+            qualified=not missing and close is not None and value is not None and multiplier is not None)
+    calendar = facts['calendar']
+    index = calendar.index(day)
+    projection = dict(
+        previous_date=calendar[index - 1] if index else None,  # 北京时间前一交易日，用于识别ATR状态续接间隔。
+        style_state=style,  # 原两个宽基及成长相对红利的指数加权日收益，顺序沿研究规则。
+        atr_inputs=rows)  # 逐证券输入及单位资格，与账户持仓无关。
+    if not include_recovery:
+        return projection
+    recovery = {code: {date: [close, value] for date, (close, value) in observations.items()
+                       if value is not None and date >= atr.ready[code]}
+                for code, observations in atr.observations.items() if rows[code]['qualified']}
+    return projection, _encode(recovery)
+
+
+def route_qualification(facts,result,*,confirmation=False):
     """逐原路由必要证据；可选因子None、宏观缺口与270日诊断不升级成全池门槛。"""
-    rows={};coverage=result['diagnostics']['coverage']
+    rows={};coverage=result['diagnostics']['coverage'];day=facts['decision_date'] if confirmation else None
     for code in facts['codes']:
-        dependencies=(code,'510300') if code=='159352' else (code,)
+        dependencies=(code,'510300') if code=='159352' and not confirmation else (code,)
         reasons=[]
         if facts['profile']!='causal-current':reasons.append('causal_profile_required')
         benchmark=facts['analysis'].get('000300',{})
-        if benchmark.get('price_unit')!='index-point':reasons.append('benchmark_price_units_unqualified')
+        if not _price_ready(benchmark,day,'index-point',confirmation):reasons.append('benchmark_price_units_unqualified')
         for dependency in dependencies:
             packet=facts['analysis'].get(dependency,{})
-            if packet.get('price_unit')!='CNY/share' or packet.get('volume_unit','unknown')=='unknown':reasons.append('quote_units_unqualified:'+dependency)
-            if facts['raw'].get(dependency,{}).get('price_unit')!='CNY/share':reasons.append('raw_price_units_unqualified:'+dependency)
+            if not _price_ready(packet,day,'CNY/share',confirmation) or packet.get('volume_unit','unknown')=='unknown':reasons.append('quote_units_unqualified:'+dependency)
+            if not _price_ready(facts['raw'].get(dependency,{}),day,'CNY/share',confirmation):reasons.append('raw_price_units_unqualified:'+dependency)
             detail=coverage.get(dependency,{})
             if detail.get('today_present')is not True:reasons.append('today_features_missing:'+dependency)
             if detail.get('missing_benchmark_dates'):reasons.append('benchmark_dates_missing:'+dependency)
@@ -140,8 +186,9 @@ def route_qualification(facts,result):
 
 class OriginalSignalWorker:
     """一次ThreadOwner、一个Client、一个最后成功投影；没有Native引用或Source写入。"""
-    def __init__(self,config,*,client_factory=None,publication_reader=read_original_publication,collector=None,computer=None,utcnow=lambda:datetime.now(timezone.utc)):
+    def __init__(self,config,*,client_factory=None,publication_reader=read_original_publication,collector=None,computer=None,confirmation=False,utcnow=lambda:datetime.now(timezone.utc)):
         _need(type(config)is OriginalSignalConfig,'original_worker_config');self.config=config
+        self.confirmation=confirmation
         self._client_factory=client_factory;self._publication_reader=publication_reader;self._collector=collector;self._computer=computer;self._utcnow=utcnow
         self._stop=Event();self._lock=Lock();self._read=OriginalSignalRead(None,False,'not_started');self._owner=None
 
@@ -181,11 +228,15 @@ class OriginalSignalWorker:
                         self._publish(OriginalSignalRead(prior,True,None))
                     else:
                         options={} if evidence is None else {'unit_evidence':evidence}
+                        if self.confirmation:
+                            from guanheng_strategy_original.kc50_confirmation import CODES
+                            options.update(codes=CODES,segment_units=True)
                         source=collector(client,observation_date=publication.observation_date,history_from=self.config.history_from,
                             feature_stage=self.config.feature_stage,turnover_kind=self.config.turnover_kind,seconds=max(.001,query_deadline-time.monotonic()),**options)
                         _need(time.monotonic()<query_deadline,'original_query_deadline')
                         _need(source.facts['snapshot_id']==publication.snapshot_id,'original_publication_changed')
-                        result=computer(self.config.source_root,source.facts,work_directory=self.config.work_directory,timeout_seconds=self.config.compute_seconds)
+                        mode = {'confirmation': True} if self.confirmation else {}
+                        result=computer(self.config.source_root,source.facts,work_directory=self.config.work_directory,timeout_seconds=self.config.compute_seconds,**mode)
                         # 计算完成后的重新确认属于单独只读发布核验阶段，不延长查询或计算本身的原D。
                         final=self._publication_reader(self.config,deadline=time.monotonic()+self.config.query_seconds)
                         _need(final==publication,'original_publication_changed')
@@ -193,7 +244,7 @@ class OriginalSignalWorker:
                         prices={}
                         for code,p in source.facts['raw'].items():
                             rows=p['bars']
-                            if p.get('price_unit')=='CNY/share' and rows and rows[-1]['date']==publication.observation_date:prices[code]=rows[-1]['close']
+                            if _price_ready(p,publication.observation_date,'CNY/share',self.confirmation) and rows and rows[-1]['date']==publication.observation_date:prices[code]=rows[-1]['close']
                         small={k:result[k] for k in ('schema','algorithm_id','upstream_commit','facts_sha256','prepared_sha256','decision_date','decision_at','signals_today','model_state','signal_qualified')}
                         small.update(
                             signal_sha256=hashlib.sha256(_encode(result)).hexdigest(),  # 完整原纯结果身份，非仅BUY/SELL摘要。
@@ -201,8 +252,11 @@ class OriginalSignalWorker:
                             signal_close_prices=prices,  # 原决策日已证明CNY/share的未复权收盘价；缺项保持缺失。
                             snapshot_id=publication.snapshot_id,  # 原Data完整发布身份，不是投影或CURRENT文件SHA。
                             eligible_date=publication.eligible_date,  # 同发布官方日历证明的下一会话，未知为None。
-                            route_qualification=route_qualification(source.facts,result))  # 每证券必要证据及可选缺口分别标识。
-                        value=PreparedOriginalSignal(publication,_encode(small),self._utcnow().isoformat())
+                            route_qualification=route_qualification(source.facts,result,confirmation=self.confirmation))
+                        recovery = None
+                        if self.confirmation:
+                            small['confirmation'], recovery = confirmation_projection(source.facts,include_recovery=True)
+                        value=PreparedOriginalSignal(publication,_encode(small),self._utcnow().isoformat(),recovery)
                         if not self._stop.is_set():self._publish(OriginalSignalRead(value,True,None))
                 except Exception as error:
                     self._publish(OriginalSignalRead(self.latest().value,False,'prepare_'+type(error).__name__))

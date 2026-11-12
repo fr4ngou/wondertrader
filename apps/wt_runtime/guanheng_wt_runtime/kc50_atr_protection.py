@@ -2,6 +2,13 @@
 from statistics import median
 
 
+def protection_line(close, atr, multiplier, previous_peak=None, previous_level=None):
+    """按实际持仓周期递推原价最高收盘和只升的保护线，单位均为元/份。"""
+    peak = max(close, close if previous_peak is None else previous_peak)
+    level = max(0 if previous_level is None else previous_level, peak - atr * multiplier)
+    return peak, level
+
+
 class AtrProtection:
     def __init__(self, history, activation):
         self.observations = {}
@@ -59,6 +66,7 @@ class AtrProtection:
             peak = self.peaks[code] = max(self.peaks.get(code, close), close)
             if code not in self.ready or day < self.ready[code] or atr is None:
                 continue
-            level = self.levels[code] = max(self.levels.get(code, 0), peak - atr * self.multiplier[code])
+            _, level = protection_line(close, atr, self.multiplier[code], peak, self.levels.get(code))
+            self.levels[code] = level
             if close <= level:
                 yield dict(code=code, action='SELL', reason=f'{code} {close:.4f}≤{level:.4f}')

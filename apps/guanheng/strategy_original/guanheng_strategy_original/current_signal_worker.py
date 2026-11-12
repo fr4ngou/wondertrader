@@ -66,12 +66,20 @@ def prepare(facts: dict, backend: Path) -> tuple[dict, dict]:
         raw = {b["date"]: b for b in raw_packet.get("bars", [])}
         pair_units_qualified = (raw_packet.get("price_unit") == "CNY/share"
                                 and facts["analysis"][code]["price_unit"] == "CNY/share")
-        if not pair_units_qualified:
+        analysis_packet = facts["analysis"][code]
+        raw_unit_dates = set(raw_packet.get("qualified_price_dates", raw if raw_packet.get("price_unit") == "CNY/share" else ()))
+        analysis_dates = {b["date"] for b in bars}
+        analysis_unit_dates = set(analysis_packet.get("qualified_price_dates", analysis_dates if analysis_packet["price_unit"] == "CNY/share" else ()))
+        paired_dates = raw_unit_dates & analysis_unit_dates
+        full_unit_coverage = (pair_units_qualified or
+                              (bool(raw) and set(raw) <= raw_unit_dates and bool(bars)
+                               and analysis_dates <= analysis_unit_dates))
+        if not full_unit_coverage:
             pair_unit_issues.append("split_price_units_unqualified:" + code)
         historical = facts["profile"] == "historical-final-oracle"
         # 当前日因子必须同为已核ETF单价。历史对照显式保留研究单位假设，永不授信号资格。
-        ratios = ([(b["date"], raw[b["date"]]["close"] / b["close"]) for b in bars if b["date"] in raw]
-                  if pair_units_qualified or historical else [])
+        ratios = [(b["date"], raw[b["date"]]["close"] / b["close"]) for b in bars
+                  if b["date"] in raw and (historical or b["date"] in paired_dates)]
         ratio_map = dict(ratios)
         splits, unresolved = [], []
         for i in range(1, len(share_rows)):
@@ -99,7 +107,7 @@ def prepare(facts: dict, backend: Path) -> tuple[dict, dict]:
             splits.append({
                 "date": row["date"],  # 模型识别的折算事件交易日，非公告首次可知时刻。
                 "ratio": adjust.ratio,  # 折算后/前份额比例，无量纲。
-                "basis": "validated-unit-pair" if pair_units_qualified else "historical-unit-assumption",  # 单位依据；假设不能称已核折算。
+                "basis": "validated-unit-pair" if all(day in paired_dates for day, _ in window) else "historical-unit-assumption",  # 单位依据；假设不能称已核折算。
             })
             for j in range(i, min(len(share_rows), i + 11)):
                 current = share_rows[j]
@@ -143,7 +151,7 @@ def prepare(facts: dict, backend: Path) -> tuple[dict, dict]:
             "factor_pair": {
                 "raw_price_unit": raw_packet.get("price_unit"),  # 原价单位，null表示缺少该来源包。
                 "analysis_price_unit": facts["analysis"][code]["price_unit"],  # 前复权价格单位，unknown不能证明同维度。
-                "units_qualified": pair_units_qualified,  # 两价均已声明CNY/share才为true。
+                "units_qualified": full_unit_coverage,  # 两价均已声明CNY/share才为true。
                 "historical_unit_assumption": historical and not pair_units_qualified and bool(ratios),  # 仅历史对照实际使用的单位假设。
             },
         }

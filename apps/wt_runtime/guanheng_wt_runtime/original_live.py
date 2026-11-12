@@ -13,6 +13,8 @@ from .profile_facts import configured_native_facts,digest,quote_value,common_pri
 ORIGINAL_PROFILE='guanheng.original-live-cta.v1'
 ORIGINAL_STRATEGY_ID='resonance-original-wt-351f9d5-stable'
 ORIGINAL_LIVE_VERSION='0.2.0a1'
+CONFIRM_LIVE_ID='resonance-kc50-pullback-confirm'
+CONFIRM_LIVE_VERSION='0.3.0a1'
 
 
 def initial_capital(parameters):
@@ -34,8 +36,11 @@ class OriginalLiveStrategy:
         from guanheng_strategy_original.reference import DEFAULT_CODES
         p=item['parameters']['python_strategy'];required={'schema','strategy_version','main_symbol','price_policy','timing_policy','activation_mode',
             'initial_capital_cny','state_mode','signal_source','quote_max_age_seconds','evaluation_seconds','broker_max_age_seconds'}
-        _need(type(p)is dict and required<=set(p)<=required|{'shared_account','execution_symbol_589680'} and p['schema']==ORIGINAL_PROFILE
-              and p['strategy_version']==ORIGINAL_LIVE_VERSION,'original_live_profile')
+        self.confirmation = item['id'] == CONFIRM_LIVE_ID
+        self.version = CONFIRM_LIVE_VERSION if self.confirmation else ORIGINAL_LIVE_VERSION
+        allowed = {'shared_account'} if self.confirmation else {'shared_account','execution_symbol_589680'}
+        _need(type(p)is dict and required<=set(p)<=required|allowed and p['schema']==ORIGINAL_PROFILE
+              and p['strategy_version']==self.version,'original_live_profile')
         _need(p['price_policy'] in ('executor-price','signal-close-cap') and p['timing_policy']=='next-session-first-schedule'
               and p['activation_mode']=='signals-from-activation'
               and p['state_mode'] in ('new','resume'),'original_live_model')
@@ -49,6 +54,9 @@ class OriginalLiveStrategy:
         self.initial_capital_cny = initial_capital(p)
         self.start_deadline=deadline
         self.id=item['id'];self.publish=publish;self.allocation=allocation;self.parameters=dict(p);self.codes=tuple(DEFAULT_CODES)
+        if self.confirmation:
+            from guanheng_strategy_original.kc50_confirmation import CODES
+            self.codes = CODES
         self.mapping={c:('SZSE' if c.startswith('159') else 'SSE')+'.ETF.'+c for c in self.codes}
         if 'execution_symbol_589680' in p:
             execution_symbol=p['execution_symbol_589680']
@@ -60,10 +68,10 @@ class OriginalLiveStrategy:
         self.analysis_codes={symbol:code for code,symbol in self.mapping.items()}
         self.reads=self.targets=tuple(sorted(self.mapping.values()));self.main=p['main_symbol'];_need(self.main in self.reads,'main_symbol')
         _,_,self.ticks=configured_native_facts(configuration,native,self.mapping,deadline=deadline)
-        self.signals=signals or OriginalSignalWorker(OriginalSignalConfig.from_dict(p['signal_source']))
+        self.signals=signals or OriginalSignalWorker(OriginalSignalConfig.from_dict(p['signal_source']),confirmation=self.confirmation)
         self.seconds=p['evaluation_seconds'];self.max_age=p['broker_max_age_seconds'];self.capital_reader=None;self.participants={}
         self.execution_enabled=native['trader']['writes_enabled'];_need(type(self.execution_enabled)is bool,'execution_permission')
-        self.identity=digest((self.id,ORIGINAL_LIVE_VERSION,{k:v for k,v in p.items() if k!='state_mode'},code_identity));self.initialized=False;self.sequence=0
+        self.identity=digest((self.id,self.version,{k:v for k,v in p.items() if k!='state_mode'},code_identity));self.initialized=False;self.sequence=0
         from .execution_recovery import strategy_state_mode
         self.state_mode=strategy_state_mode(native,self.id,deadline=deadline) or p['state_mode']  # 已核原状态owner决定恢复模式；固定new配置不重置后继ctx。
         self.previous_identity=None
@@ -75,26 +83,31 @@ class OriginalLiveStrategy:
             _need(prior is not None,'original_previous_profile_required')
             old=prior['parameters']['python_strategy']
             _need({k:v for k,v in old.items() if k!='state_mode'}=={k:v for k,v in p.items() if k!='state_mode'},'original_model_transition')
-            self.previous_identity=digest((self.id,ORIGINAL_LIVE_VERSION,{k:v for k,v in old.items() if k!='state_mode'},prior_code))
+            self.previous_identity=digest((self.id,self.version,{k:v for k,v in old.items() if k!='state_mode'},prior_code))
         self._buys=set();self._sells=set();self._plan=None;self._last_date=None;self._last_source=None
         self._intent_known_at=None;self._intent_prices={};self._consumed_sha=None;self._consumed_codes={};self._announced=False
+        self._atr_state={}
 
     def binding(self):return StrategyBinding(self.id,self.main,self.reads,self.targets if self.execution_enabled else (),self.callback,native_config_abi=2)
 
     def _state(self):
-        return dict(
+        state = dict(
             schema='guanheng.original-live-intent.v1',  # 固定意图KV协议，不是券商账本。
             identity=self.identity,  # 本模型配置/代码身份SHA，跨安装仅沿原transition接受前代。
             sequence=self.sequence,  # 回调观察序号，不是交易次数或命令UUID。
             buys=sorted(self._buys),  # 已消费原BUY后尚未完成的六位代码集合。
             sells=sorted(self._sells),  # 已消费原SELL的退出意图，实际可卖继续由ASA/WT拥有。
-            plan=self._plan,  # 完整九代码目标份数，100份倍数；None表示未规划或已完成，不表示清仓。
+            plan=self._plan,  # 完整策略目标份数，100份倍数；None表示未规划或已完成，不表示清仓。
             last_date=self._last_date,  # 最近至少一个证券消费的闭合决策日ISO；初始为None。
             last_source=self._last_source,  # 当前未完成动作的完整纯结果SHA；没有动作时为None。
             consumed_sha=self._consumed_sha,  # 最近消费结果的摘要，仅供观察修订，不替代逐证券水位。
             consumed_codes=dict(self._consumed_codes),  # 每证券{date,sha256}；缺项表示该证券尚未消费。
             intent_known_at=self._intent_known_at,  # 原信号实际已知截止，带时区ISO；初始None。
             intent_prices=dict(self._intent_prices))  # 原决策日原价收盘，CNY/份；缺证券为未知，不放宽cap。
+
+        if self.confirmation:
+            state['atr_protection'] = self._atr_state  # 按证券保存实际开仓周期及已处理闭合日的原价高点、保护线。
+        return state
 
     def _view(self,context,deadline):
         reason=self.allocation.observe_context(context,deadline=deadline,max_age_seconds=self.max_age)
@@ -142,13 +155,24 @@ class OriginalLiveStrategy:
                 _need(state['last_source'] is not None and state['intent_known_at'] is not None,'original_state_source')
             self.sequence=state['sequence'];self._buys=set(state['buys']);self._sells=set(state['sells']);self._plan=state['plan'];self._last_date=state['last_date'];self._last_source=state['last_source']
             self._intent_known_at=state['intent_known_at'];self._intent_prices=dict(state['intent_prices']);self._consumed_sha=state['consumed_sha'];self._consumed_codes=dict(state['consumed_codes'])
+            if self.confirmation:
+                atr = state['atr_protection']
+                _need(type(atr) is dict and set(atr) <= set(self.codes), 'confirmation_atr_state')
+                for row in atr.values():
+                    _need(type(row) is dict and set(row) == {'cycle', 'date', 'peak', 'line'}
+                          and type(row['cycle']) is str and bool(row['cycle'])
+                          and date.fromisoformat(row['date']).isoformat() == row['date']
+                          and ((row['line'] is None and row['peak'] is None)
+                               or (all(type(row[key]) in (int, float) and math.isfinite(row[key]) for key in ('peak','line'))
+                                   and 0 <= row['line'] <= row['peak'])), 'confirmation_atr_state')
+                self._atr_state = atr
             if state['identity']!=self.identity:context.store_quantity_state(json.dumps(self._state(),sort_keys=True,separators=(',',':')))
         self.initialized=True
         self.publish(self.id,dict(
             status='initialized',  # ctx及自有分配已核初始化；不宣布成交或信号齐备。
-            definition=self._definition(),  # 原ctx已核九证券声明；ASA暂缺时也保留证券范围。
+            definition=self._definition(),  # 原ctx已核证券声明；ASA暂缺时也保留证券范围。
             strategy_id=self.id,  # 独立原版线上策略身份。
-            strategy_version=ORIGINAL_LIVE_VERSION,  # 本次线上执行模型版本，不改a1/a2历史报告。
+            strategy_version=self.version,  # 本次线上执行模型版本，不改a1/a2历史报告。
             initial_capital_cny=format(self.initial_capital_cny,'f'),  # 本实例明确的初始CNY金额。
             capital_source='ASA:explicit-new-allocation',  # 独立分配由唯一ASA拥有。
             owned_valuation=self._valuation(context,own,deadline),  # 本策略原价估值，费用未齐只发布参考值。
@@ -168,9 +192,75 @@ class OriginalLiveStrategy:
         """只读已核ctx证券池，不从账户持仓或信号推断交易所。"""
         return dict(
             strategy_id=self.id,  # 本次真实ctx策略身份。
-            strategy_version=ORIGINAL_LIVE_VERSION,  # 原线上执行模型版本。
+            strategy_version=self.version,  # 已选择线上模型版本。
             symbols=[code+{'SSE':'.SH','SZSE':'.SZ'}[exchange]
                      for exchange,_,code in (symbol.split('.') for symbol in self.mapping.values())])  # 已核执行证券，含零持仓。
+
+    def _confirmation_atr(self, prepared, small, own, actual, eligible, sells, new_buys):
+        """用实际归属周期推进只升保护线，计算不持有券商或执行器。"""
+        from zoneinfo import ZoneInfo
+        from .kc50_atr_protection import protection_line
+
+        view = small['confirmation']
+        day = small['decision_date']
+        updated = {code: row for code, row in self._atr_state.items() if actual[code]}
+        rows, exits = {}, []
+        recovery = None
+        for code, inputs in view['atr_inputs'].items():
+            prior = updated.get(code)
+            cycle = own.opening_cycles.get(self.mapping[code])
+            if prior is not None and cycle is not None and cycle.cycle_id and prior['cycle'] != cycle.cycle_id:
+                updated.pop(code)
+                prior = None
+            row = dict(inputs, quantity=actual[code], line=prior['line'] if prior else None,
+                       peak=prior['peak'] if prior else None, status='flat')
+            rows[code] = row
+            if not actual[code]:
+                continue
+            if not inputs['qualified']:
+                row['status'] = 'atr_history_units_unqualified'
+                continue
+            if cycle is None or not cycle.cycle_id or not cycle.opened_at:
+                row['status'] = 'opening_cycle_unavailable'
+                continue
+            opened = datetime.fromisoformat(cycle.opened_at).astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
+            if code in sells:
+                row['status'] = 'exit_pending'
+                continue
+            if not eligible or opened > day:
+                row['status'] = 'decision_not_eligible'
+                continue
+            if code in new_buys:
+                updated[code] = dict(cycle=cycle.cycle_id, date=day, peak=None, line=None)
+                row.update(peak=None, line=None, status='buy_resets_protection')
+                continue
+            if prior is not None and prior['date'] >= day:
+                row['status'] = 'observed'
+                continue
+            peak, line = row['peak'], row['line']
+            crossed = None
+            if (prior is None and opened < day) or (prior and prior['date'] != view['previous_date']):
+                if recovery is None:
+                    recovery = json.loads(prepared.confirmation_recovery_json or b'{}')
+                history = recovery.get(code, {})
+                start = opened if prior is None else prior['date']
+                if start not in history or view['previous_date'] not in history:
+                    row['status'] = 'atr_history_resume_required'
+                    continue
+                for observed in sorted(history):
+                    if observed < start or (prior and observed == start) or observed >= day:
+                        continue
+                    close, atr = history[observed]
+                    peak, line = protection_line(close, atr, inputs['multiplier'], peak, line)
+                    if close <= line and crossed is None:
+                        crossed = observed
+            peak, line = protection_line(inputs['close'], inputs['atr'], inputs['multiplier'], peak, line)
+            updated[code] = dict(cycle=cycle.cycle_id, date=day, peak=peak, line=line)
+            exit_now = crossed is not None or inputs['close'] <= line
+            row.update(peak=peak, line=line, status='exit' if exit_now else 'protected', breach_date=crossed or (day if exit_now else None))
+            if exit_now:
+                exits.append(code)
+        return updated, rows, exits
 
     def callback(self,context):
         if context.event.kind==1:self._initialize(context);return
@@ -199,7 +289,7 @@ class OriginalLiveStrategy:
         candidate=dict(
             definition=self._definition(),  # 原ctx的真实版本/证券池声明，独立于行情/归属是否就绪。
             strategy_id=self.id,  # 当前独立策略身份。
-            strategy_version=ORIGINAL_LIVE_VERSION,  # 线上模型版本，不冒充冻结回测版本。
+            strategy_version=self.version,  # 线上模型版本，不冒充冻结回测版本。
             sequence=self.sequence,  # 当前回调观察序号。
             price_policy=self.parameters['price_policy'],  # 显式执行价格模型；不是已成交价格保证。
             timing_policy=self.parameters['timing_policy'],  # 下一会话首个具备条件的分钟调度。
@@ -227,23 +317,42 @@ class OriginalLiveStrategy:
         intent_known_at,intent_prices=self._intent_known_at,dict(self._intent_prices)
         eligible=small['eligible_date']==trade and small['decision_date']<trade
         consumed_any=False
+        confirmation = small['confirmation'] if self.confirmation else None
+        blocked_buys = []
+        new_buys = set()
+        atr_state = None
         if eligible:
             for c,rows in small['signals_today'].items():
                 _need(c in self.codes,'original_signal_scope')
                 prior=consumed_codes.get(c)
                 if not qualifications[c]['qualified'] or (prior is not None and prior['date']>=small['decision_date']):continue
+                if confirmation is not None and any(row['action']=='BUY' for row in rows) and not confirmation['atr_inputs'][c]['qualified']:
+                    blocked_buys.append(c)
+                    continue
                 consumed_codes[c]=dict(
                     date=small['decision_date'],  # 此证券实际消费的闭合决策日ISO。
                     sha256=small['signal_sha256'])  # 当时完整纯结果SHA；后继修订不重复消费。
                 consumed_any=True
                 for row in rows:
                     _need(row['date']==small['decision_date'] and row['action'] in ('BUY','SELL'),'original_signal_record')
-                    if row['action']=='BUY':buys.add(c);sells.discard(c);plan=None
+                    if row['action']=='BUY':
+                        buys.add(c);sells.discard(c);plan=None
+                        new_buys.add(c)
                     else:sells.add(c);buys.discard(c);plan=None if plan is None else dict(plan,**{c:0})
                     last_source=small['signal_sha256'];intent_known_at=small['decision_at'];intent_prices=dict(small['signal_close_prices'])
             if consumed_any:last_date=small['decision_date'];consumed_sha=small['signal_sha256']
-        if not consumed_any and not (buys or sells or plan is not None):
-            waiting('route_data_unqualified' if eligible and any(not r['qualified'] for r in qualifications.values()) else 'signal_session_not_eligible');return
+        if confirmation is not None:
+            atr_state, protection, exits = self._confirmation_atr(read.value,small,own,actual,eligible,sells,new_buys)
+            candidate['atr_protection'] = protection
+            candidate['atr_blocked_buy_codes'] = blocked_buys
+            candidate['atr_exit_codes'] = exits
+            for code in exits:
+                sells.add(code);buys.discard(code);plan=None if plan is None else dict(plan,**{code:0})
+            # 未成交增仓仍按首次信号的价格上界和来源；新的ATR退出只缩减目标。
+            if exits and not buys and (plan is None or all(quantity <= actual[code] for code, quantity in plan.items())):
+                last_source=small['signal_sha256'];intent_known_at=small['decision_at'];intent_prices=dict(small['signal_close_prices'])
+        if not consumed_any and not (buys or sells or plan is not None) and atr_state == (self._atr_state if self.confirmation else None):
+            waiting('atr_history_units_unqualified' if blocked_buys else 'route_data_unqualified' if eligible and any(not r['qualified'] for r in qualifications.values()) else 'signal_session_not_eligible');return
         now=datetime.now(timezone.utc);prices={}
         for c in self.codes:
             value=quote_value(context,self.mapping[c],self.ticks[self.mapping[c]],now=now,max_age=self.parameters['quote_max_age_seconds'])
@@ -253,11 +362,23 @@ class OriginalLiveStrategy:
             active=({c for c,q in actual.items() if q>0}|buys)-sells
             if active and all(c in prices for c in active) and all(c in prices for c,q in actual.items() if q):
                 nav=Fraction(own.strategy.ledger_cash_cny)+sum((q*prices[c] for c,q in actual.items() if q),Fraction(0))
-                if nav>0:plan={c:int(nav/len(active)/prices[c]/100)*100 if c in active else 0 for c in self.codes}
+                if nav>0:
+                    weights = dict.fromkeys(active,1)
+                    if confirmation is not None:
+                        from guanheng_strategy_original.kc50_confirmation import allocation
+                        weights, candidate['style'] = allocation(confirmation['style_state'],active)
+                    total = sum(weights.values())
+                    plan={c:int(nav*weights[c]/total/prices[c]/100)*100 if c in active else 0 for c in self.codes}
+                    if confirmation is not None:
+                        for code in active:
+                            if not confirmation['atr_inputs'][code]['qualified'] or (actual[code] and protection[code]['status'] in ('atr_history_resume_required','opening_cycle_unavailable')):
+                                plan[code] = min(plan[code], actual[code])
         desired={c:(actual[c] if context.position(self.mapping[c]).enum_target is None else int(context.position(self.mapping[c]).enum_target)) for c in self.codes} if plan is None else dict(plan)
         for c in sells:desired[c]=0
         vector=tuple((self.mapping[c],desired[c]) for c in self.codes)
-        changed=any(context.position(symbol).enum_target!=quantity for symbol,quantity in vector)
+        comparison = {code: context.position(symbol).enum_target for code, symbol in self.mapping.items()}
+        changed=any((actual[code] if self.confirmation and comparison[code] is None else comparison[code])!=quantity
+                    for code,quantity in desired.items())
         caps={}
         if self.parameters['price_policy']=='signal-close-cap':
             for c in self.codes:
@@ -267,8 +388,8 @@ class OriginalLiveStrategy:
                     ratio=canonical_raw_price(raw,self.ticks[self.mapping[c]]);caps[self.mapping[c]]=Decimal(ratio.numerator)/Decimal(ratio.denominator)
         commons=common_prices(context,self.mapping,self.ticks,self.participants,now=now,max_age=self.parameters['quote_max_age_seconds'])
         candidate.update(
-            status='holding' if not changed else 'targets_ready',  # 目标是否需改变，不表示券商已成交。
-            reason=None,  # 当前无等待原因；前面的等待分支保留具体分类。
+            status='targets_ready' if changed else 'waiting' if blocked_buys else 'holding',  # 目标是否需改变，不表示券商已成交。
+            reason='atr_history_units_unqualified' if blocked_buys else None,  # 保留被拦截的买入原因。
             desired_targets=dict(vector),  # 标准代码到完整目标份数；100份倍数，非资金权重。
             buy_intents=sorted(buys),  # 自有组合尚待完成的原BUY代码。
             sell_intents=sorted(sells),  # 自有组合尚待退出的原SELL代码。
@@ -286,14 +407,18 @@ class OriginalLiveStrategy:
             sequence=self.sequence,  # 本次已完成回调观察序号。
             buys=sorted(buys),  # 尚未完成的BUY六位代码。
             sells=sorted(sells),  # 尚未完成的SELL六位代码。
-            plan=plan,  # 完整九目标份数或尚未规划/已完成的None。
+            plan=plan,  # 完整策略目标份数或尚未规划/已完成的None。
             last_date=last_date,  # 最近实际消费的闭合决策日。
             last_source=last_source,  # 本轮未完成动作原纯结果SHA。
             consumed_sha=consumed_sha,  # 最近消费摘要，独立于当前意图来源。
             consumed_codes=consumed_codes,  # 逐证券决策日/原SHA，缺项尚未消费。
             intent_known_at=intent_known_at,  # 原信号已知时刻，带时区ISO或初始None。
             intent_prices=intent_prices)  # 原价收盘CNY/份，不借新日结果重写旧cap。
+        if self.confirmation:
+            state['atr_protection'] = atr_state
         context.store_quantity_state(json.dumps(state,sort_keys=True,separators=(',',':')))
+        if self.confirmation:
+            self._atr_state = atr_state
         self._buys,self._sells,self._plan,self._last_date,self._last_source=buys,sells,plan,last_date,last_source
         self._intent_known_at,self._intent_prices,self._consumed_sha=intent_known_at,intent_prices,consumed_sha
         self._consumed_codes=consumed_codes

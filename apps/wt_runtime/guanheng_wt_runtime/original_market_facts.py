@@ -41,9 +41,36 @@ def _price_unit(value, code):
     return value
 
 
+def _qualified_price_dates(item, code, unit_evidence):
+    """沿发布源分段核对价格维度，保留混合包内有明确单位的日期。"""
+    from guanheng_market_client.source_units import resolve_source_price_units
+
+    rows = item['bars']
+    parts = item.get('provenance', [dict(offset=0, count=len(rows), metadata=item['metadata'])])
+    offset = 0
+    accepted = []
+    for part in parts:
+        count = part['count']
+        if part['offset'] != offset or not 0 < count <= len(rows) - offset:
+            raise OriginalFactsUnavailable('history_provenance_coverage')
+        metadata = part['metadata']
+        values = rows[offset:offset + count]
+        expected = 'index-point' if code == '000300' else 'CNY/share'
+        unit = _price_unit(metadata.get('price_unit', 'unknown'), code)
+        if unit_evidence is not None and unit != expected:
+            proof = resolve_source_price_units(unit_evidence, item['symbol'], dict(bars=values, metadata=metadata))
+            unit = 'CNY/share' if proof.semantic_price_unit == 'CNY' else proof.semantic_price_unit
+        if unit == expected:
+            accepted.extend(_iso(row['date']) for row in values)
+        offset += count
+    if offset != len(rows):
+        raise OriginalFactsUnavailable('history_provenance_coverage')
+    return accepted
+
+
 def collect_current_facts(client, *, observation_date, history_from='2019-01-01', codes=None,
                           feature_stage='recalc', turnover_kind='official', seconds=120.,
-                          clock=time.monotonic, utcnow=lambda: datetime.now(timezone.utc), unit_evidence=None):
+                          clock=time.monotonic, utcnow=lambda: datetime.now(timezone.utc), unit_evidence=None, segment_units=False):
     """只调用MarketClient已发布查询；固定快照分段读全历史，不触发HPR或Source采集。
 
     客户端自行承担每次HTTP截止，本函数以单次总截止核对各调用前后。每段最多2000
@@ -140,6 +167,9 @@ def collect_current_facts(client, *, observation_date, history_from='2019-01-01'
                     entry.setdefault('unit_uncertainty', []).append(dict(field=key, units=list(pair)))
                     if key == 'volume_unit':
                         entry['volume_scale_continuity_qualified'] = False  # 跨段量纲未核实，量比结果只作诊断。
+                if segment_units:
+                    dated_item = dict(item, symbol=result['symbol'])
+                    packet.setdefault('qualified_price_dates', []).extend(_qualified_price_dates(dated_item, code, unit_evidence))
                 packet['received_at'] = received
                 bars = []
                 for row in item.get('bars', []):

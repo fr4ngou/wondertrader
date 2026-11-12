@@ -142,7 +142,15 @@ def normalize_facts(facts: dict) -> dict:
                     raise ValueError("行情高低价包络不匹配")
                 if visible(day, packet):
                     selected.append({"date": day, **numbers})
-            result[name][code] = {**{k: v for k, v in packet.items() if k != "bars"}, "bars": selected}
+            fields = {k: v for k, v in packet.items() if k != "bars"}
+            if "qualified_price_dates" in fields:
+                dates = fields["qualified_price_dates"]
+                if (type(dates) is not list or any(_day(d) != d for d in dates)
+                        or dates != sorted(set(dates)) or not set(dates) <= {bar["date"] for bar in bars}):
+                    raise ValueError("来源区段单位日期不匹配")
+                visible_dates = {bar["date"] for bar in selected}
+                fields["qualified_price_dates"] = [day for day in dates if day in visible_dates]
+            result[name][code] = {**fields, "bars": selected}
     required = set(codes) | ({"510300"} if "159352" in codes else set())
     if not required.issubset(result["analysis"]) or "000300" not in result["analysis"]:
         raise ValueError("分析行情或跨证券基准缺失")
