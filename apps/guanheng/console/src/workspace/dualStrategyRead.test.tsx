@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import StrategyDetails from './StrategyDetails'
@@ -44,10 +44,13 @@ test('现有详情布局按所选id查询，展示自有持仓及未知市值', 
   </QueryClientProvider></MemoryRouter>)
   await waitFor(()=>expect(screen.getByText('策略自有持仓')).toBeVisible())
   expect(urls[0]).toContain('strategy_id='+id)
-  const holdings = within(screen.getByRole('region', { name: '策略当前持仓' }))
+  const holdings = within(screen.getByRole('table', { name: '持仓与目标仓位' }))
   expect(holdings.getByText('159352.SZ')).toBeVisible()
-  expect(holdings.getByText('200')).toBeVisible()
-  expect(screen.getAllByText('尚未取得').length).toBeGreaterThan(0)
+  const row = holdings.getByRole('row', { name: /^510300.SH/ })
+  expect(within(row).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['200','100','—','—','—','—','—'])
+  fireEvent.click(screen.getByRole('checkbox', { name: '仅看有持仓' }))
+  expect(holdings.getAllByRole('row')).toHaveLength(3)
+  expect(screen.queryByRole('button', { name: '全账户' })).toBeNull()
 })
 
 test('ASA实际成交缺NAV时仍可读，界面保持归属和费用未知', () => {

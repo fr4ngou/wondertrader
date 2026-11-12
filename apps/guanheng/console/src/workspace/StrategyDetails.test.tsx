@@ -84,9 +84,13 @@ function mount(strategy?: { strategy_id: string; strategy_version: string }, tar
  render(<QueryClientProvider client={c}><MemoryRouter><StrategyDetails strategy={strategy}/></MemoryRouter></QueryClientProvider>)
 }
 
-test('持仓匹配简称，目标摘要可显示不在当前历史页的清仓变化', async () => {
- const value = { ...fixture(), security_names: { '510300.SH': '沪深300ETF' } }
- value.account.groups.position.rows[0].identity = { m_strInstrumentID: '510300', m_strExchangeID: 'SH' }
+test('同表显示实际与目标，可单独看策略范围和有持仓标的', async () => {
+ const value = { ...fixture(), calculation: structuredClone(runtimeFixture.strategy), security_names: { '510300.SH': '沪深300ETF' } }
+ const row = value.account.groups.position.rows[0]
+ row.identity = { wt_symbol: 'SSE.ETF.510300' }
+ row.fields.quantity = { availability: 'present', value: 1200, reason: null }
+ row.fields.sellable = { availability: 'present', value: 800, reason: null }
+ value.account.groups.position.rows.push({ ...row, identity: { m_strInstrumentID: '600000', m_strExchangeID: 'SH' } })
  const changed = { id: 'c'.repeat(64), sequence: 1, changed_at: '2026-11-01T09:31:00+08:00',
    symbol: '510300.SH', previous_target_quantity: 1200, target_quantity: 0, change_quantity: -1200,
    kind: 'changed', reference_price_cny: '4.28', target_weight: null, strategy_version: null, reason: null }
@@ -98,20 +102,27 @@ test('持仓匹配简称，目标摘要可显示不在当前历史页的清仓�
    source, items: [], next_cursor: null }
  vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(Response.json(value))))
  mount(undefined, history)
- const holdings = await screen.findByRole('region', { name: '策略当前持仓' })
- expect(holdings).toHaveTextContent('沪深300ETF 510300.SH')
- const targets = await screen.findByRole('region', { name: '逐标的目标与最近变化' })
- const cells = within(targets).getAllByRole('cell')
- expect(within(targets).getByRole('columnheader', { name: '目标仓位（份）' })).toBeInTheDocument()
- expect(cells[0]).toHaveTextContent(/^0$/)
- expect(cells[1]).toHaveTextContent('1,200 → 0')
+ const table = await screen.findByRole('table', { name: '持仓与目标仓位' })
+ const actual = within(table).getByRole('row', { name: /沪深300ETF 510300.SH/ })
+ expect(await within(actual).findByText('1,200 → 0')).toBeVisible()
+ expect(within(actual).getAllByRole('cell').slice(0, 3).map(cell => cell.textContent)).toEqual(['1,200', '800', '0'])
+ expect(screen.getAllByRole('table')).toHaveLength(1)
+ expect(screen.getByText(/持仓归属未确认/)).toBeVisible()
+ expect(within(table).queryByText('600000.SH')).toBeNull()
+ const unobserved = within(table).getByRole('row', { name: /510050.SH/ })
+ expect(within(unobserved).getAllByRole('cell')[0]).toHaveTextContent(/^—$/)
+ fireEvent.click(screen.getByRole('checkbox', { name: '仅看有持仓' }))
+ expect(within(table).getAllByRole('row')).toHaveLength(2)
+ fireEvent.click(screen.getByRole('button', { name: '全账户' }))
+ expect(within(table).getByText('600000.SH')).toBeVisible()
+ expect(within(table).getAllByRole('row')).toHaveLength(3)
 })
 test('未启动策略仍显示四项当前持仓，资金、预算和收益基准分别解释',async()=>{
  const value=fixture();const row=value.account.groups.position.rows[0]
  value.account.groups.position.rows=[0,1,2,3].map((i):AccountRow=>({...structuredClone(row),identity:{m_strInstrumentID:`5100${i}0`,m_strExchangeID:'SH'},
    fields:{...row.fields,quantity:{availability:'present',value:1200+i,reason:null},sellable:{availability:'present',value:800+i,reason:null},market_value:{availability:'present',value:9800+i,reason:null}}}))
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(value)));mount()
- const table=await screen.findByRole('region',{name:'策略当前持仓'})
+ const table=await screen.findByRole('table',{name:'持仓与目标仓位'})
  expect(within(table).getAllByRole('row')).toHaveLength(5)
  expect(table).toHaveTextContent('1,200');expect(table).toHaveTextContent('800');expect(table).toHaveTextContent('9,800')
  expect(screen.getByText('策略未启动')).toBeVisible()
@@ -149,14 +160,14 @@ test('WT切到新代而账户暂缺时清除旧代持仓，恢复只显示本代
  recovered.account.groups.position.rows=[{...row,identity:{m_strInstrumentID:'588000',m_strExchangeID:'SH'}}]
  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(Response.json(first)).mockResolvedValueOnce(Response.json(waiting))
    .mockResolvedValue(Response.json(recovered)))
- mount();await screen.findByRole('region',{name:'策略当前持仓'})
+ mount();await screen.findByRole('table',{name:'持仓与目标仓位'})
  fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
  expect(await screen.findByRole('alert')).toHaveTextContent('本代账户尚未发布')
- expect(screen.queryByRole('region',{name:'策略当前持仓'})).not.toBeInTheDocument()
+ expect(screen.queryByRole('table',{name:'持仓与目标仓位'})).not.toBeInTheDocument()
  expect(screen.getByText('当前持仓尚未取得。')).toBeVisible()
  fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
  expect(await screen.findByText('588000.SH')).toBeVisible()
- expect(within(screen.getByRole('region',{name:'策略当前持仓'})).getAllByRole('row')).toHaveLength(2)
+ expect(within(screen.getByRole('table',{name:'持仓与目标仓位'})).getAllByRole('row')).toHaveLength(2)
 })
 
 test.each([false, 4, 'A'.repeat(64), 'short'])('运行scope格式无效时拒绝详情：%s',scope=>{
@@ -169,7 +180,7 @@ test('金额按中文单位显示且可查看精确值，持仓份额保持原�
  fields.market_value={availability:'present',value:25000000,reason:null}
  fields.float_profit={availability:'present',value:-885123435.815,reason:null}
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(value)));mount()
- const table=await screen.findByRole('region',{name:'策略当前持仓'})
+ const table=await screen.findByRole('table',{name:'持仓与目标仓位'})
  expect(within(table).getByText('25,000,000')).toBeVisible()
  expect(within(table).getByText('2.5千万')).toHaveAttribute('title','25,000,000元')
  expect(within(table).getByText('-8.8512亿')).toHaveAttribute('title','-885,123,435.815元')
@@ -186,11 +197,11 @@ test('新一轮局部资金持仓失败沿原账户投影保留成功批和原�
  partial.account.groups.account={...partial.account.groups.account,status:'unavailable',rows:[],reason:'本轮来源暂不可用'}
  const fetch=vi.fn().mockResolvedValueOnce(Response.json(first)).mockResolvedValueOnce(Response.json(partial))
  vi.stubGlobal('fetch',fetch);mount()
- await screen.findByRole('region',{name:'策略当前持仓'})
+ await screen.findByRole('table',{name:'持仓与目标仓位'})
  fireEvent.click(screen.getByRole('button',{name:'刷新策略详情'}))
  expect(await screen.findByText('本轮持仓未更新，当前保留上次成功持仓及原查询时间。')).toBeVisible()
  expect(screen.getByText('本轮资金未更新，当前保留上次成功资金及原查询时间。')).toBeInTheDocument()
- expect(screen.getByRole('region',{name:'策略当前持仓'})).toBeVisible()
+ expect(screen.getByRole('table',{name:'持仓与目标仓位'})).toBeVisible()
 })
 
 function capitalFixture() {
@@ -235,6 +246,6 @@ test('策略身份不符时保持持仓与资金未取得',async()=>{
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(capitalFixture())))
  mount({strategy_id:'other',strategy_version:'2.0'})
  expect(await screen.findByRole('alert')).toHaveTextContent('尚未取得该策略的运行与持仓数据')
- expect(screen.queryByRole('region',{name:'策略当前持仓'})).toBeNull()
+ expect(screen.queryByRole('table',{name:'持仓与目标仓位'})).toBeNull()
  expect(screen.queryByRole('region',{name:'策略资金'})).toBeNull()
 })

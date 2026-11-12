@@ -30,7 +30,7 @@ NAP的原账户绑定在原ready/完整正文/Runtime前后根核验成功后通
 
 顶层为schema_version、read_only、observed_at、state、reason、requested、current、coverage、baseline、summary、daily、markers。current.scope_id是完整身份摘要；baseline.scope_id是本次基准原件摘要。coverage使用实际来源首尾日期、点数及basis=actual-published-observations。daily含date、observed_at、nav_cny/cash_cny/market_value_cny/pnl_cny/return_pct及独立positions/deals和状态；positions/deals可用性不由NAV存在性推定。金额和份额单位分别为元、份；日期ISO、时间保留原交易时刻及上海时区解释。
 
-可选 `security_names` 按本次返回的持仓和成交代码投影已准入证券目录，目录缺项时页面保留代码。每日持仓表与预览只计正持仓，并显示 `positions_observed_at` 原时间（旧响应沿明细原时间）、日期及账户范围或ASA归属。运行与持仓页的账户聚合快照沿原券商查询时间，策略目标单列。对照验收使用同证券、同取样时间及相同范围，覆盖零仓位、盘中快照推进和历史日期。
+可选 `security_names` 按本次返回的持仓和成交代码投影已准入证券目录，目录缺项时页面保留代码。每日持仓表与预览只计正持仓，并显示 `positions_observed_at` 原时间（旧响应沿明细原时间）、日期及账户范围或ASA归属。运行与持仓页沿各自来源时钟合表展示，见[目标仓位历史](strategy-target-history.md#sth3-页面与验证)。对照验收使用同证券、同取样时间及相同范围，覆盖零仓位、盘中快照推进和历史日期。
 
 验收覆盖真实普通安装发布文件→新模块→原读池HTTP→策略页面、双身份匹配、跨scope/基准隔离、原时间和每日缺口、实际成交去重/未知归属、空/失败、并发/独占/取消、停止/来源异常及有界读取。源码、普通安装、真实来源和页面交付分别登记。
 

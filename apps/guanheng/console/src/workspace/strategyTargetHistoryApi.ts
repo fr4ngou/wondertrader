@@ -84,8 +84,12 @@ function validHistoryItems(items: unknown[]): items is TargetHistoryItem[] {
   return true
 }
 
-export function useStrategyTargetHistory(strategy: Pick<StrategyDefinition, 'strategy_id' | 'strategy_version'>, cursor: string | null) {
-  return useQuery({ queryKey: ['strategy-target-history', strategyKey(strategy), cursor], retry: false,
+export function useStrategyTargetHistory(strategy: Pick<StrategyDefinition, 'strategy_id' | 'strategy_version'>, cursor: string | null, runtimeScope?: string | null) {
+  // 合表时隔离不同运行代的缓存，目标记录页仍沿自己的分页身份读取。
+  const queryKey = runtimeScope === undefined
+    ? ['strategy-target-history', strategyKey(strategy), cursor]
+    : ['strategy-target-history', strategyKey(strategy), cursor, runtimeScope]
+  return useQuery({ queryKey, retry: false,
     queryFn: async ({signal}) => {
       const params = new URLSearchParams({strategy_id: strategy.strategy_id, strategy_version: strategy.strategy_version ?? '', limit:'20'})
       if (cursor) params.set('cursor', cursor)
