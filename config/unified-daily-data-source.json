@@ -386,7 +386,7 @@
       "source": "integrations/guanheng/collection_coverage.py"
     },
     "integrations/guanheng/collection_maintenance.py": {
-      "sha256": "6c1cec174c85f1bc903a94efc6496c26ab49af06eba25091cefbf402ba6c8027",
+      "sha256": "ebf96b2b2e354a58d2318702b592455ecdaa49d244715c7ff411cf08b57717f6",
       "source": "integrations/guanheng/collection_maintenance.py"
     },
     "integrations/guanheng/collection_minute_reader.py": {
@@ -406,7 +406,7 @@
       "source": "integrations/guanheng/current_day.py"
     },
     "integrations/guanheng/daily_archive_merge.py": {
-      "sha256": "9b90a301298c9de2ae3fff2b7f116e05f6a33bf6df101d593a35a3f6c0c1ccd0",
+      "sha256": "91e432f625a7f3e2be312fd2309110c04ddb9345a49804544a192d7c7523bf4f",
       "source": "integrations/guanheng/daily_archive_merge.py"
     },
     "integrations/guanheng/daily_archive_prepare.py": {
@@ -766,5 +766,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.31"
+  "version": "0.2.0a1+unified.32"
 }

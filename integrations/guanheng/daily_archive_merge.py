@@ -56,10 +56,22 @@ def read_price_history(market,symbol,adjustment,*,deadline,maximum_history_rows,
     return merged
 
 
+def _retains_proven_units(existing, incoming, source):
+    """仅在同日六数值相同且已知量纲一致时，采用已核QMT原行来源。"""
+    row, metadata = existing
+    units = ('price_unit', 'volume_unit', 'amount_unit')
+    return (metadata['source'].get('provider') == source['source'].get('provider') == 'Qmt'
+            and source['dataset_version'].startswith('qmt.batch-native-day.v2:qmt-contextinfo-day-etf-index.v1:')
+            and (source['price_unit'], source['volume_unit']) == ('CNY', 'lot')
+            and (metadata['price_unit'] == 'unknown' or metadata['volume_unit'] == 'unknown')
+            and all(metadata[key] in ('unknown', source[key]) for key in units)
+            and all(row[key] == incoming[key] for key in ('open', 'high', 'low', 'close', 'volume', 'amount')))
+
+
 def merge_original_price_rows(market, additions, metadata, output, helper, helper_sha256, *, deadline, snapshot_id=None,
                               addition_provenance=None, retain_unchanged=False, maximum_history_rows=2000,
                               cancelled=lambda:False,reusable_files=None,preloaded_previous_rows=None):
-    """同一市场owner线程读取完整旧档，只填不存在的日期；返回新档或None。
+    """同一市场owner线程读取完整旧档，填补缺日或保留数值完全相同的已核单位来源。
 
     additions为symbol到合格原始日线行，metadata属于这些新行；前复权独立保持。
     addition_provenance可按证券声明新行的逐段来源；缺省沿同一metadata。
@@ -132,7 +144,8 @@ def merge_original_price_rows(market, additions, metadata, output, helper, helpe
             if row['date'] in seen:
                 raise ValueError('original price addition date repeated')
             seen.add(row['date'])
-            if row['date'] not in merged:
+            existing = merged.get(row['date'])
+            if existing is None or _retains_proven_units(existing, row, original):
                 merged[row['date']] = (row, original)
                 inserted += 1
         if not merged or inserted == 0 and not retain_unchanged:

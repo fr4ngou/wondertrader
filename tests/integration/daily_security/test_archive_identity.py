@@ -134,3 +134,25 @@ def test_front_same_count_new_first_layer_uses_current_rows_without_old_file_hin
         deadline=__import__('time').monotonic()+5,maximum_history_rows=10000,cancelled=lambda:False)
     assert seen['rows']['SSE.510300'][0]['close']==9.
     assert seen['hints']=={}  # 同条数不授旧DSB复用；正常Helper编码当前9元数据。
+
+
+@pytest.mark.parametrize('mismatch', [None, 'amount', 'close', 'provider', 'known-unit'])
+def test_same_date_qmt_unit_proof_survives_compaction(tmp_path,monkeypatch,mismatch):
+    _,_,old=fixture(tmp_path)
+    prior=dict(old,dataset_version='qmt.batch-native-day.v2:qmt-contextinfo-day-etf-index.v1:'+'c'*64,
+               price_unit='CNY',volume_unit='lot')
+    row=dict(date=20261105,open=1.,high=1.,low=1.,close=1.,volume=3.,amount=10.)
+    candidate=dict(row)
+    if mismatch=='amount':candidate['amount']=11.
+    if mismatch=='close':candidate.update(close=2.,high=2.)
+    if mismatch=='provider':old=dict(old,source=dict(old['source'],provider='SSE'))
+    if mismatch=='known-unit':old=dict(old,volume_unit='share')
+    monkeypatch.setattr(merge,'read_price_history',lambda *a,**kw:{row['date']:(row,old)})
+    def archive(rows,metadata,*args,provenance,**kwargs):
+        assert rows['SSE.510300']==[row]
+        actual=provenance['SSE.510300'][0]['metadata']
+        assert actual==(prior if mismatch is None else old)
+        return {'completed':True}
+    monkeypatch.setattr(merge,'prepare_daily_archive',archive)
+    merge.merge_original_price_rows(object(),{'SSE.510300':[candidate]},prior,tmp_path/'out','helper','b'*64,
+        deadline=__import__('time').monotonic()+5,retain_unchanged=True)
