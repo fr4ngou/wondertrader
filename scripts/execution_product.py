@@ -131,6 +131,9 @@ def source_files(recipe, check=lambda: None):
         raw = regular(ROOT / name)
         check()
         result[name] = dict(sha256=digest(raw), data=raw)
+    standard = result.get('src/TraderQMT/StandardQmtTrader.cpp')
+    if standard is None or standard['sha256'] != recipe['owned_standard_source_sha256']:
+        raise ValueError('reviewed permanent Standard source mismatch')
     return result
 
 
@@ -267,8 +270,6 @@ def main():
     if recipe['schema'] != 'guanheng.standard-execution-source-build.v1' or recipe['old_binary_inputs_allowed'] is not False:
         raise ValueError('unsupported execution source recipe')
     owned = source_files(recipe, remaining)
-    if digest(regular(ROOT / 'src/TraderQMT/StandardQmtTrader.cpp')) != recipe['owned_standard_source_sha256']:
-        raise ValueError('reviewed permanent Standard source mismatch')
     overlay_paths = set()
     overlays = []
     for row in recipe['overlays']:
