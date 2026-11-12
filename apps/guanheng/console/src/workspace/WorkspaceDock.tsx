@@ -14,9 +14,10 @@ type DockProps = {
   /** 关联明细面板的标题与原业务内容。 */
   secondaryTitle: string
   secondary: ReactNode
-  /** 默认副面板方向及并排宽度。窄屏沿主任务、明细顺序显示。 */
+  /** 默认副面板方向及并排宽度。 */
   side?: 'left' | 'right' | 'below'
   secondaryWidth?: number
+  /** 窄屏需要先访问日期等控制时，将副面板排在主面板前。 */ stackSecondaryFirst?: boolean
 }
 
 function readLayout(key: string): SerializedDockview | undefined {
@@ -31,7 +32,7 @@ function readLayout(key: string): SerializedDockview | undefined {
 }
 
 /** 保留业务组件所属的 React 上下文，Dockview 只负责移动其 DOM 宿主。 */
-export function WorkspaceDock({ layoutId, primaryTitle, primary, secondaryTitle, secondary, side = 'right', secondaryWidth = 340 }: DockProps) {
+export function WorkspaceDock({ layoutId, primaryTitle, primary, secondaryTitle, secondary, side = 'right', secondaryWidth = 340, stackSecondaryFirst = false }: DockProps) {
   const shell = useRef<HTMLDivElement>(null)
   const apiRef = useRef<DockviewApi | null>(null)
   const resetRef = useRef<(() => void) | null>(null)
@@ -181,6 +182,6 @@ export function WorkspaceDock({ layoutId, primaryTitle, primary, secondaryTitle,
     {wide && hosts ? <>
       {createPortal(primary, hosts.primary)}
       {createPortal(secondary, hosts.secondary)}
-    </> : <div className="observer-dock-stack">{primary}{secondary}</div>}
+    </> : <div className="observer-dock-stack">{stackSecondaryFirst ? <>{secondary}{primary}</> : <>{primary}{secondary}</>}</div>}
   </div>
 }

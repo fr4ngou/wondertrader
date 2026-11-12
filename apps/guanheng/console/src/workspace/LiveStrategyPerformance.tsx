@@ -1,12 +1,12 @@
 import { ChartZoomToolbar } from '../components/ChartZoomToolbar'
 import { WorkspaceDock } from './WorkspaceDock'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { LineChart, ScatterChart, type LineSeriesOption, type ScatterSeriesOption } from 'echarts/charts'
 import { GridComponent, TooltipComponent, DataZoomComponent } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 import { absoluteChinaTime } from '../components/RelativeTime'
-import type { LiveDay, LivePerformance } from './liveStrategyApi'
+import type { LiveDay, LiveDeal, LivePerformance } from './liveStrategyApi'
 import { FinancialValue } from './FinancialValue'
 import { StrategySecurityLabel } from './StrategyPositionTargets'
 import { observerChartColors, useObserverTheme } from './observerAppearance'
@@ -69,6 +69,106 @@ function LiveChart({ days, onHover, onSelect }: {
   return <><ChartZoomToolbar plot={root} /><div className="live-strategy-chart" ref={root} role="img" aria-label="实际发布净值曲线与实际成交标记；可悬停预览并点击固定日期，键盘可使用日期选择" /></>
 }
 
+type DealGroup = {
+  /** 同一组的原证券身份。 */ symbol: string
+  /** 原成交方向，未知单列。 */ direction: LiveDeal['side']
+  /** 已显示成交的合计份数，整数精确相加。 */ quantity: bigint
+  /** 已显示的原逐笔成交数。 */ count: number
+}
+
+function groupDeals(deals: LiveDeal[]) {
+  const groups = new Map<string, DealGroup>()
+  for (const deal of deals) {
+    const key = deal.side + ':' + deal.symbol
+    const group = groups.get(key) ?? { symbol: deal.symbol, direction: deal.side, quantity: 0n, count: 0 }
+    group.quantity += BigInt(deal.quantity)
+    group.count += 1
+    groups.set(key, group)
+  }
+  return groups
+}
+
+/** 所选或悬停日期的摘要，成交以返回明细范围分组。 */
+function LiveDayPreview({ day, names, allocated, hovering, truncated }: {
+  /** 当前预览日期的已发布观察。 */ day: LiveDay
+  /** 本轮已准入的证券名称。 */ names: LivePerformance['security_names']
+  /** 是否使用ASA策略归属。 */ allocated: boolean
+  /** 当前是否显示其他日期的悬停结果。 */ hovering: boolean
+  /** 返回的成交窗口是否有截断。 */ truncated: boolean
+}) {
+  const groups = useMemo(() => groupDeals(day.deals), [day.deals])
+  const scope = allocated ? '策略实际成交' : '账户范围成交'
+  return <section className="live-day-preview" aria-label="当日汇总">
+    <header><strong>{day.date}</strong><span>{hovering ? '悬停预览' : '所选日期'}</span></header>
+    <div className="live-day-summary-values">
+      <span>{day.reference_nav_cny != null ? '参考净值（手续费待确认）' : '净值'} {money(chartValue(day))}</span>
+      <span>{day.positions_state === 'unavailable' ? '持仓未取得' : `持仓 ${heldPositions(day).length} 项`}</span>
+    </div>
+    <div className="live-day-summary-heading">
+      <span>{scope}</span>
+      <span>{day.deals_state === 'unavailable' ? '未取得' : `${day.deals.length} 笔`}</span>
+    </div>
+    {day.deals_state === 'unavailable' ? null : groups.size ? <ul className="live-day-deal-groups" aria-label="按证券与方向汇总">
+      {Array.from(groups, ([key, group]) => <li key={key}>
+        <StrategySecurityLabel symbol={group.symbol} names={names} />
+        <div><span>{side(group.direction)}</span><span>{group.quantity.toLocaleString('zh-CN')} 份 · {group.count} 笔</span></div>
+      </li>)}
+    </ul> : day.deals_state === 'empty' ? <p>当日完整查询无成交。</p> : null}
+    {day.deals_state === 'partial' || (truncated && groups.size > 0) ? <p>汇总仅含已取得的成交。</p> : null}
+  </section>
+}
+
+/** 固定日期的原持仓与逐笔成交；悬停预览变化时复用同一份明细。 */
+const LiveDayDetails = memo(function LiveDayDetails({ day, names, allocated, expanded, onToggle }: {
+  /** 已固定或默认选中的观察日期及原明细。 */ day: LiveDay
+  /** 本轮已准入的证券名称。 */ names: LivePerformance['security_names']
+  /** 是否使用ASA策略归属。 */ allocated: boolean
+  /** 是否展示金额及现金等额外明细。 */ expanded: boolean
+  /** 切换额外明细。 */ onToggle: () => void
+}) {
+  const positions = heldPositions(day)
+  const positionsTime = day.positions_observed_at ?? day.positions[0]?.observed_at
+  const positionScope = allocated ? '策略自有持仓' : '策略证券范围内的账户持仓'
+  const referenceCash = day.reference_cash_cny != null
+  const cashTime = referenceCash ? day.reference_cash_observed_at : day.cash_observed_at
+  return <div className="live-day-columns" role="region" aria-label={`${day.date}每日持仓和成交`}>
+    <div className="live-day-details-heading">
+      <h4>{day.date} 持仓与成交明细</h4>
+      <button onClick={onToggle} aria-expanded={expanded}>{expanded ? '收起详细信息' : '展开详细信息'}</button>
+    </div>
+    <section>
+      <h4>当日持仓 <small>{positionScope}</small></h4>
+      {positionsTime ? <p className="live-strategy-note">持仓观察时间 {absoluteChinaTime(positionsTime)}</p> : null}
+      {day.positions_state === 'unavailable' ? <p>该日没有持仓观测。</p> : positions.length ? <div className="live-table-scroll">
+        <table><thead><tr><th>证券</th><th>数量（份）</th><th>可卖（份）</th></tr></thead>
+          <tbody>{positions.map(position => <tr key={position.symbol}>
+            <td><StrategySecurityLabel symbol={position.symbol} names={names} /></td>
+            <td>{position.quantity.toLocaleString('zh-CN')}</td><td>{position.sellable.toLocaleString('zh-CN')}</td>
+          </tr>)}</tbody>
+        </table>
+      </div> : <p>当日完整持仓为空。</p>}
+    </section>
+    <section>
+      <h4>{allocated ? '策略实际成交' : '账户范围成交'} <small>{allocated ? 'ASA已确认归属' : '归属未确认'}</small></h4>
+      {day.deals_state === 'unavailable' ? <p>该日没有成交观测。</p> : day.deals.length ? <div className="live-table-scroll">
+        <table><thead><tr><th>时间</th><th>证券 / 方向</th><th>单价（元）</th><th>数量（份）</th>{expanded ? <th>金额（元）</th> : null}</tr></thead>
+          <tbody>{day.deals.map(deal => <tr key={deal.id}>
+            <td>{deal.time}</td><td><StrategySecurityLabel symbol={deal.symbol} names={names} /><br />{side(deal.side)}</td>
+            <td>{deal.price_cny}</td><td>{deal.quantity.toLocaleString('zh-CN')}</td>{expanded ? <td>{deal.amount_cny}</td> : null}
+          </tr>)}</tbody>
+        </table>
+      </div> : day.deals_state === 'empty' ? <p>当日完整查询无成交。</p> : null}
+      {day.deals_state === 'partial' ? <p role="status">成交观测不完整，明细仅显示已取得的记录。</p> : null}
+    </section>
+    {expanded ? <div className="live-day-financials">
+      <span>{referenceCash ? '参考现金（手续费待确认）' : '现金'} {money(day.cash_cny ?? day.reference_cash_cny ?? null)}
+        {cashTime ? ` · 现金观察 ${sourceTime(cashTime)}` : ''}</span>
+      <span>市值 {money(day.market_value_cny)}</span><span>原发布基准变化 {money(day.pnl_cny)}</span>
+      <span>{sourceTime(day.observed_at ?? day.reference_observed_at ?? null)}</span>
+    </div> : null}
+  </div>
+})
+
 /** 线上实际观察与运行详情分开；无历史时显示真实覆盖，保持完整空与未知的区别。 */
 export default function LiveStrategyPerformance({ data }: {
   /** 与当前选择、完整运行scope严格绑定的已准入结果。 */ data: LivePerformance
@@ -80,9 +180,6 @@ export default function LiveStrategyPerformance({ data }: {
   const date = data.daily.some(d => d.date === pinned) ? pinned : latest
   const selected = data.daily.find(d => d.date === date)
   const preview = data.daily.find(d => d.date === hover) ?? selected
-  const previewPositions = preview ? heldPositions(preview) : []
-  const selectedPositions = selected ? heldPositions(selected) : []
-  const positionsTime = selected?.positions_observed_at ?? selected?.positions[0]?.observed_at
   const valuation = data.summary?.valuation_state
   const amount = data.summary?.nav_cny ?? data.summary?.reference_nav_cny ?? null
   const change = data.summary?.reference_change_cny ?? data.summary?.pnl_cny ?? null
@@ -91,9 +188,8 @@ export default function LiveStrategyPerformance({ data }: {
   const referenceReturn = returnValue === null && valuation
   const totalPoints = data.coverage.point_count + (data.coverage.reference_point_count ?? 0)
   const allocated = data.coverage.attribution === 'strategy-allocated'
-  const positionScope = allocated ? '策略自有持仓' : '策略证券范围内的账户持仓'
-  const rows = useMemo(() => data.daily, [data.daily])
   function select(value: string) { setPinned(value); setHover(null); setExpanded(true) }
+  const toggleDetails = useCallback(() => setExpanded(value => !value), [])
   return <section className="surface-card live-strategy-panel" aria-label="线上策略实际观察">
     <div className="live-strategy-heading"><h3>线上表现</h3><span>实际发布观察 · 人民币</span></div>
     <div className="live-strategy-metrics">
@@ -116,26 +212,20 @@ export default function LiveStrategyPerformance({ data }: {
     {data.coverage.valuation_state === 'unavailable' ? <p role="status">本轮自有组合估值未完成，保留最后已核点和原时间；正持仓报价缺失或过期时保持未知。</p> : null}
     {valuation === 'reference-fee-pending' ? <p className="live-strategy-note">参考曲线仅扣已知费用，实际手续费尚待确认；金额和配置资本变化率均属于参考值，投资收益率未核实。</p> : null}
     {data.coverage.deals_truncated ? <p role="status">当前窗口成交较多，界面显示有界明细，已观察历史继续保存。</p> : null}
-    {data.daily.length ? <WorkspaceDock layoutId="strategy-performance" primaryTitle="策略净值" secondaryTitle="持仓与成交" secondaryWidth={350}
+    {data.daily.length ? <WorkspaceDock layoutId="strategy-performance" primaryTitle="策略净值与明细" secondaryTitle="日期汇总" secondaryWidth={350} stackSecondaryFirst
       primary={<>
-      {totalPoints ? <LiveChart days={rows} onHover={setHover} onSelect={select} /> : <p role="status">当前还没有实际净值点，已取得的成交与持仓可在下方查看。</p>}
+      {totalPoints ? <LiveChart days={data.daily} onHover={setHover} onSelect={select} /> : <p role="status">当前还没有实际净值点，已取得的成交与持仓可在下方查看。</p>}
       {(data.coverage.reference_point_count ?? 0) > 0 ? <p className="live-strategy-note">蓝色实线表示实际净值，棕色虚线表示参考净值（手续费待确认）；两种资格分别保留。</p> : null}
       {data.coverage.point_count === 1 ? <p className="live-strategy-note">当前只有 1 个实际净值点。后续真实发布会继续累积，暂不连接成历史收益曲线。</p> : null}
+      {selected ? <LiveDayDetails day={selected} names={data.security_names} allocated={allocated}
+        expanded={expanded} onToggle={toggleDetails} /> : null}
       </>}
       secondary={<>
-      <div className="live-day-picker"><label>观察日期<select value={date ?? ''} onChange={e => select(e.target.value)}>{data.daily.map(d => <option key={d.date} value={d.date}>{d.date}</option>)}</select></label>
-        <button onClick={() => setExpanded(v => !v)} aria-expanded={expanded}>{expanded ? '收起详细信息' : '展开详细信息'}</button></div>
-      {preview ? <div className="live-day-preview" aria-live="polite"><strong>{preview.date}{hover ? ' · 悬停预览' : ' · 所选日期'}</strong>
-        <span>{preview.reference_nav_cny != null ? '参考净值（手续费待确认）' : '净值'} {money(chartValue(preview))}</span><span>{preview.positions_state === 'unavailable' ? '持仓未取得' : `持仓 ${previewPositions.length} 项`}</span>
-        <span>{preview.deals_state === 'unavailable' ? '成交未取得' : `${allocated ? '策略实际成交' : '账户范围成交'} ${preview.deals.length} 笔`}</span>
-        <div>{preview.positions_state === 'unavailable' ? '该日没有持仓观测。' : previewPositions.length ? previewPositions.map((p, i) => <span key={p.symbol}>{i > 0 ? '；' : null}<StrategySecurityLabel symbol={p.symbol} names={data.security_names} /> {p.quantity.toLocaleString('zh-CN')}份</span>) : '当日完整持仓为空。'}</div>
-        <div>{preview.deals_state === 'unavailable' ? '该日没有成交观测。' : preview.deals.length ? preview.deals.map((d, i) => <span key={d.id}>{i > 0 ? '；' : null}{side(d.side)} <StrategySecurityLabel symbol={d.symbol} names={data.security_names} /> {d.quantity.toLocaleString('zh-CN')}份</span>) : '当日完整查询无成交。'}</div>
-      </div> : null}
-      {selected ? <div className="live-day-columns" role="region" aria-label={`${selected.date}每日持仓和成交`}>
-        <section><h4>当日持仓 <small>{positionScope}</small></h4>{positionsTime ? <p className="live-strategy-note">持仓观察时间 {absoluteChinaTime(positionsTime)}</p> : null}{selected.positions_state === 'unavailable' ? <p>该日没有持仓观测。</p> : selectedPositions.length ? <div className="live-table-scroll"><table><thead><tr><th>证券</th><th>数量（份）</th><th>可卖（份）</th></tr></thead><tbody>{selectedPositions.map(p => <tr key={p.symbol}><td><StrategySecurityLabel symbol={p.symbol} names={data.security_names} /></td><td>{p.quantity.toLocaleString('zh-CN')}</td><td>{p.sellable.toLocaleString('zh-CN')}</td></tr>)}</tbody></table></div> : <p>当日完整持仓为空。</p>}</section>
-        <section><h4>{allocated ? '策略实际成交' : '账户范围成交'} <small>{allocated ? 'ASA已确认归属' : '归属未确认'}</small></h4>{selected.deals_state === 'unavailable' ? <p>该日没有成交观测。</p> : selected.deals.length ? <div className="live-table-scroll"><table><thead><tr><th>时间</th><th>证券 / 方向</th><th>单价（元）</th><th>数量（份）</th>{expanded ? <th>金额（元）</th> : null}</tr></thead><tbody>{selected.deals.map(d => <tr key={d.id}><td>{d.time}</td><td><StrategySecurityLabel symbol={d.symbol} names={data.security_names} /><br />{side(d.side)}</td><td>{d.price_cny}</td><td>{d.quantity.toLocaleString('zh-CN')}</td>{expanded ? <td>{d.amount_cny}</td> : null}</tr>)}</tbody></table></div> : <p>当日完整查询无成交。</p>}{selected.deals_state === 'partial' ? <p role="status">部分成交字段不可用，当前保留已确认明细。</p> : null}</section>
-      </div> : null}
-      {expanded && selected ? <div className="live-day-financials"><span>{selected.reference_cash_cny != null ? '参考现金（手续费待确认）' : '现金'} {money(selected.cash_cny ?? selected.reference_cash_cny ?? null)}{(selected.reference_cash_cny != null ? selected.reference_cash_observed_at : selected.cash_observed_at) ? ` · 现金观察 ${sourceTime((selected.reference_cash_cny != null ? selected.reference_cash_observed_at : selected.cash_observed_at) ?? null)}` : ''}</span><span>市值 {money(selected.market_value_cny)}</span><span>原发布基准变化 {money(selected.pnl_cny)}</span><span>{sourceTime(selected.observed_at ?? selected.reference_observed_at ?? null)}</span></div> : null}
+        <div className="live-day-picker"><label>观察日期<select value={date ?? ''} onChange={e => select(e.target.value)}>
+          {data.daily.map(day => <option key={day.date} value={day.date}>{day.date}</option>)}
+        </select></label></div>
+        {preview ? <LiveDayPreview day={preview} names={data.security_names} allocated={allocated}
+          hovering={preview !== selected} truncated={data.coverage.deals_truncated} /> : null}
       </>} /> : <p role="status">{data.reason}</p>}
   </section>
 }

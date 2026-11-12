@@ -1,11 +1,28 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import LiveStrategyPerformance from './LiveStrategyPerformance'
 import { validateLivePerformance } from './liveStrategyApi'
 import type { LivePerformance } from './liveStrategyApi'
 
-const chart = vi.hoisted(() => ({ formatter: undefined as undefined | ((input: unknown) => string) }))
-vi.mock('echarts/core', () => ({ use: vi.fn(), init: () => ({ setOption: (option: {tooltip:{formatter:(input:unknown)=>string}}) => {chart.formatter=option.tooltip.formatter}, getZr: () => ({ on: vi.fn() }), resize: vi.fn(), dispose: vi.fn() }) }))
+const chart = vi.hoisted(() => ({
+  formatter: undefined as undefined | ((input: unknown) => string),
+  events: new Map<string, (event: { offsetX: number; offsetY: number }) => void>(),
+}))
+vi.mock('echarts/core', () => ({
+  use: vi.fn(),
+  init: () => ({
+    setOption: (option: { tooltip: { formatter: (input: unknown) => string } }) => {
+      chart.formatter = option.tooltip.formatter
+    },
+    getZr: () => ({
+      on: (name: string, handler: (event: { offsetX: number; offsetY: number }) => void) => chart.events.set(name, handler),
+    }),
+    containPixel: () => true,
+    convertFromPixel: () => 0,
+    resize: vi.fn(),
+    dispose: vi.fn(),
+  }),
+}))
 afterEach(cleanup)
 const data = { schema_version: 'guanheng.live-strategy-performance.v1', read_only: true, observed_at: '2026-01-05T08:00:00Z', state: 'available', reason: '实际发布观察。',
   requested: { strategy_id: 'sample', strategy_version: '1' }, current: { strategy_id: 'sample', strategy_version: '1', key_matches: true, is_current: true, scope_id: 'a'.repeat(64), runtime_state: 'ready', process_state: 'alive' },
@@ -26,6 +43,42 @@ test('默认直接展示当日持仓成交，未合格收益率与单点历史�
   expect(screen.getByText(/策略归属尚未确认/)).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: '展开详细信息' }))
   expect(screen.getByRole('columnheader', { name: '金额（元）' })).toBeVisible()
+})
+
+test('摘要按同日证券及方向合计，左侧仍保留各笔原明细', () => {
+  const original = data.daily[1].deals[0]
+  const observation: LivePerformance = { ...data, daily: [data.daily[0], {
+    ...data.daily[1], deals_state: 'partial', deals: [
+      original, { ...original, id: 'buy2', quantity: 250, time: '10:00:01' },
+      { ...original, id: 'sell', side: 'SELL', quantity: 50, time: '10:00:02' },
+      { ...original, id: 'unknown', side: 'UNKNOWN', quantity: 10, time: '10:00:03' },
+    ],
+  }] }
+  render(<LiveStrategyPerformance data={observation} />)
+  const summary = within(screen.getByRole('region', { name: '当日汇总' }))
+  expect(summary.getByText('账户范围成交')).toBeVisible()
+  expect(summary.getByText('4 笔')).toBeVisible()
+  expect(summary.getByText('350 份 · 2 笔').parentElement).toHaveTextContent('买入')
+  expect(summary.getByText('50 份 · 1 笔').parentElement).toHaveTextContent('卖出')
+  expect(summary.getByText('10 份 · 1 笔').parentElement).toHaveTextContent('方向未确认')
+  expect(summary.getByText('汇总仅含已取得的成交。')).toBeVisible()
+  expect(summary.queryByText('10:00:01')).toBeNull()
+  const details = within(screen.getByRole('region', { name: '2026-01-05每日持仓和成交' }))
+  expect(details.getByText('10:00:01')).toBeVisible()
+  expect(details.getByText('归属未确认')).toBeVisible()
+})
+
+test('悬停只换摘要，点击才固定当日明细', () => {
+  render(<LiveStrategyPerformance data={data} />)
+  const summary = within(screen.getByRole('region', { name: '当日汇总' }))
+  const event = { offsetX: 10, offsetY: 10 }
+  act(() => chart.events.get('mousemove')?.(event))
+  expect(summary.getByText('2026-01-02')).toBeVisible()
+  expect(summary.getByText('悬停预览')).toBeVisible()
+  expect(screen.getByRole('region', { name: '2026-01-05每日持仓和成交' })).toBeVisible()
+  act(() => chart.events.get('click')?.(event))
+  expect(summary.getByText('所选日期')).toBeVisible()
+  expect(screen.getByRole('region', { name: '2026-01-02每日持仓和成交' })).toBeVisible()
 })
 
 test('历史成交日缺持仓不沿用今天持仓，完整无成交与未知分别说明', () => {
