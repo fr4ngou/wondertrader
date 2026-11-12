@@ -40,7 +40,7 @@ python -B scripts/local_ci.py integrate --master-worktree <本地master工作区
 | 变化 | 自动执行 |
 |---|---|
 | 纯文档 | 项目文档导航检查 |
-| 软件 | 文档检查、本地CI流程回归、app_console及wt_runtime中pytest可收集的软件回归 |
+| 软件 | 文档检查、本地CI流程回归，以及 app_console、wt_runtime、wt_observer 中 pytest 可收集的软件回归 |
 | 执行相关 | 上述检查，加当前C++产品重新构建、真实WT执行器/标准插件/Host/WinSHM的八项券商替身E2E（含账户查询拒绝后恢复） |
 
 软件层只收集`test_*.py`，CLI探针由各自显式阶段执行。缺少依赖、收集失败、断言失败及子进程失败均保留失败；测试数量和功能完成分别解释。其余模块、完整策略与浏览器链需逐模块继续接入，当前结果只证明表列范围。

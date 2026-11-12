@@ -154,14 +154,17 @@ def test_published_version_must_match_allocation_version(tmp_path):
 
 def test_shared_waiting_without_allocation_never_uses_account_inventory():
     from guanheng_wt_runtime.original_live import OriginalLiveStrategy
-    definition = OriginalLiveStrategy._definition(SimpleNamespace(id=NEW, codes=tuple(s.rsplit('.',1)[1] for s in CODES),
-        mapping={s.rsplit('.',1)[1]:s for s in CODES}))
-    original = dict(strategy_id=NEW,strategy_version='0.2.0a1',definition=definition,
-        status='waiting',allocation_observation=None)
+    version = '0.2.0a1'
+    strategy = SimpleNamespace(id=NEW, version=version, mapping={code.rsplit('.', 1)[1]: code for code in CODES})
+    definition = OriginalLiveStrategy._definition(strategy)
+    broker = dict(positions_known=True, positions=[dict(symbol=CODES[0], quantity=999900, sellable=999900)])
+    original = dict(strategy_id=NEW, strategy_version=version, definition=definition,
+        status='waiting', allocation_observation=None, broker_observation=broker)
     old = dict(status='waiting_allocation',definition=dict(strategy_id=OLD,strategy_version='1.2.2',symbols=definition['symbols'][:8]),
-        broker_observation=dict(positions_known=True,positions=[dict(symbol=CODES[0],quantity=999900,sellable=999900)]))
+        broker_observation=broker)
     a = project_strategy(wrapper({NEW:original}),strategy_id=NEW)
     b = project_strategy(wrapper({OLD:old}),strategy_id=OLD)
+    assert a['strategy_version'] == version
     assert len(a['positions']) == 9 and a['ownership'] is None
     assert len(b['positions']) == 8 and b['ownership'] is None
     assert all(p['broker_quantity'] is None for p in a['positions']+b['positions'])

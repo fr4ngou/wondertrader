@@ -16,12 +16,14 @@ from guanheng_app.settings import ConsoleSettings
 
 
 class DetailsAcceptance(unittest.TestCase):
-    def test_registered_strategy_has_details_even_without_execution(self):
+    def test_strategy_details_without_execution_keep_display_identity_and_unknown_version(self):
         with TestClient(create_app(ConsoleSettings())) as client:
             response = client.get('/v1/ui/strategy-details')
             self.assertEqual(response.status_code, 200)
             data = response.json()
-            self.assertEqual(data['strategy']['strategy_version'], '1.1.2')
+            self.assertEqual(data['strategy']['strategy_id'], 'resonance-regime-v1')
+            self.assertTrue(data['strategy']['display_name'])
+            self.assertIsNone(data['strategy']['strategy_version'])
             self.assertEqual(data['execution']['state'], 'unconfigured')
             self.assertIsNone(data['returns']['cumulative_pct']['value'])
             self.assertTrue(data['returns']['cumulative_pct']['reason'])
@@ -68,7 +70,7 @@ class DetailsAcceptance(unittest.TestCase):
         self.assertNotIn('private',json.dumps(value))
 
     def test_archive_empty_invalid_path_and_bad_receipt_have_distinct_states(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/'build') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             for root,expected in ((folder,'empty'),(folder+'/missing','invalid_path')):
                 with TestClient(create_app(ConsoleSettings(backtest_archive_root=root))) as client:
                     response=client.get('/v1/ui/backtest/source')
