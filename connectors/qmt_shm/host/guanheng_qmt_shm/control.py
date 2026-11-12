@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 from datetime import datetime, timezone
+import sys
 import threading
 import time
 from guanheng_qmt_shm_agent.control_peer import ControlPeer
@@ -38,6 +39,8 @@ class HostControlLoop:
         self._read_scan,self._read_commit=None,None
         self._read_finish=None
         self._read_commit_payload=None  # 原finish全文和原持久截止；与Future一起保留到确认完成。
+        self._read_reconcile=None  # 原finish已结束后，同一域的只读核账Future；未落盘不释放原结果。
+        self._read_timeout_reported=False  # 本次超期阻断只留一条日志。
         self._abandoned_read_commit=None  # 关闭时核清的原只读任务；保留Future/原值，不补源ACK。
         self._read_rejection=None  # 最近控制拒绝的不可变诊断值；只含固定枚举、状态及有界计数。
         self._read_wake=threading.Event();self._read_wake.set()
@@ -74,6 +77,9 @@ class HostControlLoop:
             return _ReadClaim(active,queue_deadline,upper)
         if operation=='read.finish':
             self._persist_read_outcome(payload,payload['deadline'])
+        elif operation=='read.reconcile_account_finish':
+            return self._reconcile_read_record(payload['finish'], payload['operation_id'],
+                payload['request_sha256'], payload['deadline'])
         elif operation=='read.interrupt':
             self.runtime.journal.interrupt_bound(payload['request_id'],payload['operation_id'])
         else:
@@ -97,16 +103,58 @@ class HostControlLoop:
                 self.domain_failed=True
                 raise claimed.wait_error
         if self._read_commit is not None and self._read_commit.done():
-            self._domain_result(self._read_commit)
+            if (not self._read_commit.cancelled() and isinstance(self._read_commit.exception(), TimeoutError)
+                    and self._is_account_finish(self._read_commit_payload) and not self.runtime._stop.is_set()):
+                if not self._continue_account_finish():
+                    return
+            else:
+                self._domain_result(self._read_commit)
             if self._read_commit_payload is not None and 'control_rejection' in self._read_commit_payload:
                 self._read_rejection=dict(self._read_rejection,persistence='committed')
             self._read_commit=None
             self._read_commit_payload=None
+            self._read_reconcile=None
+            self._read_timeout_reported=False
             # 先消除active再ACK；收据丢失不能用中断覆盖已提交成功。
             self.active=None
             self._read_queue_deadline=self._read_wait_deadline=self._read_reply_deadline=None
             if self.read_future is not None:
                 self.read_future.ack()
+
+    def _is_account_finish(self, payload):
+        return (self.active is not None and payload is not None
+            and payload['request_id'] == self.active[0]
+            and decode(self.active[1])['operation_id'] == 'account.trade_detail'
+        )
+
+    @staticmethod
+    def _log_account_finish(action, request_sha256):
+        try:
+            print(f'GH_ACCOUNT_READ_FINISH {action} {request_sha256}', file=sys.stderr, flush=True)
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    def _continue_account_finish(self):
+        request_sha256 = hashlib.sha256(self.active[1]).hexdigest()
+        if self._read_reconcile is None:
+            if not self._read_timeout_reported:
+                self._log_account_finish('commit_timeout', request_sha256)
+                self._read_timeout_reported=True
+            try:
+                self._read_reconcile=self._domain.submit('read.reconcile_account_finish', dict(
+                    finish=self._read_commit_payload, operation_id='account.trade_detail',
+                    request_sha256=request_sha256, deadline=time.monotonic()+self.runtime.budget.io_seconds))
+            except BufferError:
+                pass  # 同一原任务及结果仍在，等原队列腾出名额。
+            return False
+        if not self._read_reconcile.done():
+            return False
+        outcome=self._domain_result(self._read_reconcile)
+        if outcome is None:
+            self._log_account_finish('identity_unconfirmed', request_sha256)
+            raise ProtocolError('account read finish identity unconfirmed')
+        self._log_account_finish(outcome, request_sha256)
+        return True
 
     def _admit(self):
         self._progress_domain()
@@ -228,8 +276,9 @@ class HostControlLoop:
         if self._read_finish is None or self._read_commit is not None:
             return
         payload=self._read_finish_payload()
-        if time.monotonic() >= payload['deadline']:
+        if time.monotonic() >= payload['deadline'] and not self._is_account_finish(payload):
             raise TimeoutError('original read result persistence deadline elapsed')
+        # 账户查询即使在入队前超期，域仍按原D先拒绝写入，再进入同身份核账。
         try:
             future=self._domain.submit('read.finish',payload)
         except BufferError:
@@ -328,25 +377,17 @@ class HostControlLoop:
                 or payload['request_id']!=active[0]
                 or self.read_future is not None and not self.read_future.retired):
             return False
-        rid=active[0];request=decode(active[1]);journal=self.runtime.journal
-        record=journal.get_bound(rid,deadline=deadline)
-        if (record is None or record['dispatch_binding']!=self.binding
-                or record['operation_id']!=request['operation_id']
-                or record['request_body_sha256']!=hashlib.sha256(active[1]).hexdigest()):
-            return False
-        if record['state']=='terminal':
-            if 'control_rejection' in payload:
-                outcome='original_rejection_already_terminal'
-            else:
-                expected=canonical(payload['result'])
-                if (record['result_binding']!=self.binding or record['result_body_b64'] is None
-                        or base64.b64decode(record['result_body_b64'],validate=True)!=expected):
-                    return False
-                outcome='original_result_already_terminal'
-        elif record['state']=='executing':
-            journal.interrupt_bound(rid,request['operation_id'],deadline=deadline)
-            outcome='original_request_interrupted'
-        else:
+        request=decode(active[1]);request_sha256=hashlib.sha256(active[1]).hexdigest()
+        outcome=None
+        if self._read_reconcile is not None:
+            try:
+                outcome=self._read_reconcile.result()
+            except TimeoutError:
+                # 同一域已join；在原关闭D核晚回COMMIT，不沿新预算重做finish。
+                pass
+        if outcome is None:
+            outcome=self._reconcile_read_record(payload,request['operation_id'],request_sha256,deadline)
+        if outcome is None:
             return False
         self._abandoned_read_commit={
             'future':future,  # 原域任务及原异常对象；已经完成且域已join。
@@ -354,9 +395,42 @@ class HostControlLoop:
             'active':active,  # 原请求ID/请求字节及原SDK时限，不改变提交身份。
             'reply_future':self.read_future,  # 原运输Future；关闭退役，未补发ACK。
             'outcome':outcome}  # 只读终态核查结论，不代表源业务排空或金融完成。
-        self._read_commit=self._read_commit_payload=None
+        self._read_commit=self._read_commit_payload=self._read_reconcile=None
         self.active=self.read_future=None
         return True
+
+    def _reconcile_read_record(self, payload, operation_id, request_sha256, deadline):
+        """原事务结束后只查同一身份，必要时保存该原只读请求的中断终态。"""
+        rid=payload['request_id'];journal=self.runtime.journal
+        record=journal.get_bound(rid,deadline=deadline)
+        if (record is None or record['dispatch_binding']!=self.binding
+                or record['operation_id']!=operation_id or record['request_body_sha256']!=request_sha256):
+            return None
+        if record['state']=='terminal':
+            if 'control_rejection' in payload:
+                outcome='original_rejection_already_terminal'
+            else:
+                expected=canonical(payload['result'])
+                observed = (None if record['result_body_b64'] is None
+                            else base64.b64decode(record['result_body_b64'], validate=True))
+                if record['result_binding']==self.binding and observed==expected:
+                    outcome='original_result_already_terminal'
+                else:
+                    # get_bound已核持久结果摘要与请求身份；中断保留其真实完成时间。
+                    if record['result_binding'] is not None or observed is None:
+                        return None
+                    interrupted=decode(observed)
+                    if (interrupted.get('request_id')!=rid or interrupted.get('operation_id')!=operation_id
+                            or interrupted.get('ok') is not False or interrupted.get('data') is not None
+                            or interrupted.get('error_code')!='operation_interrupted'):
+                        return None
+                    outcome='original_request_interrupted'
+        elif record['state']=='executing':
+            journal.interrupt_bound(rid,operation_id,deadline=deadline)
+            outcome='original_request_interrupted'
+        else:
+            return None
+        return outcome
 
     def close(self, deadline):
         self.request_close()
@@ -364,7 +438,16 @@ class HostControlLoop:
         records=[]
         if self._read_finish is not None:
             pending=self._read_finish_payload()
-            self._persist_read_outcome(pending,min(deadline,pending['deadline']))
+            if time.monotonic() >= pending['deadline'] and self._is_account_finish(pending):
+                sha = hashlib.sha256(self.active[1]).hexdigest()
+                outcome = self._reconcile_read_record(pending, 'account.trade_detail', sha, deadline)
+                if outcome is None:
+                    raise ProtocolError('account read finish identity unconfirmed')
+                self._abandoned_read_commit = dict(future=None, payload=pending, active=self.active,
+                                                    reply_future=self.read_future, outcome=outcome)
+                self._log_account_finish(outcome, sha)
+            else:
+                self._persist_read_outcome(pending,min(deadline,pending['deadline']))
             self._read_finish=None;self.active=None
         if self._read_commit is not None:
             try:self._domain_result(self._read_commit)

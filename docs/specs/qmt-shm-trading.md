@@ -383,4 +383,6 @@ R19观察失联收尾补充（2026-11-03）：原peer已关闭、Future已retire
 
 原只读finish任务必须保留完整payload、Future和原持久截止。正常路径在持久确认后沿原ACK推进；发生TimeoutError后，关闭线程先join唯一域，再在同一原关闭截止内查询该原UUID/请求正文摘要/operation/dispatch binding。Journal已经保存完整一致结果时保持原字节；仍为executing时仅沿原interrupt_bound转为原请求中断终态。原请求、SDK和持久截止均不延长，不重新提交finish，不补源ACK。Future和原值仍由关闭对象保留作证据。
 
+持续运行的 `account.trade_detail` 在原 finish Future 已结束并返回 `TimeoutError` 后，可在同一域单独核账一次。原域队列繁忙导致入队前超期时，同样先按原 D 拒绝写入再核账。检查原请求身份与原终态；如原事务未提交，沿原只读中断结果关闭责任。只有核账已持久完成，活跃传输才退休该原 RPC，后继由账户查询正常调度。停止期间只在原关闭 D 内核账，不补 ACK；核账事务晚回时识别已保存的同身份中断。诊断记录原请求摘要、核账阶段和固定结果；核账失败、身份冲突及非只读业务保持原故障语义。
+
 该核查只接受完成且未取消的只读finish TimeoutError，并保持原peer已退役。运行中、非Timeout、身份/原终态内容冲突及未核清的结果继续保留原owner并报告关闭失败。交易claim/finish/unknown及Source事件ACK路径保持原有责任。常驻服务只有确认整代物理资源和Journal关闭后才接续同Journal的新运输代际。故障快照分别记录只读commit是否存在、是否完成及固定异常类别，避免仅凭交易jobs=0误判域已无只读责任。

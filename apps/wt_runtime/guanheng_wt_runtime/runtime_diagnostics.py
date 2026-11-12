@@ -137,6 +137,7 @@ class ProcessEventLog:
         'cleanup_unconfirmed', 'output_limit', 'pipe_read', 'monitor_start'))
     _events = frozenset(('process_started', 'process_ready', 'process_failure',
         'process_closed', 'stream_exception', 'stream_summary'))
+    _structured_stderr = (b'GH_TRADE_REPLY_INTERRUPTED ', b'GH_ACCOUNT_READ_FINISH ')
 
     def __init__(self, root, control_id, component, *, max_bytes=1024*1024, backups=3):
         if not 4096 <= max_bytes <= 16*1024*1024 or type(backups) is not int or not 1 <= backups <= 8:
@@ -150,6 +151,7 @@ class ProcessEventLog:
         self._oversize = [False, False]  # 超长行丢弃到下个换行，避免截断正文被当作异常。
         self._hashes = [hashlib.sha256(), hashlib.sha256()]  # 整条流摘要，不保留原文。
         self._sizes = [0, 0]  # 实际消费字节数，区别于受限内存前缀长度。
+        self._structured_bytes = 0  # 本代交易Host严格准入的stderr诊断字节，独立走有界日志队列。
         self._frames = [[], []]  # 每条流最多八个已知模块的行位置，不保存路径、源码或局部变量。
         self._errors = 0  # 日志写入失败次数；不覆盖原业务失败或改变交易语义。
         self._written = 0  # 本代成功落盘事件数，供验真核查日志是否实际工作。
@@ -265,6 +267,25 @@ class ProcessEventLog:
         # 只解析标准异常类别和Windows错误码；秘密出现在正文、普通输出或自定义
         # 异常类名时均丢弃。完整输出仅形成摘要，不写入日志或公开状态。
         line = raw.decode('utf8', errors='replace').strip()
+        if index == 1 and self.component == 'trade-host-process' and len(raw) <= 160 and raw.endswith(b'\n'):
+            wire = raw.removesuffix(b'\n').removesuffix(b'\r').decode('utf8', errors='replace')
+            reply = re.fullmatch(r'GH_TRADE_REPLY_INTERRUPTED '
+                r'(invalid_arguments|queue_full|capability_unavailable|call_expired|reply_too_large|binding_closed|unknown) '
+                r'(replied|not_sent|unknown) ([a-f0-9]{64})', wire)
+            if reply:
+                self._append('trade_reply_interrupted', dict(level='ERROR', phase='collect_trade_reply',
+                    rpc_error=reply[1], delivery=reply[2], command_sha256=reply[3], action='reconcile_original'))
+                self._structured_bytes += len(raw)
+                return
+            finish = re.fullmatch(r'GH_ACCOUNT_READ_FINISH '
+                r'(commit_timeout|identity_unconfirmed|original_rejection_already_terminal|'
+                r'original_result_already_terminal|original_request_interrupted) ([a-f0-9]{64})', wire)
+            if finish:
+                level = 'ERROR' if finish[1] in ('commit_timeout', 'identity_unconfirmed') else 'INFO'
+                self._append('account_read_finish_recovery', dict(level=level, phase='persist_original_read',
+                    outcome=finish[1], request_sha256=finish[2]))
+                self._structured_bytes += len(raw)
+                return
         frame = re.fullmatch(r'File "(.*)", line ([0-9]{1,8}), in .*', line)
         if frame:
             filename = frame[1].replace('\\', '/').rsplit('/', 1)[-1]
@@ -283,7 +304,7 @@ class ProcessEventLog:
         self._frames[index].clear()
 
     def feed(self, index, chunk):
-        """与原reader同次消费，不额外读取管道；任意分块及超长行均有界。"""
+        """同次消费管道，返回本流计入原普通输出限额的累计字节。"""
         with self._lock:
             self._sizes[index] += len(chunk)
             self._hashes[index].update(chunk)
@@ -300,6 +321,13 @@ class ProcessEventLog:
                         self._line(index, bytes(pending))
                     pending.clear()
                     self._oversize[index] = False
+            if index != 1 or self.component != 'trade-host-process':
+                return self._sizes[index]
+            pending = self._pending[index]
+            # 仅暂缓可能的固定诊断帧；无效整行或超长仍回到原输出预算。
+            provisional = len(pending) if len(pending) <= 160 and any(
+                prefix.startswith(pending) or pending.startswith(prefix) for prefix in self._structured_stderr) else 0
+            return self._sizes[index] - self._structured_bytes - provisional
 
     def finish(self, index):
         """EOF时落盘尾行和整流摘要；原内存前缀稍后清空也保留诊断。"""
@@ -309,6 +337,7 @@ class ProcessEventLog:
             self._pending[index].clear()
             self._append('stream_summary', dict(stream='stdout' if index == 0 else 'stderr',
                 bytes=self._sizes[index], sha256=self._hashes[index].hexdigest()))
+            return self._sizes[index] - (self._structured_bytes if index == 1 else 0)
 
     def snapshot(self):
         """独立诊断纯值；日志故障与原进程状态各自留证。"""

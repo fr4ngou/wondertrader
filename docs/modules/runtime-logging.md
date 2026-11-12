@@ -18,6 +18,8 @@ WT原生运行日志、委托/成交记录和既有通信Journal继续各自拥�
 
 EOF在内存形成尾行/流摘要后沿原回收，日志异步留存。`snapshot()`分别返回records_written、write_failures、records_pending、records_dropped；业务关闭成功不授日志已落盘资格。独立`drain(timeout)`供验真等待，原start/close不调用；进程正常解释器退出时额外最多0.5秒排空，超时仍属未写完。发布检查核实际文件和计数，异常退出/磁盘长期阻塞可丢尾部事件，不能声称日志零丢失。
 
+交易 Host 领取失败的原 RPC 回报时，受管日志解析固定 `trade_reply_interrupted` 事件，保存原命令摘要、固定 RPC 原因及投递状态。账户结果持久超期与续核结果使用 `account_read_finish_recovery`，保留原请求摘要和固定处置。合格诊断帧走既有日志队列，普通输出限额仍计入非诊断正文。原 Journal 继续负责确认、原命令身份及未知结果。
+
 原审查的慢I/O及重叠轮转反例已加入回归：阻塞fsync时原停止/截止/管道EOF继续，两个实际隐藏进程共享系列仍守容量且记录写失败。七项及原CLI七项和独立delta复查通过；额外自然退出不调用drain也留下完整四条事件。实现已随[Runtime14.4](../releases/2026-11-06-runtime14-auxiliary-live.md)普通安装采用，保留原封存覆盖；Native与TradeHost新事件已实际落盘。[日线21](../releases/2026-11-06-daily21-reference-resume-live.md)的新版外部运行器同样沿此公共owner记录SourceMarketProcess，业务更新仍由日线状态及原请求/结果说明。
 
 ## 独立观衡Web日志

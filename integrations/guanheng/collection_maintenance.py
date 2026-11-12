@@ -11,7 +11,7 @@ from ..guanheng_market_client import API_VERSION
 from .collection_minute_reader import CollectionMinuteReader
 from .market_generation import read_fixed, read_generation
 from .security_reference import _descriptor, _reference_catalog, _calendar
-from .source_history_transport import require
+from .source_history_transport import SourcePending, require
 from .source_history_reads import retained_resume_state
 
 ZONE = timezone(timedelta(hours=8))
@@ -223,8 +223,16 @@ class MinuteCollectionMaintenance:
                 result = self.producer.call(dict(api_version=API_VERSION, action='history.source-query', request=query))
                 labels = [bar['minute'] for bar in result['data'].get('bars', [])]
                 preferred = hashlib.sha256(canonical({k: query[k] for k in ('exchange', 'code', 'from', 'to')})).hexdigest()
-                candidates, unused = self.producer.repository.find(query, preferred,
-                    deadline=self.clock() + self.c['interval_seconds'], byte_budget=[self.producer.c['max_bytes']], clock=self.clock)
+                try:
+                    candidates, unused = self.producer.repository.find(query, preferred,
+                        deadline=self.clock() + self.c['interval_seconds'], byte_budget=[self.producer.c['max_bytes']], clock=self.clock)
+                except SourcePending:
+                    # 只读注册扫描暂无完成证明；保留原窗口，下轮照常读回并核证。
+                    row.update(state='recovery_pending', recovered_count=None,
+                               recovery_status='source_registry_pending', recovery_observed_at=self.wall_clock())
+                    self.retry_at[key] = self.clock() + self.c['retry_seconds']
+                    self.next_step = self.clock() + self.c['interval_seconds']
+                    return
                 proven = any(state['published'].get('reconciled_day') is not None for unused, state in candidates)
                 complete = result['status']['code'] == 'Ok' and labels == grid and proven
                 row.update(state='recovered' if complete else 'recovery_pending',

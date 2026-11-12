@@ -15,6 +15,7 @@ from unittest.mock import patch
 from contextlib import redirect_stdout
 from uuid import uuid4
 
+from guanheng_wt_runtime import service_control
 from guanheng_wt_runtime.service_control import (
     ServiceConfig,
     ServiceController,
@@ -230,6 +231,27 @@ class ServiceControlTests(unittest.TestCase):
         self.assertEqual(self.controller.status()[1]["state"], "process_lost")
         self.assertFalse(self.controller.status()[1]["ready"])
         self.assertEqual(self.controller.start()[1]["state"], "process_lost")
+
+    def test_status_retries_sharing_conflict_without_reporting_startup(self):
+        code, first = self.controller.start()
+        self.assertEqual((code, first["state"]), (0, "ready"))
+        original = service_control.read_status
+        remaining = 1
+
+        def busy_once(path, max_bytes):
+            nonlocal remaining
+            if Path(path) == Path(first["current"]["wt_status_file"]) and remaining:
+                remaining -= 1
+                raise service_control.CollectionStatusPending()
+            return original(path, max_bytes)
+
+        with patch.object(service_control, "read_status", side_effect=busy_once):
+            _, result = self.controller.status()
+        self.assertEqual((result["state"], result["current"], remaining), ("ready", first["current"], 0))
+        with patch.object(service_control, "read_status", side_effect=service_control.CollectionStatusPending) as busy:
+            _, result = self.controller.status()
+        self.assertEqual((result["state"], result["error_code"], busy.call_count),
+                         ("status_read_pending", "status_file_busy", 3))
 
     def test_start_waits_for_ready_receipt_after_ready_status(self):
         pending = {}

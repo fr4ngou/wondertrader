@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -17,8 +18,14 @@ from uuid import uuid4
 from integrations.guanheng import qmt_native_adjustment as qna
 from .source import (AnalysisSnapshotProvider, BoundAnalysisClient,
     SourcePending, SourceUnavailable, write_json, utc_now)
-from .pipeline import load, need, validate_snapshot
+from .pipeline import NATIVE_TOOL_TIMEOUT, load, need, validate_snapshot
 from guanheng_wt_runtime.thread_owner import ThreadOwner
+
+_LOG = logging.getLogger(__name__)
+
+
+class NativeRefreshDeadline(TimeoutError):
+    """本轮原生计算超过刷新预算，既有 Job 仍由原发布者收口。"""
 
 
 class NativeRefreshJob:
@@ -61,6 +68,7 @@ class NativeRefreshJob:
             return min(deadline, close) if close is not None else deadline
 
         failure = None
+        expired = False
         try:
             job.start((self.python, '-B', '-m', 'guanheng_analysis_window_producer.pipeline',
                 '--native-request', str(request_path)), self.cwd, deadline=end())
@@ -70,6 +78,7 @@ class NativeRefreshJob:
                 reader.start()
             while job.poll() is None:
                 if self.cancel.is_set() or time.monotonic() >= end() or failed:
+                    expired = not self.cancel.is_set() and not failed and time.monotonic() >= deadline
                     forced = True
                     job.close_job()
                     break
@@ -77,6 +86,8 @@ class NativeRefreshJob:
             exit_code = job.wait(max(0., end()-time.monotonic()))
         except BaseException as error:
             failure = error
+            expired = expired or (isinstance(error, TimeoutError) and not self.cancel.is_set()
+                                  and time.monotonic() >= deadline)
             # 创建成功后抛错也保留原 Job 归属，沿同一个截止回收部分创建资源。
             try:
                 forced = True
@@ -99,6 +110,8 @@ class NativeRefreshJob:
             for index, suffix in enumerate(('stdout', 'stderr')):
                 request_path.with_suffix('.'+suffix).write_bytes(buffers[index])
             write_json(self._receipt_path, self.receipt)
+        if expired or (failure is None and not forced and not failed and exit_code == NATIVE_TOOL_TIMEOUT):
+            raise NativeRefreshDeadline('analysis_native_refresh_deadline')
         if failure is not None:
             raise RuntimeError('analysis_native_job_failed') from failure
         need(exit_code == 0 and not forced and not failed and reaped and len(joined) == 2 and all(eof),
@@ -307,9 +320,40 @@ class AnalysisWindowProducer:
 
     def _run(self):
         attempt = self._resume_attempt
+        reported = None
+
+        def report(reason, action):
+            nonlocal reported
+            phase = self._state['phase']
+            if reported != (phase, reason):
+                receipt = self._runner.receipt if self._runner is not None else None
+                entry = dict(level='ERROR', observed_at=utc_now().isoformat(), phase=phase,
+                    reason=reason, action=action, capture_id=self._state['current_capture_id'],
+                    refresh_seconds=self.refresh_seconds, native_exit_code=(receipt or {}).get('exit_code'),
+                    native_resources_closed=(receipt or {}).get('resources_closed'))
+                # 正式隐藏 Runtime 的 stderr 不持久，诊断随原捕获文件落盘。
+                try:
+                    write_json((attempt or self.directory)/f'ERROR-{reason}.json', entry)
+                except OSError:
+                    pass
+                _LOG.error('analysis_window phase=%s reason=%s action=%s capture_id=%s refresh_seconds=%s '
+                           'native_exit_code=%s native_resources_closed=%s', phase, reason, action,
+                           self._state['current_capture_id'], self.refresh_seconds,
+                           (receipt or {}).get('exit_code'), (receipt or {}).get('resources_closed'))
+                reported = (phase, reason)
+
         try:
             while not self._stop.is_set():
                 deadline = time.monotonic()+self.refresh_seconds
+                if self._runner is not None:
+                    # 旧Job未收口时只重试回收，禁止叠加新进程或新来源捕获。
+                    if not self._runner.reap(self._effective(deadline)):
+                        self._save_state(phase='waiting_source', error='analysis_native_cleanup_pending')
+                        self._wake.wait(self.interval)
+                        self._wake.clear()
+                        continue
+                    with self._lock:
+                        self._runner = None
                 if attempt is None:
                     capture_id = str(uuid4())
                     attempt = self.directory/('r-'+capture_id[:12])
@@ -395,16 +439,29 @@ class AnalysisWindowProducer:
                         write_json(work/'PUBLICATION.json', success)
                         self._save_state(phase='published', error=None, last_success=success,
                             published_count=self._state['published_count']+1)
+                    if reported:
+                        _LOG.info('analysis_window action=resumed capture_id=%s', request['capture_id'])
+                        reported = None
                     attempt = None
-                except SourcePending:
-                    self._save_state(phase='waiting_source', error='source_pending')
+                except NativeRefreshDeadline:
+                    report('analysis_native_refresh_deadline', 'reap_then_retry')
+                    self._save_state(phase='waiting_source', error='analysis_native_refresh_deadline')
+                    attempt = None  # 已校验完整源快照；新一轮可重新观察，原捕获仍保留。
+                except SourcePending as pending:
+                    reason = str(pending)
+                    if reason not in {'analysis_publication_busy', 'analysis_refresh_interrupted'}:
+                        reason = 'source_pending'
+                    if not self._stop.is_set() and reason != 'source_pending':
+                        report(reason, 'retry_same_capture')
+                    self._save_state(phase='waiting_source', error=reason)
                 except SourceUnavailable as error:
                     # 已确认缺源后下一轮重新查询；旧窗口及旧时钟原样保持。
                     reason = str(error)
                     if reason not in {'analysis_daily_missing', 'analysis_common_dates_missing',
-                            'analysis_source_stale', 'analysis_source_terminal_failure',
+                            'analysis_source_stale', 'analysis_source_terminal_failure', 'analysis_source_admission_rejected',
                             'analysis_source_epoch_interrupted'}:
                         reason = 'source_unavailable'
+                    report(reason, 'retry_next_capture')
                     self._save_state(phase='waiting_source', error=reason)
                     attempt = None
                 finally:
@@ -415,7 +472,9 @@ class AnalysisWindowProducer:
                     self._wake.wait(self.interval)
                     self._wake.clear()
         except BaseException:
-            self._save_state(phase='failed', error='analysis_refresh_failed')
+            reason = 'analysis_native_job_failed' if self._state['phase'] == 'native_refresh' else 'analysis_refresh_failed'
+            report(reason, 'stop')
+            self._save_state(phase='failed', error=reason)
         finally:
             if self.status()['phase'] != 'failed':
                 self._save_state(phase='stopped')

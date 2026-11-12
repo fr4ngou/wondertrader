@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import csv
 from dataclasses import asdict
 from datetime import date, datetime, timezone
@@ -189,12 +190,19 @@ def native_pipeline(request):
         native_output_sha256=qna.file_sha(work/'NATIVE.json')))
 
 
+NATIVE_TOOL_TIMEOUT = 75  # 此worker显式分类的原生子工具超时退出码。
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--native-request', type=Path, required=True)
     args = parser.parse_args()
-    native_pipeline(load(args.native_request))
+    try:
+        native_pipeline(load(args.native_request))
+    except subprocess.TimeoutExpired:
+        return NATIVE_TOOL_TIMEOUT
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

@@ -245,7 +245,9 @@ class BoundAnalysisClient:
                         if self._superseded_read(slot, metadata, operation, arguments, deadline):
                             raise SourceUnavailable('analysis_source_epoch_interrupted') from None
                         raise SourcePending('analysis_original_request_unresolved') from None
-                    except RetainedReadFailure:
+                    except RetainedReadFailure as error:
+                        if str(error) == 'read_admission_rejected':
+                            raise SourceUnavailable('analysis_source_admission_rejected') from None
                         raise SourceUnavailable('analysis_source_terminal_failure') from None
                 if slot.exists():
                     record = json.loads(slot.read_bytes())

@@ -210,5 +210,22 @@ class RetainedResumeTests(unittest.TestCase):
         self.assertEqual(calls,['resume',retry_key[0],'resume',new_key[0]])
         self.assertNotIn(new_key,worker.queued)
 
+    def test_registry_deadline_keeps_same_symbol_and_date_for_retry(self):
+        from integrations.guanheng.source_history_transport import SourcePending
+        worker, key = self.maintenance(lambda deadline: dict(state='empty'))
+        worker.clock = lambda: 100.
+        worker.producer.c['max_bytes'] = 4096
+        worker.producer.base = SimpleNamespace(expected_minutes=lambda symbol, day: [202610220931])
+        worker.producer.call = lambda request: dict(status=dict(code='Ok'), data={'bars': [{'minute': 202610220931}]})
+
+        def deadline(*args, **kwargs):
+            raise SourcePending('source registry deadline')
+
+        worker.producer.repository = SimpleNamespace(find=deadline)
+        worker.step(source_ready=True)
+        self.assertEqual(worker.rows[key]['recovery_status'], 'source_registry_pending')
+        self.assertEqual(worker.retry_at, {key: 160.})
+        self.assertFalse(worker.closed)
+
 
 if __name__=='__main__':unittest.main()

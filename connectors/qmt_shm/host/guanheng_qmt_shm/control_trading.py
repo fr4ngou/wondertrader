@@ -9,10 +9,12 @@ from __future__ import annotations
 import base64
 import hashlib
 from datetime import datetime, timedelta, timezone
+import sys
 import threading
 import time
 
 from guanheng_qmt_shm_agent.protocol import ProtocolError, canonical, decode
+from guanheng_qmt_shm_agent.control_wire import ERROR_CODES
 from guanheng_qmt_shm_agent.trade_clock import CLOCK_SCHEMA, deadline_milliseconds
 from .bound import MAX_METADATA_BYTES, unb64
 from .control import HostControlLoop
@@ -359,6 +361,8 @@ class HostTradingControlLoop(HostControlLoop):
             if self._trade_received is None:
                 return
             self._trade_result_deadline = self._result_deadline(self._trade_result_deadline)
+            if not self._trade_received['ok']:
+                self._log_interrupted_trade_reply(self._trade_received)
         received = self._trade_received
         payload = {'command_id': self._trade_active['command_id']}
         operation = 'trade.interrupt'
@@ -366,6 +370,18 @@ class HostTradingControlLoop(HostControlLoop):
             operation = 'trade.finish'
             payload['result'] = received['payload']
         self._job('trade', operation, payload, self._result_deadline(self._trade_result_deadline))
+
+    def _log_interrupted_trade_reply(self, received):
+        """原回报只领取一次；日志不复制原命令、错误正文及账户数据。"""
+        try:
+            code = (received.get('error') or {}).get('code')
+            delivery = received.get('delivery')
+            code = code if code in ERROR_CODES else 'unknown'
+            delivery = delivery if delivery in ('replied', 'not_sent', 'unknown') else 'unknown'
+            command = hashlib.sha256(self._trade_active['command_id'].encode('ascii')).hexdigest()
+            print(f'GH_TRADE_REPLY_INTERRUPTED {code} {delivery} {command}', file=sys.stderr, flush=True)
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass  # 诊断输出失败后仍沿原Journal处理。
 
     def _collect_poll(self):
         if (self._poll_future is None or 'poll' in self._jobs

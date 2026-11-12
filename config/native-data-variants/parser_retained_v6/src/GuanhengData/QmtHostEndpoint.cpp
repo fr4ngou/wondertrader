@@ -112,7 +112,12 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
             catch(const std::invalid_argument&){return fail(ErrorCode::InvalidInput,"qmt_host_snapshot_invalid");}
             return {};
         }
-        if(value.receipt.request_body.empty()){held_codes_.clear();return value.result.status;}
+        if(value.receipt.request_body.empty()){
+            held_codes_.clear();
+            if(value.result.status.code==ErrorCode::Timeout && value.result.status.reason=="qmt_host_deadline")
+                return fail(ErrorCode::Timeout,"qmt_host_pump_deadline");
+            return value.result.status;
+        }
         static_assert(std::is_nothrow_move_constructible<QmtBoundResult>::value,"original receipt move must not allocate");
         held_.emplace(std::move(value));
     } else if(!mapped_) {
@@ -155,15 +160,17 @@ Status QmtHostEndpoint::pump(std::size_t limit,std::uint32_t milliseconds)
         if(!receiver_||revision!=revision_)break;
         const auto size=std::min(full_tick_batch_size_,count-i);
         std::vector<std::string> batch;batch.reserve(size);
-        for(std::size_t n=0;n<size;++n)batch.push_back(codes[(cursor_+i+n)%codes.size()]);
+        for(std::size_t n=0;n<size;++n)batch.push_back(codes[(cursor_+n)%codes.size()]);
         const auto original_codes=held_?held_codes_:batch;
         std::vector<MarketSnapshot> snapshots;
         status=read_snapshots(batch,until,snapshots);
-        // 等待原结果/ACK时本轮保持连接且不产生行情，原事件时间与新鲜度由消费者核验。
-        if(retained_&&status.code==ErrorCode::Pending)return {};
+        // retained轮询层识别原结果/ACK等待并保持连接；原事件时间由消费者核验。
         if(!status.ok())return status;
         // 已退订的旧请求仍须确认消费；完成后按本代订阅准入，不交付旧证券。
-        if(original_codes!=batch){i+=size;continue;}
+        if(original_codes!=batch)continue;
+        // 已确认消费的整批先记轮转进度；投递阶段用完预算也要让后续证券获得下轮机会。
+        cursor_=(cursor_+size)%codes.size();
+        i+=size;
         // 整批先校验；stop/退订的重入在每个 SPI 准入前继续检查，同 pump 不重置截止。
         for(const auto& snapshot:snapshots)
         {
@@ -173,8 +180,7 @@ Status QmtHostEndpoint::pump(std::size_t limit,std::uint32_t milliseconds)
             try{status=receive(snapshot);if(!status.ok())return status;}
             catch(...){receiver_={};return fail(ErrorCode::SubmissionUnknown,"qmt_host_receiver_outcome_unknown");}
         }
-        i+=size;
     }
-    if(revision==revision_&&!codes_.empty())cursor_=(cursor_+count)%codes_.size();return {};
+    return {};
 }
 }

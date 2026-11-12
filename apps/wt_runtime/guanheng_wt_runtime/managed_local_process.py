@@ -247,17 +247,18 @@ class ManagedLocalProcess:
                 chunk = pipe.read(4096)
                 if not chunk:
                     if self._diagnostic is not None:
-                        self._diagnostic.finish(index)
+                        if self._diagnostic.finish(index) > self.config.max_output_bytes:
+                            self._failure('output_limit')
                     self._eof[index] = True
                     self._wake.set()
                     return
                 prefix = self._buffers[index]
-                if self._diagnostic is not None:
-                    self._diagnostic.feed(index, chunk)
+                ordinary = (self._diagnostic.feed(index, chunk) if self._diagnostic is not None
+                            else len(prefix) + len(chunk))
                 remaining = self.config.max_output_bytes - len(prefix)
                 if remaining:
                     prefix.extend(chunk[:remaining])
-                if len(chunk) > remaining:
+                if ordinary > self.config.max_output_bytes:
                     self._failure('output_limit')
                 # 超额后仍排空；原始字节只留有限私有内存，status从不暴露它。
         except BaseException as error:

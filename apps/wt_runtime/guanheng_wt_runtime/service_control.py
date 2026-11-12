@@ -265,10 +265,14 @@ def _read_current(path: Path) -> dict | None:
         return None
 
 
-def _runtime_status(current: dict) -> dict | None:
+def _runtime_status(current: dict, *, allow_pending: bool = True) -> dict | None:
     try:
         value = read_status(current["wt_status_file"], 64 * 1024)
-    except (FileNotFoundError, CollectionStatusPending):
+    except FileNotFoundError:
+        return None
+    except CollectionStatusPending:
+        if not allow_pending:
+            raise
         return None
     _require(
         value.get("schema") == "guanheng.wt-runtime-status.v1"
@@ -280,11 +284,15 @@ def _runtime_status(current: dict) -> dict | None:
     return value
 
 
-def _terminal(current: dict, name: str) -> dict | None:
+def _terminal(current: dict, name: str, *, allow_pending: bool = True) -> dict | None:
     path = Path(current["wt_status_file"]).parent / name
     try:
         value = read_status(path, 16 * 1024)
-    except (FileNotFoundError, CollectionStatusPending):
+    except FileNotFoundError:
+        return None
+    except CollectionStatusPending:
+        if not allow_pending:
+            raise
         return None
     expected_schema = "guanheng.wt-runtime-" + ("closed" if name == "closed.json" else "failure") + ".v1"
     _require(
@@ -655,13 +663,24 @@ class ServiceController:
         return current, runtime_path
 
     def status(self) -> tuple[int, dict]:
+        # 共享冲突只表示发布文件暂忙；完整重读重新核验CURRENT与同代状态。
+        for attempt in range(3):
+            try:
+                return self._status_once()
+            except CollectionStatusPending:
+                if attempt < 2:
+                    self._sleep(.02)
+        return 0, _safe_projection("status", None, {"error_code": "status_file_busy"},
+                                   "status_read_pending", changed=False)
+
+    def _status_once(self) -> tuple[int, dict]:
         current = self._owned_current()
         if current is None:
             return 0, _safe_projection("status", None, None, "absent", changed=False)
-        status = _runtime_status(current)
-        if _terminal(current, "closed.json") is not None:
+        status = _runtime_status(current, allow_pending=False)
+        if _terminal(current, "closed.json", allow_pending=False) is not None:
             state = "stopped"
-        elif _terminal(current, "failure.json") is not None:
+        elif _terminal(current, "failure.json", allow_pending=False) is not None:
             state = "faulted"
         elif status is None:
             state = "starting"

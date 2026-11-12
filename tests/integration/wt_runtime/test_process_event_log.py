@@ -19,6 +19,35 @@ from guanheng_wt_runtime import runtime_diagnostics
 
 
 class ProcessLogTests(unittest.TestCase):
+    def test_trade_reply_persists_only_fixed_diagnostic_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = ProcessEventLog(directory, 'run', 'trade-host-process')
+            command = 'a' * 64
+            log.feed(1, f'GH_TRADE_REPLY_INTERRUPTED call_expired unknown {command}\n'.encode())
+            log.feed(1, f'GH_TRADE_REPLY_INTERRUPTED PRIVATE unknown {command}\n'.encode())
+            log.feed(1, f'GH_TRADE_REPLY_INTERRUPTED binding_closed replied {command} PRIVATE\n'.encode())
+            self.assertTrue(log.drain(5))
+            events = [json.loads(line) for line in (Path(directory)/'process-events.jsonl').read_text().splitlines()]
+            self.assertEqual(len(events), 1)
+            entry = events[0]
+            self.assertEqual((entry['event'], entry['rpc_error'], entry['delivery'], entry['command_sha256']),
+                             ('trade_reply_interrupted', 'call_expired', 'unknown', command))
+
+    def test_trade_diagnostic_frames_do_not_consume_the_ordinary_output_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = ProcessEventLog(directory, 'run', 'trade-host-process')
+            line = f'GH_ACCOUNT_READ_FINISH commit_timeout {"b" * 64}\n'.encode()
+            for _ in range(20):
+                self.assertEqual(log.feed(1, line[:12]), 0)
+                self.assertEqual(log.feed(1, line[12:]), 0)
+            rejected = line.rstrip() + b' PRIVATE\n'
+            self.assertEqual(log.feed(1, rejected), len(rejected))
+            padded = b' ' * 1000 + line
+            self.assertEqual(log.feed(1, padded), len(rejected) + len(padded))
+            self.assertEqual(log.feed(1, line[:-1]), len(rejected) + len(padded))
+            self.assertEqual(log.finish(1), len(rejected) + len(padded) + len(line) - 1)
+            self.assertTrue(log.drain(5))
+
     def test_real_child_error_remains_after_original_buffers_cleared(self):
         with tempfile.TemporaryDirectory() as directory:
             owner = ManagedLocalProcess(SimpleNamespace(control_root=directory,

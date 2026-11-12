@@ -1,5 +1,7 @@
 # 故障记录
 
+- [2026-11-12 交易 Host 账户结果持久超时](2026-11-12-trade-host-read-finish-timeout.md)：原只读结果两次超期触发运行退出、同身份核账恢复及全链复查。
+
 - [2026-11-12 WT 模拟策略行情中断](2026-11-12-retained-quote-input-conflict.md)：旧解析器运行期停流、原模拟自动交易恢复、同源输入重建正式采用。
 
 - [2026-11-09 WT 账户读取拒绝与行情发布接线故障](2026-11-09-qmt-account-read-and-analysis-publication.md)记录自动恢复、拒绝诊断和原模拟账户接续。

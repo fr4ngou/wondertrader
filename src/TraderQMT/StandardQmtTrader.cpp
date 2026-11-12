@@ -1524,6 +1524,8 @@ struct StandardQmtTrader::Impl {
    &&value.account.bound.result.remote_ok&&value.status.ok());
  }
  static bool temporary_read(const Completion& value) {
+  // 本地截止、排空和交付故障沿各自原终态；运输暂缺不能覆盖这些已确认失败。
+  if(value.local_failure||value.delivery_fault||value.event_drain_failed)return false;
   if(value.read_not_dispatched||value.read_interrupted||ended_retained_read(value))return true;
   if(value.status.ok())return Clock::now()>=value.deadline&&!value.event_page.gap;
   const auto& status=value.status;

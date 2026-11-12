@@ -12,7 +12,10 @@
 #include <thread>
 #include <stdexcept>
 using namespace guanheng;
-namespace { std::string early, late; std::vector<std::string> frames; std::atomic<int> reads{0},acks{0},resumes{0};
+namespace { std::string early, late; std::vector<std::string> frames; std::atomic<int> reads{0},acks{0},resumes{0},ack_delay_ms{0};
+std::atomic<bool> defer_read{false};
+std::vector<std::string> requested_batches;
+bool split_batches=false; // 仅在worker停止之间修改，worker内记录真实分批请求。
 SourceSession identity{ProviderKind::Qmt,"fixture-instance","fixture-session",1};
 void require(bool b,const char* why){if(!b)throw std::runtime_error(why);}
 std::string load(const char* p){std::ifstream f(p);std::stringstream s;s<<f.rdbuf();return s.str();}
@@ -26,17 +29,36 @@ QmtHostReadClient::~QmtHostReadClient()=default;
 Status QmtHostReadClient::prepare(std::uint32_t){return {};}
 SourceSession QmtHostReadClient::session()const{return identity;}
 Capability QmtHostReadClient::capability()const{return {true,Qualification::DevelopmentVerified,"SDK substitute"};}
-QmtBoundResult QmtHostReadClient::read_full_tick(const std::string&,std::uint32_t){QmtBoundResult r;int n=++reads;r.result.data_json=frames.empty()?(n==1?early:late):frames[(std::min)(static_cast<std::size_t>(n),frames.size())-1];r.receipt.request_body="original-"+std::to_string(n);r.snapshot_consumption_ready=true;return r;}
-QmtBoundResult QmtHostReadClient::resume(const QmtBoundReceipt&,std::uint32_t){++resumes;throw std::runtime_error("unexpected resume");}
-Status QmtHostReadClient::confirm_full_tick(const QmtBoundResult& r,std::uint32_t){require(r.receipt.request_body=="original-"+std::to_string(reads.load()),"receipt changed");++acks;return {};}
+QmtBoundResult QmtHostReadClient::read_full_tick(const std::string& arguments,std::uint32_t){QmtBoundResult r;int n=++reads;r.result.data_json=frames.empty()?(n==1?early:late):frames[(std::min)(static_cast<std::size_t>(n),frames.size())-1];r.receipt.request_body="original-"+std::to_string(n);r.snapshot_consumption_ready=!defer_read.exchange(false);if(!r.snapshot_consumption_ready)r.result.status={ErrorCode::Timeout,"qmt_http_deadline"};
+    if(split_batches) {
+        requested_batches.push_back(arguments);
+        auto selected=qmt_mapping::parse(arguments);auto all=qmt_mapping::parse(r.result.data_json);
+        rapidjson::Document subset;subset.SetObject();auto& allocator=subset.GetAllocator();
+        for(const auto& code:selected["stocks"].GetArray())subset.AddMember(rapidjson::Value(code,allocator),rapidjson::Value(all[code.GetString()],allocator),allocator);
+        rapidjson::StringBuffer bytes;rapidjson::Writer<rapidjson::StringBuffer> writer(bytes);subset.Accept(writer);r.result.data_json=bytes.GetString();
+    }
+    return r;
+}
+QmtBoundResult QmtHostReadClient::resume(const QmtBoundReceipt& receipt,std::uint32_t){
+    ++resumes;require(receipt.request_body=="original-1"&&reads==1,"resume must use original receipt");
+    QmtBoundResult result;result.receipt=receipt;result.result.data_json=late;result.snapshot_consumption_ready=true;return result;
+}
+Status QmtHostReadClient::confirm_full_tick(const QmtBoundResult& r,std::uint32_t){require(r.receipt.request_body=="original-"+std::to_string(reads.load()),"receipt changed");std::this_thread::sleep_for(std::chrono::milliseconds(ack_delay_ms.exchange(0)));++acks;return {};}
 Status QmtHostReadClient::drain_callbacks(std::uint32_t)noexcept{return {};}
 }
 struct Spi:wtp::IParserSpi {
 std::atomic<int> quotes{0},closes{0},connects{0},snapshot_log{0};
+std::vector<std::string> error_logs;
+std::vector<std::string> wait_logs,info_logs;
 void handleEvent(wtp::WTSParserEvent e,int32_t)override{if(e==wtp::WPE_Close)++closes;if(e==wtp::WPE_Connect)++connects;}
 void handleSymbolList(const wtp::WTSArray*)override{}
 void handleQuote(wtp::WTSTickData* t,uint32_t)override{require(t->price()>0,"bad tick");++quotes;}
-void handleParserLog(wtp::WTSLogLevel,const char* text)override{if(std::string(text)=="QMT polling stopped: qmt_host_snapshot_invalid")++snapshot_log;}
+void handleParserLog(wtp::WTSLogLevel level,const char* text)override{
+    if(level==wtp::LL_ERROR)error_logs.emplace_back(text);
+    if(level==wtp::LL_WARN)wait_logs.emplace_back(text);
+    if(level==wtp::LL_INFO)info_logs.emplace_back(text);
+    if(std::string(text).find("qmt_host_snapshot_invalid")!=std::string::npos)++snapshot_log;
+}
 wtp::IBaseDataMgr* getBaseDataMgr()override{return nullptr;}
 };
 wtp::WTSVariant* config(){auto c=wtp::WTSVariant::createObject(),q=wtp::WTSVariant::createObject(),p=wtp::WTSVariant::createObject();
@@ -80,6 +102,39 @@ for(bool regressed:{false,true}) {
     while(observed.quotes<16&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
     require(observed.quotes==16&&observed.connects==2&&observed.closes==1&&endpoints==2,"conflict must reconnect once and deliver only newer quotes");
     require(recovering.stop(1000).ok(),"recovery stop");require(reads==acks&&reads>=4&&resumes==0,"recovery preserves original consumption");
+    require(observed.error_logs.size()==1,"rebuild must log a single blocking error");
+    const auto& detail=observed.error_logs.front();
+    require(detail.find(regressed?"timestamp regressed":"same-time snapshot changed")!=std::string::npos,"conflict classification must be exact");
+    for(const auto* field:{"symbol=","accepted_time=","rejected_time=","accepted_turnover=","rejected_turnover=","source_generation="})
+        require(detail.find(field)!=std::string::npos,"conflict log must record quote evidence");
+}
+{
+    // ACK 返回后，单轮截止已过且原结果已消费。下一轮须沿同端点继续，不能终止流。
+    frames={late};reads=0;acks=0;ack_delay_ms=60;split_batches=true;
+    Spi observed;std::atomic<int> endpoints{0};
+    QmtPollingParser parser([&](const QmtHttpConfig& c,const QmtHttpProfile& p,Status& status){++endpoints;auto endpoint=std::make_shared<QmtHostEndpoint>(std::make_shared<QmtHostReadClient>(c),p,4,true);status=endpoint->prepare(c.timeout_ms);return endpoint;},true);
+    auto settings=config();settings->get("qmt")->append("timeout_ms",int32_t(25));
+    require(parser.init(settings),"deadline init");settings->release();parser.registerSpi(&observed);parser.subscribe(subscribed);require(parser.connect(),"deadline connect");
+    const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(1);
+    while(observed.quotes<8&&!observed.closes&&std::chrono::steady_clock::now()<until)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    require(observed.quotes==8&&observed.closes==0&&endpoints==1,"local pump deadline must recover on the same endpoint");
+    require(parser.stop(1000).ok()&&reads==acks&&reads>=2&&resumes==0,"deadline retains consumption identity");
+    split_batches=false;
+    require(requested_batches.size()>=3&&requested_batches[0]!=requested_batches[1]&&requested_batches[0]==requested_batches[2],"retry must visit later batches before returning to the first");
+    require(observed.error_logs.size()==1&&observed.error_logs.front().find("qmt_host_pump_deadline")!=std::string::npos,"deadline log must identify the retry cause");
+    require(observed.info_logs.size()==1&&observed.info_logs.front().find("action=resumed")!=std::string::npos,"deadline recovery must be observable");
+}
+{
+    frames={late};reads=0;acks=0;resumes=0;defer_read=true;
+    Spi observed;
+    QmtPollingParser parser([](const QmtHttpConfig& c,const QmtHttpProfile& p,Status& status){auto endpoint=std::make_shared<QmtHostEndpoint>(std::make_shared<QmtHostReadClient>(c),p,8,true);status=endpoint->prepare(c.timeout_ms);return endpoint;},true);
+    auto settings=config();require(parser.init(settings),"pending init");settings->release();parser.registerSpi(&observed);parser.subscribe(subscribed);require(parser.connect(),"pending connect");
+    const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(1);
+    while(observed.quotes<8&&!observed.closes&&std::chrono::steady_clock::now()<until)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    require(observed.quotes==8&&observed.closes==0,"original pending must keep the input open");
+    require(parser.stop(1000).ok()&&reads==acks&&resumes==1,"pending continues the original receipt exactly once");
+    require(observed.error_logs.empty()&&observed.wait_logs.size()==1&&observed.wait_logs.front().find("action=continue_original_request")!=std::string::npos,"waiting original reason must be visible once");
+    require(observed.info_logs.size()==1&&observed.info_logs.front().find("action=resumed")!=std::string::npos,"pending recovery must be observable");
 }
 {
     // 端点重建必须沿原会话，后继绑定换代时尚未发出任何新读取。
@@ -95,5 +150,5 @@ for(bool regressed:{false,true}) {
     identity=original;
     require(reads==2&&acks==2&&observed.quotes==8&&observed.connects==1&&observed.closes==1,"changed source cannot read or deliver");
 }
-std::cout<<"PASS conflict_recoveries=2 hard_failures=5 waiting_stop=1 fixed_log=1 preopen=0 later=8 startup_attempts="<<attempts<<" reads="<<reads<<" acks="<<acks<<" closes="<<spi.closes<<"\n";return 0;
+std::cout<<"PASS conflict_recoveries=2 conflict_evidence=2 poll_deadline_recovered=1 original_receipt_resumed=1 hard_failures=5 waiting_stop=1 preopen=0 later=8 startup_attempts="<<attempts<<"\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}}
