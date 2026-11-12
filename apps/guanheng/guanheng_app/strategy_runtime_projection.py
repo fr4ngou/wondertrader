@@ -223,9 +223,10 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
                 _require(p['is_long'] and symbol not in seen)
                 seen.add(symbol)
                 rows[symbol].update(broker_quantity=quantity, broker_sellable=sellable)
-    from .strategy_capital_projection import project_baseline, project_capital
+    from .strategy_capital_projection import project_baseline, project_capital, project_capital_return
     capital_origin = project_baseline(report.get('capital_baseline'))
     capital = project_capital(report.get('capital'), capital_origin, runtime_state=runtime_state)
+    capital_return = project_capital_return(report.get('capital_return'), capital_origin, capital)
     if result is not None:
         diagnostics, diagnostics_state, diagnostics_reason = _diagnostics(result, symbols, outcome)
     from .strategy_current_auxiliary_projection import project_current_auxiliary
@@ -237,6 +238,7 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
                 broker_observed_at=broker_at, broker_position_qualified=False,
                 execution_position_qualified=execution_qualified, positions=list(rows.values()),
                 capital_baseline=capital_origin, capital=capital,
+                **({'capital_return': capital_return} if capital_return is not None else {}),
                 diagnostics=diagnostics,  # 本轮V1统一业务诊断；未计算、未记录或无效时为None。
                 diagnostics_state=diagnostics_state,  # 附加信息的可用性，独立于原策略和账户状态。
                 diagnostics_reason=diagnostics_reason,  # 稳定原因码；可用时None，不回显原始诊断。

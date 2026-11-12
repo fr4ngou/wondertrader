@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import LiveStrategyPerformance from './LiveStrategyPerformance'
+import { validateLivePerformance } from './liveStrategyApi'
 import type { LivePerformance } from './liveStrategyApi'
 
 const chart = vi.hoisted(() => ({ formatter: undefined as undefined | ((input: unknown) => string) }))
@@ -33,6 +34,28 @@ test('历史成交日缺持仓不沿用今天持仓，完整无成交与未知�
   expect(screen.queryByText('10:00:00')).toBeNull()
   expect(screen.getAllByText('该日没有持仓观测。').length).toBeGreaterThan(0)
   expect(screen.getAllByText('当日完整查询无成交。').length).toBeGreaterThan(0)
+})
+
+test('展示已核收益率、追加和提取，并拒绝过期覆盖', () => {
+  const end = '2026-01-05T08:00:00Z'
+  const observation = { ...data, summary: { ...data.summary!, return_pct: '21', capital_return: {
+    baseline_at: data.baseline!.baseline_at, valued_at: end, valuation_nav_cny: '1000100',
+    cash_observed_at: end, coverage_required_at: end,
+    inflow_through: end, outflow_through: end, flow_count: 2, state: 'available', return_pct: '21', reason: '已核对资金进出。',
+    flows: [
+      { id: '1'.repeat(64), direction: 'inflow' as const, amount_cny: '500000', effective_at: '2026-01-05T04:00:00Z' },
+      { id: '2'.repeat(64), direction: 'outflow' as const, amount_cny: '200000', effective_at: '2026-01-05T06:00:00Z' },
+    ],
+  } } }
+  render(<LiveStrategyPerformance data={validateLivePerformance(observation, 'sample', '1')} />)
+  expect(screen.getByText('投资收益率').parentElement).toHaveTextContent('21%')
+  expect(screen.getByText(/收益估值截止/)).toBeVisible()
+  const details = screen.getByText('策略资金进出（2 笔）').parentElement as HTMLDetailsElement
+  details.open = true
+  expect(within(details).getByText('追加', { exact: true })).toBeVisible()
+  expect(within(details).getByText('提取', { exact: true })).toBeVisible()
+  observation.summary.capital_return.coverage_required_at = '2026-01-05T08:01:00Z'
+  expect(() => validateLivePerformance(observation, 'sample', '1')).toThrow('线上策略观察格式无效')
 })
 
 test('持仓只数正仓位，持仓和成交使用目录名称及原持仓时间', () => {

@@ -439,7 +439,8 @@ class LiveStrategyPerformanceOwner:
         _check(deadline)
         return dict(current=current,history_scope_id=history_scope,allocated=allocated,valuation_state=strategy.get('valuation_state'),valuation_reason=strategy.get('valuation_reason'),source_truncated=bool(ownership and ownership['fills_truncated']),continuity='asa-owned-book'if book else'stable-cash-anchor'if stable else'runtime-only-unproven-lineage',
             baseline=None if baseline is None else dict(total_cny=baseline['total_cny'],
-            baseline_at=baseline['baseline_at'],scope_id=_sha(baseline)),summary=summary,events=events)
+            baseline_at=baseline['baseline_at'],scope_id=_sha(baseline)),summary=summary,
+            capital_return=strategy.get('capital_return'),events=events)
 
     def _record(self,projected,deadline,limit):
         events=projected['events'];scope=projected['history_scope_id']
@@ -542,6 +543,11 @@ class LiveStrategyPerformanceOwner:
                 latest=max(valued,key=lambda r:r.get('observed_at')or r.get('reference_observed_at')or'')
                 if summary is None or (latest.get('observed_at')or latest.get('reference_observed_at')or'')>=summary['observed_at']:
                     summary=_valuation_summary(latest)
+            capital_return = projected['capital_return']
+            if (capital_return is not None and summary is not None and summary['nav_cny'] is not None
+                    and _stamp(capital_return['valued_at']) <= summary['observed_at']):
+                summary.update(return_pct=capital_return['return_pct'], return_reason=capital_return['reason'],
+                               capital_return=capital_return)
             body.update(state='available',reason=('ASA原账已归属持仓、现金与实际成交；缺少策略估值时净值及收益保持未知。'if projected['allocated']else'WT实际资金观察；成交属于账户及所选证券范围，策略归属未确认。'),
                 current=projected['current'],baseline=projected['baseline'],summary=summary,daily=rows,
                 markers=[{k:d[k]for k in ('id','date','time','symbol','side','price_cny','quantity','attribution')}for row in rows for d in row['deals']],
@@ -551,7 +557,7 @@ class LiveStrategyPerformanceOwner:
                     history_scope_id=projected['history_scope_id'],continuity=projected['continuity'],
                     attribution='strategy-allocated'if projected['allocated']else'account-universe-only',
                     reason=('历史保存本轮失败，当前为已核旧历史与真实来源快照，尚未保存本轮。'if history=='degraded-readonly-history'else
-                        '仅含App实际观察到的来源日期；缺日和过去净值保持缺失，收益率归因尚未具备。')
+                        '仅含App实际观察到的来源日期；缺日和过去净值保持缺失。')
                         +(' 缺少稳定金融现金原点，历史限本运行代。'if projected['continuity']=='runtime-only-unproven-lineage'else''),
                     deals_truncated=truncated or projected['source_truncated']))
             return body

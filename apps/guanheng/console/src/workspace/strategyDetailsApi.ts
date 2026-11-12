@@ -18,7 +18,10 @@ export type StrategyDetails = CapitalFields & {
   /** 已准入证券目录按规范代码投影的简称；缺项或旧App可缺失。 */ security_names?: Record<string, string>
   account: AccountOverview | null; account_reason: string | null
   calculation: StrategyRuntime['strategy']; calculation_reason: string | null
-  budget_cny: OptionalFact; returns: { cumulative_pct: OptionalFact }
+  budget_cny: OptionalFact; returns: {
+    /** WT已核对的资金流调整收益率，单位%。 */ cumulative_pct: OptionalFact
+    /** 已核收益的期末估值时刻。 */ valued_at?: string
+  }
 }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const text = (v: unknown): v is string => typeof v === 'string' && v.length <= 500
@@ -49,6 +52,9 @@ export function validateStrategyDetails(v: unknown): StrategyDetails {
     || !numericFact(v.budget_cny, true) || !object(v.returns) || !numericFact(v.returns.cumulative_pct)
     || !(v.account_reason === null || text(v.account_reason)) || !(v.calculation_reason === null || text(v.calculation_reason))) return invalid()
   if (v.account !== null) validateAccountOverview(v.account)
+  if (v.returns.valued_at !== undefined && (typeof v.returns.valued_at !== 'string'
+    || !timeFact({ value: v.returns.valued_at, reason: null })
+    || (v.returns.cumulative_pct as OptionalFact).value === null)) return invalid()
   if (v.security_names !== undefined && (!object(v.security_names) || Object.entries(v.security_names).some(([symbol, name]) =>
     !/^\d{6}\.(SH|SZ)$/.test(symbol) || !text(name) || !name.trim()))) return invalid()
   if (v.runtime_scope_id !== undefined && v.runtime_scope_id !== null

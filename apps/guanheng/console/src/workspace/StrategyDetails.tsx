@@ -25,9 +25,11 @@ function runtimeDuration(value: string | number) {
   return days > 0 ? `${days}天${hours}小时` : hours > 0 ? `${hours}小时${minutes}分钟`
     : minutes > 0 ? `${minutes}分钟${seconds % 60}秒` : `${seconds}秒`
 }
-function Fact({ name, fact, unit = '' }: { name: string; fact: OptionalFact; unit?: string }) {
+function Fact({ name, fact, unit = '', observedAt }: { name: string; fact: OptionalFact; unit?: string; observedAt?: string }) {
   return <div><dt>{name}</dt><dd>{fact.value === null ? '暂不可用' : unit === '元'
-    ? <FinancialValue value={fact.value} /> : unit === '秒' ? runtimeDuration(fact.value) : `${amount(fact.value)}${unit}`}
+    ? <FinancialValue value={fact.value} /> : unit === '秒' ? runtimeDuration(fact.value)
+      : unit === '%' ? `${fact.value}%` : `${amount(fact.value)}${unit}`}
+    {observedAt ? <small> · 截至 {clock(observedAt)}</small> : null}
     {fact.reason ? <details className="compact-details"><summary>说明</summary><small>{fact.reason}</small></details> : null}</dd></div>
 }
 
@@ -56,7 +58,7 @@ export default function StrategyDetails({ strategy }: {
     <div><dt>执行开始时间</dt><dd>{data.execution.started_at.value === null ? '尚未取得' : clock(String(data.execution.started_at.value))}{data.execution.started_at.reason ? <details className="compact-details"><summary>说明</summary><small>{data.execution.started_at.reason}</small></details> : null}</dd></div>
     <Fact name="运行时长" fact={data.execution.duration_seconds} unit="秒" />
     {!data.capital_baseline ? <Fact name="策略预算（元）" fact={data.budget_cny} unit="元" /> : null}
-    <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" />
+    <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" observedAt={data.returns.valued_at} />
   </dl> : null
   return <section className="surface-card strategy-compact" aria-label="策略实际详情">
     <div className="operations-heading"><h3>当前持仓与运行</h3><button disabled={query.isFetching} onClick={()=>void query.refetch()}>{query.isFetching?'正在读取详情…':'刷新策略详情'}</button></div>

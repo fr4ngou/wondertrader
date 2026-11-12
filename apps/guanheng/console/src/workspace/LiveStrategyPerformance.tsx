@@ -81,6 +81,9 @@ export default function LiveStrategyPerformance({ data }: {
   const valuation = data.summary?.valuation_state
   const amount = data.summary?.nav_cny ?? data.summary?.reference_nav_cny ?? null
   const change = data.summary?.reference_change_cny ?? data.summary?.pnl_cny ?? null
+  const capitalReturn = data.summary?.capital_return
+  const returnValue = data.summary?.return_pct ?? null
+  const referenceReturn = returnValue === null && valuation
   const totalPoints = data.coverage.point_count + (data.coverage.reference_point_count ?? 0)
   const allocated = data.coverage.attribution === 'strategy-allocated'
   const positionScope = allocated ? '策略自有持仓' : '策略证券范围内的账户持仓'
@@ -91,11 +94,19 @@ export default function LiveStrategyPerformance({ data }: {
     <div className="live-strategy-metrics">
       <div><small>{valuation === 'reference-fee-pending' ? '参考净值（手续费待确认）' : '策略净值'}</small><strong>{amount !== null ? <FinancialValue value={amount} /> : '尚无观测'}</strong></div>
       <div><small>{valuation ? '相对配置资本变化（参考）' : '原发布基准变化'}</small><strong>{change !== null ? <FinancialValue value={change} /> : '尚无观测'}</strong></div>
-      <div><small>{valuation ? '配置资本参考变化率' : '投资收益率'}</small><strong>{valuation && data.summary?.reference_return_pct != null ? `${data.summary.reference_return_pct}%` : '口径待核实'}</strong></div>
+      <div><small>{referenceReturn ? '配置资本参考变化率' : '投资收益率'}</small><strong>{returnValue !== null ? `${returnValue}%` : referenceReturn && data.summary?.reference_return_pct != null ? `${data.summary.reference_return_pct}%` : '口径待核实'}</strong></div>
       <div><small>净值实际覆盖</small><strong>{data.coverage.point_count} 个实际日{data.coverage.reference_point_count ? ` · ${data.coverage.reference_point_count} 个参考日` : ''}</strong></div>
     </div>
     <p className="live-strategy-note">{data.coverage.reason}</p>
-    {data.summary ? <p className="live-strategy-note">{data.summary.return_reason} · 估值时间 {sourceTime(data.summary.observed_at)}{data.summary.price_observed_at ? ` · 行情原时间 ${sourceTime(data.summary.price_observed_at)}` : ''}</p> : null}
+    {data.summary ? <p className="live-strategy-note">{data.summary.return_reason} · 净值时间 {sourceTime(data.summary.observed_at)}{data.summary.price_observed_at ? ` · 行情原时间 ${sourceTime(data.summary.price_observed_at)}` : ''}{capitalReturn && returnValue !== null ? ` · 收益估值截止 ${sourceTime(capitalReturn.valued_at)}` : ''}</p> : null}
+    {capitalReturn ? <details className="compact-details">
+      <summary>策略资金进出（{capitalReturn.flow_count} 笔）</summary>
+      <p>收益起算 {sourceTime(capitalReturn.baseline_at)} · 本次需覆盖至 {sourceTime(capitalReturn.coverage_required_at)} · 追加覆盖至 {capitalReturn.inflow_through ? sourceTime(capitalReturn.inflow_through) : '待核对'} · 提取覆盖至 {capitalReturn.outflow_through ? sourceTime(capitalReturn.outflow_through) : '待核对'}</p>
+      {returnValue !== null ? <p>收益所用净值 <FinancialValue value={capitalReturn.valuation_nav_cny} /> 元</p> : null}
+      {capitalReturn.flow_count > capitalReturn.flows.length ? <p>显示最近 {capitalReturn.flows.length} 笔。</p> : null}
+      {capitalReturn.flows.length ? <div className="live-table-scroll"><table><thead><tr><th>生效时间</th><th>资金方向</th><th>金额（元）</th></tr></thead>
+        <tbody>{capitalReturn.flows.map(flow => <tr key={flow.id}><td>{sourceTime(flow.effective_at)}</td><td>{flow.direction === 'inflow' ? '追加' : '提取'}</td><td><FinancialValue value={flow.amount_cny} /></td></tr>)}</tbody></table></div> : null}
+    </details> : null}
     <p className="live-strategy-attribution">{allocated ? '持仓、现金和成交来自ASA已确认的本策略归属；缺少策略估值时净值保持未知。' : '买卖点及成交来自券商账户，并按本策略证券范围筛选；策略归属尚未确认。'}持仓沿实际观察日期记录，历史缺日保持空白。</p>
     {data.coverage.valuation_state === 'unavailable' ? <p role="status">本轮自有组合估值未完成，保留最后已核点和原时间；正持仓报价缺失或过期时保持未知。</p> : null}
     {valuation === 'reference-fee-pending' ? <p className="live-strategy-note">参考曲线仅扣已知费用，实际手续费尚待确认；金额和配置资本变化率均属于参考值，投资收益率未核实。</p> : null}

@@ -78,6 +78,28 @@ class LiveBaseline(TypedDict):
     scope_id: str  # 原基准完整正文摘要，基准变化切分观察历史。
 
 
+class CapitalFlowItem(TypedDict):
+    id: str  # 绑定策略经济身份的事件摘要，用于稳定展示。
+    direction: Literal['inflow', 'outflow']  # 实际归入或离开策略的资金方向。
+    amount_cny: str  # 实际资金金额，人民币正十进制字符串。
+    effective_at: str  # 资金进入或离开策略的原时刻，带时区。
+
+
+class CapitalReturn(TypedDict):
+    baseline_at: str  # 本次策略收益的原起算时刻，带时区。
+    valued_at: str  # 本次收益的实际估值时刻，带时区。
+    valuation_nav_cny: str  # 本次收益所用期末净值，元，可早于当前净值。
+    cash_observed_at: str  # 本次收益所用实际现金快照时刻。
+    coverage_required_at: str  # 资金流水需覆盖到的时刻，取现金与持仓估值较晚者。
+    inflow_through: str | None  # 已核追加资金事实截至时刻，未知为None。
+    outflow_through: str | None  # 已核提取资金事实截至时刻，未知为None。
+    flow_count: int  # 本次估值范围内有效资金事件总数。
+    flows: list[CapitalFlowItem]  # 最近最多20条已登记资金事件，完整原始记录保留在受控环境。
+    state: str  # 收益已计算或缺覆盖、估值、基准、记录原因。
+    return_pct: str | None  # 投资收益率，单位%；数据缺口为None。
+    reason: str  # 来源固定说明，无原凭据或私有异常。
+
+
 class LiveSummary(TypedDict):
     reference_nav_cny: NotRequired[str | None]  # 未扣未知费用参考净值，实际资格时None。
     valuation_state: NotRequired[str | None]  # 原估值资格；旧NAP来源可缺。
@@ -87,7 +109,8 @@ class LiveSummary(TypedDict):
 
     nav_cny: str | None  # 参考资格时None；最近一次实际capital发布的NAV，人民币元。
     pnl_cny: str | None  # ASA未提供投资损益时None；同轮原发布的基准变化，人民币元。
-    return_pct: None  # 连续投资收益资格缺失；明确保持None。
+    return_pct: str | None  # WT计算的资金流调整收益率，单位%；缺覆盖时为None。
+    capital_return: NotRequired[CapitalReturn]  # 同次WT收益结果及有限公开流水，旧发布可缺。
     observed_at: str  # 最近一次NAV原估值时刻，UTC ISO带时区。
     price_observed_at: str | None  # 原报价来源时间；旧发布缺少时None。
     pnl_source: str  # 原发布的broker-cash-delta或native-theoretical来源。

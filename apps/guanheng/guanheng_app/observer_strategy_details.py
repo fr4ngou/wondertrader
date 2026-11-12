@@ -154,6 +154,13 @@ def observe_details(settings, configuration, deadline, strategy_id=None, securit
                 if symbol:
                     symbols.add(symbol)
         names = {symbol: name for symbol in sorted(symbols) if (name := securities.name(symbol))}
+    capital_return = strategy.get('capital_return') if strategy else None
+    returns = dict(cumulative_pct=_missing('缺少本次策略起始本金、期间现金流及连续净值基准，累计收益率暂不可计算。'))
+    if capital_return is not None:
+        rate = capital_return['return_pct']
+        returns['cumulative_pct'] = _missing(capital_return['reason']) if rate is None else dict(value=rate, reason=None)
+        if rate is not None:
+            returns['valued_at'] = capital_return['valued_at']
     return dict(schema_version='guanheng.strategy-details.v1', read_only=True, security_names=names,
         observed_at=datetime.now(timezone.utc).isoformat(), strategy=strategy_definition(strategy['strategy_id'],strategy['strategy_version'])if strategy else strategy_definition(strategy_id or 'resonance-regime-v1',None),
         # 本轮已解析的公开运行身份摘要；未配置为null，只用于隔离跨代展示缓存。
@@ -166,7 +173,7 @@ def observe_details(settings, configuration, deadline, strategy_id=None, securit
         calculation=strategy, calculation_reason=strategy_reason, budget_cny=budget,
         capital_baseline=None if strategy is None else strategy.get('capital_baseline'),
         capital=None if strategy is None else strategy.get('capital'),
-        returns=dict(cumulative_pct=_missing('缺少本次策略起始本金、期间现金流及连续净值基准，累计收益率暂不可计算。')))
+        returns=returns)
 
 
 def load_instances(settings):

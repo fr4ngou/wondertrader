@@ -114,6 +114,29 @@ class LiveTests(unittest.TestCase):
         self.owner.close();restored=self.read(self.new())
         self.assertEqual(restored['daily'],value['daily'])
 
+    def test_return_matches_current_nav_and_preserves_daily_snapshots(self):
+        from guanheng_app.strategy_capital_projection import project_capital_return
+
+        strategy = self.value['strategy']
+        capital = strategy['capital']
+        stamp = capital['observed_at']
+        capital['account_observed_at'] = stamp
+        proof = dict(baseline_at=strategy['capital_baseline']['baseline_at'], valued_at=stamp,
+                     valuation_nav_cny='1000', cash_observed_at=stamp,
+                     coverage_required_at=stamp, inflow_through=stamp, outflow_through=stamp,
+                     flow_count=0, flows=[], state='available', return_pct='0', reason='已核对资金进出。')
+        strategy['capital_return'] = project_capital_return(proof, strategy['capital_baseline'], capital)
+        value = self.read()
+        self.assertEqual(value['summary']['return_pct'], '0')
+        self.assertEqual(value['summary']['capital_return'], proof)
+        self.assertTrue(all(row['return_pct'] is None for row in value['daily']))
+
+        capital['account_observed_at'] = capital['observed_at'] = '2026-11-02T08:00:00+00:00'
+        capital.update(nav_cny='1010', native_pnl_cny='10', cash_balance_cny='810')
+        self.assertEqual(project_capital_return(proof, strategy['capital_baseline'], capital), proof)
+        self.assertEqual(self.read()['summary']['nav_cny'], '1010')
+        self.assertEqual(self.read()['summary']['capital_return']['valued_at'], stamp)
+
     def test_new_actual_nav_uses_source_day_and_old_observation_cannot_overwrite(self):
         self.read()
         capital=self.value['strategy']['capital'];capital.update(observed_at='2026-11-04T07:00:00+00:00',nav_cny='1200',native_pnl_cny='200')

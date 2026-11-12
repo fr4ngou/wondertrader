@@ -1060,6 +1060,8 @@ def main():
     _need(config.configuration_sha256 == args.config_sha256, 'configuration_identity')
     native = _json(_read(args.config, 256 * 1024, clock=time.monotonic, deadline=args.deadline))
     reports, publication_lock = {}, RLock()
+    from .strategy_capital_flow import FILE_NAME, ReturnValuations
+    flow_path = Path(native['output_directory']) / FILE_NAME
 
     def publish(strategy_id, value, *, preview=False, deadline):
         if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
@@ -1069,9 +1071,14 @@ def main():
         finally:
             publication_lock.release()
 
-    def publish_locked(strategy_id, value, *, preview=False, deadline):
+    def publish_locked(strategy_id, value, *, preview=False, refresh=False, deadline):
         _check_publication_deadline(deadline)
         value=dict(value,native_setter_count=runtime.status()['setters'])  # 原ManagedStrategy累计setter调用数；原子只读，不推导交易事实。
+        previous = reports.get(strategy_id)
+        if not refresh and previous and 'capital_return' in previous and value.get('capital') == previous.get('capital'):
+            value['capital_return'] = previous['capital_return']
+        if refresh and value == previous:
+            return
         candidate = dict(reports);candidate[strategy_id] = value
         raw = _encode({'schema': 'guanheng.configured-cta-observation.v2',
                        'control_id': args.control_id, 'config_sha256': args.config_sha256,
@@ -1111,29 +1118,40 @@ def main():
     readers = {s.id:AccountCashReader(s.capital_reader.binding,s.max_age)
                for s in strategies if s.capital_reader is not None}
     capital_strategies = {s.id:s for s in strategies if s.capital_reader is not None}
+    return_valuations = {strategy_id: ReturnValuations(flow_path, strategy_id) for strategy_id in readers}
     def refresh_accounts():
         try:
             while not refresh_stop.wait(10):
-                deadline = time.monotonic()+2
-                if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
-                    continue
-                try:
-                    for strategy_id,reader in readers.items():
+                for strategy_id, reader in readers.items():
+                    deadline = time.monotonic()+2
+                    if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
+                        continue
+                    try:
                         report = reports.get(strategy_id)
-                        if report is None:
-                            continue
+                    finally:
+                        publication_lock.release()
+                    if report is None:
+                        continue
+                    try:
                         strategy = capital_strategies[strategy_id]
-                        updated = refresh_capital_report(report,reader,deadline,
+                        updated = dict(refresh_capital_report(report,reader,deadline,
                             initial_basis=strategy._initial_capital_basis,
-                            origin=strategy.inputs.capital_baseline,anchor=strategy.inputs.cash_anchor)
-                        if updated != report:
-                            publish_locked(strategy_id,updated,deadline=deadline)
-                except ProjectionPublicationTimeout:
-                    # 本轮观察尚未提交时保留最后成功值；下一轮重新读取权威NAP批次。
-                    # 原K线回调仍传播该异常，保持原策略/金融写入失败语义。
-                    continue
-                finally:
-                    publication_lock.release()
+                            origin=strategy.inputs.capital_baseline,anchor=strategy.inputs.cash_anchor))
+                        updated.pop('capital_return', None)
+                        capital = updated.get('capital')
+                        if capital is not None and capital.get('cash_anchor') is not None:
+                            updated['capital_return'] = return_valuations[strategy_id].observe(capital,
+                                deadline=min(deadline - .1, time.monotonic() + .25))
+                        if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
+                            continue
+                        try:
+                            # 期间策略提交了新估值时，本轮计算丢弃；下一轮读取新原值。
+                            if reports.get(strategy_id) is report:
+                                publish_locked(strategy_id,updated,refresh=True,deadline=deadline)
+                        finally:
+                            publication_lock.release()
+                    except ProjectionPublicationTimeout:
+                        continue
         except Exception as error:
             # 账户约束更新局部故障保留原资金/时点；原过期规则会撤销可用资格。
             with (args.control/'capital-refresh-failure.json').open('x',encoding='ascii') as stream:

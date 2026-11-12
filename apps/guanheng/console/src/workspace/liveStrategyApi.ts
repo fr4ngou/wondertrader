@@ -44,6 +44,26 @@ export type LiveDay = {
   /** 区分完整空持仓和未知。 */ positions_state: 'available' | 'empty' | 'unavailable'
   /** 区分完整空成交、部分和未知。 */ deals_state: 'available' | 'empty' | 'partial' | 'unavailable'
 }
+type CapitalReturn = {
+  /** WT原资金基准时刻，带时区。 */ baseline_at: string
+  /** 本次实际净值截止，带时区。 */ valued_at: string
+  /** 本次收益使用的实际期末净值，元。 */ valuation_nav_cny: string
+  /** 本次收益使用的实际现金快照时间。 */ cash_observed_at: string
+  /** 流水必须覆盖到的现金和估值较晚时点。 */ coverage_required_at: string
+  /** 流入覆盖原时刻，未知为空。 */ inflow_through: string | null
+  /** 流出覆盖原时刻，未知为空。 */ outflow_through: string | null
+  /** 本次收益期有效事件总数。 */ flow_count: number
+  /** 最近最多20条公开资金事件。 */ flows: {
+    /** 按策略经济身份生成的事件摘要。 */ id: string
+    /** 实际注资或提取。 */ direction: 'inflow' | 'outflow'
+    /** 实际人民币金额，正十进制字符串。 */ amount_cny: string
+    /** 原资金生效时刻，带时区。 */ effective_at: string
+  }[]
+  /** 已算出或等待资金覆盖、估值、基准及记录。 */ state: string
+  /** WT实际计算的收益率，单位%，未知为空。 */ return_pct: string | null
+  /** WT发布的收益说明。 */ reason: string
+}
+
 export type LivePerformance = {
   /** 已准入证券目录按本窗口出现的代码投影；旧 App 或缺项时显示代码。 */ security_names?: Record<string, string>
   /** 只读观察协议。 */ schema_version: 'guanheng.live-strategy-performance.v1'
@@ -78,7 +98,7 @@ export type LivePerformance = {
     /** 通过原现金原点和基准核实的稳定历史归属；缺证据时按运行代隔离。 */ history_scope_id?: string | null
   }
   /** WT原本金基准，缺少时为空。 */ baseline: { total_cny: string; baseline_at: string; scope_id: string } | null
-  /** 当前资本原发布；收益率保持未知。 */ summary: {
+  /** 当前资本和同一估值时点的收益原发布。 */ summary: {
     /** 未扣未知费用的参考净值，元。 */ reference_nav_cny?: string | null
     /** 原估值资格，旧发布可缺。 */ valuation_state?: 'actual' | 'reference-fee-pending' | null
     /** 配置资本参考变化额，元。 */ reference_change_cny?: string | null
@@ -86,7 +106,8 @@ export type LivePerformance = {
     /** 原配置资本，元。 */ baseline_cny?: string | null
     /** 实际策略净值，元；参考资格时为空。 */ nav_cny: string | null
     /** 原基准变化，元；ASA缺投资损益资格时为空。 */ pnl_cny: string | null
-    /** 未授投资收益归因。 */ return_pct: null
+    /** WT资金流调整后的实际收益率，单位%；未知为空。 */ return_pct: string | null
+    /** WT资金流观察与累计收益，旧发布可缺。 */ capital_return?: CapitalReturn
     /** 净值来源时间。 */ observed_at: string
     /** 原报价时刻，缺少时不改称实时价格。 */ price_observed_at: string | null
     /** 原损益来源。 */ pnl_source: string
@@ -101,6 +122,7 @@ const text = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <
 const money = (v: unknown) => typeof v === 'string' && v.length <= 128 && /^-?\d+(?:\.\d+)?$/.test(v) && Number.isFinite(Number(v))
 const date = (v: unknown) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
 const count = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0
+const stamp = (v: unknown) => typeof v === 'string' && /(Z|[+-]\d{2}:\d{2})$/.test(v) && Number.isFinite(Date.parse(v))
 const invalid = (): never => { throw new Error('线上策略观察格式无效，请重新读取') }
 
 /** 核精确选择和金融字段，避免切换策略后展示上一策略的缓存。 */
@@ -120,13 +142,32 @@ export function validateLivePerformance(value: unknown, id: string, version: str
   if (current.is_current && (!current.key_matches || current.strategy_id !== id || current.strategy_version !== version || current.process_state !== 'alive')) return invalid()
   if (value.state === 'not_current' && (value.summary !== null || value.baseline !== null || value.daily.length || value.markers.length || current.is_current)) return invalid()
   if (value.summary !== null && (!object(value.summary) || !(money(value.summary.nav_cny) || value.summary.nav_cny === null && value.summary.valuation_state === 'reference-fee-pending' && money(value.summary.reference_nav_cny)) || !(money(value.summary.pnl_cny) || value.summary.pnl_cny === null && ['actual','reference-fee-pending'].includes(String(value.summary.valuation_state)))
-    || value.summary.return_pct !== null || !text(value.summary.return_reason))) return invalid()
+    || !(value.summary.return_pct === null || money(value.summary.return_pct)) || !text(value.summary.return_reason))) return invalid()
   if (object(value.summary)) {
     const s=value.summary
     if (['reference_nav_cny','reference_change_cny','reference_return_pct','baseline_cny'].some(k=>s[k]!==undefined&&s[k]!==null&&!money(s[k]))) return invalid()
     if (s.valuation_state !== undefined && s.valuation_state !== null && !['actual','reference-fee-pending'].includes(String(s.valuation_state))) return invalid()
     if (s.valuation_state === 'reference-fee-pending' && (s.nav_cny !== null || !money(s.reference_nav_cny))) return invalid()
     if (s.valuation_state === 'actual' && (!money(s.nav_cny) || s.reference_nav_cny != null)) return invalid()
+    const result = s.capital_return
+    if (result === undefined) {
+      if (s.return_pct !== null) return invalid()
+    } else {
+      if (!object(result) || !stamp(result.baseline_at) || !stamp(result.valued_at) || !stamp(s.observed_at)
+        || !money(result.valuation_nav_cny) || !stamp(result.cash_observed_at) || !stamp(result.coverage_required_at)
+        || Date.parse(String(result.coverage_required_at)) !== Math.max(Date.parse(String(result.valued_at)), Date.parse(String(result.cash_observed_at)))
+        || Date.parse(String(result.valued_at)) > Date.parse(String(s.observed_at)) || result.return_pct !== s.return_pct
+        || !text(result.reason) || !count(result.flow_count) || !Array.isArray(result.flows)
+        || result.flows.length > 20 || result.flows.length > Number(result.flow_count)
+        || ![result.inflow_through, result.outflow_through].every(v => v === null || stamp(v))
+        || !['available','coverage_pending','valuation_pending','reconciliation_pending','basis_pending','record_unavailable'].includes(String(result.state))
+        || (result.state === 'available') !== (s.return_pct !== null)
+        || (s.return_pct !== null && (!money(s.nav_cny) || Number(s.return_pct) < -100
+          || ![result.inflow_through, result.outflow_through].every(v => stamp(v) && Date.parse(String(v)) >= Date.parse(String(result.coverage_required_at)))))
+        || result.flows.some(flow => !object(flow) || typeof flow.id !== 'string' || !/^[a-f0-9]{64}$/.test(flow.id)
+          || !['inflow','outflow'].includes(String(flow.direction)) || !money(flow.amount_cny) || Number(flow.amount_cny) <= 0
+          || !stamp(flow.effective_at))) return invalid()
+    }
   }
   if (value.baseline !== null && (!object(value.baseline) || !money(value.baseline.total_cny) || !text(value.baseline.baseline_at))) return invalid()
   const deal = (d: unknown) => object(d) && text(d.id) && date(d.date) && text(d.time) && text(d.symbol)

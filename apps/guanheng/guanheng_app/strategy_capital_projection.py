@@ -100,3 +100,49 @@ def project_capital(value, origin, *, runtime_state='ready'):
     if runtime_state != 'ready' or value['account_valid_until'] is None or datetime.now(timezone.utc) >= until:
         result.update(account_observation_qualified=False, spendable_cash_cny=None)
     return result
+
+
+def project_capital_return(value, origin, capital):
+    """只发布与同次WT净值、原资金基准一致的资金流调整结果。"""
+    if value is None or origin is None or capital is None:
+        return None
+    def stamp(raw):
+        parsed = datetime.fromisoformat(raw)
+        _need(parsed.utcoffset() is not None)
+        return parsed
+    try:
+        _need(type(value) is dict and set(value) == {'baseline_at', 'valued_at', 'valuation_nav_cny', 'cash_observed_at',
+              'coverage_required_at', 'inflow_through',
+              'outflow_through', 'flow_count', 'flows', 'state', 'return_pct', 'reason'})
+        start, end = stamp(value['baseline_at']), stamp(value['valued_at'])
+        cash = stamp(value['cash_observed_at'])
+        current_end, current_cash = stamp(capital['observed_at']), stamp(capital['account_observed_at'])
+        required = stamp(value['coverage_required_at'])
+        nav = _amount(value['valuation_nav_cny'])
+        _need(start == stamp(origin['baseline_at']) and end <= current_end and cash <= current_cash)
+        _need(required == max(end, cash))
+        if (end, cash) == (current_end, current_cash):
+            _need(nav == _amount(capital['nav_cny']))
+        coverage = [stamp(value[key]) if value[key] is not None else None for key in ('inflow_through', 'outflow_through')]
+        state, rate = value['state'], value['return_pct']
+        _need(state in ('available', 'coverage_pending', 'valuation_pending', 'reconciliation_pending',
+                        'basis_pending', 'record_unavailable')
+              and type(value['reason']) is str and 0 < len(value['reason']) <= 256)
+        if state == 'available':
+            _need(end >= start and nav >= 0 and all(t is not None and t >= required for t in coverage)
+                  and _amount(rate) >= -100)
+        else:
+            _need(rate is None and (end, cash) == (current_end, current_cash))
+        flows = value['flows']
+        _need(type(flows) is list and len(flows) <= 20 and type(value['flow_count']) is int
+              and value['flow_count'] >= len(flows))
+        seen = set()
+        for flow in flows:
+            _need(type(flow) is dict and set(flow) == {'id', 'direction', 'amount_cny', 'effective_at'}
+                  and type(flow['id']) is str and re.fullmatch('[a-f0-9]{64}', flow['id']) and flow['id'] not in seen
+                  and flow['direction'] in ('inflow', 'outflow') and _amount(flow['amount_cny']) > 0
+                  and start < stamp(flow['effective_at']) <= end)
+            seen.add(flow['id'])
+        return dict(value)
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return None
