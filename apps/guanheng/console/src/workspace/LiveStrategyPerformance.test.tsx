@@ -91,7 +91,9 @@ test('历史成交日缺持仓不沿用今天持仓，完整无成交与未知�
 
 test('展示已核收益率、追加和提取，并拒绝过期覆盖', () => {
   const end = '2026-01-05T08:00:00Z'
-  const observation = { ...data, summary: { ...data.summary!, return_pct: '21', capital_return: {
+  const observation = { ...data, summary: {
+    ...data.summary!, valuation_state: 'actual' as const, pnl_cny: null,
+    pnl_source: 'previous-verified-valuation', return_pct: '21', capital_return: {
     baseline_at: data.baseline!.baseline_at, valued_at: end, valuation_nav_cny: '1000100',
     cash_observed_at: end, coverage_required_at: end,
     inflow_through: end, outflow_through: end, flow_count: 2, state: 'available', return_pct: '21', reason: '已核对资金进出。',
@@ -102,7 +104,7 @@ test('展示已核收益率、追加和提取，并拒绝过期覆盖', () => {
   } } }
   render(<LiveStrategyPerformance data={validateLivePerformance(observation, 'sample', '1')} />)
   expect(screen.getByText('投资收益率').parentElement).toHaveTextContent('21%')
-  expect(screen.getByText(/收益估值截止/)).toBeVisible()
+  expect(screen.getByText(/上次已核净值时间.*收益估值截止/)).toBeVisible()
   const details = screen.getByText('策略资金进出（2 笔）').parentElement as HTMLDetailsElement
   details.open = true
   expect(within(details).getByText('追加', { exact: true })).toBeVisible()

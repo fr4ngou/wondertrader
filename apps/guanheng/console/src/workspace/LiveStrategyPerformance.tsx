@@ -199,7 +199,7 @@ export default function LiveStrategyPerformance({ data }: {
       <div><small>净值实际覆盖</small><strong>{data.coverage.point_count} 个实际日{data.coverage.reference_point_count ? ` · ${data.coverage.reference_point_count} 个参考日` : ''}</strong></div>
     </div>
     <p className="live-strategy-note">{data.coverage.reason}</p>
-    {data.summary ? <p className="live-strategy-note">{data.summary.return_reason} · 净值时间 {sourceTime(data.summary.observed_at)}{data.summary.price_observed_at ? ` · 行情原时间 ${sourceTime(data.summary.price_observed_at)}` : ''}{capitalReturn && returnValue !== null ? ` · 收益估值截止 ${sourceTime(capitalReturn.valued_at)}` : ''}</p> : null}
+    {data.summary ? <p className="live-strategy-note">{data.summary.return_reason} · {data.summary.pnl_source === 'previous-verified-valuation' ? '上次已核净值时间' : '净值时间'} {sourceTime(data.summary.observed_at)}{data.summary.price_observed_at ? ` · 行情原时间 ${sourceTime(data.summary.price_observed_at)}` : ''}{capitalReturn && returnValue !== null ? ` · 收益估值截止 ${sourceTime(capitalReturn.valued_at)}` : ''}</p> : null}
     {capitalReturn ? <details className="compact-details">
       <summary>策略资金进出（{capitalReturn.flow_count} 笔）</summary>
       <p>收益起算 {sourceTime(capitalReturn.baseline_at)} · 本次需覆盖至 {sourceTime(capitalReturn.coverage_required_at)} · 追加覆盖至 {capitalReturn.inflow_through ? sourceTime(capitalReturn.inflow_through) : '待核对'} · 提取覆盖至 {capitalReturn.outflow_through ? sourceTime(capitalReturn.outflow_through) : '待核对'}</p>

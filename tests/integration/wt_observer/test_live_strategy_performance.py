@@ -137,6 +137,32 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(self.read()['summary']['nav_cny'], '1010')
         self.assertEqual(self.read()['summary']['capital_return']['valued_at'], stamp)
 
+    def test_predecessor_return_supplies_actual_summary_without_fabricating_daily_nav(self):
+        strategy = self.value['strategy']
+        stamp = '2026-11-04T08:00:00+00:00'
+        strategy.update(
+            capital=None, valuation_state='unavailable', valuation_reason='missing-price',
+            capital_return=dict(
+                baseline_at=strategy['capital_baseline']['baseline_at'], valued_at=stamp,
+                valuation_nav_cny='990.25', cash_observed_at=stamp, coverage_required_at=stamp,
+                inflow_through=stamp, outflow_through=stamp, flow_count=0, flows=[],
+                state='available', return_pct='-0.975', reason='已核对资金进出。',
+            ),
+        )
+
+        value = self.read()
+        summary = value['summary']
+        self.assertEqual(summary['valuation_state'], 'actual')
+        self.assertEqual(summary['pnl_source'], 'previous-verified-valuation')
+        self.assertEqual(summary['nav_cny'], '990.25')
+        self.assertEqual(summary['observed_at'], stamp)
+        self.assertEqual(summary['return_pct'], '-0.975')
+        self.assertIsNone(summary['pnl_cny'])
+        self.assertIsNone(summary['reference_nav_cny'])
+        self.assertEqual(value['baseline']['total_cny'], '1000')
+        self.assertEqual(value['coverage']['valuation_state'], 'unavailable')
+        self.assertEqual(value['coverage']['point_count'], 0)
+
     def test_new_actual_nav_uses_source_day_and_old_observation_cannot_overwrite(self):
         self.read()
         capital=self.value['strategy']['capital'];capital.update(observed_at='2026-11-04T07:00:00+00:00',nav_cny='1200',native_pnl_cny='200')

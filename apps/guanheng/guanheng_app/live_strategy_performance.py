@@ -574,9 +574,14 @@ class LiveStrategyPerformanceOwner:
             capital_return = projected['capital_return']
             if (capital_return is not None and capital_return['state'] == 'available'
                     and (summary is None or summary['nav_cny'] is None)):
-                summary = dict(summary or {}, nav_cny=capital_return['valuation_nav_cny'],
-                               observed_at=_stamp(capital_return['valued_at']), pnl_cny=None,
-                               price_observed_at=None, pnl_source='previous-verified-valuation')
+                summary = _valuation_summary(dict(
+                    nav_cny=capital_return['valuation_nav_cny'],
+                    observed_at=_stamp(capital_return['valued_at']),
+                    pnl_cny=None,
+                    pnl_source='previous-verified-valuation',
+                    valuation_state='actual',
+                    valuation_baseline_cny=projected['baseline']['total_cny'],
+                ))
             if (capital_return is not None and summary is not None and summary['nav_cny'] is not None
                     and _stamp(capital_return['valued_at']) <= summary['observed_at']):
                 summary.update(return_pct=capital_return['return_pct'], return_reason=capital_return['reason'],
