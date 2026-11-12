@@ -140,9 +140,9 @@ def observe_account(configuration,deadline):
     return result
 
 
-def observe_strategy(configuration,deadline,strategy_id=None):
+def observe_strategy(configuration,deadline,strategy_id=None,*,include_activity=False):
     configuration=resolve_runtime_configuration(configuration,deadline)
-    strategies,_reference,state=read_business(configuration,deadline)
+    strategies,reference,state=read_business(configuration,deadline)
     projected=project_strategy(dict(schema='guanheng.configured-cta-observation.v1',strategies=strategies),runtime_state=state,strategy_id=strategy_id) if strategies is not None else None
     all_strategies=project_strategies(dict(schema='guanheng.configured-cta-observation.v1',strategies=strategies),runtime_state=state) if strategies is not None else []
     _check(deadline)
@@ -152,6 +152,25 @@ def observe_strategy(configuration,deadline,strategy_id=None):
         runtime=read_runtime_snapshot(configuration,deadline).value
         if 'execution' not in runtime['components']:
             result['execution_state']='not_started'
+    if include_activity:
+        result['running'] = None  # 原运行状态未核实时为空；空列表表示已核无运行策略。
+        if configuration is not None and (state != 'ready' or result.get('execution_state') == 'not_started'):
+            result['running'] = []
+        elif configuration is not None and reference is not None:
+            from .live_strategy_performance import execution_process_state
+            from .observer_strategy_details import _execution_lifecycle
+            try:
+                lifecycle = _execution_lifecycle(reference, deadline)
+                runtime = read_runtime_snapshot(configuration, deadline).value
+                execution = runtime['components'].get('execution', {})
+                if execution.get('business_observation') == reference:
+                    running, active = execution_process_state(runtime, reference, lifecycle)
+                    if running:
+                        result['running'] = all_strategies or None
+                    elif active is False or runtime['state'] != 'ready' or execution.get('state') != 'ready':
+                        result['running'] = []
+            except (ValueError, OSError, TimeoutError):
+                pass  # 运行资格独立降级，原策略目录仍可读。
     return result
 
 

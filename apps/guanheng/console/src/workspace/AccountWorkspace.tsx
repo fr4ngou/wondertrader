@@ -4,9 +4,10 @@ import { FinancialValue } from './FinancialValue'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import type { Capabilities } from './IndependentApp'
-import { fetchAccountOverview, type AccountField, type AccountKind, type AccountRow } from './accountApi'
+import { fetchAccountOverview, type AccountField, type AccountGroup, type AccountKind, type AccountRow } from './accountApi'
 import { accountReadView, type AccountReadView } from './accountPresentation'
 import { StatusBadge } from './StatusBadge'
+import { fetchRunningStrategies } from './strategyCatalogApi'
 
 const names: Record<AccountKind, string> = { position: '持仓', order: '委托', deal: '成交', account: '资金' }
 const columns: Record<Exclude<AccountKind, 'account'>, [string, string][]> = {
@@ -26,6 +27,44 @@ function fieldText(field?: AccountField, side = false, currency = false) {
 
 function timeText(value: string | null) {
   return value && Number.isFinite(Date.parse(value)) ? absoluteChinaTime(value) : '未知'
+}
+
+function numericField(field?: AccountField): number | null {
+  if (field?.availability !== 'present' || field.value === null || String(field.value).trim() === '') return null
+  const number = Number(field.value)
+  return Number.isFinite(number) ? number : null
+}
+
+/** 汇总同一完整持仓批次；任一持仓金额未知时保留整体未知。 */
+function positionTotal(group: AccountGroup | undefined, field: 'market_value' | 'float_profit') {
+  if (group?.status !== 'complete') return null
+  let total = 0
+  for (const row of group.rows) {
+    if (numericField(row.fields.quantity) === 0) continue
+    const value = numericField(row.fields[field])
+    if (value === null) return null
+    total += value
+  }
+  return Number.isFinite(total) ? total : null
+}
+
+function RunningStrategies() {
+  const query = useQuery({ queryKey: ['overview-running-strategies'],
+    queryFn: ({ signal }) => fetchRunningStrategies(signal), retry: false, refetchInterval: 15_000 })
+  return <section className="surface-card overview-running" aria-label="正在运行的策略">
+    <h2>正在运行的策略</h2>
+    {query.isError ? <p role="status">本轮运行状态读取失败。<button onClick={() => void query.refetch()}>重新读取</button></p>
+      : query.isPending ? <p role="status">正在读取运行状态…</p>
+        : query.data === null ? <p role="status">当前运行状态待核实。</p>
+          : query.data.length === 0 ? <p role="status">当前没有运行中的策略。</p> : null}
+    {!query.isError && query.data?.length ? <ul>{query.data.map(row => {
+      const key = `${row.strategy_id}@${row.strategy_version ?? 'unknown'}`
+      return <li key={key}><NavLink to={'/strategies?' + new URLSearchParams({ strategy: key, view: 'runtime' })}>
+        <span><strong>{row.display_name}</strong>{row.strategy_version ? <small>v{row.strategy_version}</small> : null}</span>
+        <span className="overview-strategy-state"><span aria-hidden="true" />{row.status_label}</span>
+      </NavLink></li>
+    })}</ul> : null}
+  </section>
 }
 
 function RowIdentity({ row, kind }: { row: AccountRow; kind: AccountKind }) {
@@ -65,7 +104,12 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
   const stateLabel = ({ refreshing: '正在更新', ready: '已发布', stopped: '已停止', degraded: '更新失败',
     unconfigured: '未配置', waiting: '等待数据', complete: '读取完成', partial: '部分可用', unavailable: '不可用' } as Record<string,string>)[state] ?? state
   const latest = publication?.last_success_at ?? funds?.execution_finished_at ?? null
-  // 总览复用账户原值与完整分组计数；具体策略及明细由各自页面负责。
+  const positionGroup = query.data?.complete.position ?? data?.groups.position
+  const holdingValue = positionTotal(positionGroup, 'market_value')
+  const accountProfit = numericField(fundRow?.fields.float_profit)
+  const floatingProfit = accountProfit ?? positionTotal(positionGroup, 'float_profit')
+  const fundsAt = funds?.execution_finished_at ?? null
+  const positionsAt = positionGroup && ('received_at' in positionGroup ? positionGroup.received_at : positionGroup.execution_finished_at)
   if (view === 'overview') return <section className="workspace-page account-workspace overview-workspace">
     <header className="page-heading"><h1>总览</h1></header>
     <div className="compact-status-strip" role="status"><StatusBadge state={state} label={stateLabel} />
@@ -73,10 +117,22 @@ export default function AccountWorkspace({ capability, view = 'account' }: {
       <button onClick={() => void query.refetch()} disabled={query.isFetching}>{query.isFetching ? '更新中…' : '刷新'}</button>
     </div>
     {query.isError ? <p role="alert">{query.error.message}</p> : null}
-    <div className="account-funds">{[['total_asset', '账户总资产'], ['available', '账户可用资金'], ['frozen_cash', '账户冻结现金']].map(([key, label]) =>
-      <article className="surface-card" key={key}><h2>{label}</h2>
-        <strong title={fundRow?.fields[key]?.reason ?? undefined}>{fieldText(fundRow?.fields[key], false, true)}</strong>
-      </article>)}</div>
+    <section className="overview-financials" aria-label="账户金额">
+      <div className="overview-amounts">
+        <article className="surface-card"><h2>总持仓金额（元）</h2><strong>{holdingValue === null ? '未知' : <FinancialValue value={holdingValue} />}</strong>
+          {positionsAt ? <small>持仓 {timeText(positionsAt)}</small> : null}</article>
+        <article className="surface-card"><h2>总金额（元）</h2><strong>{fieldText(fundRow?.fields.total_asset, false, true)}</strong>
+          {fundsAt ? <small>账户总资产 · {timeText(fundsAt)}</small> : null}</article>
+        <article className="surface-card"><h2>浮动盈亏（元）</h2><strong className={floatingProfit === null ? undefined : floatingProfit > 0 ? 'financial-gain' : floatingProfit < 0 ? 'financial-loss' : undefined}>
+          {floatingProfit === null ? '未知' : <FinancialValue value={floatingProfit} />}</strong>
+          {floatingProfit !== null ? <small>{accountProfit === null ? '按持仓汇总' : '账户发布'} · {timeText((accountProfit === null ? positionsAt : fundsAt) ?? null)}</small> : null}</article>
+      </div>
+      <dl className="overview-secondary-funds">
+        <div><dt>账户可用资金（元）</dt><dd>{fieldText(fundRow?.fields.available, false, true)}</dd></div>
+        <div><dt>账户冻结现金（元）</dt><dd>{fieldText(fundRow?.fields.frozen_cash, false, true)}</dd></div>
+      </dl>
+    </section>
+    <RunningStrategies />
     <div className="overview-counts">{(['position', 'order', 'deal'] as const).map(kind => {
       const records = query.data?.complete[kind] ?? data?.groups[kind]
       return <article className="surface-card" key={kind}><h2>{names[kind]}记录</h2>

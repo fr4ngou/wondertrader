@@ -18,7 +18,7 @@ export default function StrategyCatalogWorkspace() {
   const live = useLiveStrategyPerformance(selected)
   const online = !!live.data?.current.is_current && !live.isError
   const hasObservation = live.data?.state === 'available' && live.data.current.key_matches
-  const selectedView = params.get('view') ?? (hasObservation ? 'performance' : 'runtime')
+  const selectedView = params.get('view') ?? 'runtime'
   const description = selectedView === 'description'
   const unavailable = live.data?.state === 'not_current' && !live.isError
   const registered = selected?.catalog_status === 'registered' && !online && !hasObservation
@@ -30,8 +30,11 @@ export default function StrategyCatalogWorkspace() {
     const next = new URLSearchParams(params); next.set('view', value); setParams(next)
   }
   return <section className="workspace-page strategy-catalog-workspace">
-    <header className="strategy-page-heading"><h1>策略</h1><StrategyPicker selection={selection} archivePending={archive.isPending} />
-      {selected ? <Link className="strategy-backtest-link" to={'/backtests?' + new URLSearchParams({ strategy: strategyKey(selected) })}>查看该策略回测 →</Link> : null}
+    <header className="strategy-page-heading"><h1>策略</h1>
+      <div className="strategy-page-controls">
+        <StrategyPicker selection={selection} archivePending={archive.isPending} />
+        {selected ? <Link className="strategy-backtest-link" to={'/backtests?' + new URLSearchParams({ strategy: strategyKey(selected) })}>查看该策略回测 →</Link> : null}
+      </div>
     </header>
     {archive.isError ? <p role="status">历史版本目录暂不可用。<button onClick={() => void archive.refetch()}>重读历史版本</button></p> : null}
     {selected ? <>
@@ -41,8 +44,8 @@ export default function StrategyCatalogWorkspace() {
       </div>
       {live.isError ? <p role="alert">{live.error.message}；当前在线标记待重新核验。<button onClick={() => void live.refetch()}>重试运行状态</button></p> : null}
       <nav className="strategy-view-tabs" aria-label="策略详情视图">
-        <button aria-pressed={selectedView === 'performance'} onClick={() => view('performance')}>线上表现</button>
         <button aria-pressed={!description && selectedView !== 'performance' && selectedView !== 'targets'} onClick={() => view('runtime')}>运行与持仓</button>
+        <button aria-pressed={selectedView === 'performance'} onClick={() => view('performance')}>线上表现</button>
         <button aria-pressed={selectedView === 'targets'} onClick={() => view('targets')}>目标仓位记录</button>
         <button aria-pressed={description} onClick={() => view('description')}>策略说明</button>
       </nav>

@@ -49,9 +49,14 @@ export default function BacktestWorkspace() {
   }
   function back() { const next = new URLSearchParams(params); next.delete('run'); next.delete('compare'); setParams(next) }
   return <section className="workspace-page bt-workspace">
-    <header className="strategy-page-heading"><h1>{runId ? '回测' : '回测记录'}</h1><StrategyPicker selection={selection} archivePending={query.isPending} />
-      {strategy ? <Link className="strategy-backtest-link" to={'/strategies?' + new URLSearchParams({ strategy: strategyKey(strategy) })}>查看策略 →</Link> : null}
-      {!runId && strategy ? <button disabled={query.isFetching} onClick={() => void query.refetch()}>刷新列表</button> : null}
+    <header className="strategy-page-heading"><h1>{runId ? '回测' : '回测记录'}</h1>
+      <div className="strategy-page-controls">
+        <StrategyPicker selection={selection} archivePending={query.isPending} />
+        {strategy ? <div className="strategy-page-actions">
+          {!runId ? <button disabled={query.isFetching} onClick={() => void query.refetch()}>刷新列表</button> : null}
+          <Link className="strategy-backtest-link" to={'/strategies?' + new URLSearchParams({ strategy: strategyKey(strategy) })}>查看策略 →</Link>
+        </div> : null}
+      </div>
     </header>
       {query.isPending ? <p role="status">正在读取回测记录…</p> : null}
       {query.isError ? <><p role="alert">报告目录读取失败。{query.data ? '保留上次目录及读取时间。' : ''}</p><BacktestSourceState /><button onClick={() => void query.refetch()}>刷新历史报告</button></> : null}

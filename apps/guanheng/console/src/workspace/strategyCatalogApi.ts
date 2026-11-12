@@ -14,7 +14,11 @@ function text(value: unknown): value is string {
     && !Array.from(value).some(point => point.length === 1 && /[\ud800-\udfff]/.test(point))
 }
 
-export async function fetchStrategyCatalog(signal: AbortSignal): Promise<StrategyDefinition[]> {
+type RunningStrategy = StrategyDefinition & {
+  /** 当前执行进程发布的策略业务阶段。 */ status_label: string
+}
+
+async function readStrategyCatalog(signal: AbortSignal) {
   const value = await fetchReadJson<unknown>('/v1/ui/strategy-catalog', '策略目录', signal)
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('策略目录格式无效，请重新读取')
   const data = value as Record<string, unknown>
@@ -28,5 +32,23 @@ export async function fetchStrategyCatalog(signal: AbortSignal): Promise<Strateg
     || new Set(data.strategies.map(item => item.strategy_id + '@' + item.strategy_version)).size !== data.strategies.length) {
     throw new Error('策略目录格式无效，请重新读取')
   }
-  return data.strategies as StrategyDefinition[]
+  return data
+}
+
+export async function fetchStrategyCatalog(signal: AbortSignal): Promise<StrategyDefinition[]> {
+  return (await readStrategyCatalog(signal)).strategies as StrategyDefinition[]
+}
+
+export async function fetchRunningStrategies(signal: AbortSignal): Promise<RunningStrategy[] | null> {
+  const data = await readStrategyCatalog(signal)
+  const running = data.running
+  if (running == null) return null
+  const definitions = data.strategies as StrategyDefinition[]
+  if (!Array.isArray(running) || running.length > 32 || running.some(row => !row || typeof row !== 'object'
+    || !text(row.display_name) || !text(row.status_label)
+    || !definitions.some(item => item.strategy_id === row.strategy_id && item.strategy_version === row.strategy_version))
+    || new Set(running.map(row => row.strategy_id + '@' + row.strategy_version)).size !== running.length) {
+    throw new Error('运行策略列表格式无效，请重新读取')
+  }
+  return running as RunningStrategy[]
 }

@@ -70,6 +70,8 @@ export type RuntimePosition = {
   /** 原NSQ阶段或ASA已提交目标份数；尚未提交为null。 */ stage_target: number | null
   /** ASA自有或旧券商查询的实际份数；口径由position_basis区分，未知为null。 */ broker_quantity: number | null
   /** 同次ASA自有或旧券商查询的可卖份数；未知为null。 */ broker_sellable: number | null
+  /** 自有持仓按已核原价计算的市值，人民币元。 */ market_value_cny?: string
+  /** 该标的原报价时间，带时区。 */ market_value_observed_at?: string
 }
 export type StrategyRuntime = {
   /** 原公开运行结果协议版本，新增诊断采用可选字段兼容旧响应。 */ schema_version: 'guanheng.strategy-runtime.v1'
@@ -257,7 +259,10 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
       || !['theoretical_quantity', 'theoretical_sellable', 'pending_target', 'stage_target', 'broker_quantity', 'broker_sellable'].every(k => quantity(row[k]))
       || !(row.target_weight === null || typeof row.target_weight === 'number' && Number.isFinite(row.target_weight) && row.target_weight >= 0 && row.target_weight <= 1)
       || typeof row.theoretical_sellable === 'number' && (typeof row.theoretical_quantity !== 'number' || row.theoretical_sellable > row.theoretical_quantity)
-      || typeof row.broker_sellable === 'number' && (typeof row.broker_quantity !== 'number' || row.broker_sellable > row.broker_quantity)) return invalid()
+      || typeof row.broker_sellable === 'number' && (typeof row.broker_quantity !== 'number' || row.broker_sellable > row.broker_quantity)
+      || (row.market_value_cny !== undefined || row.market_value_observed_at !== undefined)
+        && (s.position_basis !== 'strategy-allocated' || typeof row.market_value_cny !== 'string'
+          || !/^\d{1,64}(?:\.\d{1,64})?$/.test(row.market_value_cny) || !time(row.market_value_observed_at))) return invalid()
     seen.add(row.symbol)
   }
   if (s.position_basis !== undefined && s.position_basis !== 'strategy-allocated') return invalid()

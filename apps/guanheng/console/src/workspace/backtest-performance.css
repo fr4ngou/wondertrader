@@ -1,22 +1,25 @@
 .bt-workspace { min-width: 0; grid-template-columns: minmax(0, 1fr); }
 .bt-analysis { min-width: 0; }
-.bt-list-count { color: var(--muted); margin: 8px 0 30px; }
-.bt-report-list { overflow-x: auto; }
+.bt-list-count { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
+.bt-report-list { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-solid, #fff); }
 .bt-report-list table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.bt-report-list th { text-align: left; background: #f2f6fd; padding: 18px 14px; white-space: nowrap; }
-.bt-report-list td { padding: 26px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.bt-report-list th { text-align: left; background: #f2f6fd; padding: 11px 12px; white-space: nowrap; }
+.bt-report-list td { padding: 13px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.bt-report-list tr:last-child td { border-bottom: 0; }
+.bt-report-list td:nth-child(2) { min-width: 170px; max-width: 330px; white-space: normal; overflow-wrap: anywhere; }
+.bt-report-list :is(td, th):nth-child(n+3):nth-child(-n+5) { text-align: right; font-variant-numeric: tabular-nums; }
 .bt-report-list td small { display: block; color: var(--muted); margin-top: 7px; font-size: 12px; }
 .bt-report-list input { width: 16px; height: 16px; accent-color: var(--accent); }
 .bt-list-main { background: #edf3ff; }
 .bt-list-actions { display: flex; gap: 10px; }
 .bt-list-actions button:first-child, .bt-list-selection button { background: var(--accent); border-color: var(--accent); color: #fff; }
 .bt-list-actions button { white-space: nowrap; }
-.bt-list-selection { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; padding: 20px; border-radius: 7px; background: #f2f6fd; margin-top: 34px; font-size: 14px; }
+.bt-list-selection { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #f4f7fc; font-size: 13px; }
 .bt-list-selection span b + b { margin-left: 18px; }
 .bt-list-selection span { line-height: 2; }
 .bt-list-selection button { white-space: nowrap; padding: 10px 22px; }
 .bt-mobile-break { display: none; }
-.bt-back-list { margin-bottom: 24px; }
+.bt-back-list { justify-self: start; margin-bottom: 0; }
 .bt-exact-values { margin-top: 24px; }
 @media (max-width: 700px) {
   .bt-list-selection { padding: 14px; }
@@ -31,7 +34,7 @@
 .bt-report-toolbar .bt-refresh { display: grid; place-items: center; min-width: 36px; padding: 8px; }
 .bt-report-meta, .bt-muted, .bt-read-time { color: var(--muted); font-size: 12px; }
 .bt-report-meta { margin-bottom: 18px; }
-.bt-metric-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); background: #f2f6fd; padding: 22px 10px; border-radius: 8px; margin: 0 0 22px; }
+.bt-metric-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); background: var(--panel-solid, #fff); padding: 14px 8px; border: 1px solid var(--line); border-radius: 8px; margin: 0 0 16px; }
 .bt-metric-strip > div { padding: 0 22px; border-right: 1px solid var(--line); min-width: 0; }
 .bt-metric-strip > div:last-child { border: 0; }
 .bt-metric-strip dt { font-size: 13px; margin-bottom: 8px; }
@@ -39,7 +42,7 @@
 .bt-metric-strip small { color: var(--muted); display: block; margin-top: 7px; }
 .bt-return { color: var(--accent); }
 .bt-analysis-grid { display: grid; grid-template-columns: minmax(0,1fr) 310px; gap: 18px; align-items: start; }
-.bt-chart-panel, .bt-date-detail { border: 1px solid var(--line); border-radius: 7px; padding: 18px; min-width: 0; }
+.bt-chart-panel, .bt-date-detail { border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; background: var(--panel-solid, #fff); }
 .bt-chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; min-height: 36px; }
 .bt-segments { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 5px; overflow: hidden; }
 .bt-segments button { border: 0; border-radius: 0; padding: 7px 14px; color: var(--ink); background: #fff; white-space: nowrap; }

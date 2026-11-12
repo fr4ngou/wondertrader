@@ -1,5 +1,6 @@
 """原CTA业务结果的纯白名单投影；不持有或创建运行owner。"""
 from datetime import datetime, timezone
+from decimal import Decimal
 import logging
 import math
 import re
@@ -276,6 +277,15 @@ def _allocated_strategy(identity,report,definition,symbols,allocation):
         for row in rows:row['target_weight']=weights[row['symbol']]
     from .strategy_valuation_projection import project_owned_valuation
     valuation,valuation_state,valuation_reason=project_owned_valuation(identity,report,allocation)
+    if valuation is not None and valuation_state in ('actual', 'reference-fee-pending'):
+        from .strategy_allocation_projection import security
+        quotes = {security(quote['symbol']): quote for quote in valuation['quotes']}
+        for row in rows:
+            quote = quotes.get(row['symbol'])
+            if quote is not None:
+                row.update(
+                    market_value_cny=format(Decimal(quote['price_cny']) * quote['quantity'], 'f'),  # 自有份额乘已核原价，人民币元。
+                    market_value_observed_at=quote['observed_at'])  # 该标的原报价时间，带时区。
     return dict(strategy_id=identity,display_name=definition['display_name'],strategy_version=definition['strategy_version'],
         owned_valuation=valuation,valuation_state=valuation_state,valuation_reason=valuation_reason,  # 原profile自有估值及独立缺失分类；App不估价。
         status=status,status_label=labels[status],decision_at=None if legacy is None else legacy['decision_at'],

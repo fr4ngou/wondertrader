@@ -21,7 +21,7 @@ def strategy_definition(identity, version):
         historical_versions=[])  # 历史版本由已保存报告选择器汇合，不维护版本允许清单。
 
 
-def strategy_catalog(published=(), *, registered=()):
+def strategy_catalog(published=(), *, registered=(), running=None):
     """精确身份合并WT发布与部署登记，独立保留WT回测版本。"""
     definitions={}
     for value in published:
@@ -38,4 +38,7 @@ def strategy_catalog(published=(), *, registered=()):
             definitions[key]['display_name'] = item.display_name
     definitions.setdefault((ORIGINAL_WT_ID,ORIGINAL_WT_VERSION), strategy_definition(ORIGINAL_WT_ID,ORIGINAL_WT_VERSION))
     return dict(schema='guanheng.strategy-catalog.v1',read_only=True,scope='registered-definitions',
-        strategies=list(definitions.values()))
+        strategies=list(definitions.values()),
+        running=None if running is None else [
+            dict(**definitions[(row['strategy_id'],row['strategy_version'])], status_label=row['status_label'])
+            for row in running if (row['strategy_id'],row['strategy_version']) in definitions])

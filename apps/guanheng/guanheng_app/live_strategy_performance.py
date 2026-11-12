@@ -87,6 +87,19 @@ def _process_running(pid, started_at):
         api.CloseHandle(handle)
 
 
+def execution_process_state(runtime, reference, lifecycle, probe=_process_running):
+    """同代运行和执行进程都经核实时，公开实际在线状态。"""
+    started = lifecycle.get('execution_started_at')
+    execution_active = probe(reference['pid'], started) if reference else None
+    runtime_active = probe(runtime.get('pid'), started)
+    active = (False if execution_active is False or runtime_active is False else
+              True if execution_active is True and runtime_active is True else None)
+    execution = runtime['components'].get('execution', {})
+    is_current = (runtime['state'] == 'ready' and runtime['ready'] is True and execution.get('state') == 'ready'
+                  and execution.get('ready') is True and active is True and not lifecycle.get('execution_finished_at'))
+    return is_current, active
+
+
 def _blank(day):
     return dict(date=day,observed_at=None,nav_cny=None,cash_cny=None,market_value_cny=None,
         pnl_cny=None,return_pct=None,runtime_scope_id=None,positions=[],deals=[],positions_state='unavailable',deals_state='unavailable')
@@ -392,14 +405,7 @@ class LiveStrategyPerformanceOwner:
         if book is not None:history_scope=_sha(['asa-owned-history-v1',book,strategy['strategy_id'],strategy['strategy_version']])
         if book is not None and valuation is not None and valuation['baseline_sha256'] is not None:
             history_scope=_sha(['asa-owned-valuation-history-v1',book,strategy['strategy_id'],strategy['strategy_version'],valuation['baseline_sha256']])
-        execution=runtime['components'].get('execution',{})
-        started=snapshot['lifecycle'].get('execution_started_at')
-        execution_active=self._probe(reference['pid'],started) if reference else None
-        runtime_active=self._probe(runtime.get('pid'),started)
-        active=(False if execution_active is False or runtime_active is False else
-            True if execution_active is True and runtime_active is True else None)
-        is_current=(runtime['state']=='ready' and runtime['ready'] is True and execution.get('state')=='ready'
-            and execution.get('ready')is True and active is True and not snapshot['lifecycle'].get('execution_finished_at'))
+        is_current,active=execution_process_state(runtime,reference,snapshot['lifecycle'],self._probe)
         current=dict(strategy_id=strategy['strategy_id'],strategy_version=strategy['strategy_version'],key_matches=True,
             runtime_state=runtime['state'],is_current=is_current,scope_id=scope,process_state='alive' if active is True else 'exited' if active is False else 'unknown')
         events={};summary=None

@@ -12,6 +12,29 @@
 .account-actions .account-refresh { color: #fff; border-color: var(--accent); background: var(--accent); }
 .account-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .account-funds { display: flex; flex-wrap: wrap; gap: 12px; }
+.overview-financials { display: grid; gap: 10px; }
+.overview-amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.overview-amounts article { display: grid; gap: 5px; align-content: start; }
+.overview-amounts h2 { margin: 0; color: var(--muted); font-size: 13px; font-weight: 500; }
+.overview-amounts strong { font-size: clamp(21px, 2.25vw, 28px); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.financial-gain { color: #9c2c42; }
+.financial-loss { color: #1a7257; }
+.overview-amounts small { color: var(--muted); font-size: 12px; }
+.overview-secondary-funds { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 0; padding: 2px 4px; font-size: 13px; }
+.overview-secondary-funds div { display: flex; gap: 7px; }
+.overview-secondary-funds dt { color: var(--muted); }
+.overview-secondary-funds dd { margin: 0; font-variant-numeric: tabular-nums; }
+.overview-running h2 { margin: 0; font-size: 16px; }
+.overview-running ul { margin: 8px 0 0; padding: 0; list-style: none; }
+.overview-running li + li { border-top: 1px solid var(--line); }
+.overview-running a { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 11px 0; color: var(--ink); text-decoration: none; }
+.overview-running a:hover strong { color: var(--accent); }
+.overview-running a small { margin-left: 8px; color: var(--muted); }
+.overview-strategy-state { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.overview-strategy-state > span { width: 7px; height: 7px; border-radius: 50%; background: #278563; }
+@media (max-width: 600px) {
+  .overview-amounts { grid-template-columns: 1fr; gap: 8px; }
+}
 .overview-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .overview-counts h2 { color: var(--muted); font-size: 13px; font-weight: 500; }
 .overview-counts strong { font-size: 25px; font-variant-numeric: tabular-nums; }

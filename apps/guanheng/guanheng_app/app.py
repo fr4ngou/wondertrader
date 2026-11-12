@@ -192,12 +192,12 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         future=None
         try:
             configuration=RuntimeObservationConfig.from_settings(configured)
-            future=request.app.state.reader.submit(lambda _remaining:observe_strategy(configuration,deadline),deadline)
+            future=request.app.state.reader.submit(lambda _remaining:observe_strategy(configuration,deadline,include_activity=True),deadline)
             wrapped=asyncio.wrap_future(future)
             wrapped.add_done_callback(lambda done:None if done.cancelled()else done.exception())
             published=await asyncio.wait_for(asyncio.shield(wrapped),max(0,deadline-monotonic()))
             rows = published.get('strategies', [published['strategy']])
-            catalog = strategy_catalog(rows, registered=configured.strategy_registrations)
+            catalog = strategy_catalog(rows, registered=configured.strategy_registrations, running=published.get('running'))
         except Exception:
             if not configured.strategy_registrations:
                 raise HTTPException(503, '策略目录本次读取失败，请重新读取') from None

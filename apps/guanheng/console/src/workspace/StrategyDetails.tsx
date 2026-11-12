@@ -14,21 +14,10 @@ import type { StrategyDefinition } from './strategyCatalogApi'
 
 type DetailsReadView = { current: Details; account: AccountReadView | undefined }
 
-const amount = (v: unknown) => typeof v === 'number' || typeof v === 'string' && v.trim() && Number.isFinite(Number(v))
-  ? Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '尚未取得'
 const clock = (v?: string | null) => v ? absoluteChinaTime(v) : '尚未取得'
-function runtimeDuration(value: string | number) {
-  const seconds = Math.floor(Number(value))
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor(seconds / 3600) % 24
-  const minutes = Math.floor(seconds / 60) % 60
-  return days > 0 ? `${days}天${hours}小时` : hours > 0 ? `${hours}小时${minutes}分钟`
-    : minutes > 0 ? `${minutes}分钟${seconds % 60}秒` : `${seconds}秒`
-}
-function Fact({ name, fact, unit = '', observedAt }: { name: string; fact: OptionalFact; unit?: string; observedAt?: string }) {
+function Fact({ name, fact, unit, observedAt }: { name: string; fact: OptionalFact; unit: '元' | '%'; observedAt?: string }) {
   return <div><dt>{name}</dt><dd>{fact.value === null ? '暂不可用' : unit === '元'
-    ? <FinancialValue value={fact.value} /> : unit === '秒' ? runtimeDuration(fact.value)
-      : unit === '%' ? `${fact.value}%` : `${amount(fact.value)}${unit}`}
+    ? <FinancialValue value={fact.value} /> : `${fact.value}%`}
     {observedAt ? <small> · 截至 {clock(observedAt)}</small> : null}
     {fact.reason ? <details className="compact-details"><summary>说明</summary><small>{fact.reason}</small></details> : null}</dd></div>
 }
@@ -48,15 +37,12 @@ export default function StrategyDetails({ strategy }: {
     return {current,account:current.account ? accountReadView(current.account,previous) : previous}
   },
     // 日常WT换代后在原页面接收本代事实；失败仍由query保留成功详情和原时间。
-    retry:false,refetchInterval:15_000,refetchOnWindowFocus:false,refetchOnReconnect:false})
+    retry:false,refetchInterval:5_000,refetchOnWindowFocus:false,refetchOnReconnect:false})
   const data = query.data?.current
   const currentGroups = data?.account?.groups
   const moneyGroup = query.data?.account?.complete.account ?? currentGroups?.account
   const positionGroup = query.data?.account?.complete.position ?? currentGroups?.position
-  const hasRunFacts = data && [data.execution.started_at, data.execution.duration_seconds, data.returns.cumulative_pct].some(fact => fact.value !== null)
   const runFacts = data ? <dl className="operations-facts">
-    <div><dt>执行开始时间</dt><dd>{data.execution.started_at.value === null ? '尚未取得' : clock(String(data.execution.started_at.value))}{data.execution.started_at.reason ? <details className="compact-details"><summary>说明</summary><small>{data.execution.started_at.reason}</small></details> : null}</dd></div>
-    <Fact name="运行时长" fact={data.execution.duration_seconds} unit="秒" />
     {!data.capital_baseline ? <Fact name="策略预算（元）" fact={data.budget_cny} unit="元" /> : null}
     <Fact name="累计收益率" fact={data.returns.cumulative_pct} unit="%" observedAt={data.returns.valued_at} />
   </dl> : null
@@ -65,13 +51,12 @@ export default function StrategyDetails({ strategy }: {
     {query.isError ? <p role="alert">{query.error.message}{data?'。当前保留上次成功结果和原数据时间。':''}</p> : null}
     {query.isPending ? <p role="status">正在读取策略详情…</p> : null}
     {data ? <>
-      {query.isFetching ? <p role="status">正在刷新，当前显示上次成功详情。</p> : null}
       <div className="compact-status-strip" role="status"><StatusBadge state={data.execution.state} label={data.execution.label} /><Link to="/account">查看券商账户</Link></div>
-      <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
-      {!data.capital_baseline || hasRunFacts ? runFacts : <details className="compact-details"><summary>运行与收益</summary>{runFacts}</details>}
       {data.execution.state !== 'ready' ? <p role="status">{data.execution.reason}</p> : null}
       {currentGroups?.account.status !== 'complete' && moneyGroup?.status === 'complete' ? <p role="status">本轮资金未更新，当前保留上次成功资金及原查询时间。</p> : null}
       <StrategyPositionTargets details={data} positionGroup={positionGroup} positionRefreshed={currentGroups?.position.status === 'complete'} />
+      <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
+      {runFacts}
       {data.calculation_reason ? <p role="status">{data.calculation_reason}</p> : null}
       {data.calculation ? <p title={currentAuxiliaryPresentation(data.calculation).title}>策略最近计算：{data.calculation.status_label}；决策时间：{clock(data.calculation.decision_at)}；{currentAuxiliaryPresentation(data.calculation).label}</p> : null}
 

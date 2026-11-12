@@ -13,8 +13,8 @@ function quantityValue(field?: AccountField) {
   return Number.isFinite(value) ? value : null
 }
 
-function money(field?: AccountField) {
-  return field?.availability === 'present' && field.value !== null ? <FinancialValue value={field.value} /> : '—'
+function monetaryValue(field?: AccountField) {
+  return quantityValue(field) === null ? null : field?.value ?? null
 }
 
 function accountSymbol({ identity }: AccountRow) {
@@ -44,22 +44,25 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
     : positionGroup && ('received_at' in positionGroup ? positionGroup.received_at : positionGroup.execution_finished_at)
   const accountRows = positionGroup?.status === 'complete' ? positionGroup.rows : undefined
   const actual = allocated ? positions.map(row => ({ symbol: row.symbol, held: row.broker_quantity,
-    sellable: row.broker_sellable, marketValue: undefined, profit: undefined }))
+    sellable: row.broker_sellable, marketValue: row.market_value_cny ?? null, quoteAt: row.market_value_observed_at,
+    profit: null }))
     : (accountRows ?? []).map(row => ({ symbol: accountSymbol(row), held: quantityValue(row.fields.quantity),
-      sellable: quantityValue(row.fields.sellable), marketValue: row.fields.market_value, profit: row.fields.float_profit }))
+      sellable: quantityValue(row.fields.sellable), marketValue: monetaryValue(row.fields.market_value),
+      quoteAt: undefined, profit: monetaryValue(row.fields.float_profit) }))
       .filter(row => accountWide || strategySymbols.has(row.symbol))
   const rows = actual.filter((row): row is typeof row & { held: number } => row.held !== null && row.held !== 0)
+  const showsProfit = rows.some(row => row.profit !== null)
   const basis = allocated ? '策略自有持仓' : accountWide ? '账户聚合持仓' : '策略范围内的账户持仓'
   const positionMessage = allocated ? !positionTime ? '策略自有持仓尚未取得。' : null
     : !accountRows ? positionGroup?.reason ?? '当前持仓尚未取得。'
       : accountRows.length === 0 ? '本次完整持仓查询返回为空。' : null
 
   return <section className="strategy-position-targets" aria-label="持仓和目标">
-    <h4>持仓与目标仓位</h4>
+    <div className="position-section-heading"><h4>持仓与目标仓位</h4>
     {scoped ? <div className="strategy-position-controls" role="group" aria-label="持仓范围">
       <button type="button" aria-pressed={!accountWide} onClick={() => setScope('strategy')}>策略相关</button>
       <button type="button" aria-pressed={accountWide} onClick={() => setScope('account')}>全账户</button>
-    </div> : null}
+    </div> : null}</div>
     <p className="strategy-catalog-note"><span>{basis}</span>{positionTime ? <> · 持仓观察时间 <time dateTime={positionTime}>{absoluteChinaTime(positionTime)}</time></> : null}</p>
     <p className="strategy-catalog-note">{allocated || accountWide ? details.assignment.reason : '按当前策略标的筛选，持仓归属未确认。'}</p>
     {details.account_reason ? <p role="alert">{details.account_reason}</p> : null}
@@ -71,18 +74,24 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
     {query.data && query.data.state !== 'available' ? <p role="status">{query.data.reason}</p> : null}
     {query.data?.source?.incomplete_tail ? <p role="status">原生记录末行仍在写入，汇总显示已完整写入的变化。</p> : null}
     {rows.length ? <div className="account-table-scroll" role="region" aria-label="持仓与目标仓位表" tabIndex={0}>
-      <table aria-label="持仓与目标仓位"><thead><tr><th scope="col">证券</th><th scope="col">实际持仓（份）</th><th scope="col">可卖（份）</th>
-        <th scope="col">目标仓位（份）</th><th scope="col">上次目标变化（份）</th><th scope="col">目标记录时间</th><th scope="col">市值（元）</th><th scope="col">持仓浮盈（元）</th></tr></thead>
-        <tbody>{rows.map(({ symbol, held, sellable, marketValue, profit }, index) => {
+      <table aria-label="持仓与目标仓位"><thead><tr><th scope="col">证券</th><th scope="col">实际持仓（份）</th>
+        <th scope="col">市值（元）</th>{showsProfit ? <th scope="col">浮动盈亏（元）</th> : null}<th scope="col">可卖（份）</th>
+        <th scope="col">目标仓位（份）</th><th scope="col">上次目标变化（份）</th><th scope="col">目标记录时间</th></tr></thead>
+        <tbody>{rows.map(({ symbol, held, sellable, marketValue, quoteAt, profit }, index) => {
           const target = latest.get(symbol)
           return <tr key={`${symbol}-${index}`}>
             <th scope="row"><StrategySecurityLabel symbol={symbol} names={details.security_names} /></th>
             <td>{quantity(held)}</td>
+            <td title={quoteAt ? `报价 ${absoluteChinaTime(quoteAt)}` : undefined}>
+              {marketValue === null ? '—' : <FinancialValue value={marketValue} />}
+            </td>
+            {showsProfit ? <td className={profit === null ? undefined : Number(profit) > 0 ? 'financial-gain' : Number(profit) < 0 ? 'financial-loss' : undefined}>
+              {profit === null ? '—' : <FinancialValue value={profit} />}
+            </td> : null}
             <td>{sellable === null ? '—' : quantity(sellable)}</td>
             <td>{target ? quantity(target.target_quantity) : '—'}</td>
             <td>{target ? target.previous_target_quantity === null ? '首次记录' : `${quantity(target.previous_target_quantity)} → ${quantity(target.target_quantity)}` : '—'}</td>
             <td>{target ? <time dateTime={target.changed_at}>{absoluteChinaTime(target.changed_at)}</time> : '—'}</td>
-            <td>{money(marketValue)}</td><td>{money(profit)}</td>
           </tr>
         })}</tbody></table>
     </div> : !positionMessage && <p>当前范围内没有可显示的实际持仓。</p>}

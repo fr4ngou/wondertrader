@@ -13,12 +13,13 @@ def test_registered_strategy_remains_visible_and_merges_with_runtime(monkeypatch
         strategy_version='0.2.0a1', display_name='共振原版')
     other = dict(strategy_id='new-strategy', strategy_version='1.0.0', display_name='另一策略')
     monkeypatch.setenv('GUANHENG_STRATEGY_REGISTRATIONS', json.dumps([original, other]))
-    published = [dict(strategy_id='resonance-regime-v1', strategy_version='1.2.2')]
+    published = [dict(strategy_id='resonance-regime-v1', strategy_version='1.2.2', status_label='等待策略所需行情')]
 
-    def observe(*_args):
+    def observe(*_args, include_activity=False):
+        assert include_activity
         if published is None:
             raise RuntimeError('当前WT发布不可读')
-        return dict(strategy=None, strategies=published)
+        return dict(strategy=None, strategies=published, running=published[:1])
 
     monkeypatch.setattr(wt_business_observation, 'observe_strategy', observe)
     settings = ConsoleSettings.from_environment()
@@ -35,6 +36,10 @@ def test_registered_strategy_remains_visible_and_merges_with_runtime(monkeypatch
         assert entries[1]['catalog_status'] == entries[2]['catalog_status'] == 'registered'
         assert entries[3]['strategy_version'] == '0.1.0a2'
         assert entries[3]['display_name'] == entries[1]['display_name']
+        running = client.get('/v1/ui/strategy-catalog').json()['running']
+        assert len(running) == 1
+        assert running[0]['strategy_id'] == entries[0]['strategy_id']
+        assert running[0]['status_label'] == '等待策略所需行情'
 
         published.append(original)
         entries = strategies()
@@ -47,3 +52,4 @@ def test_registered_strategy_remains_visible_and_merges_with_runtime(monkeypatch
         entries = strategies()
         assert [row['strategy_id'] for row in entries if row.get('catalog_status') == 'registered'] == [
             original['strategy_id'], other['strategy_id']]
+        assert client.get('/v1/ui/strategy-catalog').json()['running'] is None

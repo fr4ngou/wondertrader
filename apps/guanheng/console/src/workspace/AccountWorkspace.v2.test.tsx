@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import AccountWorkspace from './AccountWorkspace'
 import { validateAccountOverview, type AccountField, type AccountOverviewV2 } from './accountApi'
 import shmFixture from './account-v2.fixture.json'
@@ -21,12 +22,34 @@ function records() {
     fields: { side: present(48), quantity: present(19), price: present(3.25), amount: present(61.75) } }]
   return value
 }
-function mount(view: 'account' | 'trading-records' = 'account', available = true) {
+function mount(view: 'account' | 'trading-records' | 'overview' = 'account', available = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
   clients.push(client)
-  render(<QueryClientProvider client={client}><AccountWorkspace view={view}
-    capability={{ available, reason: available ? null : '尚未配置账户读取来源', timeout_seconds: 15 }} /></QueryClientProvider>)
+  render(<QueryClientProvider client={client}><MemoryRouter><AccountWorkspace view={view}
+    capability={{ available, reason: available ? null : '尚未配置账户读取来源', timeout_seconds: 15 }} /></MemoryRouter></QueryClientProvider>)
 }
+
+it('总览只列经核实运行的策略，金额和浮盈按完整账户持仓汇总', async () => {
+  const account = fixture()
+  const holding = account.groups.position.rows[0]
+  holding.fields = { ...holding.fields, quantity: present(1), market_value: present(240), float_profit: present(-8) }
+  account.groups.position.rows.push({ ...holding, identity: { m_strInstrumentID: '510300', m_strExchangeID: 'SH' },
+    fields: { ...holding.fields, market_value: present(130), float_profit: present(3) } })
+  account.groups.account.rows[0].fields = { ...account.groups.account.rows[0].fields, total_asset: present(930),
+    float_profit: { availability: 'unknown', value: null, reason: '来源未提供' } }
+  const strategy = { strategy_id: 'resonance-regime-v1', strategy_version: '1.2.2',
+    display_name: '共振策略', description: '测试策略', historical_versions: [] }
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => response(String(input).endsWith('/strategy-catalog')
+    ? { schema: 'guanheng.strategy-catalog.v1', read_only: true, scope: 'registered-definitions',
+      strategies: [strategy, { ...strategy, strategy_id: 'registered', display_name: '仅登记' }],
+      running: [{ ...strategy, status_label: '等待策略所需行情' }] } : account)))
+  mount('overview')
+  expect(await screen.findByRole('link', { name: /共振策略/ })).toHaveAttribute('href', '/strategies?strategy=resonance-regime-v1%401.2.2&view=runtime')
+  expect(screen.queryByText('仅登记')).not.toBeInTheDocument()
+  for (const [label, value] of [['总持仓金额（元）', '370'], ['总金额（元）', '930'], ['浮动盈亏（元）', '-5']]) {
+    expect(screen.getByRole('heading', { name: label }).parentElement).toHaveTextContent(value)
+  }
+})
 
 it('DTO2展示持仓、可卖、掩码账户及逐批时间，内部运输标识保留原DTO', async () => {
   const fetchMock = vi.fn().mockResolvedValue(response(fixture()))

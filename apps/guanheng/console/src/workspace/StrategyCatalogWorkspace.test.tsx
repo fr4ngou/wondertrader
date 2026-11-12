@@ -86,11 +86,16 @@ test('已登记但尚无WT运行发布的策略可选，显示待启用', async 
  expect(await screen.findByText('目标归属：'+id)).toBeVisible()
 })
 
-test('精确当前线上策略有标记并默认展示线上图表，切换后清除标记',async()=>{
+test('精确当前线上策略默认展示运行与持仓，仍可打开线上图表和切换策略',async()=>{
  runtime.online=true
  stubCatalog(catalog);mount()
  expect(await screen.findByText('线上运行 · 已核验')).toBeVisible()
+ const navigation = screen.getByRole('navigation', { name: '策略详情视图' })
+ expect(navigation.querySelector('button')?.textContent).toBe('运行与持仓')
+ expect(screen.getByRole('button', { name: '运行与持仓' })).toHaveAttribute('aria-pressed', 'true')
+ fireEvent.click(screen.getByRole('button', { name: '线上表现' }))
  expect(await screen.findByText('实际线上观察图表')).toBeVisible()
+ fireEvent.click(screen.getByRole('button', { name: '运行与持仓' }))
  fireEvent.change(screen.getByLabelText('选择策略'),{target:{value:'other'}})
  expect(screen.queryByText('线上运行 · 已核验')).toBeNull()
  expect(await screen.findByText('运行归属：other')).toBeVisible()
