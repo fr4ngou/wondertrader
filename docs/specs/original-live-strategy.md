@@ -50,7 +50,7 @@ BUY/SELL信号一致性、目标数量规则、实际执行时点和成交结果
 
 ## OLS-6 显式单账策略扩展材料
 
-配置可选 `strategy_extension_origin` 固定为 `guanheng.strategy-extension-origin.v1`，字段 `file`、`sha256` 绑定扩展前单策略 `execution.json` 的原字节；`added_strategy` 的 `file`、`sha256` 绑定一个独立JSON策略行原件。所有文件在受控绝对路径下，沿原读取边界核SHA及大小。前代必须只有原retained ctx，新增行固定为原版ID和profile，新增资金1000000 CNY、`state_mode=new`、`signals-from-activation`。该原件承担新增配置的明确授权边界，不代替账户资金及ASA种子准入。
+配置可选 `strategy_extension_origin` 固定为 `guanheng.strategy-extension-origin.v1`，字段 `file`、`sha256` 绑定扩展前单策略 `execution.json` 的原字节；`added_strategy` 的 `file`、`sha256` 绑定一个独立JSON策略行原件。所有文件在受控绝对路径下，沿原读取边界核SHA及大小。前代必须只有原retained ctx，新增行使用固定原版 ID `resonance-original-wt-351f9d5-stable@0.2.0a1` 或独立七只版 ID `resonance-kc50-pullback-confirm@0.3.0a1`，二者均使用固定 Original profile，新增资金1000000 CNY、`state_mode=new`、`signals-from-activation`。该原件承担新增配置的明确授权边界，不代替账户资金及ASA种子准入。
 
 仅从比较副本移除经原件核同的新增行和扩展标记，再使用既有业务、角色、行情接入准入。其余账户、账根、原策略行、预算模型、合约和证券权限沿原约束；本扩展不增加价格、合约、Source绑定或过滤器豁免。后继双策略配置继续携带相同新增行；双策略不能沿此协议退回单策略或替换新增行。
 
@@ -60,9 +60,9 @@ BUY/SELL信号一致性、目标数量规则、实际执行时点和成交结果
 
 仅OLS-6标记可增加可选 `dependency_handoff:{file,sha256}`，固定 `guanheng.strategy-dependency-handoff.v1` 材料。省略保持原准入；显式材料只归一化本节列明的依赖差异。标记的原配置/新增策略行继续保持，后继可用新依赖材料绑定新安装；两代材料分别完整核验，不允许撤回已有依赖续接。
 
-材料必填字段为：`schema`；`origin_configuration_sha256`（与OLS-6原配置SHA相同）；`previous_installation`、`current_installation`（两代实际 `execution-install.json` 的file/sha256）；`reader_additions`（恰为589680.SH→SSE.ETF.589680、159352.SZ→SZSE.ETF.159352两条映射）；`contract_addition`（159352的唯一完整Native合约行）；`contract_reference`（已准入数据owner证券资料catalog的file/sha256）；`source_extension`（未变更运输/绑定引用时为null）。完整安装文件的运行资格继续由原安装owner逐件校验；恢复比较核固定两代清单，并逐件核业务基础文件和过滤器的真实字节。
+材料必填字段为：`schema`；`origin_configuration_sha256`（与OLS-6原配置SHA相同）；`previous_installation`、`current_installation`（两代实际 `execution-install.json` 的file/sha256）；`reader_additions`（九只版沿原两条映射；七只版仅159352.SZ→SZSE.ETF.159352）；`contract_addition`（159352的唯一完整Native合约行）；`contract_reference`（已准入数据owner证券资料catalog的file/sha256）；`source_extension`（未变更运输/绑定引用时为null）。完整安装文件的运行资格继续由原安装owner逐件校验；恢复比较核固定两代清单，并逐件核业务基础文件和过滤器的真实字节。
 
-两代base_data相对映射必须相同。sessions、commodities、holidays、policy、fees及已有过滤器原件SHA相同；contracts所有旧交易所及全部旧行逐值相同，仅追加SZSE.159352。新合约的exchg/product/上市日/名称须与固定资料中的SZSE.159352 ETF一致，原品种/会话/费率沿原件。旧Reader8条顺序和值保留，仅在其后追加上述两条，std_code/symbol均唯一。其它Reader字段、复权/单位/时区/日线/publication语义继续原比较约束。installation_root只在已核安装/业务文件的比较副本回投到原root，真实新安装身份不改写。
+两代base_data相对映射必须相同。sessions、commodities、holidays、policy、fees及已有过滤器原件SHA相同；contracts所有旧交易所及全部旧行逐值相同，仅追加SZSE.159352。新合约的exchg/product/上市日/名称须与固定资料中的SZSE.159352 ETF一致，原品种/会话/费率沿原件。旧Reader8条顺序和值保留，仅在其后追加本profile指定映射，std_code/symbol均唯一。其它Reader字段、复权/单位/时区/日线/publication语义继续原比较约束。installation_root只在已核安装/业务文件的比较副本回投到原root，真实新安装身份不改写。
 
 environment独立声明的fees与filters也分别按两代安装清单及实际文件字节核同；不能只比较相对文件名。未声明或空fees保持原默认路径，不擅自增设费表。既有模拟费率的业务身份保留，不将其标作真实券商费率。
 

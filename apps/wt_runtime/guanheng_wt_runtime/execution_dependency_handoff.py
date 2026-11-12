@@ -60,7 +60,7 @@ def _source_origin(proof,binding_sha256,pinned,pinned_raw):
         and plan['schema_version']=='qmt.trade-binding-extension-plan.v1')
     return plan
 
-def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_symbol=None,deadline):
+def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_symbol=None,confirmation=False,deadline):
     """调用方提供去新增ctx/标记后的副本；只回投已核依赖，不改实际配置。"""
     def pinned_raw(ref,maximum):
         _require(type(ref)is dict and set(ref)=={'file','sha256'})
@@ -72,9 +72,9 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_sy
     value,unused=pinned(reference,1024*1024)
     _require(type(value)is dict and set(value)==FIELDS and value['schema']=='guanheng.strategy-dependency-handoff.v1'
         and value['origin_configuration_sha256']==_sha(origin_sha256))
-    additions=ADDITIONS
+    additions=ADDITIONS[1:] if confirmation else ADDITIONS
     if execution_symbol is not None:
-        _require(type(execution_symbol)is str and re.fullmatch(r'SSE\.ETF\.[0-9]{6}',execution_symbol)
+        _require(not confirmation and type(execution_symbol)is str and re.fullmatch(r'SSE\.ETF\.[0-9]{6}',execution_symbol)
             and execution_symbol!='SSE.ETF.589680')
         execution_code=execution_symbol.rsplit('.',1)[1]
         additions=[dict(std_code=execution_symbol,symbol=execution_code+'.SH'),ADDITIONS[1]]
@@ -132,7 +132,7 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_sy
             if name:_require(installed(root,files,name)==installed(previous_root,previous,name))
     old_rows=origin['data']['store']['symbols'];rows=current['data']['store']['symbols'];added=value['reader_additions']
     _require(type(old_rows)is list and len(old_rows)==8 and added==additions and rows==old_rows+added
-        and len({r['std_code']for r in rows})==10 and len({r['symbol']for r in rows})==10)
+        and len({r['std_code']for r in rows})==len(rows) and len({r['symbol']for r in rows})==len(rows))
     current['data']['store']['symbols']=deepcopy(old_rows)
     proof=value['source_extension'];old=origin['trader'];new=current['trader']
     if proof is None:

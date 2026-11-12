@@ -632,13 +632,13 @@ int dependency_date(const rj::Value& value){
     FILETIME file{};need(SystemTimeToFileTime(&day,&file)!=0);return day.wYear*10000+day.wMonth*100+day.wDay;
 }
 void normalize_dependencies(rj::Document& current,const rj::Value& origin,const rj::Value& reference,
-                            const std::string& origin_sha,const std::string& execution_symbol){
+                            const std::string& origin_sha,const std::string& execution_symbol,bool confirmation){
     auto proof=dependency_proof(reference,1024*1024);const auto& value=proof.first;
     keys(value,{"schema","origin_configuration_sha256","previous_installation","current_installation","reader_additions","contract_addition","contract_reference","source_extension"});
     need(text(value,"schema")=="guanheng.strategy-dependency-handoff.v1"&&text(value,"origin_configuration_sha256",64)==origin_sha);
     std::string execution_code;
     if(!execution_symbol.empty()){
-        need(execution_symbol.size()==14&&execution_symbol.compare(0,8,"SSE.ETF.")==0
+        need(!confirmation&&execution_symbol.size()==14&&execution_symbol.compare(0,8,"SSE.ETF.")==0
             &&execution_symbol!="SSE.ETF.589680");
         execution_code=execution_symbol.substr(8);
         for(char digit:execution_code)need(digit>='0'&&digit<='9');
@@ -710,9 +710,10 @@ void normalize_dependencies(rj::Document& current,const rj::Value& origin,const 
         expected["rows"][0]["std_code"].SetString(execution_symbol.c_str(),expected.GetAllocator());
         expected["rows"][0]["symbol"].SetString(symbol.c_str(),expected.GetAllocator());
     }
+    if(confirmation)expected["rows"].Erase(expected["rows"].Begin());
     const auto& additions=member(value,"reader_additions");need(additions==member(expected,"rows"));
     const auto& old_rows=member(member(member(origin,"data"),"store"),"symbols");
-    auto& rows=current["data"]["store"]["symbols"];need(old_rows.IsArray()&&old_rows.Size()==8&&rows.IsArray()&&rows.Size()==10);
+    auto& rows=current["data"]["store"]["symbols"];need(old_rows.IsArray()&&old_rows.Size()==8&&rows.IsArray()&&rows.Size()==old_rows.Size()+additions.Size());
     std::set<std::string> standard,symbols;
     for(rj::SizeType i=0;i<rows.Size();++i){
         need(rows[i]==(i<8?old_rows[i]:additions[i-8]));
@@ -751,6 +752,9 @@ void normalize_dependencies(rj::Document& current,const rj::Value& origin,const 
     }
     current["installation_root"].CopyFrom(member(origin,"installation_root"),current.GetAllocator());
 }
+bool extension_strategy_id(const std::string& id){
+    return id=="resonance-original-wt-351f9d5-stable"||id=="resonance-kc50-pullback-confirm";
+}
 // 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
 rj::Document market_model(const rj::Value& config){
     if(!config.HasMember("strategy_extension_origin"))return legacy_market_model(config);
@@ -763,8 +767,10 @@ rj::Document market_model(const rj::Value& config){
     const auto& reference=member(marker,"added_strategy");keys(reference,{"file","sha256"});
     const auto row_raw=read(absolute(text(reference,"file")),64*1024);need(sha(row_raw)==text(reference,"sha256",64));
     const auto added=parse(row_raw);const auto& p=member(member(added,"parameters"),"python_strategy");
-    need(text(added,"id")=="resonance-original-wt-351f9d5-stable"
-        &&text(p,"schema")=="guanheng.original-live-cta.v1"&&text(p,"strategy_version")=="0.2.0a1"
+    const auto strategy_id=text(added,"id");
+    const auto confirmation=strategy_id=="resonance-kc50-pullback-confirm";
+    need(extension_strategy_id(strategy_id)&&(!confirmation||!p.HasMember("execution_symbol_589680"))
+        &&text(p,"schema")=="guanheng.original-live-cta.v1"&&text(p,"strategy_version")== (confirmation?"0.3.0a1":"0.2.0a1")
         &&text(p,"initial_capital_cny")=="1000000"&&text(p,"state_mode")=="new"
         &&text(p,"activation_mode")=="signals-from-activation");
     const auto& prior=member(original,"strategies");const auto& rows=member(config,"strategies");
@@ -778,7 +784,7 @@ rj::Document market_model(const rj::Value& config){
     }
     need(removed==1&&retained==1);
     if(marker.HasMember("dependency_handoff"))normalize_dependencies(projected,original,marker["dependency_handoff"],
-        text(marker,"sha256",64),p.HasMember("execution_symbol_589680")?text(p,"execution_symbol_589680",14):std::string{});
+        text(marker,"sha256",64),p.HasMember("execution_symbol_589680")?text(p,"execution_symbol_589680",14):std::string{},confirmation);
     auto before=legacy_market_model(original);auto after=legacy_market_model(projected);
     before.RemoveMember("recovery");after.RemoveMember("recovery");
     need(same_business(before,after));return legacy_market_model(projected);
@@ -793,7 +799,7 @@ bool compatible_model(const rj::Value& previous,const rj::Value& current){
         before.RemoveMember("dependency_handoff");after.RemoveMember("dependency_handoff");need(before==after);
         const auto find=[](const rj::Value& value)->const rj::Value*{
             for(const auto& row:member(value,"strategies").GetArray())
-                if(text(row,"id")=="resonance-original-wt-351f9d5-stable")return &row;
+                if(extension_strategy_id(text(row,"id")))return &row;
             return nullptr;
         };
         const auto* left=find(previous);const auto* right=find(current);need(left&&right&&*left==*right);
@@ -808,7 +814,7 @@ rj::Document transition_state_identity(const fs::path& output,const rj::Value& c
         const auto id=text(row,"id",63);bool existed=false;
         for(const auto& old:member(owner,"strategies").GetArray())if(text(old,"id",63)==id)existed=true;
         if(!existed){
-            need(current.HasMember("strategy_extension_origin")&&id=="resonance-original-wt-351f9d5-stable");
+            need(current.HasMember("strategy_extension_origin")&&extension_strategy_id(id));
             // Windows原加载器按大小写不敏感路径打开；直接核同一路径，不能借异大小写隐匿旧ctx。
             need(!fs::exists(output/"stradata"/(id+".json"))
                 &&!fs::exists(output/"userdata"/("ud_"+id+".json")));

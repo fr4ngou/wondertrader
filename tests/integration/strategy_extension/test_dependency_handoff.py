@@ -253,3 +253,31 @@ def test_deployment_binding_key_order_keeps_source_canonical_identity(tmp_path,s
     current['strategy_extension_origin']['dependency_handoff']=base.put(tmp_path/'dependencies.json',proof)
     assert recovery.compatible_business_configuration(current,old)
     base.native(dict(mode='compare',previous=old,current=current),tmp_path)
+
+
+def test_confirmation_extension_uses_only_a500_dependency(tmp_path,source_versions,monkeypatch):
+    old,current,proof=fixture(tmp_path,source_versions)
+    marker=current['strategy_extension_origin']
+    added=current['strategies'][1]
+    added['id']='resonance-kc50-pullback-confirm'
+    added['parameters']['python_strategy']['strategy_version']='0.3.0a1'
+    marker['added_strategy']=base.put(Path(marker['added_strategy']['file']),added)
+    del current['data']['store']['symbols'][8]
+    del proof['reader_additions'][0]
+    marker['dependency_handoff']=base.put(Path(marker['dependency_handoff']['file']),proof)
+
+    assert recovery.compatible_business_configuration(current,old)
+    assert recovery.compatible_business_configuration(current,current)
+    monkeypatch.setattr(recovery,'load_transition',lambda *a,**k:({'state_files':{}},'a'*64))
+    monkeypatch.setattr(recovery,'state_origin_configuration',lambda *a,**k:old)
+    assert recovery.strategy_state_mode(current,added['id'])=='new'
+    with pytest.raises(ValueError):
+        recovery.strategy_state_mode(current,base.NEW)
+
+    wrong=deepcopy(current)
+    wrong['data']['store']['symbols'].insert(8,ADDITIONS[0])
+    with pytest.raises(ValueError):
+        recovery.compatible_business_configuration(wrong,old)
+    base.native(dict(mode='compare',previous=old,current=current),tmp_path)
+    base.native(dict(mode='state',previous=old,current=current,output=old['output_directory']),tmp_path)
+    base.native(dict(mode='compare',previous=old,current=wrong),tmp_path,False)

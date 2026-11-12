@@ -305,6 +305,12 @@ def market_origin_configuration(native, *, deadline=float('inf')):
     return origin
 
 
+STRATEGY_EXTENSION_VERSIONS = {
+    'resonance-original-wt-351f9d5-stable': '0.2.0a1',
+    'resonance-kc50-pullback-confirm': '0.3.0a1',
+}
+
+
 def strategy_extension_configuration(native, *, deadline=float('inf')):
     """仅投影已冻结新增行；原单策略业务准入继续核其余所有字段。"""
     marker=native.get('strategy_extension_origin')
@@ -323,8 +329,11 @@ def strategy_extension_configuration(native, *, deadline=float('inf')):
     _require('strategy_extension_origin'not in origin and type(origin.get('strategies'))is list
         and len(origin['strategies'])==1 and origin['strategies'][0]['id']=='resonance-regime-v1')
     p=added['parameters']['python_strategy']
-    _require(added['id']=='resonance-original-wt-351f9d5-stable'
-        and p['schema']=='guanheng.original-live-cta.v1' and p['strategy_version']=='0.2.0a1'
+    strategy_id = added['id']
+    confirmation = strategy_id == 'resonance-kc50-pullback-confirm'
+    _require(strategy_id in STRATEGY_EXTENSION_VERSIONS
+        and p['schema']=='guanheng.original-live-cta.v1' and p['strategy_version']==STRATEGY_EXTENSION_VERSIONS[strategy_id]
+        and (not confirmation or 'execution_symbol_589680' not in p)
         and p['initial_capital_cny']=='1000000' and p['state_mode']=='new'
         and p['activation_mode']=='signals-from-activation')
     rows=native['strategies']
@@ -335,13 +344,13 @@ def strategy_extension_configuration(native, *, deadline=float('inf')):
     if 'dependency_handoff'in marker:
         from .execution_dependency_handoff import normalize_dependencies
         projected=normalize_dependencies(projected,origin,marker['dependency_handoff'],marker['sha256'],
-            execution_symbol=p.get('execution_symbol_589680'),deadline=deadline)
+            execution_symbol=p.get('execution_symbol_589680'),confirmation=confirmation,deadline=deadline)
     _require(compatible_business_configuration(projected,origin,deadline=deadline))
     return projected
 
 
 def _extension_row(native):
-    return next((r for r in native.get('strategies',[])if r.get('id')=='resonance-original-wt-351f9d5-stable'),None)
+    return next((r for r in native.get('strategies',[])if r.get('id') in STRATEGY_EXTENSION_VERSIONS),None)
 
 
 def compatible_business_configuration(current, previous, *, deadline=float('inf')):
@@ -626,7 +635,8 @@ def strategy_state_mode(native, strategy_id, *, deadline=float('inf')):
     if present:
         _require(names[0]in transition['state_files'])
         return 'resume'
-    _require(strategy_id=='resonance-original-wt-351f9d5-stable'
+    added = _extension_row(native)
+    _require(added is not None and strategy_id == added['id']
         and all(name.casefold()not in {key.casefold()for key in transition['state_files']}for name in names))
     return 'new'
 
