@@ -220,8 +220,6 @@ def execution_permission_origin_configuration(native, *, deadline=float('inf'), 
     origin以原配置文件和SHA冻结，不授金融动作。实际准入继续核原关闭、查询、
     未决命令及金融文件。最多16跳，支持后继原账停写及正常发行接续。
     """
-    from .execution_role_replacement import role_origin_configuration
-    native = role_origin_configuration(native, deadline=deadline)
     marker = native.get('execution_permission_origin')
     if marker is None:return native
     _require(depth < 16 and type(marker) is dict and set(marker) == {'schema','file','sha256'}
@@ -250,6 +248,9 @@ def market_origin_configuration(native, *, deadline=float('inf')):
     takeover，按相同阶段比较；Native准入再核实际原takeover及状态文件。
     """
     native=strategy_extension_configuration(native,deadline=deadline)
+    # 已发布的历史运行代只按实际配置接账。旧标记不再触发回投或换标。
+    if 'role_replacement' in native:
+        return native
     native=execution_permission_origin_configuration(native,deadline=deadline)
     marker=native.get('market_input_origin')
     if marker is None:return native
@@ -358,14 +359,19 @@ def strategy_extension_configuration(native, *, deadline=float('inf')):
     _require(len(rows) == 2 and sum(row['id'] == retained['id'] for row in rows) == 1)
     projected=copy.deepcopy(native);projected.pop('strategy_extension_origin')
     projected['strategies']=[row for row in projected['strategies'] if row['id'] == retained['id']]
+    from .execution_dependency_handoff import normalize_dependencies, retired_target_symbols
+    retirements=retired_target_symbols(marker, origin)
+    _require('role_replacement' not in native)
     if 'dependency_handoff'in marker:
-        from .execution_dependency_handoff import normalize_dependencies, retired_target_symbols
         projected=normalize_dependencies(projected,origin,marker['dependency_handoff'],marker['sha256'],
             execution_symbol=p.get('execution_symbol_589680'),confirmation=confirmation,
-            execution_securities=p.get('execution_securities'),retired_targets=retired_target_symbols(marker, origin),
-            deadline=deadline)
+            execution_securities=p.get('execution_securities'),retired_targets=retirements,deadline=deadline)
     else:
-        _require('retired_targets' not in marker)
+        _require(not retirements)
+    if 'role_replacement' in origin:
+        _require(retirements)
+        # 只把旧标记带入比较视图，保留前代真实输入及账本身份。
+        projected['role_replacement']=copy.deepcopy(origin['role_replacement'])
     _require(compatible_business_configuration(projected,origin,deadline=deadline))
     return projected
 
@@ -557,13 +563,13 @@ def _normalized(binding):
     return result
 
 
-def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrade=False, strategy_extension=False,
+def _compatible_python(previous, current, *, strategy_upgrade=False, strategy_extension=False,
                        source_handoff=False):
     """同业务发行允许策略及数量实现升级；纯Core及解释器仍须逐件相同。
 
     strategy_upgrade仅由已核前后完整业务配置的transition路径传入。部署材料
     绑定实际前后源码，既有金融状态仍由当前原加载器校验，不能以换包改变账户、
-    资本、输入、策略参数或输出根。角色替换继续另核真实正常关闭及零库存。
+    资本、输入、策略参数或输出根。
     """
     before,after=_normalized(previous),_normalized(current)
     from .strategy_profiles import SOURCE_OWNER_PACKAGES, PACKAGE_DISTRIBUTIONS
@@ -579,7 +585,7 @@ def _compatible_python(previous, current, *, role_handoff=False, strategy_upgrad
             _require(key.startswith('site/guanheng_wt_runtime/')
                 or key.startswith('site/guanheng_wt_runtime-')and key.endswith('.dist-info/METADATA')
                 or key=='venv/pyvenv.cfg'
-                or (role_handoff or strategy_upgrade) and (
+                or strategy_upgrade and (
                     key.startswith('site/guanheng_strategy_v1/')
                     or key.startswith('site/guanheng_strategy_v1-') and key.endswith('.dist-info/METADATA'))
                 # 已核完整同业务transition才接纳数量实现升级；原冻结状态仍由NSQ构造器重验。
@@ -611,14 +617,6 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
         and value['schema'] == 'guanheng.execution-recovery-transition.v1')
     previous_configuration=predecessor_configuration(native,deadline=deadline)
     _require(compatible_business_configuration(native,previous_configuration,deadline=deadline))
-    from .execution_role_replacement import is_role_handoff
-    role_handoff = is_role_handoff(native, previous_configuration)
-    if role_handoff:
-        # 换代只接受真实正常关闭；故障/回档不得借此切换金融模型。
-        _require(not any(k in value for k in ('restoration','initialization_abort')))
-        terminal = _json(_read(Path(value['predecessor_control_directory'])/'closed.json',4096,
-                              deadline=deadline,clock=time.monotonic))
-        _require(terminal.get('ok') is True and terminal.get('recovery_ready') is True)
     previous = Path(value['predecessor_control_directory']); _inspect(previous, directory=True)
     old_raw = _read(previous / 'python-binding.json', 256 * 1024, deadline=deadline,clock=time.monotonic)
     _require(hashlib.sha256(old_raw).hexdigest() == _sha(value['predecessor_python_binding_sha256']))
@@ -629,7 +627,7 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
         # 上文已核显式发行材料和完整业务配置；换实现属于发行，不要求改零持仓角色。
         from .strategy_profiles import source_handoff
         source_owners = source_handoff(native, deadline=deadline)
-        _compatible_python(old,binding,role_handoff=role_handoff,strategy_upgrade=True,
+        _compatible_python(old,binding,strategy_upgrade=True,
             strategy_extension='strategy_extension_origin'in native,source_handoff=source_owners)
     restored=state_origin(value,current=native,deadline=deadline)
     if restored is not None and identities is not None:

@@ -19,7 +19,7 @@ class QuantityReleaseIdentityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _compatible_python(old, new)
         with self.assertRaises(ValueError):
-            _compatible_python(old, new, role_handoff=True)
+            _compatible_python(old, new, strategy_upgrade=True)
         _compatible_python(old, new, strategy_upgrade=True)
 
     def test_new_quantity_member_and_metadata_are_covered_by_transition(self):

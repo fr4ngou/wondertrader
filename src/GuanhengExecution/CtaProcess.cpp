@@ -409,87 +409,9 @@ bool same_business(const rj::Value& left,const rj::Value& right){
     }
     return before==after;
 }
-// 单一角色换代：只回投已钉住的原业务配置；实际新基金数据仍由本代正式输入读取。
-rj::Document role_model(const rj::Value& config){
-    rj::Document current;current.CopyFrom(config,current.GetAllocator());
-    if(!current.HasMember("role_replacement"))return current;
-    const auto& marker=member(config,"role_replacement");keys(marker,{"schema","file","sha256"});
-    need(text(marker,"schema")=="guanheng.zero-position-role-replacement.v1");
-    const auto file=absolute(text(marker,"file"));need(file.filename()=="execution.json");
-    const auto body=read(file,256*1024);need(sha(body)==text(marker,"sha256",64));auto original=parse(body);
-    need(!original.HasMember("role_replacement"));
-    auto parameters=[](rj::Value& value)->rj::Value&{
-        auto& rows=value["strategies"];need(rows.IsArray()&&rows.Size()==1&&text(rows[0],"id")=="resonance-regime-v1");
-        return rows[0]["parameters"]["python_strategy"];
-    };
-    auto& selected=parameters(current);auto& previous=parameters(original);
-    auto input=[&](const rj::Value& p){const auto raw=read(absolute(text(p,"input_file")),16*1024*1024);
-        need(sha(raw)==text(p,"input_sha256",64));
-        // 原完整RuntimeInput可含数万raw/analysis行；每JSON节点至少占一字节，正文长度给出严格有限上界。
-        // 文件仍沿原16MiB边界读取；普通配置/收据继续使用默认32768节点、16层及原重复键检查。
-        return parse(raw,raw.size());};
-    auto before=input(previous),after=input(selected);
-    // 原资金、现金锚点、费用及七证券库存逐项保持；原基准和新角色均必须明确为零仓位。
-    for(const char* field:{"capital_baseline","cash_anchor","policy","fee_reserve_cny","fee_source","schema"})
-        need(member(before,field)==member(after,field));
-    auto& old_request=before["request"];auto& new_request=after["request"];
-    auto& old_config=old_request["configuration"];auto& new_config=new_request["configuration"];
-    need(text(old_config,"config_revision")!=text(new_config,"config_revision"));
-    for(const char* field:{"kc_composite_signal_symbol","kc_composite_execution_symbol"}){
-        need(text(old_config,field)=="589680.SH"&&text(new_config,field)=="588030.SH");
-        new_config[field].CopyFrom(old_config[field],after.GetAllocator());
-    }
-    new_config["config_revision"].CopyFrom(old_config["config_revision"],after.GetAllocator());need(new_config==old_config);
-    auto& old_cycles=old_request["cycles"];auto& new_cycles=new_request["cycles"];
-    need(old_cycles.IsArray()&&new_cycles.IsArray()&&old_cycles.Size()==8&&new_cycles.Size()==8);
-    std::set<std::string> checked;
-    for(const auto& row:old_cycles.GetArray()){
-        const auto symbol=text(row,"symbol");need(checked.insert(symbol).second);const bool role=symbol=="589680.SH";
-        const rj::Value* found=nullptr;
-        for(const auto& other:new_cycles.GetArray())if(text(other,"symbol")== (role?"588030.SH":symbol)){
-            need(found==nullptr);found=&other;
-        }
-        need(found!=nullptr);
-        if(role)need(text(row,"status")=="flat"&&text(*found,"status")=="flat"
-            &&number(row,"quantity",0,0)==0&&number(*found,"quantity",0,0)==0);
-        else need(row==*found);
-    }
-    need(checked.count("589680.SH")==1&&old_request["previous_exits"]==new_request["previous_exits"]);
-    for(const char* key:{"input_file","input_sha256"})selected[key].CopyFrom(previous[key],current.GetAllocator());
-    for(const char* key:{"base_url","token_env"})selected["capital_market"][key].CopyFrom(previous["capital_market"][key],current.GetAllocator());
-    selected["market_window"]["path"].CopyFrom(previous["market_window"]["path"],current.GetAllocator());
-    auto& store=current["data"]["store"];auto& old_store=original["data"]["store"];
-    need(store["symbols"].IsArray()&&store["symbols"].Size()==8);std::set<std::string> symbols;
-    for(const auto& row:store["symbols"].GetArray()){
-        const auto symbol=text(row,"symbol");need(symbols.insert(symbol).second);
-        const auto expected=symbol=="588030.SH"?"589680.SH":symbol;const rj::Value* found=nullptr;
-        for(const auto& other:old_store["symbols"].GetArray())if(text(other,"symbol")==expected)found=&other;
-        need(found!=nullptr);
-        if(symbol=="588030.SH")need(row.MemberCount()==2&&text(row,"std_code")=="SSE.ETF.588030");
-        else need(row==*found);
-    }
-    need(symbols.count("588030.SH")==1&&symbols.count("589680.SH")==0);
-    store["symbols"].CopyFrom(old_store["symbols"],current.GetAllocator());
-    for(const char* key:{"path","adjfactor","publication"}){
-        need(store["daily"].HasMember(key)==old_store["daily"].HasMember(key));
-        if(store["daily"].HasMember(key))store["daily"][key].CopyFrom(old_store["daily"][key],current.GetAllocator());
-    }
-    for(const char* key:{"base_url","binding_id","binding_sha256","instance_id","key_id_env","hmac_secret_env"}){
-        need(current["trader"].HasMember(key)==original["trader"].HasMember(key));
-        if(current["trader"].HasMember(key))current["trader"][key].CopyFrom(original["trader"][key],current.GetAllocator());
-    }
-    // WT原证券ignore过滤器在恢复目标前读取，不删原理论账、不生成虚假平仓。
-    need(member(original["environment"],"filters").IsString()&&original["environment"]["filters"].GetStringLength()==0);
-    const auto filter_file=installed(absolute(text(config,"installation_root")),text(current["environment"],"filters",1024));
-    auto filters=parse(read(filter_file,4096));auto expected_filter=parse("{\"code_filters\":{\"SSE.ETF.589680\":{\"action\":\"ignore\"}}}");need(filters==expected_filter);
-    current["environment"]["filters"].CopyFrom(original["environment"]["filters"],current.GetAllocator());
-    current.RemoveMember("role_replacement");current.RemoveMember("recovery");original.RemoveMember("recovery");
-    need(same_business(current,original));return original;
-}
-
 // 自有恢复准入归一化显式开关与运输引用；原账户、模型、账根继续逐项核验。
 rj::Document permission_model(const rj::Value& config,unsigned depth=0){
-    rj::Document current=role_model(config);current.RemoveMember("recovery");
+    rj::Document current;current.CopyFrom(config,current.GetAllocator());current.RemoveMember("recovery");
     if(!current.HasMember("execution_permission_origin"))return current;
     need(depth<16);const auto& marker=member(config,"execution_permission_origin");keys(marker,{"schema","file","sha256"});
     need(text(marker,"schema")=="guanheng.execution-permission-origin.v1");
@@ -510,6 +432,11 @@ rj::Document permission_model(const rj::Value& config,unsigned depth=0){
 
 // 显式只读市场引用回投原业务模型；原金融、账户及执行字段继续逐项核验。
 rj::Document legacy_market_model(const rj::Value& config){
+    // 历史运行代只提供实际账本配置；旧标记不再触发换标的回投。
+    if(config.HasMember("role_replacement")){
+        rj::Document archived;archived.CopyFrom(config,archived.GetAllocator());
+        archived.RemoveMember("recovery");return archived;
+    }
     rj::Document normalized=permission_model(config);
     rj::Document current;current.CopyFrom(normalized,current.GetAllocator());
     if(!current.HasMember("market_input_origin"))return current;
@@ -893,10 +820,17 @@ rj::Document market_model(const rj::Value& config){
     }
     need(removed==1&&retained==1);
     const auto retirements=retired_target_symbols(marker,original);
+    need(!config.HasMember("role_replacement"));
     if(marker.HasMember("dependency_handoff"))normalize_dependencies(projected,original,marker["dependency_handoff"],
         text(marker,"sha256",64),p.HasMember("execution_symbol_589680")?text(p,"execution_symbol_589680",14):std::string{},
         confirmation,p.HasMember("execution_securities")?&p["execution_securities"]:nullptr,retirements);
     else need(retirements.empty());
+    if(original.HasMember("role_replacement")){
+        need(!retirements.empty());
+        // 比较副本保留原标记；本代正式配置已移除。
+        auto& allocator=projected.GetAllocator();
+        projected.AddMember("role_replacement",rj::Value(original["role_replacement"],allocator),allocator);
+    }
     auto before=legacy_market_model(original);auto after=legacy_market_model(projected);
     before.RemoveMember("recovery");after.RemoveMember("recovery");
     need(same_business(before,after));return legacy_market_model(projected);
@@ -954,8 +888,6 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     const auto ready_raw=read(previous/(initialization_abort?"failure.json":"ready.json"),4096);const auto ready=parse(ready_raw);
     const bool clean_transition=fs::exists(previous/"closed.json");
     need(!transition.HasMember("restoration")||clean_transition);
-    if(current.HasMember("role_replacement")&&!prior_config.HasMember("role_replacement"))
-        need(clean_transition&&!initialization_abort&&!transition.HasMember("restoration"));
     const bool lost_transition=!clean_transition&&!fs::exists(previous/"close-prepared.json")
         &&!fs::exists(previous/"failure.json")&&fs::exists(previous/"owner-loss.json");
     need(text(ready,"schema")== (initialization_abort?"guanheng.execution.failure.v1":"guanheng.execution.ready.v1"));
@@ -1305,7 +1237,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         native_log_attempted=true;
         { std::lock_guard<std::mutex> lock(request_log_mutex);request_log=&native_log; }
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
-        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","role_replacement","strategy_extension_origin"});
+        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","strategy_extension_origin"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
         std::string reader_cache_path;
         if(const auto* publication=cfg.HasMember("data")?daily_publication(cfg["data"]):nullptr){
@@ -1322,9 +1254,6 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             reader_cache_path=reader_cache.string();
             need(fs::path(reader_cache_path)==reader_cache);
             stage="configuration";
-        }
-        if(cfg.HasMember("role_replacement")){
-            need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
         }
         if(cfg.HasMember("execution_permission_origin")){
             need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
@@ -1514,23 +1443,6 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                     }
                 }
             }
-        }
-        if(cfg.HasMember("role_replacement")){
-            // 同owner读取已完成的真实P/O；退役证券零持仓、两证券无活动委托，原订单恢复已完成。
-            const auto observed=execution->broker_observation();need(observed.positions_known);
-            if(std::find(retirements.begin(),retirements.end(),"SSE.ETF.589680")==retirements.end()){
-                need(execution->position("SSE.ETF.589680")==0);
-                need(execution->undone("SSE.ETF.589680")==0);
-            }
-            // 历史标记沿用时，新基金可带自有挂单；首次角色换代仍要求新角色没有旧委托。
-            const auto& recovery=member(cfg,"recovery");
-            if(text(recovery,"mode")=="resume_reconciled"){
-                const auto& selected=member(recovery,"transition");
-                const auto transition=parse(read(absolute(text(selected,"file")),1024*1024));
-                const auto predecessor=parse(read(absolute(text(transition,"predecessor_configuration")),256*1024));
-                if(!predecessor.HasMember("role_replacement"))need(execution->undone("SSE.ETF.588030")==0);
-            }else need(execution->undone("SSE.ETF.588030")==0);
-            // 新基金可有本轮WT验证成交；Python以原基准和完整D核真实开启，P保持券商查询原值。
         }
         stage="strategies";const auto& strategies=member(cfg,"strategies");need(strategies.IsArray()&&strategies.Size()>0&&strategies.Size()<=64);
         factories.reserve(strategies.Size());parameters.reserve(strategies.Size());unowned.reserve(strategies.Size());

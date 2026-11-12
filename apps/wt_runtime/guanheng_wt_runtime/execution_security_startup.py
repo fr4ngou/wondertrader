@@ -40,6 +40,8 @@ def prepare_startup_configuration(template, template_sha256, catalog_path, catal
     old_rows = predecessor['data']['store']['symbols']
     additions, contracts = required_etf_dependencies(catalog, securities, old_rows, old_contracts)
     retirements = retired_target_symbols(marker, predecessor)
+    if retirements and 'role_replacement' in predecessor:
+        native.pop('role_replacement', None)
     filter_file = predecessor['environment'].get('filters')
     if len({row['symbol'] for row in old_rows + additions}) != len(old_rows) + len(additions):
         raise ValueError('新增行情映射与原来源代码冲突')

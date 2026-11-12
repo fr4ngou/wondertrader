@@ -338,3 +338,55 @@ def test_prepare_generic_execution_uses_frozen_universe_and_preserves_old_instal
     with pytest.raises(ValueError):
         recovery.compatible_business_configuration(prepared, old)
     base.native(dict(mode='compare', previous=old, current=prepared), tmp_path, False)
+
+def test_retirement_restarts_from_actual_post_replacement_configuration(tmp_path):
+    """旧标记只属于历史原件；当前状态必须按原样接续。"""
+    from guanheng_wt_runtime.execution_process import write_installation_manifest
+    from guanheng_wt_runtime.execution_security_startup import prepare_startup_configuration
+
+    old, previous_candidate = base.fixture(tmp_path)
+    app = tmp_path/'previous-install'/'app'
+    old.update(
+        installation_root=str(app),
+        base_data={key: key+'.json' for key in ('sessions', 'commodities', 'contracts', 'holidays', 'policy')},
+        environment=dict(filters='filters.json', fees='fees.json'),
+        data=dict(store=dict(symbols=[dict(symbol='588030.SH', std_code='SSE.ETF.588030')])),
+    )
+    for key, name in old['base_data'].items():
+        base.put(app/name, dict(SSE={}, SZSE={}) if key == 'contracts' else dict(kind=key))
+    base.put(app/'filters.json', dict(code_filters={'SSE.ETF.589680': dict(action='ignore')}))
+    base.put(app/'fees.json', dict(currency='CNY'))
+    (app/'GuanhengCtaHost.exe').write_bytes(b'synthetic installed executable')
+    write_installation_manifest(app.parent)
+    old['role_replacement'] = dict(schema='guanheng.zero-position-role-replacement.v1',
+                                  file=str(tmp_path/'archived'/'execution.json'), sha256='a'*64)
+    original = base.put(tmp_path/'old'/'execution.json', old)
+    template = deepcopy(old)
+    added = deepcopy(previous_candidate['strategies'][1])
+    added['parameters']['python_strategy']['execution_securities'] = ['SZSE.ETF.159352']
+    template['strategies'].append(added)
+    template['recovery'] = dict(mode='resume_reconciled')
+    template['strategy_extension_origin'] = dict(schema='guanheng.strategy-extension-origin.v1',
+        **original, added_strategy=base.put(tmp_path/'new-strategy.json', added),
+        retired_targets=dict(strategy_id=old['strategies'][0]['id'], symbols=['SSE.ETF.589680']))
+    reference = base.put(tmp_path/'template.json', template)
+    catalog = base.put(tmp_path/'security.json', dict(schema='guanheng.security-reference.v3', securities={
+        'SZSE.159352': dict(symbol='SZSE.159352', name='synthetic ETF', market='SZSE', security_type='etf',
+                            listed_on='2024-10-15', expires_on=None, observed_at=None)}))
+    path = prepare_startup_configuration(Path(reference['file']), reference['sha256'],
+        Path(catalog['file']), catalog['sha256'], tmp_path/'prepared')
+    successor = json.loads(path.read_bytes())
+    assert 'role_replacement' not in successor
+    assert successor['strategies'][0] == old['strategies'][0]
+    assert successor['output_directory'] == old['output_directory']
+    assert recovery.compatible_business_configuration(successor, old)
+    assert recovery.compatible_business_configuration(successor, successor)
+    assert not recovery.compatible_business_configuration(
+        {key: value for key, value in old.items() if key != 'role_replacement'}, old)
+    wrong = deepcopy(successor)
+    wrong['strategies'][0]['parameters']['python_strategy']['input_sha256'] = 'f'*64
+    with pytest.raises(ValueError):
+        recovery.compatible_business_configuration(wrong, old)
+    base.native(dict(mode='compare', previous=old, current=successor), tmp_path)
+    base.native(dict(mode='compare', previous=successor, current=successor), tmp_path)
+    base.native(dict(mode='compare', previous=old, current=wrong), tmp_path, success=False)

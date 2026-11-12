@@ -9,8 +9,6 @@ ROLE_SYMBOLS = MappingProxyType({
 })
 # 科创100分析与执行使用同一实物基金，绝不借其他ETF行情作为止损参考。
 KC_SYMBOL = ROLE_SYMBOLS['kc_composite']
-# 本次替换的前代实物基金；仅用于已核零持仓角色交接，旧历史和计划保持此身份。
-PREVIOUS_KC_SYMBOL = '589680.SH'
 # 该版本唯一公开算法标识；安装、目标与显示共同使用。
 STRATEGY_ID, STRATEGY_VERSION = 'resonance-regime-v1', '1.2.2'
 ALGORITHM_ID = STRATEGY_ID + '@' + STRATEGY_VERSION + '/ledger-front-ratio-v1'

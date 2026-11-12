@@ -257,8 +257,6 @@ class RetainedStrategy:
         self.state_identity = _digest(identity)
         # 故障恢复显式核前代发行身份；原状态模型、输入和数量不变量保持。
         self.previous_state_identity = None
-        self.role_handoff = False  # 本次前代仍为旧角色时，仅退役零仓位角色的NSQ计划。
-        self.previous_inputs = None  # 已SHA核验的原输入，专用于校验原状态身份和旧配置目标。
         self.recovery_native = native  # 原已准入恢复链；仅用于核验前代合法原报价及原时点。
         self.retained_market_source = None  # 保留报价时的原控制/文件SHA，独立于当前现金与NAP。
         self.initial_market_window = None  # 初始化只读验证的出版物元数据，不产生目标或新行情事件。
@@ -268,16 +266,6 @@ class RetainedStrategy:
             prior_identity = (self.id,self.input_sha,tuple(sorted(self.mapping.items())),asdict(self.inputs.policy),prior_code_identity)
             from .execution_recovery import state_origin_configuration
             previous_native=state_origin_configuration(native,deadline=deadline)
-            from .execution_role_replacement import is_role_handoff, input_value
-            self.role_handoff = is_role_handoff(native, previous_native)
-            if self.role_handoff:
-                self.previous_inputs = input_value(previous_native, deadline=deadline)
-                previous_parameters = next(row for row in previous_native['strategies'] if row['id']==self.id)['parameters']['python_strategy']
-                old_mapping = dict(self.mapping)
-                old_mapping.pop('588030.SH')
-                old_mapping['589680.SH'] = 'SSE.ETF.589680'
-                prior_identity = (self.id,previous_parameters['input_sha256'],tuple(sorted(old_mapping.items())),
-                                  asdict(self.inputs.policy),prior_code_identity)
             prior_window=next(row for row in previous_native['strategies'] if row['id']==self.id)['parameters']['python_strategy'].get('market_window')
             if prior_window is not None:
                 prior_identity += (MarketWindowFile.from_dict(prior_window).configuration_identity,)
@@ -353,33 +341,6 @@ class RetainedStrategy:
               and value['identity'] == (self.previous_state_identity or self.state_identity), 'quantity_state_identity')
         seq = value['sequence'];_need(type(seq) is int and 0 <= seq <= 9007199254740991, 'quantity_state_sequence')
         state = _restore_quantity_state(value['state'])
-        if self.role_handoff:
-            # 原公共NSQ构造器已核state_id；核原配置与原算法后整体放弃旧计划，七角色周期原样保留。
-            from guanheng_strategy_v1.latest import RetainedConfig
-            from guanheng_strategy_core.contracts import canonical_bytes
-            original = self.previous_inputs['request']['configuration']
-            if state is not None:
-                old_config = RetainedConfig(**original)
-                _need(state.policy == self.inputs.policy and state.target.strategy_id == self.id
-                      and state.target.universe == tuple(sorted((set(self.execution)-{'588030.SH'})|{'589680.SH'}))
-                      and state.target.algorithm_id == 'resonance-regime-v1@1.2.1/ledger-front-ratio-v1'
-                      and state.target.config_id == hashlib.sha256(canonical_bytes(old_config)).hexdigest(),
-                      'quantity_state_identity')
-            # 先按原证券集合核元数据及规范编码，再切回新集合；不会把旧周期套给新基金。
-            current_execution = self.execution
-            self.execution = tuple(sorted((set(self.execution)-{'588030.SH'})|{'589680.SH'}))
-            try:
-                metadata, exits = self._metadata(value['cycles']), self._exit_values(value['exits'])
-                expected = _json(self._state_payload(state,seq,metadata,exits).encode('ascii'))
-            finally:
-                self.execution = current_execution
-            expected['identity'] = self.previous_state_identity
-            _need(_encode(expected).decode('ascii') == text, 'quantity_state_encoding')
-            self.state, self.sequence = None, seq
-            self.cycles = {symbol: row for symbol,row in metadata.items() if symbol != '589680.SH'}
-            self.exits = tuple(row for row in exits if row.symbol != '589680.SH')
-            self.restored_state_id, self.restored_sequence = None if state is None else state.state_id, seq
-            return
         if state is not None:
             _need(state.policy == self.inputs.policy and state.target.strategy_id == self.id
                   and state.target.universe == self.execution and state.target.config_id == self.config_identity
@@ -460,15 +421,6 @@ class RetainedStrategy:
                     _need(cycle.status == 'flat' and p.first_entry == p.last_entry == 0, 'fresh_strategy_required')
             self.cycles, self.exits = self._metadata(metadata), tuple(self.inputs.request.previous_exits)
         trades=context.broker_trades()
-        if self.role_handoff and rows.get(self.mapping['588030.SH'],(0,0))[0]:
-            # 候选验证已真实买入时，以原flat基准和完整D证明新基金开启；不冒充原库存。
-            cutoff = datetime.now(timezone.utc)
-            def check():
-                _need(time.monotonic() < self.start_deadline, 'evaluation_budget')
-            cycle_trades = self._historical_cycle_facts(broker, trades, cutoff, check)
-            opening = self._opening_cycle('588030.SH', broker, cycle_trades, cutoff, check)
-            _need(opening is not None, 'actual_opening_source_required')
-            self.cycles['588030.SH'] = opening
         self.flat_sources={symbol:self._flat_source(symbol,broker,trades) for symbol in self.execution
                            if not rows.get(self.mapping[symbol],(0,0))[0]}
         # 原主K线触发规则保持，用户状态由原dirty保存流程落盘。
