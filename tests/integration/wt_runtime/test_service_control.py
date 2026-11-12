@@ -20,8 +20,27 @@ from guanheng_wt_runtime.service_control import (
     ServiceController,
     _process_exists,
     _process_identity,
+    _safe_projection,
     validate_current,
 )
+
+
+class QuoteInputStatusTests(unittest.TestCase):
+    def test_ready_process_distinguishes_closed_parser_and_recovered_quotes(self):
+        from guanheng_wt_runtime.execution_process import _quote_input_state
+
+        observation = dict(schema='guanheng.execution.cta-observation.v1', control_id='control',
+                           config_sha256='config', pid=13, closed=False,
+                           parser_connects=1, parser_closes=1, parser_quotes=11)
+        def observed(value):
+            return _quote_input_state(value, 'control', 'config', 13, 1)
+        self.assertEqual(observed(observation), 'disconnected')
+        self.assertEqual(observed(dict(observation, parser_connects=2, parser_quotes=12)), 'receiving')
+        self.assertEqual(observed(dict(observation, parser_closes=0, parser_quotes=0)), 'waiting')
+        self.assertEqual(observed(dict(observation, control_id='old')), 'unknown')
+        status = dict(ready=True, pid=1, components={'execution': dict(ready=True, quote_input_state=observed(observation))})
+        projected = _safe_projection('status', None, status, 'ready', changed=False)
+        self.assertEqual(projected['components']['execution'], {'ready': True, 'quote_input_state': 'disconnected'})
 
 
 def _raw(value):

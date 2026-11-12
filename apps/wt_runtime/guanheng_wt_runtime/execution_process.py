@@ -8,6 +8,8 @@ import re
 from pathlib import Path, PurePosixPath
 import time
 
+from guanheng_market_client.runtime_status import read_status
+
 from .managed_local_process import ManagedLocalProcess, _identity, _inspect, _json, _read, _require, _sha
 
 from .strategy_profiles import (RETAINED_PACKAGES, SHARED_PACKAGES, SOURCE_HANDOFF_PACKAGES,
@@ -141,6 +143,13 @@ class ManagedExecutionProcess(ManagedLocalProcess):
         """公开生命周期快照；原native入口没有Python业务结果定位。"""
         value = super().status()
         value['business_observation'] = None
+        if value['ready'] and getattr(self, '_market_parser_count', 0):
+            try:
+                observation = read_status(self._directory / 'cta-observation.json', 4096)
+            except (OSError, ValueError):
+                observation = {}
+            value['quote_input_state'] = _quote_input_state(observation, self._control_id,
+                self.config.configuration_sha256, value['pid'], self._market_parser_count)
         return value
 
     def _validate_inputs(self, deadline):
@@ -157,6 +166,7 @@ class ManagedExecutionProcess(ManagedLocalProcess):
         # 库存准备器已在该位置生成物化配置时复用原件，禁止再写回部署模板。
         raw = _read(self.config.configuration, 256 * 1024)
         _require(hashlib.sha256(raw).hexdigest() == self.config.configuration_sha256)
+        self._market_parser_count = sum(item.get('active') is True for item in _json(raw).get('parsers', ()))
         snapshot = self._directory / 'execution.json'
         if snapshot.exists():
             _require(_read(snapshot, 256 * 1024) == raw)
@@ -289,6 +299,22 @@ class PythonExecutionProcessConfig:
             identities.append((str(path), hashlib.sha256(raw).hexdigest()))
         _python_inventory(site, dict(identities), packages=packages)
         return cls(native, Path(sys.executable).absolute(), tuple(identities), site, packages)
+
+
+def _quote_input_state(observation, control_id, configuration_sha256, pid, active_count):
+    """由同一代CTA的SPI连接/关闭事实推导行情接入状态，保留进程ready语义。"""
+    if (observation.get('schema') != 'guanheng.execution.cta-observation.v1'
+            or observation.get('control_id') != control_id
+            or observation.get('config_sha256') != configuration_sha256
+            or observation.get('pid') != pid or observation.get('closed') is not False):
+        return 'unknown'
+    counts = tuple(observation.get(key) for key in ('parser_connects', 'parser_closes', 'parser_quotes'))
+    if any(type(value) is not int or value < 0 for value in counts):
+        return 'unknown'
+    connects, closes, quotes = counts
+    if connects - closes < active_count:
+        return 'disconnected' if closes else 'waiting'
+    return 'receiving' if quotes else 'waiting'
 
 
 class ManagedPythonExecutionProcess(ManagedExecutionProcess):

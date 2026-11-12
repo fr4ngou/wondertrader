@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <thread>
@@ -142,11 +143,16 @@ class PollingEndpoint final : public IMarketEndpoint
 {
     std::shared_ptr<IMarketEndpoint> source_;
     std::function<bool(const std::string&)> admit_;
-    std::map<std::string, MarketSnapshot> accepted_;
+    std::map<std::string, MarketSnapshot>& accepted_; // worker持有水位，端点换代继续沿用。
+    std::string& recovering_symbol_; // 同一worker的隔离证券，空值表示正常投递。
     std::size_t maximum_;
+    bool rejected_quote_=false; // 本端点自身拒绝报价，区别上游返回同类错误码。
 public:
-    PollingEndpoint(std::shared_ptr<IMarketEndpoint> source, std::function<bool(const std::string&)> admit, std::size_t maximum)
-        : source_(std::move(source)), admit_(std::move(admit)), maximum_(maximum) {}
+    PollingEndpoint(std::shared_ptr<IMarketEndpoint> source, std::function<bool(const std::string&)> admit,
+        std::map<std::string, MarketSnapshot>& accepted, std::string& recovering_symbol, std::size_t maximum)
+        : source_(std::move(source)), admit_(std::move(admit)), accepted_(accepted),
+          recovering_symbol_(recovering_symbol), maximum_(maximum) {}
+    bool rejected_quote() const noexcept { return rejected_quote_; }
     Capability snapshot_capability() const override { return source_->snapshot_capability(); }
     SourceSession session() const override { return source_->session(); }
     Status start(Receiver receiver) override
@@ -162,23 +168,24 @@ public:
             if (!capability.supported || capability.qualification == Qualification::Unavailable
                 || !value.full_cumulative || !value.source_time_verified)
                 return failure(ErrorCode::Unavailable,"QMT polling snapshot qualification lost");
+            const bool recovering = !recovering_symbol_.empty();
+            if (recovering && key != recovering_symbol_ && admit_(recovering_symbol_)) return Status{};
             auto found = accepted_.find(key);
             if (found != accepted_.end()) {
                 const auto& old = found->second;
                 if (!same_session(old.source,value.source)) return failure(ErrorCode::StaleSession,"QMT polling source changed");
                 const auto stamp = std::uint64_t(tick.action_date)*1000000000ULL + tick.action_time;
                 const auto previous = std::uint64_t(old.tick.action_date)*1000000000ULL + old.tick.action_time;
-                if (stamp < previous) return failure(ErrorCode::Conflict,"QMT polling timestamp regressed");
-                if (stamp == previous) {
-                    if (old.full_cumulative == value.full_cumulative && old.source_time_verified == value.source_time_verified
-                        && same_tick(old.tick,tick)) return Status{};
-                    return failure(ErrorCode::Conflict,"QMT polling same-time snapshot changed");
+                if (stamp <= previous) {
+                    if (recovering || (stamp == previous && same_tick(old.tick,tick))) return Status{};
+                    recovering_symbol_=key;rejected_quote_=true;
+                    return failure(ErrorCode::Conflict,stamp < previous ? "QMT polling timestamp regressed" : "QMT polling same-time snapshot changed");
                 }
             } else if (accepted_.size() >= maximum_) return failure(ErrorCode::Backpressure,"QMT polling watermark capacity exhausted");
             Status status;
             try { status = receiver(value); }
             catch (...) { return failure(ErrorCode::SubmissionUnknown,"QMT polling downstream outcome unknown"); }
-            if (status.ok()) accepted_[key] = value;
+            if (status.ok()) { accepted_[key] = value; recovering_symbol_.clear(); }
             return status;
         });
     }
@@ -220,31 +227,37 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
     {
         { std::lock_guard<std::timed_mutex> lock(mutex);
             if (event==wtp::WPE_Close) { connected=false; if(close_sent)return; close_sent=true; }
-            else { if(stopping)return; if(event==wtp::WPE_Connect)connected=true; } }
+            else { if(stopping)return; if(event==wtp::WPE_Connect){connected=true;close_sent=false;} } }
         callback([&](wtp::IParserSpi* observer){observer->handleEvent(event,code);},event==wtp::WPE_Close);
     }
     struct Spi final : wtp::IParserSpi
     {
-        Impl& state; explicit Spi(Impl& value):state(value){}
+        Impl& state;
+        bool defer_connect; // 重建端点的连接事件等待合格新报价。
+        bool closed=false; // 当前内层MarketParser已关闭，由同一worker推进。
+        explicit Spi(Impl& value,bool defer):state(value),defer_connect(defer){}
         void handleEvent(wtp::WTSParserEvent event,int32_t code) override
         {
             // 内层断开只关闭准入；外部终态由 worker 在所有依赖排空后统一发布。
             if(event==wtp::WPE_Close) {
                 std::lock_guard<std::timed_mutex> lock(state.mutex);
-                state.connected=false; state.stopping=true;
+                state.connected=false; closed=true;
                 if(code)state.dependency_close_code=code;
                 state.changed.notify_all(); return;
             }
-            try { state.event(event,code); } catch (...) {}
+            if(!defer_connect)try { state.event(event,code); } catch (...) {}
         }
         void handleSymbolList(const wtp::WTSArray*) override {}
         // endpoint 的准入在控制锁下完成；已准入回调可跨过并发 stop/退订完成。
         void handleQuote(wtp::WTSTickData* tick,uint32_t flag) override
         {
+            const bool recovered=defer_connect;
+            if(recovered){state.event(wtp::WPE_Connect,0);state.event(wtp::WPE_Login,0);defer_connect=false;}
             auto owned = new OwnedPollingTick(tick->getTickStruct());
             try { state.callback([&](wtp::IParserSpi* observer){observer->handleQuote(owned,flag);},true); }
             catch (...) { owned->release(); throw; }
             owned->release();
+            if(recovered)state.set_status({});
         }
         void handleParserLog(wtp::WTSLogLevel,const char*) override
         { try { state.callback([](wtp::IParserSpi* observer){observer->handleParserLog(wtp::LL_ERROR,"QMT polling dependency not ready");}); } catch (...) {} }
@@ -255,7 +268,12 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
         { std::lock_guard<std::timed_mutex> lock(mutex); worker_id=std::this_thread::get_id(); }
         Status final;
         std::shared_ptr<QmtHttpClient> http;
+        std::map<std::string, MarketSnapshot> accepted;
+        std::string recovering_symbol;
+        std::optional<SourceSession> binding;
         try {
+          for (;;) {
+            final={};bool rebuild=false;
             // 局部对象退出顺序确保所有依赖在 worker 中完成停止及析构，再通知 join。
             std::shared_ptr<IMarketEndpoint> endpoint;
             { std::lock_guard<std::timed_mutex> lock(mutex); if(stopping)final=failure(ErrorCode::Unavailable,"QMT polling startup cancelled"); }
@@ -274,10 +292,13 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                 endpoint=factory(config.http,config.profile,final);
             }
             if (final.ok() && !endpoint) final=failure(ErrorCode::Unavailable,"QMT polling endpoint unavailable");
-            if (final.ok()) set_status({});
+            if (final.ok() && binding && !same_session(*binding,endpoint->session()))
+                final=failure(ErrorCode::StaleSession,"QMT polling source changed");
+            if (final.ok() && recovering_symbol.empty()) set_status({});
             if (final.ok()) {
-                auto decorated=std::make_shared<PollingEndpoint>(endpoint,[this](const std::string& key){return admit(key);},config.limit);
-                Spi proxy(*this); MarketParser parser(ProviderKind::Qmt,decorated,config.limit,1); parser.registerSpi(&proxy);
+                if(!binding)binding=endpoint->session();
+                auto decorated=std::make_shared<PollingEndpoint>(endpoint,[this](const std::string& key){return admit(key);},accepted,recovering_symbol,config.limit);
+                Spi proxy(*this,!recovering_symbol.empty()); MarketParser parser(ProviderKind::Qmt,decorated,config.limit,1); parser.registerSpi(&proxy);
                 wtp::CodeSet applied; std::uint64_t applied_revision;
                 { std::lock_guard<std::timed_mutex> lock(mutex); applied=target; applied_revision=revision;
                     if(stopping) final=failure(ErrorCode::Unavailable,"QMT polling startup cancelled"); }
@@ -297,8 +318,11 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                     }
                     if(!applied.empty())final=parser.pump(config.batch,config.http.timeout_ms);
                     if(!final.ok()){
-                        std::lock_guard<std::timed_mutex> failed(mutex);status=final;connected=false;break;
+                        std::lock_guard<std::timed_mutex> failed(mutex);status=final;connected=false;
+                        rebuild=host_full_tick_batches&&factory&&decorated->rejected_quote()&&!stopping;
+                        break;
                     }
+                    if(proxy.closed){final=failure(ErrorCode::Unavailable,"QMT polling dependency closed");break;}
                     std::unique_lock<std::timed_mutex> lock(mutex);
                     auto wake=[&]{return stopping||revision!=applied_revision;};
                     if(applied.empty())changed.wait(lock,wake);
@@ -306,6 +330,16 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                 }
                 parser.release();
             }
+            if(!rebuild)break;
+            // 已消费快照才进入本地水位；先隔离并释放端点，再认证同一来源建立下一代。
+            event(wtp::WPE_Close,1);
+            const auto reason=final.reason=="QMT polling timestamp regressed"
+                ?"QMT polling recovering: timestamp_regressed":"QMT polling recovering: same_time_snapshot_changed";
+            callback([&](wtp::IParserSpi* observer){observer->handleParserLog(wtp::LL_WARN,reason);});
+            endpoint.reset();
+            std::unique_lock<std::timed_mutex> lock(mutex);
+            if(changed.wait_for(lock,std::chrono::milliseconds(config.interval),[&]{return stopping;})){final={};break;}
+          }
         } catch (...) { final=failure(ErrorCode::Unavailable,"QMT polling worker failed"); }
         { std::lock_guard<std::timed_mutex> lock(mutex); connected=false; stopping=true; }
         // 请求返回后 WinHTTP 仍可能执行关闭回调。系统确认全部回调返回前，
@@ -337,6 +371,8 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
             else if(final.reason=="qmt_host_limits_invalid")reason="QMT polling stopped: qmt_host_limits_invalid";
             else if(final.reason=="qmt_host_native_operation_failed")reason="QMT polling stopped: qmt_host_native_operation_failed";
             else if(final.reason=="qmt_host_source_reconnect_deadline")reason="QMT polling stopped: qmt_host_source_reconnect_deadline";
+            else if(final.reason=="qmt_http_conflict")reason="QMT polling stopped: host_http_conflict";
+            else if(final.reason=="qmt_http_result_identity_mismatch"||final.reason=="qmt_host_result_identity_invalid")reason="QMT polling stopped: result_identity_conflict";
             else if(final.code==ErrorCode::StaleSession)reason="QMT polling stopped: source_session_changed";
             else if(final.code==ErrorCode::Conflict)reason="QMT polling stopped: input_conflict";
             else if(final.code==ErrorCode::SubmissionUnknown)reason="QMT polling stopped: downstream_outcome_unknown";

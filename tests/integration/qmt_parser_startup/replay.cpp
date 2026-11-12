@@ -12,7 +12,7 @@
 #include <thread>
 #include <stdexcept>
 using namespace guanheng;
-namespace { std::string early, late; std::atomic<int> reads{0},acks{0},resumes{0};
+namespace { std::string early, late; std::vector<std::string> frames; std::atomic<int> reads{0},acks{0},resumes{0};
 SourceSession identity{ProviderKind::Qmt,"fixture-instance","fixture-session",1};
 void require(bool b,const char* why){if(!b)throw std::runtime_error(why);}
 std::string load(const char* p){std::ifstream f(p);std::stringstream s;s<<f.rdbuf();return s.str();}
@@ -26,7 +26,7 @@ QmtHostReadClient::~QmtHostReadClient()=default;
 Status QmtHostReadClient::prepare(std::uint32_t){return {};}
 SourceSession QmtHostReadClient::session()const{return identity;}
 Capability QmtHostReadClient::capability()const{return {true,Qualification::DevelopmentVerified,"SDK substitute"};}
-QmtBoundResult QmtHostReadClient::read_full_tick(const std::string&,std::uint32_t){QmtBoundResult r;int n=++reads;r.result.data_json=n==1?early:late;r.receipt.request_body="original-"+std::to_string(n);r.snapshot_consumption_ready=true;return r;}
+QmtBoundResult QmtHostReadClient::read_full_tick(const std::string&,std::uint32_t){QmtBoundResult r;int n=++reads;r.result.data_json=frames.empty()?(n==1?early:late):frames[(std::min)(static_cast<std::size_t>(n),frames.size())-1];r.receipt.request_body="original-"+std::to_string(n);r.snapshot_consumption_ready=true;return r;}
 QmtBoundResult QmtHostReadClient::resume(const QmtBoundReceipt&,std::uint32_t){++resumes;throw std::runtime_error("unexpected resume");}
 Status QmtHostReadClient::confirm_full_tick(const QmtBoundResult& r,std::uint32_t){require(r.receipt.request_body=="original-"+std::to_string(reads.load()),"receipt changed");++acks;return {};}
 Status QmtHostReadClient::drain_callbacks(std::uint32_t)noexcept{return {};}
@@ -64,5 +64,36 @@ auto cfg=config();require(parser.init(cfg),"init");cfg->release();parser.registe
     while(waiting_attempts<2&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
     require(waiting_attempts>=2,"prepare waiting must continue");require(waiting.stop(100).ok(),"stop must interrupt prepare interval");require(waiting_spi.quotes==0&&waiting_spi.connects==0&&waiting_spi.closes==1,"waiting stop events");
 }
-std::cout<<"PASS hard_failures=5 waiting_stop=1 fixed_log=1 preopen=0 later=8 startup_attempts="<<attempts<<" reads="<<reads<<" acks="<<acks<<" closes="<<spi.closes<<"\n";return 0;
+for(bool regressed:{false,true}) {
+    const auto encode=[](const auto& document){rapidjson::StringBuffer bytes;rapidjson::Writer<rapidjson::StringBuffer> writer(bytes);document.Accept(writer);return std::string(bytes.GetString());};
+    auto conflict=qmt_mapping::parse(late);auto& old=conflict.MemberBegin()->value;
+    if(regressed)old["time"].SetUint64(static_cast<std::uint64_t>(old["time"].GetDouble())-1);
+    else old["amount"].SetDouble(old["amount"].GetDouble()+1);
+    auto fresh=qmt_mapping::parse(late);
+    for(auto row=fresh.MemberBegin();row!=fresh.MemberEnd();++row)row->value["time"].SetUint64(static_cast<std::uint64_t>(row->value["time"].GetDouble())+1000);
+    // 冲突原件已消费；重复的坏快照在同会话后继报价前始终无法进入SPI。
+    frames={late,encode(conflict),encode(conflict),encode(fresh)};reads=0;acks=0;
+    Spi observed;std::atomic<int> endpoints{0};
+    QmtPollingParser recovering([&](const QmtHttpConfig& c,const QmtHttpProfile& p,Status& status){++endpoints;auto endpoint=std::make_shared<QmtHostEndpoint>(std::make_shared<QmtHostReadClient>(c),p,8,true);status=endpoint->prepare(c.timeout_ms);return endpoint;},true);
+    auto settings=config();require(recovering.init(settings),"recovery init");settings->release();recovering.registerSpi(&observed);recovering.subscribe(subscribed);require(recovering.connect(),"recovery connect");
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);
+    while(observed.quotes<16&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    require(observed.quotes==16&&observed.connects==2&&observed.closes==1&&endpoints==2,"conflict must reconnect once and deliver only newer quotes");
+    require(recovering.stop(1000).ok(),"recovery stop");require(reads==acks&&reads>=4&&resumes==0,"recovery preserves original consumption");
+}
+{
+    // 端点重建必须沿原会话，后继绑定换代时尚未发出任何新读取。
+    auto old=qmt_mapping::parse(late);auto& row=old.MemberBegin()->value;row["amount"].SetDouble(row["amount"].GetDouble()+1);
+    rapidjson::StringBuffer bytes;rapidjson::Writer<rapidjson::StringBuffer> writer(bytes);old.Accept(writer);
+    frames={late,bytes.GetString()};reads=0;acks=0;const auto original=identity;
+    Spi observed;std::atomic<int> endpoints{0};
+    QmtPollingParser recovering([&](const QmtHttpConfig& c,const QmtHttpProfile& p,Status& status){if(++endpoints==2)++identity.generation;auto endpoint=std::make_shared<QmtHostEndpoint>(std::make_shared<QmtHostReadClient>(c),p,8,true);status=endpoint->prepare(c.timeout_ms);return endpoint;},true);
+    auto settings=config();require(recovering.init(settings),"identity init");settings->release();recovering.registerSpi(&observed);recovering.subscribe(subscribed);require(recovering.connect(),"identity connect");
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);
+    while(recovering.last_status().code!=ErrorCode::StaleSession&&std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    require(recovering.last_status().code==ErrorCode::StaleSession&&recovering.stop(1000).ok(),"different source must stop recovery");
+    identity=original;
+    require(reads==2&&acks==2&&observed.quotes==8&&observed.connects==1&&observed.closes==1,"changed source cannot read or deliver");
+}
+std::cout<<"PASS conflict_recoveries=2 hard_failures=5 waiting_stop=1 fixed_log=1 preopen=0 later=8 startup_attempts="<<attempts<<" reads="<<reads<<" acks="<<acks<<" closes="<<spi.closes<<"\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}}

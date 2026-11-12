@@ -304,7 +304,7 @@ def _safe_projection(action: str, current: dict | None, status: dict | None, sta
             if type(name) is str and type(value) is dict:
                 components[name] = {
                     key: value.get(key)
-                    for key in ("state", "ready", "error_code", "pid")
+                    for key in ("state", "ready", "error_code", "pid", "quote_input_state")
                     if key in value
                 }
     return {
