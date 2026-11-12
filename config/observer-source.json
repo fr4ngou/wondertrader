@@ -153,6 +153,7 @@
       "apps/guanheng/console/src/workspace/BacktestPerformance.test.tsx",
       "apps/guanheng/console/src/workspace/BacktestPerformance.tsx",
       "apps/guanheng/console/src/workspace/BacktestReportList.tsx",
+      "apps/guanheng/console/src/workspace/BacktestReturnPreview.tsx",
       "apps/guanheng/console/src/workspace/BacktestSourceState.test.tsx",
       "apps/guanheng/console/src/workspace/BacktestSourceState.tsx",
       "apps/guanheng/console/src/workspace/BacktestVisualChart.tsx",
