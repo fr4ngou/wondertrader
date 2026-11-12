@@ -104,19 +104,11 @@ def normalize_dependencies(current,origin,reference,origin_sha256,*,execution_sy
         old,new=_json(before),_json(after);row=value['contract_addition']
         _require('159352'not in old['SZSE'] and new['SZSE'].get('159352')==row)
         catalog,unused=pinned(value['contract_reference'],16*1024*1024)
-        _require(catalog.get('schema')in('guanheng.security-reference.v1','guanheng.security-reference.v2','guanheng.security-reference.v3'))
-        from guanheng_market_client.security import validate_security_identity
+        from .execution_security import etf_mapping_and_contract
         def validate_contract(exchange,code,row):
-            _require(type(row)is dict and set(row)=={'exchg','expiredate','name','opendate','product'}
-                and row['exchg']==exchange and row['product']=='ETF'and type(row['expiredate'])is int
-                and type(row['opendate'])is int)
-            symbol=exchange+'.'+code
-            security=catalog['securities'][symbol]
-            validate_security_identity(security)
-            _require(security['market']==exchange and security['security_type']=='etf'and security['symbol']==symbol
-                and type(security['name'])is str and security['name']==row['name'] and security['listed_on']is not None
-                and int(security['listed_on'].replace('-',''))==row['opendate']
-                and row['expiredate']==(20991231 if security['expires_on']is None else int(security['expires_on'].replace('-',''))))
+            mapping, expected = etf_mapping_and_contract(catalog, exchange+'.'+code)
+            _require(mapping in additions and row == expected
+                     and type(row['expiredate']) is int and type(row['opendate']) is int)
         validate_contract('SZSE','159352',row)
         new['SZSE'].pop('159352')
         if execution_symbol is not None:

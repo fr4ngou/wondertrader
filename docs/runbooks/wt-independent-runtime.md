@@ -41,6 +41,16 @@ Host保持等待，QMT策略晚于60秒启动仍可配对。每个查询/命令�
 
 等待时间可以超过60秒。此期间可以按下文正常停止WT，无需先运行QMT。已启动的执行组件若故障，沿原故障及恢复流程处理；本选项不自动重启交易进程。
 
+### 生成 ETF 执行配置候选
+
+在正式切换前，从 WT 数据组件取得同一版本的证券资料原件和 SHA256。使用带 WT Runtime 与 Market Client 的解释器生成候选，`--security` 接收证券资料的 `交易所.六位代码`，可以重复传入。
+
+```powershell
+python -B -m guanheng_wt_runtime.execution_security --security-reference <资料绝对路径> --security-reference-sha256 <原件SHA256> --security SZSE.159352 --security SSE.510300 --output <新的候选文件>
+```
+
+输出包含可供 Reader 和 Native 使用的 `reader_mappings` 与 `contracts`，并保留来源摘要。候选文件由发布准备阶段消费，执行器仍按原安装、行情和恢复证据核对。完整接入和切换验收见[证券接入规格](../specs/execution-security-onboarding.md)。
+
 ## 只读观察
 
 ### 策略部署选择

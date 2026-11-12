@@ -28,6 +28,7 @@
  功能规格
 
 - [来源三包永久源码与构建](source-package-builds.md)：Host/Agent/Core 边界、永久成员映射、可重复 Flit 构建及隔离 SDK 验收。
+- [证券接入、策略恢复与交易发布](execution-security-onboarding.md)：证券资料生成执行配置、通用策略恢复、交易通道迁移与重启验收。
 - [市场Python永久来源](market-python-sources.md)：版本化历史兼容源码、明确成员组装及普通Flit构建；运行步骤见[构建手册](../runbooks/market-python-sources.md)。
 - [观衡永久源码与独立读取发行](observer-source-build.md)：OSB，读取变体独立源版本、永久Flit/前端离线构建、App角色及独立安装闭包。
 
