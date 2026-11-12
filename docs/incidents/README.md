@@ -1,5 +1,7 @@
 # 故障记录
 
+- [2026-11-12 WT 模拟策略行情中断](2026-11-12-retained-quote-input-conflict.md)：旧解析器运行期停流、原模拟自动交易恢复、同源输入重建正式采用。
+
 - [2026-11-09 WT 账户读取拒绝与行情发布接线故障](2026-11-09-qmt-account-read-and-analysis-publication.md)记录自动恢复、拒绝诊断和原模拟账户接续。
 
 - [2026-11-09 WT 与观衡冷启动故障](2026-11-09-wt-observer-cold-start.md)记录观衡及五个数据角色恢复、HPR 端口冲突和交易实例续接缺口。
