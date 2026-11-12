@@ -9,7 +9,7 @@
 | 主题 | 最近记录及适用范围 | 依据 |
 |---|---|---|
 | 系统职责 | WT 独立拥有 QMT 通信、采集/历史、策略和交易；观衡独立部署、只读消费。 | [架构](../architecture/overview.md)、[ADR-0016](../architecture/adr/0016-independent-wt-runtime-and-observer.md) |
-| 观衡交付 | App134 已在 18143 正式采用，八个工作区、行情范围、持仓自选与原账户成交金额通过浏览器验收。原自选、策略历史和读取配置连续，原策略投资收益率在两处策略页可读。 | [观衡发布](../releases/2026-11-12-observer134-workspace-market.md)、[收益验收](../releases/2026-11-12-wt-strategy-return.md#首笔实际收益验收) |
+| 观衡交付 | App135 已在 18143 正式采用。八个工作区、快捷日期、方向键和历史时间轴通过浏览器验收。原自选、策略历史和投资收益率可读。 | [观衡发布](../releases/2026-11-12-observer135-chart-dates.md)、[收益验收](../releases/2026-11-12-wt-strategy-return.md#首笔实际收益验收) |
 | 市场广度 | 正式一年窗口内沪深五项与沪深北广度、RANA、MSI、推力各有 242 个有效值。沪深北 TRIN 有 240 个有效值，T2108 保留 47 日。 | [备用来源补采与验真](../evidence/2026-11-08-observation-breadth-alternative-sources.md) |
 | 原模拟账户运行 | 11 月 12 日 18:51 沿原账恢复，七角色及执行器就绪。18:51:43、18:52:16 两轮账户快照可读。发布时策略等待新分析窗口，自然调度和券商回报待后续交易窗口验证。 | [WT 发布](../releases/2026-11-12-wt-strategy-return.md)、[独立采集与分析发布](../releases/2026-11-12-wt-data-retry.md) |
 | 目标记录 | 1160 行原始设置归约为 42 条首次/变化记录；目标、持仓和成交分别归属。原目标、历史权重、算法版本及原因缺字段时保持未知。 | [目标规格](../specs/strategy-target-history.md)、[后验真](../evidence/2026-11-07-native-target-cash-gapplan-postflight.md) |
