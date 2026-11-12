@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from contextlib import redirect_stdout
+from types import SimpleNamespace
 from uuid import uuid4
 
 from guanheng_wt_runtime import service_control
@@ -615,6 +616,60 @@ class ServiceControlTests(unittest.TestCase):
 
     def test_trading_adoption_preserves_runtime_fault_and_records_missing_native_exit(self):
         self._check_trading_adoption(faulted=True)
+
+    def test_pre_native_exit_requires_child_terminal_and_unchanged_financial_state(self):
+        from guanheng_wt_runtime.execution_process import ManagedExecutionProcess
+
+        controller, _, _, _ = self._dependency_failure_controller(trading=True)
+        failed_id, origin_id, child_id = (str(uuid4()) for _ in range(3))
+        current = dict(schema="guanheng.wt-current.v1", wt_control_id=failed_id,
+                       wt_instance_id=str(uuid4()), wt_configuration_sha256="f" * 64,
+                       wt_status_file=str(self.control / failed_id / "status.json"))
+        child = self.root / child_id
+        child.mkdir()
+        _write(child / "python-binding.json", {})
+        root = self.root / "original-state"
+        state_dir = root / "portfolio"
+        state_dir.mkdir(parents=True)
+        state = _write(state_dir / "data.json", {"value": 10})
+        transition = _write(self.root / "retry-transition.json", dict(
+            schema="guanheng.execution-recovery-transition.v1",
+            state_files={"portfolio/data.json": _sha(state)},
+            predecessor_configuration_sha256="d" * 64, predecessor_control_directory=str(self.control)))
+        native = _write(child / "execution.json", dict(output_directory=str(root), recovery=dict(
+            mode="resume_reconciled", transition={"file": str(transition), "sha256": _sha(transition)})))
+        descriptor = _write(self.root / "retry-execution.json", dict(
+            control_root=str(self.root), python_strategies=True,
+            configuration=str(native), configuration_sha256=_sha(native)))
+        event = dict(schema="guanheng.process-event.v1", component=ManagedExecutionProcess._thread_name,
+                     control_id=child_id)
+        (self.root / "process-events.jsonl").write_bytes(
+            _raw(dict(event, event="process_started")) + b"\n" +
+            _raw(dict(event, event="process_closed", code="unexpected_exit", exit_code=2)) + b"\n")
+        records = {
+            failed_id: dict(predecessor_control_id=origin_id, transition_file=str(transition)),
+            origin_id: dict(predecessor_control_id=None, runtime_configuration_sha256="c" * 64),
+        }
+        status = dict(error_code="component_runtime_execution", components={"execution": dict(
+            error_code="execution_start", pid=None, business_observation=None, pending=False, forced=False,
+            execution_ready=False, source_wait_state="starting_execution")})
+        origin_status = dict(components={"execution": {"business_observation": dict(
+            config_sha256="d" * 64, ready_path=str(self.control / "ready.json"))}})
+        component = SimpleNamespace(descriptor=str(descriptor), sha256=_sha(descriptor))
+        with patch.object(controller, "_configuration_for", return_value=(descriptor, "f" * 64)), \
+                patch.object(controller, "_generation_record", side_effect=records.get), \
+                patch.object(controller, "_runtime_owner_active", return_value=False), \
+                patch.object(service_control.RuntimeConfig, "from_path",
+                             return_value=SimpleNamespace(components=(("execution", component),))), \
+                patch.object(service_control, "_runtime_status", return_value=origin_status):
+            self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
+            marker = _write(child / "lifecycle-started.json", {})
+            with self.assertRaises(ValueError):
+                controller._pre_native_execution_origin(current, status)
+            marker.unlink()
+            _write(state, {"value": 11})
+            with self.assertRaises(ValueError):
+                controller._pre_native_execution_origin(current, status)
 
     def _check_trading_adoption(self, *, faulted=False):
         from guanheng_wt_runtime import __main__ as runtime_cli

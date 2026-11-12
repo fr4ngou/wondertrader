@@ -21,7 +21,7 @@ from guanheng_market_client.runtime_status import (
     replace_status,
 )
 
-from .execution_recovery import prepare_transition, require_process_exited
+from .execution_recovery import execution_state_files, prepare_transition, require_process_exited
 from .managed_local_process import _inspect, _path, _read, _require, _sha
 from .runtime import RuntimeConfig
 
@@ -544,7 +544,73 @@ class ServiceController:
             _require(transition_file is None)
         return transition_file
 
-    def _admit_bootstrap(self, previous: dict | None, status: dict | None) -> None:
+    def _pre_native_execution_origin(self, current, status):
+        """核子进程启动退出和原状态字节，再定位最后有效的执行观察。"""
+        execution = status.get("components", {}).get("execution", {})
+        if (status.get("error_code") != "component_runtime_execution"
+                or execution.get("error_code") != "execution_start"
+                or execution.get("pid") is not None or execution.get("business_observation") is not None):
+            return None
+        _require(execution.get("pending") is False and execution.get("forced") is False
+                 and execution.get("execution_ready") is False
+                 and execution.get("source_wait_state") == "starting_execution"
+                 and all(row.get("state") == "closed" and row.get("pending") is False
+                         for name, row in status["components"].items() if name != "execution"))
+        path, digest = self._configuration_for(current)
+        runtime = dict(RuntimeConfig.from_path(str(path), digest).components)
+        role = runtime["execution"]
+        descriptor = _pinned_json(_path(role.descriptor, e_drive=True), role.sha256, 256 * 1024)
+        _require(descriptor.get("python_strategies") is True)
+        root = _path(descriptor["control_root"], e_drive=True)
+        from .execution_process import ManagedExecutionProcess
+        events = _read(root / "process-events.jsonl", 1024 * 1024).splitlines()
+        records = [json.loads(row) for row in events]
+        records = [row for row in records if row.get("schema") == "guanheng.process-event.v1"
+                   and row.get("component") == ManagedExecutionProcess._thread_name]
+        _require(bool(records))
+        terminal = records[-1]
+        child_id = _canonical_uuid(terminal["control_id"])
+        child = root / child_id
+        _inspect(child, directory=True)
+        _require(terminal.get("event") == "process_closed" and terminal.get("code") == "unexpected_exit"
+                 and terminal.get("exit_code") == 2 and terminal.get("host_pid") is None
+                 and terminal.get("host_exit_code") is None
+                 and any(row.get("control_id") == child_id and row.get("event") == "process_started"
+                         for row in records[:-1])
+                 and {item.name for item in child.iterdir()} == {"execution.json", "python-binding.json"})
+        native = _pinned_json(child / "execution.json", descriptor["configuration_sha256"], 256 * 1024)
+        transition_file = self._retained_execution_transition(current, descriptor)
+        _require(transition_file is not None)
+        reference = native["recovery"]["transition"]
+        transition = _pinned_json(_path(transition_file, e_drive=True), reference["sha256"], 1024 * 1024)
+        state_root = _path(native["output_directory"], e_drive=True)
+        _require(execution_state_files(state_root) == transition["state_files"])
+        seen = set()
+        control_id = current["wt_control_id"]
+        while control_id is not None:
+            _require(control_id not in seen)
+            seen.add(control_id)
+            record = self._generation_record(control_id)
+            _require(record is not None)
+            control_id = record["predecessor_control_id"]
+            if control_id is None:
+                break
+            previous = self._generation_record(control_id)
+            _require(previous is not None)
+            origin = validate_current(dict(current, wt_control_id=control_id,
+                wt_configuration_sha256=previous["runtime_configuration_sha256"],
+                wt_status_file=str(self.config.control_root / control_id / "status.json")))
+            origin_status = _runtime_status(origin, allow_pending=False)
+            observation = origin_status["components"]["execution"]["business_observation"]
+            if observation is not None:
+                _require(type(observation) is dict
+                         and observation["config_sha256"] == transition["predecessor_configuration_sha256"]
+                         and Path(observation["ready_path"]).parent == Path(transition["predecessor_control_directory"])
+                         and self._runtime_owner_active(origin) is False)
+                return origin
+        raise ValueError("pre_native_execution_origin_missing")
+
+    def _admit_bootstrap(self, previous: dict | None, status: dict | None, *, pre_native=False) -> None:
         """持原服务租约核退出证据及显式后继的作用范围。"""
         _require(previous is not None and status is not None)
         closed = _terminal(previous, "closed.json", allow_pending=False)
@@ -580,7 +646,8 @@ class ServiceController:
         else:
             _require(failure.get("status") == "faulted" and failure.get("components_closed") is False
                      and status.get("state") == "faulted")
-            _require(self._record_process_loss(previous))
+            if not pre_native:
+                _require(self._record_process_loss(previous))
 
     @staticmethod
     def _trade_deployment_identity(component):
@@ -697,12 +764,14 @@ class ServiceController:
         execution["sha256"] = descriptor_sha
         return str(transition_path)
 
-    def _new_generation(self, previous: dict | None, previous_status: dict | None, *, adopt_bootstrap=False) -> tuple[dict, Path]:
+    def _new_generation(self, previous: dict | None, previous_status: dict | None, *, adopt_bootstrap=False,
+                        execution_origin=None) -> tuple[dict, Path]:
         control_id = str(uuid4())
         generation = self.config.generation_root / control_id
         generation.mkdir()
         try:
-            return self._materialize_generation(control_id, generation, previous, previous_status, adopt_bootstrap)
+            return self._materialize_generation(control_id, generation, previous, previous_status, adopt_bootstrap,
+                                                execution_origin=execution_origin)
         except Exception:
             self._discard_generation(control_id)
             raise
@@ -715,7 +784,8 @@ class ServiceController:
             artifact.unlink()
         generation.rmdir()
 
-    def _materialize_generation(self, control_id, generation, previous, previous_status, adopt_bootstrap):
+    def _materialize_generation(self, control_id, generation, previous, previous_status, adopt_bootstrap,
+                                *, execution_origin=None):
         owner_file = generation / "runtime-owner.json"
         runtime_path = self.config.bootstrap_configuration
         runtime_sha = self.config.bootstrap_configuration_sha256
@@ -742,9 +812,14 @@ class ServiceController:
                         # 本代没有实际Native；原交接继续绑定最后实际执行代。
                         transition_file = self._retained_execution_transition(previous, descriptor)
                     else:
+                        origin_status, origin_runtime = previous_status, previous_runtime
+                        if execution_origin is not None:
+                            origin_status = _runtime_status(execution_origin, allow_pending=False)
+                            origin_path, origin_sha = self._configuration_for(execution_origin)
+                            origin_runtime = RuntimeConfig.from_path(str(origin_path), origin_sha)
                         transition_file = self._recover_execution(
-                            generation, previous_status, runtime_value, descriptor,
-                            runtime if adopt_bootstrap else None, previous_runtime,
+                            generation, origin_status, runtime_value, descriptor,
+                            runtime if adopt_bootstrap else None, origin_runtime,
                         )
                 runtime_path = generation / "runtime.json"
                 runtime_sha = _write_exclusive(runtime_path, runtime_value)
@@ -820,8 +895,11 @@ class ServiceController:
         with _ServiceLease(self.config.current_file):
             previous = self._owned_current()
             previous_status = _runtime_status(previous) if previous else None
+            execution_origin = None
             if adopt_bootstrap:
-                self._admit_bootstrap(previous, previous_status)
+                if previous_status is not None:
+                    execution_origin = self._pre_native_execution_origin(previous, previous_status)
+                self._admit_bootstrap(previous, previous_status, pre_native=execution_origin is not None)
             elif previous is not None:
                 closed = _terminal(previous, "closed.json")
                 if closed is None:
@@ -836,7 +914,8 @@ class ServiceController:
                     else:
                         return 2, _safe_projection(action, previous, previous_status, "process_lost", changed=False)
             environment = self._environment()
-            current, runtime_path = self._new_generation(previous, previous_status, adopt_bootstrap=adopt_bootstrap)
+            current, runtime_path = self._new_generation(previous, previous_status,
+                adopt_bootstrap=adopt_bootstrap, execution_origin=execution_origin)
             control_directory = Path(current["wt_status_file"]).parent
             command = [
                 str(self.config.pythonw),

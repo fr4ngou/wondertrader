@@ -691,6 +691,22 @@ def prior_strategy_observations(native, strategy_id, *, deadline):
         current = prior
 
 
+def execution_state_files(root):
+    """读取原生金融状态 JSON，返回原接续协议使用的相对路径与字节摘要。"""
+    files = {}
+    for directory in ('stradata', 'userdata', 'portfolio'):
+        folder = root / directory
+        if not folder.exists():
+            continue
+        _inspect(folder, directory=True)
+        for path in sorted(folder.iterdir()):
+            _inspect(path)
+            if path.suffix.lower() == '.json':
+                files[path.relative_to(root).as_posix()] = hashlib.sha256(_read(path, 4 * 1024 * 1024)).hexdigest()
+    _require(files and len(files) <= 1536)
+    return files
+
+
 def prepare_transition(configuration, predecessor_configuration, predecessor_control, destination, *,
                        successor_python=None, initialization_abort=False):
     """冻结发行交接材料；只读取上代状态，实际准入由持有租约的 Native 再核。"""
@@ -731,17 +747,7 @@ def prepare_transition(configuration, predecessor_configuration, predecessor_con
         origin = _json(_read(root / '.cta-clean.consumed.json', 256 * 1024))
         old_installation = origin['installation_sha256']
     manifest = _json(_read(current.installation / 'execution-install.json', 256 * 1024))
-    files = {}
-    for directory in ('stradata', 'userdata', 'portfolio'):
-        folder = root / directory
-        if not folder.exists():
-            continue
-        _inspect(folder, directory=True)
-        for path in sorted(folder.iterdir()):
-            _inspect(path)
-            if path.suffix.lower() == '.json':
-                files[path.relative_to(root).as_posix()] = hashlib.sha256(_read(path, 4 * 1024 * 1024)).hexdigest()
-    _require(files and len(files) <= 1536)
+    files = execution_state_files(root)
     value = dict(
         schema='guanheng.execution-recovery-transition.v1',  # 固定发行交接协议；不代表上次正常退出。
         predecessor_configuration=str(predecessor_configuration),  # 前代实际Native配置的绝对路径。
