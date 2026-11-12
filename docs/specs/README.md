@@ -9,7 +9,7 @@
 - [观衡统一WT日线消费](observer-wt-daily-consumer.md)：同一WT快照、七指标、原计划与后继历史保留，独立安装和回退。
 
 - [策略资金独立只读消费](strategy-capital-observation.md)：原WT资金发布、当前基准、来源时间和账户/策略范围，运行恢复资格独立。
-- [策略资金流入记录与收益率方案](strategy-capital-flow.md)：到账记录、同账续接、历史覆盖和剔除资金进出的收益率。
+- [策略注资、提取与收益率方案](strategy-capital-flow.md)：资金进出记录、同账续接、历史覆盖和剔除资金进出的收益率。
 
 - [观察状态原子发布与失败诊断](observation-status-publication.md)：合法旧状态读者与心跳并行、原失败语义和有限安全诊断。
 
