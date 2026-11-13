@@ -96,7 +96,7 @@ BUY首次prepared在该最终事务再次核资金与全部原预留，覆盖原
 
 `receive_broker_event`在同一收件事务内按原WT标识查已绑定命令。缺归属时同步记录固定原因，保留原字节和待处理状态。查询、实时事件与重放采用相同查法。有关联时仍走原成交或终态校验，收件本身不改变经济事实。私有回调收据同时保留原失败和失败原因落账异常，并记录阶段、事件摘要和时间预算。
 
-`pending_events(limit=100,after_sequence=0,max_bytes=2MiB,deadline)`按原收件顺序有界分页；`mark_event_failed(event_id,固定原因)`保原件供原owner重放，`mark_event_applied`只说明归属投影已提交。没有daemon、自动发单或Source请求。归属提交后进程退出而尚未mark时，重放按原金融ID幂等完成；取消/截止保持原异常，已提交事实不删除。明确未调用后的旧prepared失败事件应沿正面NoCall证明完成处置，不能重新取得派发许可或换UUID。
+`pending_events(limit=100,after_sequence=0,max_bytes=2MiB,deadline)`按原收件顺序有界分页；`mark_event_failed(event_id,固定原因)`保原件供原owner重放，`mark_event_applied`只说明归属投影已提交。柜台成交时钟领先本机至多一秒时记录 `fill_clock_pending`，保留原时钟和原成交，后续原调度在该时间已到后按原身份重放。更大时钟差仍沿原拒绝和故障规则。没有daemon、自动发单或Source请求。归属提交后进程退出而尚未mark时，重放按原金融ID幂等完成；取消/截止保持原异常，已提交事实不删除。明确未调用后的旧prepared失败事件应沿正面NoCall证明完成处置，不能重新取得派发许可或换UUID。
 
 ## ASA-7 策略观察与原开仓周期
 

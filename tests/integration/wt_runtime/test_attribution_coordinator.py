@@ -161,6 +161,36 @@ def test_terminal_before_fill_then_replay_and_cross_source_fill_idempotence(tmp_
     assert book.pending_events(deadline=end()) == ()
 
 
+def test_broker_fill_clock_pending_keeps_original_event_and_replays(tmp_path, monkeypatch):
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    from guanheng_wt_runtime import account_allocation, account_attribution
+
+    book, coordinator, bridge = setup(tmp_path)
+    command = prepared(coordinator, bridge)
+    executed = datetime(2026, 11, 6, 9, 31, 2, tzinfo=ZoneInfo('Asia/Shanghai'))
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return current[0].astimezone(tz)
+
+    current = [executed - timedelta(milliseconds=269)]
+    monkeypatch.setattr(account_attribution, 'datetime', Clock)
+    monkeypatch.setattr(account_allocation, 'datetime', Clock)
+    fill = dict(command, source_kind='derived-facts', source_sha256='d'*64,
+                trading_date=20261106, trade_id='nqh1.synthetic-broker-clock',
+                quantity=20, price_cny='10.01', amount_cny='200.20',
+                trade_time=93102000, fee_cny=None)
+    assert send(bridge, 8, fill)[0] == 0, bridge.failure
+    assert book.pending_events(deadline=end())[0].reason == 'fill_clock_pending'
+    assert book.view('new', deadline=end()).positions == ()
+    current[0] = executed + timedelta(milliseconds=100)
+    coordinator.replay_pending(deadline=end())
+    assert book.pending_events(deadline=end()) == ()
+    assert book.view('new', deadline=end()).positions[0].quantity == 20
+
+
 def test_wait_for_complete_targets_then_use_wt_risk_cut_and_filter(tmp_path):
     book, coordinator, bridge = setup(tmp_path)
     order = dict(instance_id='qmt', symbol=CODE, side='sell', requested_quantity=9000, limit_price_cny='2')

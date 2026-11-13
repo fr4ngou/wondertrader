@@ -7,7 +7,7 @@ from dataclasses import asdict
 import hashlib
 import json
 import math
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 import sys
 from threading import RLock, local
@@ -458,13 +458,17 @@ class AttributionCoordinator:
             _need(type(tick) is int and 0 <= tick < 240000000, 'attribution_trade_time')
             executed = datetime.strptime(str(body['trading_date']), '%Y%m%d').replace(
                 hour=tick//10000000, minute=tick//100000 % 100, second=tick//1000 % 100,
-                microsecond=tick % 1000*1000, tzinfo=ZoneInfo('Asia/Shanghai')).astimezone(timezone.utc).isoformat()
+                microsecond=tick % 1000*1000, tzinfo=ZoneInfo('Asia/Shanghai')).astimezone(timezone.utc)
+            # 柜台成交字段可按整秒取整；保留原时钟，等本机到达该时点后再应用。
+            ahead = executed - datetime.now(timezone.utc)
+            if timedelta(0) < ahead <= timedelta(seconds=1):
+                raise AttributionError('fill_clock_pending')
             settlement = self._settlement(day) if body['side'] == 'buy' else day
             amount = self._source_decimal(body['amount_cny'], '.01')
             fee = None if body.get('fee_cny') is None else self._source_decimal(body['fee_cny'], '.01')
             self.allocation.apply_fill(FillFact(body['trade_id'], command.command_id,
                 self._quantity(body['quantity']), self._source_decimal(body['price_cny'], '.001'), amount, fee, day, settlement,
-                body['source_sha256'], body['symbol'], body['side'], executed_at=executed), deadline=deadline)
+                body['source_sha256'], body['symbol'], body['side'], executed_at=executed.isoformat()), deadline=deadline)
             after_quantity = sum(p.quantity for sid in self.strategy_ids
                 for p in self.allocation.view(sid, deadline=deadline).positions if p.symbol == body['symbol'])
             if after_quantity != before_quantity:
@@ -511,7 +515,8 @@ class AttributionCoordinator:
             reason, recorded = self._record_event_failure(event_id, error, event.deadline)
             # O先于D或插入结果缺归属时，保留原事实等待核查。
             if not recorded or reason not in (
-                    'terminal_missing_fills', 'attribution_command_unmapped', 'attribution_wt_identity_missing'):
+                    'terminal_missing_fills', 'attribution_command_unmapped', 'attribution_wt_identity_missing',
+                    'fill_clock_pending'):
                 raise
         else:
             self.allocation.mark_event_applied(event_id, deadline=event.deadline)
