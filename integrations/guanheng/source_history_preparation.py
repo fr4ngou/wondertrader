@@ -403,7 +403,13 @@ class SourcePreparingMarket:
             require(planned['operation_id']=='market.history_prepare'and planned['arguments']['symbol']==symbol
                 and planned['arguments']['period']=='1m'and planned['arguments']['start_time']==start.strftime('%Y%m%d%H%M00')
                 and planned['arguments']['end_time']==end.strftime('%Y%m%d%H%M00'))
-            prepared=self.reads.observe(state['prepare'],lambda:self._save(directory,state),deadline)
+            try:
+                prepared=self.reads.observe(state['prepare'],lambda:self._save(directory,state),deadline)
+            except SourcePending:
+                # 保留客户端把已交接的下载结果未知也报告为Pending；原终态允许继续只读回查。
+                prepared=self.reads.saved_reply(state['prepare'])
+                if prepared is None or prepared.get('error_code')!='preparation_unknown':
+                    raise
             require(prepared['ok']is True or prepared.get('error_code')=='preparation_unknown')
             rows,binding=self._reads(state,'after',directory,symbol,start,end,deadline)
         self._publish(state,directory,symbol,rows,binding,deadline)

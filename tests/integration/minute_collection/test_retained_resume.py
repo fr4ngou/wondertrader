@@ -160,6 +160,46 @@ class RetainedResumeTests(unittest.TestCase):
         self.assertTrue(reply['ok']);self.assertEqual(self.fixture.calls,[])
         self.slot.write_bytes(original)
 
+    def test_consumed_unknown_preparation_advances_to_readback_with_original_id(self):
+        query = self.state['query'] | {'limit': 30}
+        preparation = dict(request=dict(operation_id='market.history_prepare',
+            arguments=dict(symbol='000001.SZ', period='1m', start_time='20261022093100', end_time='20261022100000')),
+            consumed=False)
+        self.state.update(prepare=preparation, published=None, empty=False)
+        readbacks = []
+
+        def observe(record, save, deadline):
+            self.assertIs(record, preparation)
+            raise SourcePending('retained original history observation pending')
+
+        def saved_reply(record):
+            self.assertIs(record, preparation)
+            return dict(ok=False, error_code='preparation_unknown') if record['consumed'] else None
+
+        def read(state, phase, directory, symbol, start, end, deadline):
+            if phase == 'before':
+                return [], None
+            readbacks.append((phase, symbol))
+            return [(1, 2)], 'original-binding'
+
+        self.owner._state = lambda query: (None, self.directory, self.state)
+        self.owner._closed_grid = lambda query: []
+        self.owner._reads = read
+        self.owner._publish = lambda state, directory, symbol, rows, binding, deadline: state.update(
+            published=dict(count=len(rows), binding=binding))
+        self.reads.observe = observe
+        self.reads.saved_reply = saved_reply
+        with self.assertRaises(SourcePending):
+            self.owner._window(query, time.monotonic()+2)
+        self.assertEqual(readbacks, [])
+
+        preparation.update(consumed=True)
+        preparation['request']['request_id'] = self.rid
+        self.owner._window(query, time.monotonic()+2)
+        self.assertEqual(readbacks, [('after', '000001.SZ')])
+        self.assertEqual(self.state['published'], dict(count=1, binding='original-binding'))
+        self.assertEqual(preparation['request']['request_id'], self.rid)
+
     def maintenance(self,resume):
         worker=MinuteCollectionMaintenance.__new__(MinuteCollectionMaintenance)
         worker.owner=threading.get_ident();worker.closed=False;worker.clock=time.monotonic

@@ -210,7 +210,7 @@ journal_records/journal_bytes声明该workspace需要的Host配置容量，不�
 
 ### 发布和公开结果
 
-原HPR返回后原after仍按原合同读一轮；空缓存保存empty且等待下次公开查询。排程间隔内/未决结果时，无档案返回Pending；已有值返回Partial，原preparation_request_id保留。跟踪次数/总期限/时钟/容量耗尽时停止后续来源调用，已有值继续Partial并说明预算原因，无可读值返回Backpressure。下载原Unknown继续Unknown，不能为表示预算而改写其终态；reason说明跟踪已耗尽。
+原HPR返回后原after仍按原合同读一轮；空缓存保存empty且等待下次公开查询。保留客户端已持久交接终态且原HPR结论为preparation_unknown时，仍用同一下载请求及原回执，直接进入只读after；尚未交接完整终态的原请求继续查询原ID。排程间隔内/未决结果时，无档案返回Pending；已有值返回Partial，原preparation_request_id保留。跟踪次数/总期限/时钟/容量耗尽时停止后续来源调用，已有值继续Partial并说明预算原因，无可读值返回Backpressure。下载原Unknown继续Unknown，不能为表示预算而改写其终态；reason说明跟踪已耗尽。
 
 后续实际读到非空行时复用原Importer/Helper/DSB/Reader逐字段验证和独占导入尝试，成功才注册原窗口的新根；旧空观测/原HPR/早期根与其文件不改写。空结果不造空DSB。发布后不再启动后续观测，重复只读原已发布根。新版本收据仅由显式follow_up配置创建，不读取旧005或218的私有工作根迁移配置。
 
