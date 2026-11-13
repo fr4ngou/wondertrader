@@ -133,7 +133,14 @@ class Fetcher:
             raise SourceFailure('source_public_form_invalid')
         return self._read('POST', url, form=form, referer=referer, session_handoff=session_handoff)
 
-    def _read(self, method, url, *, params=None, form=None, referer=None, session_handoff=False, public_headers=None):
+    def post_private_query(self, url, payload, *, observation_date=None):
+        """只读供应商 JSON 查询，认证正文只交给当前 HTTPS 请求，不进入原件记录。"""
+        if urlsplit(url).scheme != 'https':
+            raise SourceFailure('source_private_query_requires_https')
+        return self._read('POST', url, private_payload=payload, observation_date=observation_date)
+
+    def _read(self, method, url, *, params=None, form=None, referer=None, session_handoff=False, public_headers=None,
+              private_payload=None, observation_date=None):
         import httpx
         if public_headers is not None and (type(public_headers) is not dict
                 or set(public_headers)!={'X-CSRF-Token'}
@@ -159,7 +166,7 @@ class Fetcher:
             self.budget.request()
             try:
                 remaining = request_remaining()
-                options={'data':form} if method=='POST' else {}
+                options = {'json': private_payload} if private_payload is not None else {'data': form} if method == 'POST' else {}
                 with self.client.stream(method, url, params=params, **options,
                         headers=headers or None,
                         timeout=httpx.Timeout(remaining)) as response:
@@ -172,16 +179,28 @@ class Fetcher:
                             raise SourceFailure('response_budget_exceeded')
                         chunks.append(chunk)
                     raw = b''.join(chunks)
+                    from .http_transport import decode_body
+                    compression=response.headers.get('content-encoding')
+                    if private_payload is not None:
+                        body=decode_body(raw,compression,self.budget,request_remaining)
+                        token=private_payload.get('token')
+                        if token and token.encode('utf-8') in body:
+                            raise SourceFailure('source_private_response_rejected')
                     wire_sha = self.objects.put(raw)
                     record=dict(sha256=wire_sha,source_host=host,status=response.status_code,
                         retrieved_at=datetime.now(timezone.utc).isoformat(),query=params or {},attempt=attempt+1,
                         request_url=str(response.request.url),media_type=response.headers.get('content-type'),
                         encoding=response.encoding,compression=response.headers.get('content-encoding') or 'identity',
                         transport_compression=response.headers.get('content-encoding'),kind='http_wire')
-                    if method=='POST':record.update(method=method,form=dict(form))
+                    if method == 'POST':
+                        record['method'] = method
+                        if form is not None:
+                            record['form'] = dict(form)
+                    if observation_date is not None:
+                        record['observation_date'] = observation_date
                     self.records.append(record)
-                    from .http_transport import decode_body
-                    body=decode_body(raw,response.headers.get('content-encoding'),self.budget,request_remaining)
+                    if private_payload is None:
+                        body=decode_body(raw,compression,self.budget,request_remaining)
                     sha=self.objects.put(body)
                     self.records.append(dict(record,sha256=sha,kind='http_body',compression='identity',parent_sha256=wire_sha))
                     request_remaining()
@@ -225,3 +244,7 @@ class Fetcher:
             raise SourceFailure('collection_timeout')
         time.sleep(seconds)
         self.budget.remaining()
+
+    def wait(self, seconds):
+        """供应商限频间隔沿本批截止及取消信号。"""
+        self._wait(seconds)

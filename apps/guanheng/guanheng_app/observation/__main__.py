@@ -56,13 +56,16 @@ def main():
                 parser.error('更新需要config、config-sha256及as-of')
             if date.fromisoformat(args.as_of).isoformat() != args.as_of:
                 parser.error('as-of需要YYYY-MM-DD')
+            if args.start and date.fromisoformat(args.start).isoformat() != args.start:
+                parser.error('start需要YYYY-MM-DD')
             from .collection_config import load_configuration
             from .collection import refresh
             configuration = load_configuration(args.config, args.config_sha256)
             reader.repository.initialize()
             from .runtime import market_client_factory
             result = refresh(reader,configuration,as_of=args.as_of,deadline=deadline,
-                source_ids=args.sources.split(',') if args.sources else None,market_client_factory=market_client_factory())
+                source_ids=args.sources.split(',') if args.sources else None,market_client_factory=market_client_factory(),
+                structure_history_start=args.start)
             result = {key:result[key] for key in ('status','as_of','previous_snapshot','current_snapshot','candidate_snapshot','error_code') if key in result}
         elif args.command == 'verify':
             version, manifest = reader.snapshot(args.snapshot)

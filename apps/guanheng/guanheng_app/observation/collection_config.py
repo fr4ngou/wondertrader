@@ -7,14 +7,16 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit,parse_qsl
 from .contracts import ObservationError
+from .market_structure_source import CSI_KIND, CSI_URL, FIRST_DAY, INDEX_TABLES, STOCK_KIND, STOCK_TABLE, TUSHARE_URL
 
 KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmoney','shenwan','irs',
          'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance','legulegu_gdp',
-         'pbc_custody','wealth_allocation','citic_broker','chinabond_wealth','wt_t2108','wt_breadth','shareholder_changes'}
+         'pbc_custody','wealth_allocation','citic_broker','chinabond_wealth','wt_t2108','wt_breadth','shareholder_changes',
+         CSI_KIND, STOCK_KIND}
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
-    'input_manifest','input_sha256','input_directory','bse_verify_disclosures','date_policy'}
+    'input_manifest','input_sha256','input_directory','bse_verify_disclosures','date_policy','history_from'}
 
 
 def _need(value):
@@ -107,12 +109,16 @@ def validate_configuration(value):
     _need(type(budget) is dict and set(budget)=={'seconds','max_requests','max_bytes','response_bytes'})
     for key,maximum in [('seconds',600),('max_requests',1024),('max_bytes',256*1024*1024),('response_bytes',16*1024*1024)]:
         _need(type(budget[key]) is int and 1<=budget[key]<=maximum)
-    _need(type(value['models']) is dict and type(value['sources']) is list and 1<=len(value['sources'])<=32)
+    # 原观察来源保留32个名额。市场结构的指数、横截面各有一个独立结果和回执。
+    _need(type(value['models']) is dict and type(value['sources']) is list and 1<=len(value['sources'])<=34)
+    _need(sum(not isinstance(source,dict) or source.get('kind') not in (CSI_KIND,STOCK_KIND)
+              for source in value['sources'])<=32)
     _need(hosts or all(type(source) is dict and source.get('kind') in ('qmt_t2108','ashare_snapshot','wt_t2108','wt_breadth') for source in value['sources']))
     identities=set()
     for source in value['sources']:
         _need(type(source) is dict and {'id','kind'}<=set(source) and not set(source)-SOURCE_FIELDS
             and type(source['kind']) is str and source['kind'] in KINDS)
+        _need('history_from' not in source or source['kind'] in (CSI_KIND, STOCK_KIND))
         if schedule.get('date_policy')=='source-aware-v1':
             _need(source.get('date_policy') in ('calendar-day','cn-closed-day','hk-closed-day','cn-prior-day'))
             # WT统一生产全天以北京时间前日最近交易日为目标；独立来源沿原日期策略。
@@ -126,7 +132,19 @@ def validate_configuration(value):
             if key not in source:continue
             _url(source[key],hosts)
         _need('url' in source or source['kind'] in ('baostock','wondertrader','qmt_t2108','ashare_snapshot','wt_t2108','wt_breadth'))
-        if source['kind']=='wt_breadth':
+        if source['kind'] in (CSI_KIND, STOCK_KIND):
+            stock=source['kind']==STOCK_KIND
+            fields={'id','kind','url','tables','overlap_days','date_policy','history_from'}
+            if stock:fields.add('minimum_sample_count')
+            _need(set(source)==fields and source['date_policy']=='cn-closed-day'
+                and source['url']==(TUSHARE_URL if stock else CSI_URL)
+                and source['tables']==([STOCK_TABLE] if stock else list(INDEX_TABLES.values()))
+                and date.fromisoformat(source['history_from']).isoformat()==source['history_from']
+                and source['history_from']>=FIRST_DAY
+                and 0<source['overlap_days']<value['max_days_per_batch'])
+            if stock:_need(type(source['minimum_sample_count']) is int and 1<=source['minimum_sample_count']<6000)
+            _need(sum(item.get('kind')==source['kind'] for item in value['sources'] if type(item) is dict)==1)
+        elif source['kind']=='wt_breadth':
             from .breadth_models import ASHARE_METRICS
             _need(set(source.get('datasets',[]))==set(ASHARE_METRICS)and source.get('tables')==['source.ashare_day_universe'])
             _need(not {'url','referer','symbols','input_manifest','input_sha256','input_directory','scope','bse_history','replace_tables','window_mode'}&set(source))

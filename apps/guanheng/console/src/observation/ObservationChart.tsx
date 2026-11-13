@@ -83,6 +83,12 @@ export function chartOptions(definition: Definition, input: Row[], hidden: strin
     for (const line of group) {
       const right = second && (panels ? line.axis==='right' : (metricRight && line.panel !== 'context') || (!metricRight && line.panel === 'context'))
       const levels = line.reference_levels || (line.key === definition.primary_field && definition.reference_levels?.length ? definition.reference_levels : [])
+      const markers = definition.event_markers
+      const events = markers?.anchor === line.key ? plotted.flatMap(row => {
+        const event = markers.values.find(item => item.code === row[markers.field])
+        return event ? [{ xAxis: Date.parse(String(row.date)), name: event.label,
+          lineStyle: { color: event.color, type: 'dashed' }, label: { show: false } }] : []
+      }) : []
       const candle = line.chart_type === 'candlestick'
       const bar = line.chart_type === 'bar'
       const observations=line.observation_dates?new Set(line.observation_dates):undefined
@@ -95,7 +101,7 @@ export function chartOptions(definition: Definition, input: Row[], hidden: strin
         ...(bar ? {barMaxWidth:12,barGap:'15%'} : {}),
         ...(candle ? {encode:{x:0,y:[1,2,3,4],tooltip:[1,2,3,4]},dimensions:['日期','开盘','收盘','最低','最高'],barMaxWidth:14} : {}),
         symbolSize: 4, connectNulls: false, data, itemStyle: candle ? {color:'#c65761',color0:'#24996f',borderColor:'#c65761',borderColor0:'#24996f'} : { color: line.signed ? (item:{value:unknown})=>{const v=Array.isArray(item.value)?item.value[1]:item.value;return typeof v==='number'&&v<0?'#24996f':'#c65761'} : line.color }, lineStyle: { color: line.color, width: 1.8 },
-        markLine: { silent: true, symbol: 'none', data: levels.map(level => ({ yAxis: level.value, name: level.name, lineStyle: { color: level.color, type: 'dashed' }, label: { formatter: level.name, color: level.color, position: 'insideEndTop' } })) } })
+        markLine: { silent: true, symbol: 'none', data: [...levels.map(level => ({ yAxis: level.value, name: level.name, lineStyle: { color: level.color, type: 'dashed' }, label: { formatter: level.name, color: level.color, position: 'insideEndTop' } })), ...events] } })
     }
   }
   return { animation: false, useUTC:true, color: lines.map(line => line.color), grid, xAxis, yAxis: axes, series,

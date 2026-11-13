@@ -1,5 +1,9 @@
 # 独立市场观察操作
 
+两张市场结构图使用已有观察更新服务。来源配置可登记 `market_structure_csi` 和 `market_structure_stock`，两项均采用 `cn-closed-day` 和现有官方交易日历。指数地址为 `https://www.csindex.com.cn/csindex-home/perf/index-perf`，输出表依次为 `source.market_structure.000688`、`source.market_structure.000300`、`source.market_structure.932000`。股票地址为 `https://api.tushare.pro`，输出 `source.market_structure.stock`，服务进程通过 `TUSHARE_TOKEN` 读取凭据。两个主机都需登记在原 `allowed_hosts`。
+
+两项各声明 `history_from` 和 `overlap_days`。隔离验证的指数从 2023-08-11 开始，股票回补从 2025-08-01 开始，沪深北当日至少 4500 个有成交样本，股票回查 2 个自然日。历史按原 `max_days_per_batch` 逐批推进，股票日线请求间隔至少 1.5 秒。超过回查窗口的指数或股票缺口，用原 `refresh` 命令显式传入该来源 ID、`--start` 和 `--as-of` 重取指定区间。接入正式调度前核对启动者已向更新进程传递 `TUSHARE_TOKEN`。额度与覆盖变化可从更新回执及每期有效样本数核实。原公式、阈值及数据归属见[市场观察规格](../specs/independent-market-observation.md#市场结构观察)。
+
 “市场广度”中的“40期均线上方比例 · A股T2108方法”按含当期的40个实际收盘参考计算。主比例使用合格样本为分母，旁边显示合格数/股票池总数、覆盖率及缺失、过期、不足40期和复权待核；完整市场占比在覆盖不足时留空。“怎么算”给公式，“原始数据”和CSV保留同一版本的数量。合格只表示本指标当前收盘参考核对通过，历史当时可得时间及原来源整体资格按原证据分别阅读。
 
 活动全A广度及T2108使用`wt_breadth`和`wt_t2108`来源，通过同一MarketClient连接读取WT股票池、定日事实及原生日线。每批固定snapshot_id，价格与资料版本相符后沿原指标公式、refresh、lease及CAS更新。来源配置的datasets/tables固定；具体接线、全天前一交易日策略与历史保留沿[统一WT消费者规格](../specs/observer-wt-daily-consumer.md)。现行来源感知计划及独立披露来源保留，观衡只读HTTP，不启动Host或补QMT缓存。

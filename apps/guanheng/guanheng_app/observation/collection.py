@@ -2,7 +2,7 @@
 import copy
 import json
 from time import monotonic
-from datetime import datetime,timezone
+from datetime import date,datetime,timedelta,timezone
 from .admission import admit_dataset,register_standard_assets,register_standard_asset
 from .contracts import ObservationError,USAGE
 from .source_fetch import BoundedContentStore,CollectionBudget,Fetcher,SourceFailure
@@ -33,6 +33,7 @@ from .legulegu_source import history as legulegu_history
 from .nfra_source import history as nfra_history
 from . import legulegu_gdp
 from . import institution_reports, bond_mtm, shareholder_source
+from . import market_structure, market_structure_source
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,
@@ -42,12 +43,19 @@ PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbo
 
 
 def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=None,cancelled=None,
-            fetcher_factory=Fetcher,market_client_factory=None):
+            fetcher_factory=Fetcher,market_client_factory=None,structure_history_start=None):
     """采集lease持有整个批次；CAS、窗口及成功回执由原目录一次提交。
 
     调用者提供原绝对D与已准入配置。外部SDK在独立受管进程内运行；
     本函数不创建另一线程/队列，不操作策略、账户或真实下撤单。
     """
+    if structure_history_start is not None:
+        allowed={source['id'] for source in config['sources']
+                 if source['kind'] in (market_structure_source.CSI_KIND,market_structure_source.STOCK_KIND)}
+        if (window_key or not source_ids or set(source_ids)-allowed
+                or not market_structure_source.FIRST_DAY<=structure_history_start<=as_of
+                or date.fromisoformat(structure_history_start).isoformat()!=structure_history_start):
+            raise ObservationError('invalid_structure_backfill','市场结构补历史需要显式来源与有效起始日',422)
     CollectionBudget(deadline,cancelled=cancelled).remaining()
     deadline=min(deadline,monotonic()+config.get('budget',{}).get('seconds',600))
     with reader.repository.collection_lease() as acquired:
@@ -68,10 +76,12 @@ def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=N
             if attempt['status']!='reserved':return attempt
         return _refresh(reader,config,as_of=as_of,deadline=deadline,source_ids=source_ids,
             window_key=window_key,attempt=attempt,cancelled=cancelled,now=now,
-            fetcher_factory=fetcher_factory,market_client_factory=market_client_factory)
+            fetcher_factory=fetcher_factory,market_client_factory=market_client_factory,
+            structure_history_start=structure_history_start)
 
 
-def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancelled,fetcher_factory,market_client_factory,now=None):
+def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancelled,fetcher_factory,market_client_factory,
+             now=None,structure_history_start=None):
     from .schedule_policy import source_as_of,local_now
     # 计划补跑使用原窗口时点；手动历史刷新保留显式日期，当日刷新使用真实时钟。
     observed_now=local_now(now if now is not None else datetime.now(timezone.utc))
@@ -126,6 +136,13 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             if source['kind']=='wondertrader':
                 # 完整重取原表覆盖范围；所有量窗口改用同一A来源，不混用旧供应商量。
                 start=min(existing) if existing else start;end=effective
+            if source['kind'] in (market_structure_source.CSI_KIND,market_structure_source.STOCK_KIND):
+                calendar=config['models']['calendars']['cn']
+                start=structure_history_start or max(start if existing else source['history_from'],
+                    calendar['coverage_start'],source['history_from'])
+                if structure_history_start is not None:
+                    effective=min(effective,as_of)
+                end=min(effective,(date.fromisoformat(start)+timedelta(days=config['max_days_per_batch']-1)).isoformat())
             # effective_as_of是本来源截止日；requested_end仍可受既有分批上限约束。
             receipt.update(requested_start=start,requested_end=end,
                 effective_as_of=effective,  # YYYY-MM-DD：本来源按窗口时点及所选日历得到的有效查询截止。
@@ -133,6 +150,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             if source['kind']=='wondertrader':
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=market_history(fetch,source,start,end,market_client_factory)
+            elif source['kind'] in (market_structure_source.CSI_KIND, market_structure_source.STOCK_KIND):
+                stock_rows=tables.get(market_structure_source.STOCK_TABLE,[])
+                updates=market_structure_source.history(fetch,source,start,end,calendar,
+                    existing={r['date'] for r in stock_rows if r['sample_count'] is not None})
             elif source['kind']=='ashare_public':
                 # 同批成功Baostock的原字符串表已归档；公开全A组合沿同一原件继续，减少重复网络取数。
                 admitted=[]
@@ -193,11 +214,18 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                     tables[key]=rows
                     table_parents[key]=[raw_manifest,*([manifest['source_tables'][key]] if key in manifest.get('source_tables',{}) else [])]
                 else:datasets[key]=rows
-            receipt.update(status='checked_disclosure' if source['kind']=='disclosure' else 'success' if count else 'no_new_observations',
+            incomplete=source['kind']==market_structure_source.STOCK_KIND and any(
+                item.get('diagnostic_code') for item in fetch.records)
+            def observed_dates(items):
+                return [row['date'] for rows in items for row in rows
+                        if source['kind']!=market_structure_source.STOCK_KIND or row['sample_count'] is not None]
+            receipt.update(status='partial' if incomplete else 'checked_disclosure' if source['kind']=='disclosure' else 'success' if count else 'no_new_observations',
                 observations=count,revisions=revisions,source_manifest=raw_manifest,
-                latest_period=max((row['date'] for rows in updates.values() for row in rows),default=None),
+                latest_period=max(observed_dates(updates.values()),default=None),
                 loaded_period=max(source_observation_dates(datasets,definitions,source.get('datasets',[]))+
-                    [r['date'] for key in source.get('tables',[]) for r in tables.get(key,[])],default=last))
+                    observed_dates(tables.get(key,[]) for key in source.get('tables',[])),
+                    default=None if source['kind']==market_structure_source.STOCK_KIND else last))
+            if incomplete:receipt['error_code']='market_structure_stock_partial'
             # 表ID→ISO交易日：原参考表已接纳、本次原生日线未返回而继续保留的日期。
             # 字段缺省表示无需保留；不将旧观察重标成本次新采集。
             if retained_dates:receipt['retained_dates']=retained_dates
@@ -231,6 +259,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         financial_models.refresh_ranks(datasets,check=finalization.remaining)
         attach_trends(datasets,definitions,tables,check=finalization.remaining)
         attach_benchmark(datasets,definitions,tables)
+        structure_inputs=market_structure.derive(tables,datasets,definitions,check=finalization.remaining)
         for row in datasets.get('leverage_margin',[]):
             if row.get('fin_buy') is not None and row.get('fin_repay') is not None:row['fin_net_arithmetic']=row['fin_buy']-row['fin_repay']
         if 'leverage_margin' in datasets:datasets['margin.short']=[dict(r) for r in datasets['leverage_margin']]
@@ -252,6 +281,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             if universe_table in tables:
                 definition['universe_version']=reader.objects.put(parquet_bytes(tables[universe_table]),kind='standard')
             context_parents=table_parents.get('market.'+mapping[key]['symbol'],[]) if key in mapping else []
+            if key in structure_inputs:
+                context_parents=[reader.objects.put(parquet_bytes(tables[name]),kind='standard')
+                                 for name in structure_inputs[key]]
             if key==bond_mtm.METRIC and bond_mtm.TABLE in tables:
                 context_parents=[*context_parents,*[parent for name in
                     (bond_mtm.TABLE,'source.csi_all','market.sh000001') for parent in table_parents.get(name,[])]]
@@ -267,6 +299,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         financial_models.attach_boards(candidate,candidate['datasets'])
         executive_models.attach_boards(candidate,candidate['datasets'])
         t2108_models.attach_board(candidate)
+        market_structure.attach_boards(candidate)
         candidate['source_table_parents']=table_parents
         active_assets=set()  # 本轮真实生成/复用的抓取资产身份；同内容复用也保持本轮登记。
         for receipt in receipts:
@@ -290,7 +323,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         run['validation']=validate_manifest(reader,candidate,work_deadline,previous_snapshot=previous)
         finalization.remaining()
         run['completed_at']=candidate['published_at']=_now()
-        run.update(status='partial' if any(r['status']=='failed' for r in receipts) else 'success',current_snapshot=digest(encode(candidate)))
+        run.update(status='partial' if any(r['status'] in ('failed','partial') for r in receipts) else 'success',current_snapshot=digest(encode(candidate)))
         if window_key:run['window_complete']=True
         reader.repository.publish(candidate,previous,receipt=run,deadline=deadline,cancelled=cancelled)
     except Exception as exc:
