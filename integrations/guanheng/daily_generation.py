@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib,json,os,time,uuid
 from ..guanheng_market_client import strict_json
+from .market_generation import _replace_pointer
 from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from ..guanheng_market_client.source_history import validate_source_metadata
 from .native_history import _parse_source_receipt
@@ -9,6 +10,13 @@ from .qmt_minute_import import _Native,_manifest,_rows,_chunk_path
 from .price_quality import PriceRangeQuality
 from .native_history import NativeHistory, source_file_metadata
 from ..guanheng_market_client.daily_contract import source_daily_security
+
+
+def _save_checkpoint(path, body):
+    """同一物化写入者原子更新进度，已打开的观察句柄可继续读取旧版本。"""
+    pending = path.with_suffix(path.suffix + '.next')
+    pending.write_bytes(body)
+    _replace_pointer(pending, path)
 
 
 def materialize_generation(preparation,previous_stores,output,helper,helper_sha256,*,deadline,resume=False,previous_archives=(),native_reader=None,cancelled=lambda:False):
@@ -35,7 +43,7 @@ def materialize_generation(preparation,previous_stores,output,helper,helper_sha2
                 or identity is not None and sha(body)!=identity):raise ValueError('daily generation input changed')
         check();return body
     def save(path,value):
-        pending=path.with_suffix(path.suffix+'.next');pending.write_bytes(encode(value));pending.replace(path)
+        _save_checkpoint(path,encode(value))
     source=Path(preparation['path']).resolve(strict=True);plan=strict_json(read(source,preparation['sha256']))
     if plan['schema']!='guanheng.qmt-analysis-conversion.v1'or plan['helper_sha256']!=helper_sha256 or plan['existing_stores']:
         raise ValueError('daily generation conversion contract differs')

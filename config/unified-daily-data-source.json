@@ -446,7 +446,7 @@
       "source": "integrations/guanheng/daily_gap_update.py"
     },
     "integrations/guanheng/daily_generation.py": {
-      "sha256": "4eafa66ed68948ebc301b90d350b3649dfcd6f844a382ecec28f33d4ceecc776",
+      "sha256": "f6b5a47f701e21b32df5582d296b4adaaa11bc7179e1a14e73d8c10aa39ba3cf",
       "source": "integrations/guanheng/daily_generation.py"
     },
     "integrations/guanheng/daily_input_recovery.py": {
@@ -766,5 +766,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.36"
+  "version": "0.2.0a1+unified.37"
 }

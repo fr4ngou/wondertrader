@@ -1,6 +1,6 @@
 """统一数据owner的待补恢复、历史身份和Source换代回归；全部来源为隔离替身。"""
 from pathlib import Path
-import json, time, unittest, uuid, tempfile
+import json, os, time, unittest, uuid, tempfile
 from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -8,6 +8,8 @@ from unittest.mock import patch
 from integrations.guanheng import daily_data_update as update
 from integrations.guanheng import daily_data_service as service
 from integrations.guanheng import daily_price_update  # 在替身资料owner安装前固定真实模块依赖。
+from integrations.guanheng.daily_generation import _save_checkpoint
+from integrations.guanheng.market_generation import _read_stream
 from integrations.guanheng.daily_price_scope import prepare_price_scope
 from integrations.guanheng.security_reference import SecurityReference
 
@@ -22,6 +24,17 @@ def security(symbol,kind,name='synthetic retained identity'):
                 listed_on=None,expires_on=None,observed_at=None)
 
 class DataOwnerRegressionTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Windows 原子替换语义')
+    def test_native_checkpoint_replacement_preserves_an_open_reader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            progress = Path(directory) / 'PROGRESS.json'
+            _save_checkpoint(progress, b'{"completed":6039}')
+            with _read_stream(progress) as original:
+                _save_checkpoint(progress, b'{"completed":6040}')
+                self.assertEqual(json.load(original), {'completed': 6039})
+                self.assertEqual(json.loads(progress.read_bytes()), {'completed': 6040})
+            self.assertFalse(progress.with_suffix('.json.next').exists())
+
     def root(self):
         directory=tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
