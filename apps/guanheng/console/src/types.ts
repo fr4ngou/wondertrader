@@ -1230,8 +1230,8 @@ export interface MarketChartBenchmark {
 }
 
 export interface MarketChartNativeSource {
-  /** 原提供者；公开提供者与Mixed仅用于来源日线，具体分段身份由SDK核验。 */
-  provider: 'Qmt' | 'Tdx' | 'BaoStock' | 'Tencent' | 'CSI' | 'CNI' | 'Mixed'
+  /** 原提供者；跨来源结果标识为 Mixed，具体分段身份由 SDK 核验。 */
+  provider: 'Qmt' | 'Tdx' | 'BaoStock' | 'Tencent' | 'CSI' | 'CNI' | 'BigQuant' | 'Mixed'
   dataset_version: string
   content_id: string
   qualification: 'DevelopmentVerified' | 'NativeVerified' | 'ProductionQualified'

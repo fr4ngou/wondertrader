@@ -19,13 +19,13 @@ class RecoveredSourceMarket:
 
     def __init__(self, configuration, *, max_response_bytes=8388608, clock=time.monotonic):
         self.owner = threading.get_ident()  # 原服务线程拥有全部原生对象和关闭。
-        self.base = self.reader = self.delegate = None  # 分钟base、窗口Reader及可选原动态读方均由本线程拥有。
+        self.base = self.reader = self.delegate = self.external = None  # 分钟base、窗口Reader及可选原动态读方均由本线程拥有。
         self.closed = False  # 成功关闭后禁止继续读取。
         self.clock = clock  # 同次读取共用一个绝对截止。
         self.maximum = max_response_bytes  # 原公开服务响应字节上限。
         try:
             require(type(configuration) is dict and {'mode', 'base', 'producer'} <= set(configuration)
-                    <= {'mode', 'base', 'producer', 'delegate'}
+                    <= {'mode', 'base', 'producer', 'delegate', 'external_minutes'}
                     and configuration['mode'] == 'source-recovered')
             descriptor = configuration['producer']
             require(type(descriptor) is dict and set(descriptor) == {'path', 'sha256'}
@@ -52,6 +52,9 @@ class RecoveredSourceMarket:
             self.reader = PreparedHistoryReader(producer['base'], c, clock=clock)
             from .source_market import create_native_source_market
             self.base = create_native_source_market(configuration['base'], max_response_bytes=max_response_bytes)
+            if 'external_minutes' in configuration:
+                from .external_minute_archive import ExternalMinuteArchive
+                self.external = ExternalMinuteArchive(configuration['external_minutes'], producer['base']['native_reader'])
             if 'delegate' in configuration:
                 # 当前日线/资料动态入口完整保留；分钟接入不改Snapshot基准或每日任务配置身份。
                 require(type(configuration['delegate']) is dict
@@ -80,8 +83,13 @@ class RecoveredSourceMarket:
             candidates, unused = self.repository.find(request['request'], None, deadline=deadline,
                 byte_budget=[c['max_bytes']], clock=self.clock)
             prepared = self.reader.batches(candidates, request, deadline)
-            data = select_sources(chain(prepared, native_batches),
-                request['request'], preferred_ranges=recovery_preferences(candidates))
+            preferences = recovery_preferences(candidates)
+            external = ()
+            if self.external is not None:
+                external, supplement_preferences = self.external.batches(request['request'], self.base, preferences)
+                preferences.extend(supplement_preferences)
+            data = select_sources(chain(prepared, native_batches, external),
+                request['request'], preferred_ranges=preferences)
             if self.clock() >= deadline:
                 raise SourcePending('native selection returned after deadline')
             if data is None:
@@ -107,6 +115,9 @@ class RecoveredSourceMarket:
 
     def close(self):
         require(threading.get_ident() == self.owner)
+        if self.external is not None:
+            self.external.close()
+            self.external = None
         if self.delegate is not None:
             self.delegate.close()
             self.delegate = None
