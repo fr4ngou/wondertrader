@@ -36,10 +36,10 @@ def setup(root, *, day=DAY, following=NEXT, now=STAMP, include_third=False):
     return book, coordinator, AttributionBridge(coordinator, callback_seconds=5)
 
 
-def send(bridge, kind, body, *, epoch=0):
+def send(bridge, kind, body, *, epoch=0, remaining_ms=5000):
     raw = json.dumps(body).encode();buffer = C.create_string_buffer(raw)
     role = 1 if kind == 1 else 3 if kind == 7 else 2
-    event = NativeEvent(C.sizeof(NativeEvent), 1, kind, role, epoch, 5000 if kind in (7,8,9,12) else 0,
+    event = NativeEvent(C.sizeof(NativeEvent), 1, kind, role, epoch, remaining_ms if kind in (7,8,9,12) else 0,
                         len(raw), 0, C.cast(buffer, C.c_void_p))
     reply = NativeReply(C.sizeof(NativeReply), 1, -1, 0, 0)
     result = bridge._callback(C.byref(event), C.byref(reply), None)
@@ -74,6 +74,86 @@ def prepared(coordinator, bridge, *, known_at=STAMP, buyer='new'):
     command = dict(child, command_id=str(uuid4()), command_sha256='c'*64)
     assert send(bridge, 7, command)[0] == 0, bridge.failure
     return command
+
+
+@pytest.mark.parametrize('kind', [8, 12])
+@pytest.mark.parametrize('committed', [False, True])
+def test_durable_broker_timeout_retries_original_receipt(tmp_path, monkeypatch, kind, committed):
+    book, coordinator, bridge = setup(tmp_path)
+    command = prepared(coordinator, bridge)
+    fill = dict(command, source_kind='query-result', source_sha256='d'*64, trading_date=20261106,
+                trade_id='nqh1.timeout-retry', quantity=20, price_cny='10.01',
+                amount_cny='200.20', trade_time=93102000, fee_cny=None)
+    project = book.project_broker_batch
+
+    def timeout(work, *, deadline):
+        if committed:
+            project(work, deadline=deadline)
+        raise TimeoutError('allocation_deadline')
+
+    body = fill if kind == 8 else {'kind': 8, 'rows': [json.dumps(fill)]}
+    monkeypatch.setattr(book, 'project_broker_batch', timeout)
+    result, reply = send(bridge, kind, body)
+    assert result == reply.decision == 0, bridge.failure
+    assert bridge.failure is None
+    assert len(book.pending_events(deadline=end())) == (0 if committed else 1)
+    original = book.lookup_prepared(command['user_tag'], deadline=end())
+
+    auth = dict(instance_id='qmt', symbol=CODE, side='buy', requested_quantity=100, limit_price_cny='10.01')
+    assert send(bridge, 4, auth)[1].authorized_quantity == 0
+    coordinator.replay_pending(deadline=end())
+    assert len(book.pending_events(deadline=end())) == (0 if committed else 1)
+    monkeypatch.setattr(book, 'project_broker_batch', project)
+    coordinator.replay_pending(deadline=end())
+    assert book.pending_events(deadline=end()) == ()
+    assert send(bridge, kind, body)[0] == 0, bridge.failure
+    view = book.view('new', deadline=end())
+    assert view.positions[0].quantity == 20
+    assert view.ledger_cash_cny == D('849.80')
+    assert book.lookup_prepared(command['user_tag'], deadline=end()) == original
+    assert send(bridge, 4, auth)[1].authorized_quantity == 0
+    from guanheng_wt_runtime.execution_strategy import BrokerObservationValue, BrokerPositionValue
+    stamp = int(datetime.fromisoformat(STAMP).timestamp()*1000)
+    broker = BrokerObservationValue(True, True, 9, stamp, 10, stamp, stamp,
+        2000000, 1999799.8, (BrokerPositionValue(CODE, True, 10020, 10000),))
+    context = SimpleNamespace(broker_observation=lambda: broker)
+    assert coordinator.observe_context(context, deadline=end(), max_age_seconds=30) is None
+    assert not coordinator._broker_projection_needs_account
+
+
+@pytest.mark.parametrize('remaining_ms, expected', [(5000, -1), (10000, 0)])
+def test_deferred_receipt_respects_native_deadline(tmp_path, monkeypatch, remaining_ms, expected):
+    book, coordinator, bridge = setup(tmp_path)
+    command = prepared(coordinator, bridge)
+    clock = [monotonic()]
+    bridge._clock = lambda: clock[0]
+
+    def timeout(*args, **kwargs):
+        clock[0] += 5.1
+        raise TimeoutError('allocation_deadline')
+
+    monkeypatch.setattr(book, 'project_broker_batch', timeout)
+    fill = dict(command, source_kind='query-result', source_sha256='d'*64, trading_date=20261106,
+                trade_id='nqh1.timeout-budget', quantity=20, price_cny='10.01',
+                amount_cny='200.20', trade_time=93102000, fee_cny=None)
+    assert send(bridge, 12, {'kind': 8, 'rows': [json.dumps(fill)]}, remaining_ms=remaining_ms)[0] == expected
+    assert len(book.pending_events(deadline=end())) == 1
+
+
+def test_broker_timeout_before_durable_receipt_preserves_failure(tmp_path, monkeypatch):
+    book, coordinator, bridge = setup(tmp_path)
+    command = prepared(coordinator, bridge)
+    fill = dict(command, source_kind='query-result', source_sha256='d'*64, trading_date=20261106,
+                trade_id='nqh1.receipt-not-committed', quantity=20, price_cny='10.01',
+                amount_cny='200.20', trade_time=93102000, fee_cny=None)
+
+    def timeout(*args, **kwargs):
+        raise TimeoutError('allocation_deadline')
+
+    monkeypatch.setattr(book, 'receive_broker_events', timeout)
+    assert send(bridge, 12, {'kind': 8, 'rows': [json.dumps(fill)]})[0] == -1
+    assert isinstance(bridge.failure, TimeoutError)
+    assert book.pending_events(deadline=end()) == ()
 
 
 def test_broker_query_persists_original_rows_with_one_commit_and_keeps_replay_identity(tmp_path, monkeypatch):

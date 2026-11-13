@@ -23,6 +23,10 @@ class AttributionError(RuntimeError):
     """有限原因码；失败保留原Native责任，不产生补发命令。"""
 
 
+# 原件已经提交收件库，来源回调可以继续；归属由原收件重放。
+_BROKER_PROJECTION_DEFERRED = object()
+
+
 def _exception_diagnostic(error):
     """仅保留本地异常类型、固定原因和调用位置。"""
     from .account_allocation import AllocationError
@@ -204,6 +208,11 @@ class AttributionBridge:
             phase = 'handle_event'
             quantity = self._handler(event)
             phase = 'validate_reply'
+            if quantity is _BROKER_PROJECTION_DEFERRED:
+                _need(header.kind in (8, 9, 12) and self._clock() < started + remaining_ms / 1000,
+                      'attribution_deadline')
+                reply.decision = 0
+                return 0
             _need(self._clock() < deadline, 'attribution_deadline')
             if header.kind == 4:
                 requested = body.get('requested_quantity')
@@ -265,6 +274,8 @@ class AttributionCoordinator:
         self._has_commit = False  # 本代两份策略意图齐备后收到过原WT全量提交。
         self._execution_targets = {}  # 本轮在Local按其配置倍数取整后的标准ETF目标。
         self._account_fingerprint, self._last_mutating_fill_ms = None, 0
+        self._retry_broker_projection = False  # 已收件的投影超时，原委托等待账本追平。
+        self._broker_projection_needs_account = False  # 重放完成后先核对账户再恢复授权。
         self._reconcile_pending = True  # 首次接管先重放收件，正常热读复用已核账户版本。
         self._qualified_account = None  # 最近通过对账的P/A来源与券商委托变化版本。
         self._order_revision = 0  # 实际卖单冻结依据改变时撤销本轮快读资格。
@@ -326,13 +337,21 @@ class AttributionCoordinator:
         if self._trading_day_qualified is not None and not self._trading_day_qualified(day):
             return 'account_trading_day_unqualified'
         account_key = (broker.position_revision, broker.account_revision, received, day)
-        if (not self._reconcile_pending and self._qualified_account ==
+        if (not self._reconcile_pending and not self._broker_projection_needs_account
+                and self._qualified_account ==
                 (account_key, self._order_revision, self._last_mutating_fill_ms)):
             return None
         self._enter(deadline)
         try:
             if self._reconcile_pending:
-                self.replay_pending(deadline=deadline)
+                try:
+                    self.replay_pending(deadline=deadline)
+                except TimeoutError as error:
+                    if not self._retry_broker_projection or error.args != ('allocation_deadline',):
+                        raise
+                    return 'account_broker_projection_pending'
+            if self._retry_broker_projection:
+                return 'account_broker_projection_pending'
             if min(received) < self._last_mutating_fill_ms:
                 return 'account_observation_before_actual_fill'
             account_body = asdict(broker)
@@ -341,6 +360,7 @@ class AttributionCoordinator:
                 separators=(',', ':'), allow_nan=False).encode()).hexdigest()
             if fingerprint == self._account_fingerprint:
                 self._qualified_account = (account_key, self._order_revision, self._last_mutating_fill_ms)
+                self._broker_projection_needs_account = False
                 return None
             positions = []
             for row in broker.positions:
@@ -365,6 +385,7 @@ class AttributionCoordinator:
                 raise
             self._account_fingerprint = fingerprint
             self._qualified_account = (account_key, self._order_revision, self._last_mutating_fill_ms)
+            self._broker_projection_needs_account = False
             return None
         finally:
             self._lock.release()
@@ -553,8 +574,7 @@ class AttributionCoordinator:
 
     def _receive_source(self, event):
         if event.kind in (8, 9):
-            self._receive_broker_events(event.kind, (event,), event.deadline)
-            return
+            return self._receive_broker_events(event.kind, (event,), event.deadline)
         event_id = self._identity('source', event.kind, event.sha256)
         inbox = self.allocation.receive_event(event_id, str(event.kind), event.raw,
                     event.body.get('source_sha256'), deadline=event.deadline)
@@ -581,7 +601,22 @@ class AttributionCoordinator:
                     error = failure
 
             # 已成功的前序行、已应用标记和冲突原件一起提交。
-            self.allocation.project_broker_batch(project, deadline=deadline)
+            try:
+                self.allocation.project_broker_batch(project, deadline=deadline)
+                if error is not None:
+                    raise error
+            except TimeoutError as failure:
+                # 原收件已确认。涉及业务冲突的原失败仍按原路径处理。
+                if error is not None and not isinstance(error, TimeoutError):
+                    raise error from failure
+                if failure.args != ('allocation_deadline',):
+                    raise
+                self._retry_broker_projection = self._reconcile_pending = True
+                self._broker_projection_needs_account = True
+                logging.getLogger(__name__).warning(
+                    'broker_projection_deferred kind=%s rows=%d first_event_id=%s elapsed_ms=%.1f reason=allocation_deadline',
+                    kind, len(events), pending[0][1], (self._clock() - received_at)*1000)
+                return _BROKER_PROJECTION_DEFERRED
         if query:
             logging.getLogger(__name__).info(
                 'broker_query kind=%s rows=%d previously_applied=%d unbound=%d new_fills=%d duplicate_fills=%d '
@@ -590,8 +625,6 @@ class AttributionCoordinator:
                 sum(command is None for _, command in received), outcomes.count('new_fill'),
                 outcomes.count('duplicate_fill'), outcomes.count('applied'), outcomes.count('pending'),
                 (stored_at - received_at)*1000, (self._clock() - stored_at)*1000)
-        if error is not None:
-            raise error
 
     def _receive_query_batch(self, event):
         body = event.body
@@ -608,7 +641,7 @@ class AttributionCoordinator:
             _validate_tree(row)
             rows.append(AttributionEvent(kind, event.thread_role, event.epoch, row, raw,
                                          hashlib.sha256(raw).hexdigest(), event.deadline))
-        self._receive_broker_events(kind, tuple(rows), event.deadline, query=True)
+        return self._receive_broker_events(kind, tuple(rows), event.deadline, query=True)
 
     def _record_event_failure(self, event_id, error, deadline):
         reason = getattr(error, 'reason', str(error) if type(error) is AttributionError else type(error).__name__)
@@ -653,8 +686,13 @@ class AttributionCoordinator:
                     self._inbox_cursor = inbox.sequence
                     continue
                 event = AttributionEvent(int(inbox.kind), 2, 0, body, inbox.raw_json, inbox.payload_sha256, deadline)
-                self._receive_source(event)
+                if self._receive_source(event) is _BROKER_PROJECTION_DEFERRED:
+                    return
                 self._inbox_cursor = inbox.sequence
+            if self._retry_broker_projection and not self.allocation.pending_events(
+                    limit=1, replayable_only=True, deadline=deadline):
+                self._retry_broker_projection = self._reconcile_pending = False
+                logging.getLogger(__name__).info('broker_projection_recovered')
         finally:
             self._lock.release()
 
@@ -695,7 +733,7 @@ class AttributionCoordinator:
                 if self._armed:
                     self._current_plan(deadline)
             elif event.kind == 4:
-                if not self._armed or body['symbol'] not in self._execution_targets:
+                if self._broker_projection_needs_account or not self._armed or body['symbol'] not in self._execution_targets:
                     return 0
                 quantity, price = self._quantity(body['requested_quantity']), self._price(body['limit_price_cny'])
                 fee = self._fee_bound(body['symbol'], body['side'], quantity, price)
@@ -735,9 +773,9 @@ class AttributionCoordinator:
             elif event.kind == 10:
                 self.allocation.record_group_end(self._group(body), body['accepted_children'], event.sha256, deadline=deadline)
             elif event.kind == 12:
-                self._receive_query_batch(event)
+                return self._receive_query_batch(event)
             else:
-                self._receive_source(event)
+                return self._receive_source(event)
             return None
         finally:
             self._lock.release()
