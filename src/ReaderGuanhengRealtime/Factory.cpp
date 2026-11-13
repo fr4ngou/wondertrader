@@ -235,12 +235,12 @@ class RealtimeReader final : public IDataReader
         return {(static_cast<std::uint64_t>(date)*10000+daily_close_time_)*100000,
                 cutoff*100000+seconds};
     }
-    WtDataReader& daily_reader(Clock::time_point deadline, std::uint32_t cutoff_date,
+    WtDataReader& daily_reader(const char* code, Clock::time_point deadline, std::uint32_t cutoff_date,
         std::uint64_t cutoff=0)
     {
         if (!publication_) return *daily_;
         const auto closed=closed_day_evidence(cutoff_date,cutoff);
-        return publication_->select(deadline, cutoff_date, [this](WTSVariant* cfg) {
+        return publication_->select(code, deadline, cutoff_date, [this](WTSVariant* cfg) {
             native_path_limits(cfg, daily_instruments_, false);
         },closed.first,closed.second);
     }
@@ -460,7 +460,7 @@ public:
             std::shared_ptr<Reservation> reservation;
             try { reservation = std::make_shared<Reservation>(budget_, count); }
             catch (...) { budget_->give(count); throw; }
-            Slice source(daily_reader(deadline, cutoff_date, end ? end : now).readKlineSlice(code, KP_DAY, count, end ? end : now));
+            Slice source(daily_reader(code, deadline, cutoff_date, end ? end : now).readKlineSlice(code, KP_DAY, count, end ? end : now));
             if (!source || source->empty()) return nullptr;
             if (source->size() < 0 || static_cast<std::uint32_t>(source->size()) > count)
                 throw std::runtime_error("upstream daily count exceeds request");
@@ -527,7 +527,7 @@ public:
             if (!date) date = today; // IDataReader 的 date=0 契约为当前日期。
             if (!date_valid(today) || !date_valid(date) || date > today) throw std::invalid_argument("factor cutoff invalid");
             const auto cutoff=static_cast<std::uint64_t>(today)*10000+_sink->get_min_time();
-            const double factor = daily_reader(deadline, today, cutoff).getAdjFactorByDate(code, date);
+            const double factor = daily_reader(code, deadline, today, cutoff).getAdjFactorByDate(code, date);
             if (!std::isfinite(factor) || factor <= 0 || !live() || Clock::now() >= deadline)
                 throw std::runtime_error("factor unavailable");
             return factor;

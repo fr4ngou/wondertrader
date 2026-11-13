@@ -30,6 +30,7 @@ class PublishedDaily final {
         std::set<std::wstring> directories;
         std::size_t bytes = 0;
         std::string identity;
+        std::set<std::string> covered_codes; // 已校验本次发布的日线证券，使用 WT 标准代码。
         std::uint32_t basis_date = 0; // 已核原出版物基准日YYYYMMDD；日线输出上界，不重写原日期。
         Path directory;
         std::vector<Path> files, created_directories;
@@ -187,6 +188,8 @@ class PublishedDaily final {
         // 固定父目录防止读入原文件后路径被整体移动，原 Reader 随后仍按同一路径打开。
         std::vector<Path> chain;
         for (auto directory = path.parent_path(); !directory.empty(); directory = directory.parent_path()) {
+            // 本代已固定的目录和其祖先仍持有句柄，后续读取只需核新增路径段。
+            if (generation && generation->directories.count(directory.native())) break;
             chain.push_back(directory);
             if (directory == directory.root_path()) break;
         }
@@ -200,8 +203,9 @@ class PublishedDaily final {
             BY_HANDLE_FILE_INFORMATION info{};
             need(GetFileInformationByHandle(handle->value, &info) && !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT),
                 "daily publication parent unavailable or redirected");
-            if (generation && generation->directories.insert(directory.native()).second) {
+            if (generation) {
                 need(generation->pins.size() < 1024, "daily publication directory capacity");
+                generation->directories.insert(directory.native());
                 generation->pins.push_back(std::move(handle));
             }
             else temporary.push_back(std::move(handle));
@@ -297,7 +301,7 @@ public:
         current_.reset(); pending_.reset(); cache_lease_.reset();
         return !cache_directory_ || cache_directory_->close();
     }
-    wtp::WtDataReader& select(Clock::time_point deadline, std::uint32_t cutoff_date,
+    wtp::WtDataReader& select(const char* code, Clock::time_point deadline, std::uint32_t cutoff_date,
         const std::function<void(wtp::WTSVariant*)>& validate_paths,
         std::uint64_t session_close_ms=0, std::uint64_t known_cutoff_ms=0) {
         // 两个可选参数为沪深本地YYYYMMDDHHMMSSmmm标签；0保留只读取日期之前日线的合同。
@@ -336,7 +340,13 @@ public:
             ? known_millisecond(field(analysis,"known_at")) : 0;
         need(basis_date < cutoff_date || (basis_date == cutoff_date && session_close_ms &&
             session_close_ms<=known && known<=known_cutoff_ms), "daily publication day not closed");
-        if (current_ && current_->identity == signature) { check(deadline); return *current_->reader; }
+        std::string requested(code);
+        if (!requested.empty() && (requested.back()=='+' || requested.back()=='-')) requested.pop_back();
+        if (current_ && current_->identity == signature) {
+            check(deadline);
+            need(current_->covered_codes.count(requested)!=0, "daily publication symbol unavailable");
+            return *current_->reader;
+        }
         pending_ = std::make_unique<Generation>();
         auto* next = pending_.get();
         next->basis_date=basis_date;
@@ -371,8 +381,9 @@ public:
             "daily publication factor hash");
         stage(next->directory / "adjfactors.json", factor_raw, *next, deadline);
         const auto& securities = field(inputs, "securities");
-        need(securities.IsObject() && securities.MemberCount() == symbols_.size(), "daily publication securities");
+        need(securities.IsObject(), "daily publication securities");
         for (const auto& symbol : symbols_) {
+            if (!securities.HasMember(symbol.first.c_str())) continue;
             const auto& artifact = field(securities, symbol.first.c_str());
             need(field(artifact, "count").IsUint() && field(artifact, "count").GetUint() <= 4096,
                 "daily publication bar capacity");
@@ -383,6 +394,7 @@ public:
             const auto raw = pinned(artifact, *next, deadline);
             stage(next->directory / "his/day" / symbol.second.substr(0, first) / (symbol.second.substr(last + 1) + ".dsb"),
                 raw, *next, deadline);
+            next->covered_codes.insert(symbol.second);
         }
         const auto& metadata = field(receipt, "metadata");
         need(metadata.IsArray() && metadata.Size() == 3, "daily publication metadata");
@@ -404,6 +416,7 @@ public:
             pending_.reset();
         }
         check(deadline);
+        need(current_->covered_codes.count(requested)!=0, "daily publication symbol unavailable");
         return *current_->reader;
     }
     std::uint32_t basis_date() const {

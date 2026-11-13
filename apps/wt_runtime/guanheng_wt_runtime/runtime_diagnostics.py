@@ -297,6 +297,12 @@ class ProcessEventLog:
         with self._lock:
             self._append('runtime_exception', dict(details, pid=_process_number(pid)))
 
+    def market_input_timeout(self, strategy_id, epoch, sequence, seconds):
+        """记录本轮读超时及重试动作；只使用已准入策略和原CTA调度身份。"""
+        with self._lock:
+            self._append('strategy_market_input_timeout', dict(strategy_id=strategy_id, epoch=epoch,
+                sequence=sequence, budget_seconds=seconds, action='retry_next_schedule'))
+
     def _line(self, index, raw):
         # 只解析标准异常类别和Windows错误码；秘密出现在正文、普通输出或自定义
         # 异常类名时均丢弃。完整输出仅形成摘要，不写入日志或公开状态。

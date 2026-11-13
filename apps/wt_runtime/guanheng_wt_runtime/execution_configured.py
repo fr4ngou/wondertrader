@@ -21,6 +21,7 @@ from .execution_strategy import CtaBridgeError, CtaRuntime, StrategyBinding, _ne
 from .managed_local_process import _inspect, _json, _read
 from .thread_owner import ThreadOwner
 from .profile_facts import allocation_projection
+from .execution_market_window import MarketInputDeadline, check_market_input_deadline, native_history_matches
 
 
 def _encode(value):
@@ -178,7 +179,9 @@ class RetainedStrategy:
     首次已核周期可连续部分增减/清仓；新开仓起点缺少实际来源时等待。
     新周期仅消费原管理成交的源时间；缺少完整事实时保持等待。
     """
-    def __init__(self, item, publish, configuration, native, *, deadline, code_identity, allocation=None):
+    def __init__(self, item, publish, configuration, native, *, deadline, code_identity, allocation=None,
+                 market_input_timeout):
+        self.market_input_timeout = market_input_timeout
         self.start_deadline = deadline  # 原监督者启动绝对截止；资金观察失败不重开启动预算。
         from guanheng_strategy_v1 import SYMBOLS
         from guanheng_strategy_core.contracts import EvaluationBudget
@@ -486,7 +489,6 @@ class RetainedStrategy:
             self.capital_observation=None;response=None;reason='initial_capital_unavailable'
         if self.market_window is not None:
             # 只读核来源窗口及原Native历史，不调用策略计算、目标setter或金融API。
-            from .execution_market_window import native_history_matches
             request=replace(self.inputs.request,decision_cutoff=datetime.now(timezone.utc))
             window=self.market_window.read(request,deadline=self.start_deadline)
             self.initial_market_window=window.publication
@@ -875,11 +877,23 @@ class RetainedStrategy:
                               cycles_valid_until=received+timedelta(seconds=self.max_age),decision_cutoff=cutoff,
                               previous_exits=self.exits)
             if self.market_window is not None:
-                window = self.market_window.read(request,deadline=deadline);check()
+                try:
+                    window = self.market_window.read(request, deadline=deadline)
+                    if window.request is not None:
+                        history_matches = native_history_matches(window.request, self.mapping, context,
+                            lambda: check_market_input_deadline(deadline))
+                    check_market_input_deadline(deadline)
+                except MarketInputDeadline:
+                    # 此时尚未求解或提交新目标；本轮结束后由原调度重新核输入。
+                    self.market_input_timeout(self.id, context.event.epoch, self.sequence, self.seconds)
+                    return
                 candidate['market_window'] = window.publication
                 if window.request is None:
                     status,reason = 'waiting_market_input',window.reason
                     candidate.update(status=status,reason=reason)
+                elif not history_matches:
+                    status, reason = 'waiting_market_input', 'market_history_mismatch'
+                    candidate.update(status=status, reason=reason)
                 else:
                     request = window.request
         if status is None:
@@ -887,12 +901,7 @@ class RetainedStrategy:
             decision = evaluate_retained(request,self.inputs.policy,previous_target=state.target if state else None,
                 budget=EvaluationBudget(max_seconds=max(.001,deadline-time.monotonic())))
             result = decision.result.to_dict();check()
-            if self.market_window is not None:
-                from .execution_market_window import native_history_matches
-                if not native_history_matches(request,self.mapping,context,check):
-                    status,reason = 'waiting_market_input','market_history_mismatch'
-                    candidate.update(status=status,reason=reason)
-            else:
+            if self.market_window is None:
                 for symbol,code in self.mapping.items():
                     expected = tuple(r for r in request.history.observations if r.symbol == symbol)
                     actual = context.bars(code,'d1',len(expected));check()
@@ -1059,13 +1068,17 @@ def main():
         binding = _json(_read(args.control/'python-binding.json',256*1024))
         load_transition(native,identities,binding=binding)
     from .strategy_profiles import shared_profiles, build_strategies
+    from .runtime_diagnostics import ProcessEventLog
+    from functools import partial
+    input_log = ProcessEventLog(args.control.parent, args.control_id, 'cta-market-input')
     allocation, attribution = None, None
     if shared_profiles(native):
         from .account_attribution import create_runtime_attribution
         allocation, attribution = create_runtime_attribution(native,config,args.control,args.control_id,deadline=args.deadline)
     try:
         strategies = build_strategies(native,publish,config,deadline=args.deadline,code_identity=code_identity,
-                                     retained_factory=RetainedStrategy,allocation=allocation)
+                                     retained_factory=partial(RetainedStrategy, market_input_timeout=input_log.market_input_timeout),
+                                     allocation=allocation)
     except Exception as error:
         import traceback
         frames = traceback.extract_tb(error.__traceback__)[-12:]

@@ -19,6 +19,15 @@ _FIELDS = {'schema', 'analysis_ready', 'analysis', 'history', 'current_view', 'u
            'factor_events', 'native_securities', 'selection', 'qualification'}
 
 
+class MarketInputDeadline(CtaBridgeError):
+    """已耗尽调用者给本次只读行情输入的预算。"""
+
+
+def check_market_input_deadline(deadline):
+    if time.monotonic() >= deadline:
+        raise MarketInputDeadline('market_input_deadline')
+
+
 def bind_market_window(wire, publication):
     """沿现有行情边界绑定三项市场事实；周期、配置和资本继续归调用者。"""
     from guanheng_strategy_v1 import RetainedInput, SYMBOLS
@@ -50,7 +59,7 @@ def _snapshot(path, deadline):
     """发布者原子换名时读取已打开的一代；同一文件原地写入属于协议错误。"""
     maximum = 32*1024*1024
     before = _inspect(path)
-    _need(time.monotonic() < deadline, 'evaluation_deadline')
+    check_market_input_deadline(deadline)
     with _open_read(path) as stream:
         opened = os.fstat(stream.fileno())
         _need(stat.S_ISREG(opened.st_mode) and opened.st_nlink == 1
@@ -62,7 +71,7 @@ def _snapshot(path, deadline):
         raw = stream.read(maximum+1)
         _need(_identity(os.fstat(stream.fileno())) == _identity(opened)
               and len(raw) == opened.st_size, 'market_window_file')
-    _need(time.monotonic() < deadline, 'evaluation_deadline')
+    check_market_input_deadline(deadline)
     return raw
 
 
@@ -117,7 +126,7 @@ class MarketWindowFile:
             publication['current_auxiliary_sha256'] = updated.current_auxiliary.sha256
         _need(updated.current_view.received_at <= request.decision_cutoff
               and updated.analysis.known_at <= updated.current_view.received_at, 'market_window_future')
-        _need(time.monotonic() < deadline, 'evaluation_deadline')
+        check_market_input_deadline(deadline)
         if request.decision_cutoff >= updated.current_view.received_at+timedelta(seconds=self.max_age_seconds):
             return MarketWindowRead(None, publication, 'market_window_stale')
         return MarketWindowRead(updated, publication, None)

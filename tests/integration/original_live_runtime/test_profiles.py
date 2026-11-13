@@ -230,6 +230,22 @@ def computer_result():
     return dict(schema='guanheng.original-current-signal.v1',algorithm_id='original',upstream_commit='3'*40,facts_sha256='a'*64,prepared_sha256='b'*64,
         decision_date='2026-11-06',decision_at='2026-11-06T16:00:00+08:00',signals_today={},model_state={},signal_qualified=False,profile='causal-current',diagnostics={'reasons':['today_margin_missing'],'coverage':{} })
 
+def test_background_worker_reports_missing_market_credential(tmp_path, monkeypatch):
+    token_env = 'GUANHENG_TEST_MARKET_TOKEN'
+    monkeypatch.delenv(token_env, raising=False)
+    market = dict(base_url='http://127.0.0.1:18136', token_env=token_env,
+                  timeout_seconds=1, max_response_bytes=65536)
+    worker = OriginalSignalWorker(replace(config(tmp_path), market=market))
+    worker.start()
+    try:
+        end = time.monotonic() + 2
+        while worker.latest().reason == 'not_started' and time.monotonic() < end:
+            time.sleep(.005)
+        assert worker.latest() == OriginalSignalRead(None, False, 'market_read_credential_missing')
+    finally:
+        assert worker.close(time.monotonic() + 2)
+
+
 def test_background_worker_complete_chain_and_join(tmp_path):
     pub=OriginalPublication('2026-11-06','a'*64,'b'*64,'2026-11-09','c'*64);seen=[]
     class Client:

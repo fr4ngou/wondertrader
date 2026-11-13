@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 #include <cstring>
+#include <cmath>
 
 using namespace wtp;
 namespace fs = std::filesystem;
@@ -96,6 +97,18 @@ int main(int argc, char** argv) { try {
         auto item = WTSVariant::createObject(); item->append("std_code", code.c_str()); item->append("symbol", symbol.c_str());
         mappings->append(item); item->release();
     }
+    // 行情映射可覆盖日线发布以外的证券，其缺项只影响该证券的请求。
+    const auto missing_code = std::string("SZSE.ETF.159352");
+    const auto extra_contracts = fs::path("extra-contracts.json");
+    {
+        std::ofstream output(extra_contracts);
+        output << R"({"SZSE":{"159352":{"exchg":"SZSE","name":"A500 ETF","product":"ETF","opendate":20240924,"expiredate":20991231}}})";
+    }
+    need(base.loadContracts(extra_contracts.string().c_str()) && base.getContract("159352", "SZSE"),
+        "additional mapped contract");
+    auto extra = WTSVariant::createObject();
+    extra->append("std_code", missing_code.c_str()); extra->append("symbol", "159352.SZ");
+    mappings->append(extra); extra->release();
     store->append("symbols", mappings); mappings->release(); data_cfg->append("store", store); store->release();
     WtDtMgr data; WtCtaEngine engine;
     engine.init(engine_cfg.get(), &base, &data, &hot, nullptr);
@@ -116,6 +129,10 @@ int main(int argc, char** argv) { try {
             need(premature == nullptr, "generation switch lost pending projection cleanup");
         }
         Config request(WTSCfgLoader::load_from_file(item->getCString("request")));
+        need(data.get_kline_slice(missing_code.c_str(), KP_DAY, 1, 1) == nullptr,
+            "unpublished daily symbol returned bars");
+        need(std::isnan(data.reader()->getAdjFactorByDate(missing_code.c_str(), 20261030)),
+            "unpublished daily symbol returned factor");
         std::unique_ptr<IDataReader, FuncDeleteDataReader> oracle(make(), destroy); oracle->init(request.get(), &sink);
         for (const auto& code : codes) {
             Slice expected(oracle->readKlineSlice(code.c_str(), KP_DAY, 1536));
@@ -169,7 +186,7 @@ int main(int argc, char** argv) { try {
     result << "{\"passed\":true,\"same_cta\":true,\"rounds\":" << rounds->size() << ",\"factor_changed\":" << (rounds->size() == 4 ? "true" : "false")
         << ",\"symbols\":8,\"raw_and_adjusted_original_equal\":true,"
         "\"new_day\":true,\"same_day_revision\":true,\"retained_slices\":" << old.size() << ",\"retained_after_stop\":true,"
-        "\"cached_missing_refused\":true,\"cached_revision_refused\":true,\"cached_unclosed_refused\":true,"
+        "\"unpublished_symbol_refused\":true,\"cached_missing_refused\":true,\"cached_revision_refused\":true,\"cached_unclosed_refused\":true,"
         "\"generation_cleanup_retried\":true,\"stop_cleanup_retried\":true,\"orders\":0}";
     std::cout << "original CTA daily publication passed\n"; return 0;
 } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 2; } }

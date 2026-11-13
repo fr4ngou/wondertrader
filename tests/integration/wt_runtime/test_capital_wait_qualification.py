@@ -49,6 +49,7 @@ class CapitalWaitQualification(unittest.TestCase):
         strategy.execution_enabled = True
         strategy.seconds = 2; strategy.max_age = 300; strategy.sequence = 1
         strategy.initialized = True; strategy.state = None; strategy.exits = (); strategy.cycles = {}
+        strategy.allocation = None; strategy.allocation_observation = None; strategy.deal_history = None
         strategy.recovery = 'record_clean'; strategy.restored_state_id = None; strategy.restored_sequence = None
         strategy.capital_reader = self.reader; strategy.capital_observation = deepcopy(self.value)
         strategy.market_window = (SimpleNamespace(read=lambda *_args, **_kw:
@@ -58,11 +59,34 @@ class CapitalWaitQualification(unittest.TestCase):
         reports = []
         strategy.publish = lambda _sid, value, **kw: None if kw.get('preview') else reports.append(value)
         ms = int(self.now.timestamp()*1000)
-        context = SimpleNamespace(event=SimpleNamespace(kind=4), broker_trades=lambda: None,
+        context = SimpleNamespace(event=SimpleNamespace(kind=4, epoch=7), broker_trades=lambda: None,
             broker_observation=lambda: BrokerObservationValue(waiting_market, True, 1, ms, 1, ms, ms,
                 1002444.9, 432123.4, ()), store_quantity_state=lambda _text: None,
             set_targets=lambda *_: self.fail('等待资料时禁止提交目标'))
         return strategy, context, reports
+
+    def test_native_history_timeout_defers_without_saving_or_setting_targets(self):
+        strategy, context, reports = self.strategy(True)
+        from guanheng_wt_runtime.execution_strategy import CtaBridgeError
+        strategy.mapping = {'510300.SH': 'SSE.ETF.510300'}
+        row = SimpleNamespace(symbol='510300.SH', trade_date=self.now.date())
+        publication = SimpleNamespace(history=SimpleNamespace(observations=(row,)))
+        strategy.market_window.read = lambda *a, **kw: SimpleNamespace(request=publication, publication={})
+        diagnostics = []
+        strategy.market_input_timeout = lambda *args: diagnostics.append(args)
+        clock = [time.monotonic()]
+
+        def delayed_bars(*args):
+            clock[0] += strategy.seconds + 1
+            raise CtaBridgeError('native_read_failed')
+
+        context.bars = delayed_bars
+        context.store_quantity_state = lambda *_: self.fail('行情超时不能保存数量状态')
+        with patch('guanheng_wt_runtime.execution_configured.time.monotonic', side_effect=lambda: clock[0]):
+            strategy.callback(context)
+        self.assertEqual(diagnostics, [(strategy.id, 7, 2, strategy.seconds)])
+        self.assertEqual(reports, [])
+        self.assertIsNone(strategy.state)
 
     def initial_strategy(self):
         strategy, context, _ = self.strategy(False)

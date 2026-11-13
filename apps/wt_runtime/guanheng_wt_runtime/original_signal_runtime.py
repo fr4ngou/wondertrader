@@ -184,6 +184,10 @@ def route_qualification(facts,result,*,confirmation=False):
     return rows
 
 
+class MissingMarketReadCredential(RuntimeError):
+    """部署未向原只读行情客户端提供配置声明的凭据。"""
+
+
 class OriginalSignalWorker:
     """一次ThreadOwner、一个Client、一个最后成功投影；没有Native引用或Source写入。"""
     def __init__(self,config,*,client_factory=None,publication_reader=read_original_publication,collector=None,computer=None,confirmation=False,utcnow=lambda:datetime.now(timezone.utc)):
@@ -203,7 +207,12 @@ class OriginalSignalWorker:
     def _client(self):
         if self._client_factory is not None:return self._client_factory()
         from guanheng_market_client import MarketClient
-        m=self.config.market;return MarketClient(m['base_url'],os.environ[m['token_env']],timeout=m['timeout_seconds'],max_response_bytes=m['max_response_bytes'])
+        market = self.config.market
+        token = os.environ.get(market['token_env'])
+        if not token or not token.strip():
+            raise MissingMarketReadCredential
+        return MarketClient(market['base_url'], token, timeout=market['timeout_seconds'],
+                            max_response_bytes=market['max_response_bytes'])
 
     def _run(self):
         client=None
@@ -261,6 +270,8 @@ class OriginalSignalWorker:
                 except Exception as error:
                     self._publish(OriginalSignalRead(self.latest().value,False,'prepare_'+type(error).__name__))
                 if self._stop.wait(self.config.poll_seconds):break
+        except MissingMarketReadCredential:
+            self._publish(OriginalSignalRead(self.latest().value, False, 'market_read_credential_missing'))
         except Exception as error:self._publish(OriginalSignalRead(self.latest().value,False,'worker_'+type(error).__name__))
         finally:
             close=getattr(client,'close',None)
