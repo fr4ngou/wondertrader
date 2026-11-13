@@ -146,7 +146,17 @@ class NativePartialRecoveryTests(unittest.TestCase):
                     self.assertEqual(partial['published']['count'], 239)
                     self.assertEqual(source.prepares, 0)
                     source.download_rows = complete
+                    # 两个同证券旧窗口占据首读预算，发布后只需重新核本次变化的窗口。
+                    for shift in (10000, 20000):
+                        historic = dict(query, **{'from': query['from'] - shift, 'to': query['to'] - shift})
+                        _, old_directory, old_state = market._state(historic)
+                        old_state['fixture_padding'] = 'x' * 100000
+                        market._save(old_directory, old_state)
+                    _, current_directory, _ = market._state(query)
+                    current_size = (current_directory / 'receipt.json').stat().st_size
+                    market.c['max_bytes'] = 250000 + 2 * current_size
                     result = market.call(request)
+                    self.assertEqual(result['status']['code'], 'Ok', result['status'])
                     _, _, final = market._state(query)
                     self.assertEqual([row['minute'] for row in result['data']['bars']], grid)
                     self.assertEqual(final['follow_up']['deadline_ms'], waiting['follow_up']['deadline_ms'])

@@ -71,24 +71,11 @@ class PreparedHistoryRepository:
         """同次读取实际完整收据；只扫描本证券，不把窗口正文复制成第二份价格索引。"""
         candidates, states = [], {}
         for path in self.directories(query):
-            receipt = path / 'receipt.json'
-            if not receipt.exists():
+            state = self._read_receipt(path, query, deadline, byte_budget, clock)
+            if state is None:
                 continue
-            if clock() >= deadline:
-                raise SourcePending('source registry deadline')
-            _inspect(receipt)
-            if receipt.stat().st_size > byte_budget[0]:
-                raise PreparedHistoryBudget('source registry bytes')
-            raw = read_fixed(receipt, maximum=byte_budget[0])
-            byte_budget[0] -= len(raw)
-            state = decode(raw)
-            require(state['schema'] == self.schema and state['configuration_sha256'] == self.identity)
             selected = state['query']
-            require(set(selected) == {'exchange', 'code', 'from', 'to'})
-            validate_request(dict(api_version=API_VERSION, action='history.source-query',
-                                  request=dict(selected, limit=query['limit'])))
-            key, expected = self.directory(selected)
-            require(path == expected and key == path.name)
+            key = path.name
             if key == preferred:
                 states[key] = state
             if (selected['exchange'] != query['exchange'] or selected['code'] != query['code']
@@ -97,6 +84,32 @@ class PreparedHistoryRepository:
             if state['published'] is not None:
                 candidates.append((key, state))
         return sorted(candidates, key=lambda pair: (pair[0] != preferred, pair[0])), states
+
+    def read_window(self, window, *, deadline, byte_budget, clock=time.monotonic):
+        """重读本轮写入者唯一可能推进的窗口，复用原收据校验和同一字节预算。"""
+        unused, path = self.directory(window)
+        return self._read_receipt(path, window, deadline, byte_budget, clock)
+
+    def _read_receipt(self, path, query, deadline, byte_budget, clock):
+        receipt = path / 'receipt.json'
+        if not receipt.exists():
+            return None
+        if clock() >= deadline:
+            raise SourcePending('source registry deadline')
+        _inspect(receipt)
+        if receipt.stat().st_size > byte_budget[0]:
+            raise PreparedHistoryBudget('source registry bytes')
+        raw = read_fixed(receipt, maximum=byte_budget[0])
+        byte_budget[0] -= len(raw)
+        state = decode(raw)
+        require(state['schema'] == self.schema and state['configuration_sha256'] == self.identity)
+        selected = state['query']
+        require(set(selected) == {'exchange', 'code', 'from', 'to'})
+        validate_request(dict(api_version=API_VERSION, action='history.source-query',
+                              request=dict(selected, limit=query['limit'])))
+        key, expected = self.directory(selected)
+        require(path == expected and key == path.name)
+        return state
 
 
 def recovery_preferences(candidates):

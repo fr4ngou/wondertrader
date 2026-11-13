@@ -512,15 +512,29 @@ class SourcePreparingMarket:
             capture['complete']=self._complete_rows(state,rows);self._save(directory,state)
         self._publish(state,directory,symbol,rows,binding,deadline)
 
-    def _published(self,request,preferred,deadline,budget):
-        """仅原成功窗口收据作路由；无第二份价格索引，最多一个活动Reader。"""
+    def _registered_windows(self,request,preferred,deadline,budget):
         try:
-            candidates,states=self.repository.find(request['request'],preferred,deadline=deadline,
+            return self.repository.find(request['request'],preferred,deadline=deadline,
                 byte_budget=budget,clock=self.clock)
         except PreparedHistoryBudget as error:
             raise SourcePreparationBudget(str(error))from error
+
+    def _refresh_window(self, window, preferred, candidates, deadline, budget):
+        try:
+            state = self.repository.read_window(window, deadline=deadline, byte_budget=budget, clock=self.clock)
+        except PreparedHistoryBudget as error:
+            raise SourcePreparationBudget(str(error)) from error
+        others = [(key, value) for key, value in candidates if key != preferred]
+        if state is not None and state['published'] is not None:
+            others.insert(0, (preferred, state))
+        return others, state
+
+    def _select_registered(self, candidates, request, original, deadline):
+        """仅原成功窗口收据作路由；无第二份价格索引，最多一个活动Reader。"""
         preferences=recovery_preferences(candidates)if self.closed_day_recovery else[]
-        return self.published_reader.batches(candidates,request,deadline),states,preferences
+        known=self.published_reader.batches(candidates,request,deadline)
+        batches=chain(known,[original['data']]if original['status']['code']=='Ok'else[])
+        return select_sources(batches,request['request'],preferred_ranges=preferences)
 
     def _observation(self,query,window,state,data,phase,reason,deadline):
         preparation='NotNeeded';rid=None;source_rows=0
@@ -552,22 +566,20 @@ class SourcePreparingMarket:
         start,end=stamp(query['from']),stamp(query['to'])
         window=dict(query,**{'from':label(max(start,end-timedelta(minutes=self.c['max_window_minutes']-1)))})
         preferred=hashlib.sha256(canonical({key:window[key]for key in('exchange','code','from','to')})).hexdigest()
-        original=data=None;known=[];states={};phase='Archive';reason='原档案选择；覆盖未知';state=None
+        original=data=None;phase='Archive';reason='原档案选择；覆盖未知';state=None
         try:
             # 原from/to/limit先选已有值，准备预算不改变档案查询的允许范围。
             original=self.base.call(request)
             if self.clock()>=deadline:raise SourcePending('archive readback returned after deadline')
-            known,states,preferences=self._published(request,preferred,deadline,budget)
+            candidates,states=self._registered_windows(request,preferred,deadline,budget)
             state=states.get(preferred)
             if (self.follow and self.closed_day_recovery and state is not None
                     and(state['empty']or state['published']is not None and state['published'].get('reconciled_day')is None)):
                 # 部分来源可能与原采集冲突；先推进原只读后继，再做最终选择，避免冲突锁死恢复。
                 try:self._window(window,deadline)
                 except SourcePending:pass
-                known,states,preferences=self._published(request,preferred,deadline,budget)
-            batches=chain(known,[original['data']]if original['status']['code']=='Ok'else[])
-            data=select_sources(batches,query,preferred_ranges=preferences)
-            state=states.get(preferred)
+                candidates,state=self._refresh_window(window,preferred,candidates,deadline,budget)
+            data=self._select_registered(candidates,request,original,deadline)
             ready=data is not None and len(data['bars'])>=min(query['limit'],int((end-start).total_seconds()/60)+1)and data['bars'][-1]['minute']==query['to']
             expected=self._closed_grid(window)
             if expected:ready=data is not None and[bar['minute']for bar in data['bars']]==expected
@@ -587,9 +599,8 @@ class SourcePreparingMarket:
                         phase='Budget';reason='已返回可读原值；有限准备预算已停，尾部待补：'+str(error)
                     except (OSError,ValueError,KeyError,TypeError,MarketUnavailable,IntegrationUnavailable):phase='Unavailable'
                     if self.clock()>=deadline:raise SourcePending('source original deadline')
-                    known,states,preferences=self._published(request,preferred,deadline,budget);state=states.get(preferred)
-                    batches=chain(known,[original['data']]if original['status']['code']=='Ok'else[])
-                    data=select_sources(batches,query,preferred_ranges=preferences)
+                    candidates,state=self._refresh_window(window,preferred,candidates,deadline,budget)
+                    data=self._select_registered(candidates,request,original,deadline)
                     if state is not None and state['published']is not None:
                         phase='Observed'if state['published']['count']>=min(query['limit'],int((end-start).total_seconds()/60)+1)else'Partial'
                         reason='有限尾窗已实际回读；返回最近可读原值，未授市场完整覆盖'
