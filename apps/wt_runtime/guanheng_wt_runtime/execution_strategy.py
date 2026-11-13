@@ -19,6 +19,10 @@ class CtaBridgeError(RuntimeError):
     """有限接口原因码；原始业务异常仅保留在本进程私有owner。"""
 
 
+class TargetQuoteUnavailable(CtaBridgeError):
+    """原完整目标在任何 setter 或归属回调前，因缺报价未进入。"""
+
+
 def _need(value, code='invalid_binding'):
     if not value:
         raise CtaBridgeError(code)
@@ -378,7 +382,10 @@ class CallbackContext:
             _need(type(quantity) in (int, float) and 0 <= quantity <= 9007199254740900 and math.isfinite(quantity)
                   and quantity % 100 == 0, 'invalid_quantity')
             out[index].symbol = code.encode('ascii');out[index].quantity = quantity
-        self._ok(api.gh_ms_set_targets(self.event.epoch, out, len(values), readback, len(values)))
+        result = api.gh_ms_set_targets(self.event.epoch, out, len(values), readback, len(values))
+        if result == -8:
+            raise TargetQuoteUnavailable('target_quote_unavailable')
+        self._ok(result)
         return tuple((bytes(row.symbol).decode('ascii'), row.quantity) for row in readback)
 
     def load_quantity_state(self):

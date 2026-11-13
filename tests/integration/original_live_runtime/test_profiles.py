@@ -94,6 +94,27 @@ def test_activation_actual_empty_ignores_model_holdings(monkeypatch):
     assert len(ctx.targets)==9 and not any(ctx.targets.values()) and owner._last_date=='2026-11-06' and out[-1][0]['allocation_observation']['strategy']['positions']==()
     assert asa.calls[:4]==['observe','view','observe','view']
 
+def test_target_waits_for_first_quote_then_reports_hold(monkeypatch):
+    from guanheng_wt_runtime.execution_strategy import TargetQuoteUnavailable
+    owner, ctx, _, _, reports = make(monkeypatch)
+    owner.callback(ctx)
+    setter = ctx.set_targets
+
+    def without_quote(_):
+        raise TargetQuoteUnavailable('target_quote_unavailable')
+
+    ctx.set_targets = without_quote
+    schedule(owner, ctx)
+    assert reports[-1][0]['reason'] == 'target_quote_unavailable'
+    assert not owner._announced and owner._last_date is None and not ctx.targets
+    ctx.set_targets = setter
+    schedule(owner, ctx)
+    schedule(owner, ctx)
+    assert reports[-1][0]['status'] == 'holding'
+    assert reports[-1][0]['signal_consumed_date'] == '2026-11-06'
+    assert ctx.calls.count('set') == 1
+
+
 def test_signal_to_nine_complete_targets_metadata_before_set(monkeypatch):
     c=DEFAULT_CODES[0];owner,ctx,asa,sig,out=make(monkeypatch,{c:'BUY'});assert asa.calls==[]
     owner.callback(ctx);schedule(owner,ctx)

@@ -17,7 +17,7 @@ from threading import Event, RLock
 from zoneinfo import ZoneInfo
 
 from .execution_process import ExecutionProcessConfig, _PYTHON_PACKAGES, _python_bytes, _python_inventory, _python_packages
-from .execution_strategy import CtaBridgeError, CtaRuntime, StrategyBinding, _need
+from .execution_strategy import CtaBridgeError, CtaRuntime, StrategyBinding, TargetQuoteUnavailable, _need
 from .managed_local_process import _inspect, _json, _read
 from .thread_owner import ThreadOwner
 from .profile_facts import allocation_projection
@@ -825,12 +825,16 @@ class RetainedStrategy:
             if not received <= cutoff < received+timedelta(seconds=self.max_age):
                 status, reason = 'waiting_broker_position','broker_position_stale'
         rows = self._broker_rows(broker)
-        if status is None:
-            if self.execution_enabled and self.allocation is not None and not self._shared_announced:
-                from .profile_facts import announce_shared_hold
+        if status is None and self.execution_enabled and self.allocation is not None and not self._shared_announced:
+            from .profile_facts import announce_shared_hold
+            try:
                 announce_shared_hold(context,self.id,self.targets,self.allocation_observation,self.allocation,
                     source_identity=self.state_identity,deadline=deadline)
+            except TargetQuoteUnavailable:
+                status, reason = 'waiting_market_input', 'target_quote_unavailable'
+            else:
                 self._shared_announced=True
+        if status is None:
             source = _digest(asdict(broker))
             cycle_trades = self._historical_cycle_facts(broker, trades, cutoff, check)
             if self.deal_history is not None and cycle_trades is None:
@@ -979,7 +983,14 @@ class RetainedStrategy:
                 commons=common_prices(context,self.mapping,self.native_price_ticks,self.participants,now=cutoff,max_age=self.max_age)
                 self.allocation.prepare_intent(self.id,context.event.epoch,source_sha256=result['input_sha256'],known_at=cutoff.isoformat(),
                     buy_price_caps={},common_prices=commons,deadline=deadline)
-            _need(dict(context.set_targets(vector)) == dict(vector), 'target_readback');check()
+            try:
+                _need(dict(context.set_targets(vector)) == dict(vector), 'target_readback')
+            except TargetQuoteUnavailable:
+                candidate.pop('target_readback', None)
+                candidate.update(status='waiting_market_input', reason='target_quote_unavailable', outcome=None)
+                self._publish(candidate, deadline=deadline)
+                return
+            check()
         context.store_quantity_state(text);check()
         self.state,self.cycles,self.exits = state,metadata,exits
         self._publish(candidate,deadline=deadline);check()
@@ -1214,6 +1225,9 @@ def main():
                  'exception_type': type(error).__name__,
                  'frames': [{'file': Path(row.filename).name, 'function': row.name, 'line': row.lineno}
                             for row in traceback.extract_tb(error.__traceback__)[-16:]]}
+        if type(error) is CtaBridgeError and str(error) in (
+                'evaluation_deadline', 'native_read_failed', 'native_operation_failed', 'target_readback'):
+            value['reason'] = str(error)
         if runtime._attribution is not None and runtime._attribution.failure is error:
             value['attribution'] = runtime._attribution.failure_diagnostic
         with (args.control / 'callback-failure.json').open('xb') as stream:

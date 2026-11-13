@@ -5,7 +5,7 @@ from datetime import date,datetime,timedelta,timezone
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import json,math,re,time
-from .execution_strategy import StrategyBinding,_need
+from .execution_strategy import StrategyBinding,TargetQuoteUnavailable,_need
 from .execution_facts import canonical_raw_price
 from .original_signal_runtime import OriginalSignalConfig,OriginalSignalWorker,_sha
 from .profile_facts import configured_etf_mapping,configured_native_facts,digest,quote_value,common_prices,allocation_projection
@@ -282,10 +282,18 @@ class OriginalLiveStrategy:
         if context.event.kind!=4:return
         _need(self.initialized,'original_not_initialized');deadline=time.monotonic()+self.seconds;self.sequence+=1
         own,broker=self._view(context,deadline)
+        observation = dict(definition=self._definition(), sequence=self.sequence,
+            owned_valuation=self._valuation(context, own, deadline),
+            allocation_observation=None if own is None else allocation_projection(own,include_read_projection=True),
+            account_observation=asdict(broker), execution_qualified=False)
         if self.execution_enabled and own is not None and not self._announced:
             if self._plan is None and not self._sells and not self._buys:
                 from .profile_facts import announce_shared_hold
-                announce_shared_hold(context,self.id,self.targets,own,self.allocation,source_identity=self.identity,deadline=deadline)
+                try:
+                    announce_shared_hold(context,self.id,self.targets,own,self.allocation,source_identity=self.identity,deadline=deadline)
+                except TargetQuoteUnavailable:
+                    self.publish(self.id, dict(observation, status='waiting', reason='target_quote_unavailable'), deadline=deadline)
+                    return
                 self._announced=True
             else:
                 # 恢复的未完成目标沿原source/cap，不能以保持动作放宽买入上界。
@@ -299,22 +307,22 @@ class OriginalLiveStrategy:
                         if q>quantities.get(s,0):
                             raw=self._intent_prices.get(s.rsplit('.',1)[1]);_need(raw is not None,'original_state_cap_missing');ratio=canonical_raw_price(raw,self.ticks[s]);caps[s]=Decimal(ratio.numerator)/Decimal(ratio.denominator)
                 self.allocation.prepare_intent(self.id,context.event.epoch,source_sha256=self._last_source,known_at=self._intent_known_at,buy_price_caps=caps,common_prices=(),deadline=deadline)
-                _need(dict(context.set_targets(tuple(desired.items())))==desired,'original_target_readback');self._announced=True
+                try:
+                    _need(dict(context.set_targets(tuple(desired.items())))==desired,'original_target_readback')
+                except TargetQuoteUnavailable:
+                    self.publish(self.id, dict(observation, status='waiting', reason='target_quote_unavailable'), deadline=deadline)
+                    return
+                self._announced=True
         read=self.signals.latest();small=None if read.value is None else read.value.projection()
-        candidate=dict(
-            definition=self._definition(),  # 原ctx的真实版本/证券池声明，独立于行情/归属是否就绪。
+        candidate=dict(observation,
             strategy_id=self.id,  # 当前独立策略身份。
             strategy_version=self.version,  # 线上模型版本，不冒充冻结回测版本。
-            sequence=self.sequence,  # 当前回调观察序号。
             price_policy=self.parameters['price_policy'],  # 显式执行价格模型；不是已成交价格保证。
             timing_policy=self.parameters['timing_policy'],  # 下一会话首个具备条件的分钟调度。
             signal=small,  # 后台不可变小投影；无最后成功值时为None。
             signal_ready=read.ready,  # 本轮发布/计算是否成功，逐路由资格另列。
             signal_reason=read.reason,  # 固定等待/失败分类，缺省None。
-            owned_valuation=self._valuation(context,own,deadline),  # 同回调实际自有数量/现金和原价；不影响目标计算。
-            allocation_observation=None if own is None else allocation_projection(own,include_read_projection=True),  # 仅本策略实际归属；陈旧时None。
-            account_observation=asdict(broker),  # 原全账户来源与clock单列，不作每ctx仓位。
-            execution_qualified=False)  # 此观察不代替金融owner的实际准入。
+            )
         candidate['signal_revision_after_consumption']=small is not None and self._last_date==small['decision_date'] and self._consumed_sha!=small['signal_sha256']
         def waiting(reason):
             self.publish(self.id,dict(candidate,status='waiting',reason=reason),deadline=deadline)
@@ -367,7 +375,12 @@ class OriginalLiveStrategy:
             if exits and not buys and (plan is None or all(quantity <= actual[code] for code, quantity in plan.items())):
                 last_source=small['signal_sha256'];intent_known_at=small['decision_at'];intent_prices=dict(small['signal_close_prices'])
         if not consumed_any and not (buys or sells or plan is not None) and atr_state == (self._atr_state if self.confirmation else None):
-            waiting('atr_history_units_unqualified' if blocked_buys else 'route_data_unqualified' if eligible and any(not r['qualified'] for r in qualifications.values()) else 'signal_session_not_eligible');return
+            if blocked_buys:waiting('atr_history_units_unqualified')
+            elif eligible and any(not r['qualified'] for r in qualifications.values()):waiting('route_data_unqualified')
+            elif not eligible:waiting('signal_session_not_eligible')
+            else:self.publish(self.id, dict(candidate, status='holding', reason=None,
+                signal_consumed_date=last_date), deadline=deadline)
+            return
         now=datetime.now(timezone.utc);prices={}
         for c in self.codes:
             value=quote_value(context,self.mapping[c],self.ticks[self.mapping[c]],now=now,max_age=self.parameters['quote_max_age_seconds'])
@@ -415,7 +428,13 @@ class OriginalLiveStrategy:
             _need(all(type(q)is int and q>=0 and q%100==0 for _,q in vector),'original_target_quantity')
             self.allocation.prepare_intent(self.id,context.event.epoch,source_sha256=last_source,known_at=intent_known_at,
                 buy_price_caps=caps,common_prices=commons,deadline=deadline)
-            _need(dict(context.set_targets(vector))==dict(vector),'original_target_readback')
+            try:
+                _need(dict(context.set_targets(vector))==dict(vector),'original_target_readback')
+            except TargetQuoteUnavailable:
+                candidate.pop('desired_targets', None)
+                candidate.pop('signal_consumed_date', None)
+                waiting('target_quote_unavailable')
+                return
         state=dict(
             schema='guanheng.original-live-intent.v1',  # 同_state声明的唯一意图协议。
             identity=self.identity,  # 当前配置/代码身份SHA。

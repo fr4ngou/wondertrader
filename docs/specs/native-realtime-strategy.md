@@ -71,6 +71,8 @@ pool0仍有parser与ticker计时来源，桥锁或GIL不构成原引擎全局一
 
 原init登记读集合与主分钟事件，Python init在原上下文登记主m1窗口；bar仅复制，schedule采集完整闭合前缀并调用原业务核/数量核。原RT并发能力按NRT-R5验证，观察到重叠回调时锁存失败并关闭新setter，避免假定GIL为引擎一致性锁。失败码、活动回调数、创建/删除数、调用/setter数只用于有限诊断；health读取这些原子故障位，交唯一产品owner停止和收口。
 
+正式受管策略提交完整目标前，原 Native 先核所用证券价格。该阶段返回 `GH_RT_UNKNOWN` 时发布 `target_quote_unavailable`，沿下一轮原调度重试，原目标、阶段、待消费信号和数量状态继续保留。Setter 已进入后的失败沿原 health 收口。
+
 验收沿正式产品DLL→标准Factory→原ticker→同一configured纯核→NSQ→完整向量→组合/执行/WinSHM，包含1策略和同标的2策略、错epoch/线程/阶段、错误绑定/数据、部分setter/回读失败、重复配置和回调异常。原NRT ABI1 synthetic入口逐项回归，生产准入继续受真实来源/账户/恢复资格限制。
 
 ### NRT-R9-V2 可选九标的配置

@@ -1,3 +1,3 @@
 """WT独立运行装配；金融和行情算法继续由原生组件负责。"""
 
-__version__ = "0.1.0a31+recovery.1"
+__version__ = "0.1.0a32+recovery.1"
