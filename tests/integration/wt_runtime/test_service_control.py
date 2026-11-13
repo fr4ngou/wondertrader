@@ -683,9 +683,14 @@ class ServiceControlTests(unittest.TestCase):
             with patch.object(service_control, "require_process_exited") as exited:
                 self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
                 exited.assert_called_once_with(123)
+                (self.root / "process-events.jsonl").write_bytes(
+                    _raw(dict(event, event="process_started")) + b"\n" +
+                    _raw(dict(event, event="process_closed", code="unexpected_exit", exit_code=2)) + b"\n")
+                self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
+                exited.reset_mock()
                 status["components"]["history"] = dict(state="faulted", ready=False, pending=False, forced=False, pid=321)
                 self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
-                self.assertEqual([call.args[0] for call in exited.call_args_list], [123, 123])
+                self.assertEqual([call.args[0] for call in exited.call_args_list], [123])
                 status["components"]["history"]["pending"] = True
                 with self.assertRaises(ValueError):
                     controller._pre_native_execution_origin(current, status)

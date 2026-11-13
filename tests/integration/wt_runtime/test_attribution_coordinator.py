@@ -102,6 +102,39 @@ def test_broker_query_persists_original_rows_with_one_commit_and_keeps_replay_id
     assert book.pending_events(deadline=end()) == inbox
 
 
+def test_owned_broker_query_uses_one_projection_commit(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    book, coordinator, bridge = setup(tmp_path)
+    command = prepared(coordinator, bridge)
+    transaction = book._transaction
+    commits = []
+
+    @contextmanager
+    def counted(deadline):
+        if getattr(getattr(book, '_projection', None), 'db', None) is None:
+            commits.append(deadline)
+        with transaction(deadline) as db:
+            yield db
+
+    monkeypatch.setattr(book, '_transaction', counted)
+    fill = dict(command, source_kind='query-result', source_sha256='d'*64, trading_date=20261106,
+                trade_id='nqh1.batch', quantity=20, price_cny='10.01', amount_cny='200.20',
+                trade_time=93102000, fee_cny=None)
+    rows = [json.dumps(dict(fill, output_index=i)) for i in range(44)]
+    assert send(bridge, 12, dict(kind=8, rows=rows))[0] == 0, bridge.failure
+    assert len(commits) == 2
+    assert book.view('new', deadline=end()).positions[0].quantity == 20
+    assert book.pending_events(deadline=end()) == ()
+
+    conflict = dict(fill, source_sha256='e'*64, quantity=21, amount_cny='210.21')
+    result, _ = send(bridge, 12, dict(kind=8, rows=[json.dumps(conflict)]))
+    assert result == -1 and bridge.failure.reason == 'fill_economic_conflict'
+    assert book.view('new', deadline=end()).positions[0].quantity == 20
+    assert book.pending_events(deadline=end())[0].reason == 'fill_economic_conflict'
+    with book._transaction(end()) as db:
+        assert db.execute("SELECT COUNT(*) FROM asa_conflicts WHERE kind='fill_economic_conflict'").fetchone()[0] == 1
+
+
 def test_source_processing_and_failure_recording_have_distinct_diagnostics(tmp_path, monkeypatch):
     book, coordinator, bridge = setup(tmp_path)
     command = prepared(coordinator, bridge)

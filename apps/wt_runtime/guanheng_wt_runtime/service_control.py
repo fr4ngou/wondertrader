@@ -590,9 +590,10 @@ class ServiceController:
         reference = native["recovery"]["transition"]
         transition = _pinned_json(_path(transition_file, e_drive=True), reference["sha256"], 1024 * 1024)
         state_root = _path(native["output_directory"], e_drive=True)
-        if terminal["exit_code"] == 2:
+        if terminal["exit_code"] == 2 and not (child / "failure.json").exists():
             _require({item.name for item in child.iterdir()} == {"execution.json", "python-binding.json"})
         else:
+            # 原生初始化可以先写完整退出收据，再返回启动失败码。
             self._verify_native_start_abort(child, child_id, descriptor["configuration_sha256"])
         claim = state_root / f'.cta-reconciled-{reference["sha256"]}.json'
         _require(not claim.exists() and not claim.with_suffix(".json.pending").exists())

@@ -535,12 +535,29 @@ class AttributionCoordinator:
         if not inbox.applied:
             self._project_source(event, event_id, None)
 
-    def _receive_broker_events(self, kind, events, deadline):
+    def _receive_broker_events(self, kind, events, deadline, *, query=False):
         facts = tuple(self._broker_fact(event) for event in events)
         received = self.allocation.receive_broker_events(str(kind), facts, deadline=deadline)
-        for event, (inbox, command) in zip(events, received, strict=True):
-            if not inbox.applied and command is not None:
-                self._project_source(event, inbox.event_id, command)
+        pending = [(event, inbox.event_id, command)
+                   for event, (inbox, command) in zip(events, received, strict=True)
+                   if not inbox.applied and command is not None]
+        if query and pending:
+            error = None
+            def project():
+                nonlocal error
+                try:
+                    for event, event_id, command in pending:
+                        self._project_source(event, event_id, command)
+                except Exception as failure:
+                    error = failure
+
+            self.allocation.project_broker_batch(project, deadline=deadline)
+            # 提交已成功的前序行及冲突原件，再沿原回调报告真实错误。
+            if error is not None:
+                raise error
+            return
+        for event, event_id, command in pending:
+            self._project_source(event, event_id, command)
 
     def _receive_query_batch(self, event):
         body = event.body
@@ -557,7 +574,7 @@ class AttributionCoordinator:
             _validate_tree(row)
             rows.append(AttributionEvent(kind, event.thread_role, event.epoch, row, raw,
                                          hashlib.sha256(raw).hexdigest(), event.deadline))
-        self._receive_broker_events(kind, tuple(rows), event.deadline)
+        self._receive_broker_events(kind, tuple(rows), event.deadline, query=True)
 
     def _record_event_failure(self, event_id, error, deadline):
         reason = getattr(error, 'reason', str(error) if type(error) is AttributionError else type(error).__name__)

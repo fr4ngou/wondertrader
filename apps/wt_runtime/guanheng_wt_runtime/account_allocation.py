@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import sqlite3
 import stat
-from threading import RLock
+from threading import RLock, local
 from time import monotonic
 from uuid import UUID
 
@@ -396,6 +396,7 @@ class AccountAllocation:
         self.path = root / 'account-allocation.sqlite3'
         self.identity, self.owner_check, self.clock = identity, owner_check, clock
         self._lock = RLock()
+        self._projection = local()  # 查询回报借用同线程原账事务，禁止跨线程共享连接。
 
     def _check(self, deadline):
         _need(type(deadline) in (int, float) and math.isfinite(deadline), 'deadline_invalid')
@@ -403,9 +404,33 @@ class AccountAllocation:
         if self.clock() >= deadline:
             raise TimeoutError('allocation_deadline')
 
+    def project_broker_batch(self, project, *, deadline):
+        """同批原柜台回报共用一次提交，原收件已在独立事务保存。"""
+        with self._transaction(deadline) as db:
+            self._projection.db = db
+            try:
+                project()
+            finally:
+                del self._projection.db
+
     @contextmanager
     def _transaction(self, deadline):
         self._check(deadline)
+        projection = getattr(self._projection, 'db', None)
+        if projection is not None:
+            # 单行异常只回滚本行尝试；经济冲突证明随原回执提交。
+            projection.execute('SAVEPOINT broker_row')
+            try:
+                yield projection
+                self._check(deadline)
+            except _RecordedRejection as error:
+                raise AllocationError(error.reason) from None
+            except BaseException:
+                projection.execute('ROLLBACK TO broker_row')
+                raise
+            finally:
+                projection.execute('RELEASE broker_row')
+            return
         if not self._lock.acquire(timeout=max(0, deadline-self.clock())):
             raise TimeoutError('allocation_deadline')
         db = None
