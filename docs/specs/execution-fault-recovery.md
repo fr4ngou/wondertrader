@@ -18,7 +18,7 @@ EFR-01：显式 recovery.mode=resume_reconciled 使用同一原 O/P/A 查询、�
 
 EFR-02：recovery.transition={file,sha256} 引用受控发行材料 guanheng.execution-recovery-transition.v1，文件容量 1 MiB。字段 predecessor_configuration、predecessor_configuration_sha256、predecessor_control_directory 定位上代实际配置与控制收据；predecessor_installation_sha256、successor_installation_sha256 绑定前后安装；predecessor_python_binding_sha256、successor_python_code_identity 绑定前后 Python；state_files 为原 stradata/userdata/portfolio JSON 相对路径→SHA256。字段均必填，路径为绝对路径、摘要为 SHA256；材料由部署者冻结并经当前配置摘要绑定，不包含账户凭据。
 
-EFR-03：原 owner 在上代 ready/failure/close-prepared 的控制 ID、PID、配置摘要相符，原 close-prepared.closed=true、ok=false 且上代进程已退出后，沿同根 OS 租约重验原状态集合和摘要。前后逻辑配置去掉 recovery 后保持相同；当前安装清单完整核验并匹配发行材料。上代安装身份沿已消费来源或上代核查收据核验。独立 cta-reconciled.v1 记录单次认领，原故障与正常关闭证明保持各自语义。状态变化或相同材料已认领时拒绝。
+EFR-03：原 owner 在上代 ready/failure/close-prepared 的控制 ID、PID、配置摘要相符，原 close-prepared.closed=true、ok=false 且上代进程已退出后，沿同根 OS 租约重验原状态集合和摘要。前后逻辑配置去掉 recovery 后保持相同；当前安装清单完整核验并匹配发行材料。上代安装身份沿已消费来源或上代核查收据核验。已就绪的原生进程在最后关闭阶段以 recovery_state 或 cta_close 失败时，可用同身份的原 close-prepared 和 lifecycle-finished 证明原生关闭。要求 close-prepared.closed=true、ok=false、recovery_ready=false，终态和原启动回执均匹配原 ready，且终态晚于启动。原 failure.json 存在时仍按原故障核验。两类故障依据共用原进程退出、状态摘要、账本租约和券商核查，保留原失败记录。独立 cta-reconciled.v1 记录单次认领，原故障与正常关闭证明保持各自语义。状态变化或相同材料已认领时拒绝。
 
 正常关闭后的自有适配兼容发行使用同一 resume_reconciled 交接身份：完整核原 closed.v2 与 clean.v2、原文件/安装和实际退出，再沿原协议原子消费该次 clean。其收据 admission_kind=clean_transition；故障依据 admission_kind=fault_reconciled。原始正常/故障事实分别保存。每代 Native 自动保存 installation-identity.json；前代安装证据缺失时明确拒绝。
 

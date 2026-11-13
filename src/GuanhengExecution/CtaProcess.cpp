@@ -1033,10 +1033,21 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
                 state_owner=parse(snapshot_raw);
             }else need(member(origin,"files")==member(transition,"state_files"));
         }else{
-            const auto failure=parse(read(previous/"failure.json",4096));same_origin(failure);
-            need(text(failure,"schema")=="guanheng.execution.failure.v1"
-                &&text(closed,"schema")=="guanheng.execution.close-prepared.v1"
+            need(text(closed,"schema")=="guanheng.execution.close-prepared.v1"
                 &&member(closed,"ok").IsFalse()&&member(closed,"recovery_ready").IsFalse());
+            if(fs::exists(previous/"failure.json")){
+                const auto failure=parse(read(previous/"failure.json",4096));same_origin(failure);
+                need(text(failure,"schema")=="guanheng.execution.failure.v1");
+            }else{
+                // 最终关闭检查可在主循环退出后失败；原关闭与生命周期回执共同证明这一终态。
+                const auto reason=text(closed,"error_code");
+                need(reason=="recovery_state"||reason=="cta_close");
+                const auto started=parse(read(previous/"lifecycle-started.json",4096));same_origin(started);
+                const auto finished=parse(read(previous/"lifecycle-finished.json",4096));same_origin(finished);
+                need(text(started,"schema")=="guanheng.execution.started.v1"&&member(started,"closed").IsFalse()
+                    &&text(finished,"schema")=="guanheng.execution.finished.v1"&&member(finished,"closed").IsTrue()
+                    &&text(finished,"event_at",64)>text(started,"event_at",64));
+            }
         }
     }
     const auto& pid=member(ready,"pid");need(pid.IsUint()&&pid.GetUint()>0);
@@ -1316,9 +1327,21 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             };
             recovery_hooks.closed=[&]{
                 if(!recovery_armed)return true;
-                guanheng::StandardQmtRecoveryV1 state;need(execution->recovery(state)==0&&settled(*execution,state));
-                need(execution->status().fault==guanheng::ExecutionHostFault::None&&execution->status().plugin.error==0);
-                need(!health||health(health_user)==0);
+                guanheng::StandardQmtRecoveryV1 state;
+                const auto result=execution->recovery(state);
+                const auto status=execution->status();
+                const auto callback_error=health?health(health_user):0;
+                if(result!=0||!settled(*execution,state)||status.fault!=guanheng::ExecutionHostFault::None
+                    ||status.plugin.error!=0||callback_error!=0){
+                    char message[480]{};
+                    std::snprintf(message,sizeof(message),
+                        "CTA recovery close check result=%d query_first=%u submissions_closed=%u open_group=%u unresolved_children=%u pending_commands=%u unsafe=%u active_orders=%u host_fault=%u plugin_error=%d callback_error=%d",
+                        result,state.query_first,state.submissions_closed,state.open_group,state.unresolved_children,
+                        state.pending_commands,state.unsafe,state.active_orders,static_cast<unsigned>(status.fault),
+                        status.plugin.error,callback_error);
+                    native_log.request_rejection(message);
+                    return false;
+                }
                 auto proof=receipt("guanheng.cta-clean.v2",id,recovery_config,true);auto& a=proof.GetAllocator();
                 proof.AddMember("installation_sha256",rj::Value(recovery_installation.c_str(),a),a);
                 proof.AddMember("closed_receipt",rj::Value((control/"closed.json").u8string().c_str(),a),a);
