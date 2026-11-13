@@ -37,6 +37,40 @@ template<class T> struct Release
 using Variant = std::unique_ptr<WTSVariant, Release<WTSVariant>>;
 using Slice = std::unique_ptr<WTSKlineSlice, Release<WTSKlineSlice>>;
 
+// 两条分钟读取路径共用原 sink。逐证券异常在参数仍可用时记录，随后沿原异常路径收口。
+class MinuteCallbackSink final : public IDataReaderSink
+{
+    IDataReaderSink* sink_ = nullptr; // 原运行时拥有，先于本 Reader 初始化并晚于它释放。
+
+    void report(const char* code, const WTSBarStruct* bar, const char* reason) noexcept
+    {
+        char message[480];
+        const auto minute = bar ? 199000000000ULL + bar->time : 0ULL;
+        std::snprintf(message, sizeof(message),
+            "realtime reader minute callback failed code=%.64s bar_minute=%llu reason=%.320s",
+            code ? code : "", minute, reason);
+        try { sink_->reader_log(LL_ERROR, message); } catch (...) {}
+    }
+
+public:
+    void bind(IDataReaderSink* sink) { sink_ = sink; }
+
+    void on_bar(const char* code, WTSKlinePeriod period, WTSBarStruct* bar) override
+    {
+        try { sink_->on_bar(code, period, bar); }
+        catch (const std::exception& error) { report(code, bar, error.what()); throw; }
+        catch (...) { report(code, bar, "non_standard_exception"); throw; }
+    }
+
+    void on_all_bar_updated(std::uint32_t time) override { sink_->on_all_bar_updated(time); }
+    IBaseDataMgr* get_basedata_mgr() override { return sink_->get_basedata_mgr(); }
+    IHotMgr* get_hot_mgr() override { return sink_->get_hot_mgr(); }
+    std::uint32_t get_date() override { return sink_->get_date(); }
+    std::uint32_t get_min_time() override { return sink_->get_min_time(); }
+    std::uint32_t get_secs() override { return sink_->get_secs(); }
+    void reader_log(WTSLogLevel level, const char* text) override { sink_->reader_log(level, text); }
+};
+
 std::uint32_t number(WTSVariant* cfg, const char* key, std::uint32_t fallback,
     std::uint32_t maximum, bool allow_zero = false)
 {
@@ -175,6 +209,7 @@ class RealtimeReader final : public IDataReader
     std::set<std::string> codes_;
     std::shared_ptr<SliceBudget> budget_;
     std::shared_ptr<SliceBudget> minute_budget_;
+    MinuteCallbackSink minute_sink_; // 供两个分钟 Reader 借用，成员顺序保证它最后释放。
     guanheng::StrategyReader minute_;
     std::unique_ptr<WtDataReader> daily_;
     std::unique_ptr<guanheng::PublishedDaily> publication_;
@@ -270,6 +305,7 @@ public:
             if (!cfg || cfg->type() != WTSVariant::VT_Object || !sink || !sink->get_basedata_mgr())
                 throw std::invalid_argument("realtime reader configuration or base data missing");
             IDataReader::init(cfg, sink, loader);
+            minute_sink_.bind(sink);
             auto daily = cfg->get("daily");
             if (!daily || daily->type() != WTSVariant::VT_Object)
                 throw std::invalid_argument("daily object missing");
@@ -319,7 +355,7 @@ public:
             }
             else
             {
-                minute_.init(minute_config.get(), sink, loader);
+                minute_.init(minute_config.get(), &minute_sink_, loader);
                 if (!minute_.last_status().ok()) throw std::invalid_argument("m1 delegate configuration rejected");
             }
             timeout_ = number(cfg, "timeout_ms", 5000, 30000);
@@ -374,7 +410,7 @@ public:
                 native_path_limits(native, native_instruments, true);
                 native_path_limits(daily_config.get(), native_instruments, false);
                 native_minute_ = std::make_unique<WtDataReader>();
-                native_minute_->init(native, sink, loader);
+                native_minute_->init(native, &minute_sink_, loader);
             }
             if (daily->has("publication"))
                 publication_ = std::make_unique<guanheng::PublishedDaily>(daily->get("publication"), adjust_flag_, sink, loader,

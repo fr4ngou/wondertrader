@@ -23,13 +23,21 @@ struct Sink final : IDataReaderSink, IRdmDtReaderSink {
     unsigned closed = 0;
     unsigned updates = 0;
     std::map<std::string, std::vector<WTSBarStruct>> events;
+    bool fail_minute_callback = false; // 故障回放时让真实逐证券回调抛出已知异常。
+    std::string callback_failure; // 保留 Reader 经原 sink 上报的证券级诊断。
     IBaseDataMgr* get_basedata_mgr() override { return &base; }
     IHotMgr* get_hot_mgr() override { return nullptr; }
     uint32_t get_date() override { return date; }
     uint32_t get_min_time() override { return 1130; }
     uint32_t get_secs() override { return 0; }
-    void reader_log(WTSLogLevel, const char* text) override { std::cerr << text << '\n'; }
+    void reader_log(WTSLogLevel, const char* text) override {
+        std::cerr << text << '\n';
+        if (std::string(text).find("minute callback failed code=") != std::string::npos)
+            callback_failure = text;
+    }
     void on_bar(const char* code, WTSKlinePeriod, WTSBarStruct* bar) override {
+        if (fail_minute_callback)
+            throw std::runtime_error("probe minute sink failure");
         ++closed;
         events[code].push_back(*bar);
     }
@@ -146,6 +154,20 @@ int main(int argc, char** argv) {
         out.close();
         if (!out) throw std::runtime_error("result write failed");
         if (!stop(strategy.get(), 3000)) throw std::runtime_error("subscription stop failed");
+        strategy.reset();
+        strategy.reset(make());
+        if (!strategy) throw std::runtime_error("failure replay reader creation failed");
+        strategy->init(config.get(), &sink);
+        auto warmup = copy_slice(strategy->readKlineSlice("SSE.ETF.510300", KP_Minute1, 1,
+            static_cast<uint64_t>(sink.date) * 10000 + 931));
+        if (warmup.size() != 1) throw std::runtime_error("failure replay warmup missing");
+        sink.fail_minute_callback = true;
+        strategy->onMinuteEnd(sink.date, 932);
+        if (sink.callback_failure.find("code=SSE.ETF.510300") == std::string::npos ||
+            sink.callback_failure.find("bar_minute=" + std::to_string(sink.date) + "0932") == std::string::npos ||
+            sink.callback_failure.find("probe minute sink failure") == std::string::npos)
+            throw std::runtime_error("missing per-security minute failure diagnostic");
+        if (!stop(strategy.get(), 3000)) throw std::runtime_error("failure replay stop failed");
         strategy.reset();
         std::cout << "native live readers completed\n";
         return 0;
