@@ -1,5 +1,7 @@
 # 技能与项目维护工具
 
+设计观衡工作台、后台交互与金融图表时，可从[前端开源参考](observer-frontend-references.md)查找上游案例。
+
 长期开发入口是 [AGENTS.md](../../AGENTS.md) 和[文档路由](../README.md)，项目的 `start/check` 命令可独立执行，不依赖初始化技能的安装路径。
 
 项目只登记 `.agents/skills/` 范围内的技能，来源清单为 [manifest.json](../../.agents/skills/manifest.json)。用户个人技能、客户端插件缓存和其他仓库技能由其各自环境维护。
