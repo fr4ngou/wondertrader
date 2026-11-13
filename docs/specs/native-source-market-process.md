@@ -10,7 +10,7 @@
 
 ## SMP-R2 输入与身份
 
-入口参数为`--config <绝对路径> --config-sha256 <摘要> --control-directory <新绝对目录> --control-id <UUID>`。控制目录末级等于control_id，由子进程沿既有私有目录工具创建，已存在即拒绝。
+入口参数为`--config <绝对路径> --config-sha256 <摘要> --control-directory <新绝对目录> --control-id <UUID>`。控制目录末级等于control_id。子进程验证控制身份后，先沿既有工具独占创建私有目录，再读取配置和凭据。配置或凭据失败时，在本代目录写入带阶段的失败收据。目录已存在时拒绝启动，保留已有收据。
 
 子配置固定schema=`guanheng.source-market-service.v1`，字段：source_configuration、listen、token_env、socket_timeout。source_configuration固定path/sha256，引用至多1MiB的原source配置；先读并核摘要，再把同一字节解码交NativeSourceMarket，避免再次读取脱离身份。listen固定host/port，host仅数字回环，port为1..65535。token_env是环境变量名，凭据只从环境读取。socket_timeout为0.1..30秒。原Reader DLL、store收据和内容摘要继续由原owner校验。
 

@@ -8,15 +8,43 @@ import threading
 import time
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 from integrations.guanheng import market_daily_owner as owners
 from integrations.guanheng.daily_data_inputs import observe_prior_plans
 from integrations.guanheng.market_generation import encode
-from integrations.guanheng.source_market_service import _configuration
+from integrations.guanheng.source_market_service import _configuration, serve
 from guanheng_qmt_shm.read_retention_client import RetainedReadBindingChanged
 
 
 class SourceOwnerTests(unittest.TestCase):
+    def test_replaced_source_configuration_leaves_startup_failure_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source.json'
+            source.write_bytes(encode(dict(mode='source-collected')))
+            source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+            # 模拟部署写入另一份材料后，服务描述仍绑定原来源摘要。
+            source.write_bytes(encode(dict(head='release-record')))
+            config = root / 'market.json'
+            config.write_bytes(encode(dict(schema='guanheng.source-market-service.v1',
+                source_configuration=dict(path=str(source), sha256=source_sha),
+                listen=dict(host='127.0.0.1', port=18100), token_env='TEST_TOKEN', socket_timeout=1)))
+            config_sha = hashlib.sha256(config.read_bytes()).hexdigest()
+            control = str(uuid4())
+            output = root / control
+            with patch('integrations.guanheng.source_market_service.create_private_directory', Path.mkdir), \
+                    patch('integrations.guanheng.source_market_service.write_private_new', Path.write_bytes), \
+                    patch('integrations.guanheng.source_market_service.create_native_source_market') as native:
+                self.assertEqual(serve(config, config_sha, output, control), 2)
+            native.assert_not_called()
+            failure = json.loads((output / 'failure.json').read_bytes())
+            self.assertEqual(failure, dict(schema='guanheng.source-market-failure.v1',
+                control_id=control, pid=os.getpid(), configuration_sha256=config_sha,
+                stage='configuration', exception_kind='ValueError', server_closed=False, native_closed=False))
+            self.assertFalse((output / 'ready.json').exists())
+            self.assertFalse((output / 'closed.json').exists())
+
     def test_changed_original_binding_keeps_identity_and_other_plans_continue(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);slot=root/'original.json';slot.write_bytes(encode(dict(request_id='fixed-test-UUID')))

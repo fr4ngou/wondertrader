@@ -74,7 +74,7 @@ def serve(configuration, expected_sha256, directory, control_id):
     created = server_closed = native_closed = False
     stop_deadline = None
     error = None
-    stage = 'configuration'
+    stage = 'control_directory'
 
     def publish(name, value):
         raw = json.dumps(value, ensure_ascii=True, sort_keys=True, allow_nan=False).encode('ascii')
@@ -85,12 +85,14 @@ def serve(configuration, expected_sha256, directory, control_id):
         os.rename(temporary, directory / name)
 
     try:
-        value, source = _configuration(configuration, expected_sha256)
-        # 凭据由原HTTP server合同校验，不写到控制收据或日志。
-        token = os.environ[value['token_env']]
-        stage = 'control_directory'
+        # 先取得本代私有控制目录，配置或凭据校验失败也能留下同身份收据。
         create_private_directory(directory)
         created = True
+        stage = 'configuration'
+        value, source = _configuration(configuration, expected_sha256)
+        stage = 'credential'
+        # 凭据由原HTTP server合同校验，不写到控制收据或日志。
+        token = os.environ[value['token_env']]
         stage = 'native_start'
         if source.get('mode') == 'source-preparing':
             from integrations.guanheng.source_history_preparation import SourcePreparingMarket
