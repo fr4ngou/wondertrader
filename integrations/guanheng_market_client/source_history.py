@@ -38,10 +38,10 @@ def validate_source_metadata(value, *, period="1m", selection=False):
     if selection:
         source = _object(value["source"], ("kind", "provider", "selection_id"))
         _enum(source["kind"], ("SourceSelection",))
-        _enum(source["provider"], ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI", "Mixed") if period == "1d" else ("Qmt", "BigQuant", "Mixed"))
+        _enum(source["provider"], ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI", "Mixed") if period == "1d" else ("Qmt",))
         _sha(source["selection_id"])
     else:
-        _source(value["source"], daily=period == "1d", external_minutes=period == "1m")
+        _source(value["source"], daily=period == "1d")
     _enum(value["qualification"], ("DevelopmentVerified",))
     _text(value["dataset_version"], limit=256)
     _text(value["source_license"], limit=1024)
@@ -75,8 +75,7 @@ def source_selection_metadata(bars, provenance):
     for key in ("minute_boundary", "price_unit", "volume_unit", "amount_unit"):
         values = {part["metadata"][key] for part in provenance}
         metadata[key] = next(iter(values)) if len(values) == 1 else "unknown"
-    providers = {part["metadata"]["source"]["provider"] for part in provenance}
-    metadata.update(source=dict(kind="SourceSelection", provider=next(iter(providers)) if len(providers) == 1 else "Mixed", selection_id=identity),
+    metadata.update(source=dict(kind="SourceSelection", provider="Qmt", selection_id=identity),
         dataset_version="source-selection.v1:" + identity, content_id=identity,
         source_license="source-selection.v1: original licenses in provenance")
     return metadata
@@ -275,7 +274,7 @@ def validate_source_data(value, request):
                 raise MarketProtocolError("source provenance is discontinuous")
             offset += _integer(part["count"], 1, request["limit"])
             validate_source_metadata(part["metadata"])
-            if part["metadata"]["source"]["provider"] not in ("Qmt", "BigQuant"):
+            if part["metadata"]["source"]["provider"] != "Qmt":
                 raise MarketProtocolError("source provenance provider differs")
         if offset != len(value["bars"]) or not value["provenance"] or value["metadata"] != source_selection_metadata(value["bars"], value["provenance"]):
             raise MarketProtocolError("source selection evidence differs")

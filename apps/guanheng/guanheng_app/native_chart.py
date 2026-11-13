@@ -315,7 +315,7 @@ def build_native_chart(
             if source_values and (row["high"] < max(row["open"], row["close"], row["low"])
                     or row["low"] > min(row["open"], row["close"], row["high"])):
                 return unavailable_native_chart(symbol, period,
-                    f"来源分钟{stamp.strftime('%Y-%m-%d %H:%M')}的四价范围不一致，原值已保留；标准K线图暂不绘制本次区间")
+                    f"QMT来源分钟{stamp.strftime('%Y-%m-%d %H:%M')}的四价范围不一致，原值已保留；标准K线图暂不绘制本次区间")
             # canonical 数值已归一化；source 数值保留来源单位，本层均不再换算。
             candles.append(MarketChartCandle(
                 occurred_at=(stamp if source_values else stamp - timedelta(minutes=minutes)).astimezone(timezone.utc),

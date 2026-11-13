@@ -131,7 +131,8 @@ class SourceHistoryMetadata:
     price_range_inconsistent_rows: int = 0  # 明确记录的OHLC异常行数，默认0。
 
     def __post_init__(self):
-        if (not isinstance(self.source, SourceSession) or self.source.provider not in (("Qmt", "BigQuant") if self.period == "1m" else ("Qmt", "BaoStock", "Tencent", "CSI", "CNI"))
+        if (not isinstance(self.source, SourceSession) or self.source.provider not in ("Qmt", "BaoStock", "Tencent", "CSI", "CNI")
+                or (self.source.provider != "Qmt" and self.period != "1d")
                 or self.qualification != "DevelopmentVerified" or self.period not in ("1m", "1d")
                 or self.value_semantics != "source"
                 or (self.period == "1m" and self.timestamp_semantics != "source_label")

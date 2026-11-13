@@ -50,7 +50,7 @@ class SourceSession:
     generation: int  # 原来源代际，非零uint64；不随查询次数递增。
 
     def __post_init__(self):
-        if self.provider not in ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI", "BigQuant"):
+        if self.provider not in ("Qmt", "Tdx", "BaoStock", "Tencent", "CSI", "CNI"):
             raise ValueError("未知行情来源")
         if any(not isinstance(v, str) or not v or len(v) > 128 for v in (self.instance_id, self.session_id)):
             raise ValueError("来源实例或会话不合格")

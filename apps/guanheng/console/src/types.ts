@@ -1230,8 +1230,8 @@ export interface MarketChartBenchmark {
 }
 
 export interface MarketChartNativeSource {
-  /** 原提供者；跨来源结果标识为 Mixed，具体分段身份由 SDK 核验。 */
-  provider: 'Qmt' | 'Tdx' | 'BaoStock' | 'Tencent' | 'CSI' | 'CNI' | 'BigQuant' | 'Mixed'
+  /** 原提供者；公开提供者与Mixed仅用于来源日线，具体分段身份由SDK核验。 */
+  provider: 'Qmt' | 'Tdx' | 'BaoStock' | 'Tencent' | 'CSI' | 'CNI' | 'Mixed'
   dataset_version: string
   content_id: string
   qualification: 'DevelopmentVerified' | 'NativeVerified' | 'ProductionQualified'
@@ -1281,7 +1281,7 @@ export interface MarketChartBundle {
   source_provenance?: Array<{
     offset: number; count: number; first_at: string; last_at: string
     metadata: {
-      source: { provider: 'Qmt' | 'BigQuant'; instance_id: string; session_id: string; generation: number }
+      source: { provider: 'Qmt'; instance_id: string; session_id: string; generation: number }
       qualification: 'DevelopmentVerified'; dataset_version: string; content_id: string
       source_license: string; adjustment: 'none'; factor_version: ''; timezone: 'Asia/Shanghai'
       minute_boundary: 'left' | 'right' | 'unknown'; value_semantics: 'source'; timestamp_semantics: 'source_label'
