@@ -22,7 +22,7 @@ from .qmt_minute_import import import_dataset,_Native
 from .source_market import NativeSourceMarket,create_native_source_market
 from .quote_collection_service import _inspect,_read
 from .source_history_transport import BoundHistorySource,SourcePending,require
-from .source_history_reads import HistoryReadOperations,retained_resume_state
+from .source_history_reads import HistoryReadOperations, READ_TICKET_ENDED, retained_resume_state
 from .source_history_selection import select_sources,SourceSelectionConflict
 from .source_history_repository import PreparedHistoryRepository,PreparedHistoryReader,PreparedHistoryBudget,recovery_preferences
 from . import source_history_followup as followup
@@ -393,7 +393,9 @@ class SourcePreparingMarket:
         if self.follow and self.closed_day_recovery and state['before'] is not None:
             active = self.source.binding(deadline)['binding']
             previous = (state['after'] or state['before'])['binding']
-            if active != previous:
+            interrupted = state['after'] or state['before']
+            ended = any(page.get('read_end') == READ_TICKET_ENDED for page in interrupted['pages'])
+            if active != previous or ended:
                 self._check_read_generation(previous, active)
                 if state['follow_up'] is None:
                     state['follow_up'] = followup.initial(self.follow, self.source.uptime.seconds(), self.wall_clock())
@@ -491,7 +493,9 @@ class SourcePreparingMarket:
             if previous != active:
                 self._check_read_generation(previous, active)
                 generation_changed = previous_capture is not None
-        new_capture=not reads or generation_changed or(reads[-1]['verified']and not frozen)
+        expired_capture = self.closed_day_recovery and reads and reads[-1]['capture'] is not None and any(
+            page.get('read_end') == READ_TICKET_ENDED for page in reads[-1]['capture']['pages'])
+        new_capture=not reads or generation_changed or expired_capture or(reads[-1]['verified']and not frozen)
         if new_capture:
             frozen = False
             followup.admit(tracking,self.follow,self.source.uptime.seconds(),self.wall_clock())

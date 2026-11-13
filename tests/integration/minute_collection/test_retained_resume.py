@@ -136,6 +136,30 @@ class RetainedResumeTests(unittest.TestCase):
         self.assertEqual(self.slot.read_bytes(),before);self.assertEqual(self.fixture.executions,1)
         self.assertTrue(all('/bound-operations/'not in path for _,path in self.fixture.calls))
 
+    def test_expired_unretained_minute_page_stops_lookup_and_keeps_original(self):
+        fixture = self.fixture
+        initial = fixture.transport.exchange
+
+        def exchange(method, path, body, deadline):
+            if path.endswith('/lookup'):
+                fixture.calls.append((method, path))
+                self.assertEqual(path.split('/')[-2], self.rid)
+                self.assertEqual(decode(body)['ticket'], self.record['ticket'])
+                return 410, {'error_code': 'read_ticket_ended_unretained'}
+            return initial(method, path, body, deadline)
+
+        fixture.transport.exchange = exchange
+        original = self.slot.read_bytes()
+        self.owner.resume_read_responsibility(time.monotonic()+2)
+        self.owner.resume_read_responsibility(time.monotonic()+2)
+        self.owner.resume_read_responsibility(time.monotonic()+2)
+        state = decode((self.directory/'receipt.json').read_bytes())
+        page = state['before']['pages'][0]
+        self.assertEqual(page['request']['request_id'], self.rid)
+        self.assertEqual(page['read_end'], 'read_ticket_ended_unretained')
+        self.assertEqual(self.slot.read_bytes(), original)
+        self.assertEqual([path.rsplit('/', 1)[-1] for _, path in fixture.calls], ['lookup'])
+
     def test_unattempted_slot_does_not_submit(self):
         value=decode(self.slot.read_bytes());value['attempted']=False;self.slot.write_bytes(canonical(value))
         result=self.owner.resume_read_responsibility(time.monotonic()+2)

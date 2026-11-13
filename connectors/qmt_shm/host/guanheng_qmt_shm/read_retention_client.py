@@ -18,6 +18,10 @@ class RetainedReadPending(RuntimeError):
     """原责任尚未确认；沿同一 slot/ID 继续查询，调用方保留发布旧值。"""
 
 
+class RetainedReadTicketEnded(RetainedReadPending):
+    """Host 已按原票据确认结果不可领取，原执行结果仍未知。"""
+
+
 class RetainedReadFailure(RuntimeError):
     """已保存明确受理拒绝或确定原终态失败；后续观察归业务 owner 决定。"""
 
@@ -272,6 +276,8 @@ class RetainedReadClient:
                         lookup = canonical(dict(schema=LOOKUP, ticket=record['ticket'],
                             request_body_b64=bound.b64(raw), request_body_sha256=bound.digest(raw)))
                         code, value = self.transport.exchange('POST', '/internal/v1/read-results/'+rid+'/lookup', lookup, deadline)
+                        if code == 410 and value.get('error_code') == 'read_ticket_ended_unretained':
+                            raise RetainedReadTicketEnded(value['error_code'])
                     while True:
                         if code not in (200, 202):
                             raise RetainedReadPending('read_original_request_unresolved')

@@ -200,7 +200,7 @@ class MinuteCollectionMaintenance:
             except (OSError, ValueError, KeyError, TypeError):
                 self.retained_read_resume = retained_resume_state('unavailable')
                 raise
-            if self.retained_read_resume['state'] in ('consumed', 'pending'):
+            if self.retained_read_resume['state'] in ('consumed', 'pending', 'ticket_ended'):
                 # 原终态由原client交接；下个管理步保留给原窗口队列，未知历史也不能长期独占。
                 self.prefer_retained_resume = False
                 self.next_step = self.clock() + self.c['interval_seconds']

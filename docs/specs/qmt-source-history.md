@@ -206,6 +206,8 @@ preparation可选新增follow_up，缺少时原行为保持；提供时必须精
 
 闭合日换代回查后仍缺数据时，如果窗口尚无下载计划，或者只有本地计划且原保留槽文件和Host ID均未生成，可以在当前已核绑定下执行第一次下载。沿原窗口与后续总截止，下载终态仍走原after全窗回读。原保留槽或Host ID一经产生即保留并按原身份处理。
 
+保留客户端按原票据查询得到明确的 `read_ticket_ended_unretained` 时，分钟读取 owner 保存原分页ID和结果无法领取的证明。闭合日全窗可在原节拍与原预算内创建独立的只读观察。原分页证据保留，未知下载继续按原ID核查；临时404和网络超时仍只续查原ID。
+
 跟踪时限使用持久Windows uptime毫秒；同时保存墙钟减uptime的锚，倒退、系统重启或墙钟跳变超过5秒时停止后续来源调用并明确Budget。恢复始终使用原deadline，固定运行次数与间隔；原生晚回不能授及时成功。已经完整核验并冻结的非空只读结果可在原本地导入责任下恢复发布，不产生新源请求；每次调用仍遵守原D。
 
 journal_records/journal_bytes声明该workspace需要的Host配置容量，不能代表动态空余额或自动预约。最坏任务记录数为max_windows*(1+(2+max_attempts)*max_pages)，字节下界按每条(bound max_request_bytes + max_result_bytes +16384)计算；首次原HPR准入前及后续绑定变更时核本声明足够，实际Host同配置及共享占用由部署独立核验，Host原背压保持。原配置不自动扩容/删除Journal。

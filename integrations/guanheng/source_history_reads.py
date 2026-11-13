@@ -7,10 +7,13 @@ from uuid import uuid4
 from .source_history_transport import SourcePending, require
 
 
+READ_TICKET_ENDED = 'read_ticket_ended_unretained'
+
+
 def retained_resume_state(state, request_id=None, scanned_windows=0):
     """原读取责任接续的有界观察；业务成功及分钟完整性仍由原窗口持有。"""
     return dict(
-        state=state,  # not_scanned/scanning/idle/pending/consumed/unavailable，仅描述消费交接进度。
+        state=state,  # ticket_ended 表示原只读结果已不可领取，其余值描述原消费交接进度。
         request_id=request_id,  # 正在续核的原Host请求ID；无原请求时为None，不生成新ID。
         scanned_windows=scanned_windows)  # 本次管理步已检查的窗口数，不是全库总数。
 
@@ -62,12 +65,16 @@ class HistoryReadOperations:
         """无论成功或Pending均将原slot身份同步回窗口；重启续核同一原请求。"""
         if self.client is None:
             return self.transport.observe(record, save, deadline)
-        from guanheng_qmt_shm.read_retention_client import RetainedReadPending, RetainedReadFailure
+        from guanheng_qmt_shm.read_retention_client import (
+            RetainedReadPending, RetainedReadFailure, RetainedReadTicketEnded)
         slot = Path(record['retained_slot'])
         self._directory(slot.parent.parent)
         require(slot.parent.name == 'retained-reads' and re.fullmatch(r'[0-9a-f]{32}\.json', slot.name) is not None)
         operation, arguments = record['request']['operation_id'], record['request']['arguments']
         require(operation in ('market.history_1m', 'market.history_prepare'))
+        read_end = record.get('read_end')
+        if read_end == READ_TICKET_ENDED:
+            raise SourcePending(read_end)
         if record.get('consumed') is True:
             from guanheng_qmt_shm.read_retention_client import inspect_saved_result
             # 原窗口已经保存完整响应；成功页复用相同严格校验，避免分页恢复反复读旧slot。
@@ -77,6 +84,10 @@ class HistoryReadOperations:
         try:
             result = self.client.read(operation, arguments, slot, deadline=deadline, expected_binding=record['binding'])
             return result['reply']
+        except RetainedReadTicketEnded as error:
+            if operation == 'market.history_1m':
+                read_end = READ_TICKET_ENDED
+            raise SourcePending(READ_TICKET_ENDED) from error
         except RetainedReadPending as error:
             raise SourcePending('retained original history observation pending') from error
         except RetainedReadFailure as error:
@@ -90,11 +101,13 @@ class HistoryReadOperations:
                 location = record['retained_slot']
                 record.clear()
                 record.update(original, retained_slot=location)
+                if read_end is not None:
+                    record['read_end'] = read_end
                 save()
 
     def resume_existing(self, record, save, deadline):
         """只交接已派发的原slot；从不创建slot或提交bound-operation。"""
-        if self.client is None or record.get('retained_slot') is None:
+        if self.client is None or record.get('retained_slot') is None or record.get('read_end') == READ_TICKET_ENDED:
             return None
         slot = Path(record['retained_slot'])
         self._directory(slot.parent.parent)
@@ -115,6 +128,8 @@ class HistoryReadOperations:
         try:
             self.observe(record, save, deadline)
         except (SourcePending, ValueError):
+            if record.get('read_end') == READ_TICKET_ENDED:
+                return retained_resume_state('ticket_ended', original['request']['request_id'])
             if record.get('consumed') is not True:
                 raise
             # 业务失败/未知也已完整交接，原窗口语义由原调用链继续判断。

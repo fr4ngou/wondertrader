@@ -30,6 +30,7 @@ class SourceFixture:
         self.rows = []  # 当前来源可读原值，按Source毫秒时间排序。
         self.download_rows = None  # 配置时模拟下载把完整分钟写入来源缓存。
         self.pending_once = False  # 下一次新读取在保存身份后返回未知。
+        self.expired_read_id = None  # Host 明确回复已到期且无可领取结果的原分页。
         self.hold_pending = True  # 故障窗口持续至业务对象重建，期间只核原请求。
         self.pending_ids = []  # 已发生未知结果的原读取UUID，供恢复核验。
         self.observed_ids = []  # 每次观察使用的原读取UUID。
@@ -71,6 +72,10 @@ class ReadFixture:
     def observe(self, record, save, deadline):
         source = self.source
         rid = record['request']['request_id']; source.observed_ids.append(rid)
+        if rid is not None and rid == source.expired_read_id:
+            record['read_end'] = preparation.READ_TICKET_ENDED
+            save()
+            raise preparation.SourcePending(preparation.READ_TICKET_ENDED)
         if record['result'] is not None:
             return record['result']
         if rid in source.pending_ids and source.hold_pending:
@@ -261,6 +266,15 @@ class NativePartialRecoveryTests(unittest.TestCase):
                         pending_id = source.pending_ids[-1]
                         self.assertEqual(waiting['follow_up']['runs'], 1)
                         self.assertFalse(waiting['follow_up']['reads'][-1]['verified'])
+                        # 对同一未决页先查原ID；只有已知不可领取，下一轮才可独立观测。
+                        if initial_count == 200:
+                            source.expired_read_id = pending_id
+                            market.call(request)
+                            _, _, ended = market._state(query)
+                            ended_page = ended['follow_up']['reads'][-1]['capture']['pages'][0]
+                            self.assertEqual(ended_page['read_end'], preparation.READ_TICKET_ENDED)
+                            self.assertEqual(ended_page['request']['request_id'], pending_id)
+                            source.now += 61
                         market.close(); source.hold_pending = False; market = open_market()
                         result = market.call(request)
                         _, _, final = market._state(query)
@@ -272,9 +286,14 @@ class NativePartialRecoveryTests(unittest.TestCase):
                         self.assertIn('reconciled_day', final['published'])
                         self.assertEqual(final['prepare']['request']['request_id'], original_prepare)
                         self.assertEqual(source.prepares, 1)
-                        self.assertEqual(final['follow_up']['runs'], 1)
+                        self.assertEqual(final['follow_up']['runs'], 2 if initial_count == 200 else 1)
                         self.assertGreaterEqual(source.observed_ids.count(pending_id), 2)
-                        self.assertEqual(final['follow_up']['reads'][-1]['capture']['pages'][0]['request']['request_id'], pending_id)
+                        recovered_id = final['follow_up']['reads'][-1]['capture']['pages'][0]['request']['request_id']
+                        if initial_count == 200:
+                            self.assertNotEqual(recovered_id, pending_id)
+                            self.assertEqual(final['follow_up']['reads'][0]['capture']['pages'][0], ended_page)
+                        else:
+                            self.assertEqual(recovered_id, pending_id)
                     finally:
                         market.close()
 
