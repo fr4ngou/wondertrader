@@ -1,5 +1,7 @@
 # 发布记录
 
+- [WT 分账索引与同账恢复验收](2026-11-13-wt-ledger-replay-and-stability.md) · 正式入口禁单演练、D 盘原账接续、延时与待验事项。
+
 - [WT 双策略自然调度恢复](2026-11-13-wt-strategy-natural-recovery.md) · 日线访问、分账和自然调度的发布及核验。
 
 - [WT 分账启动恢复与故障日志发布](2026-11-13-wt-attribution-recovery.md) · 原账户接续，交易和独立行情采集恢复，补齐启动及异常证据。
