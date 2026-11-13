@@ -642,7 +642,7 @@
       "source": "integrations/guanheng/source_market.py"
     },
     "integrations/guanheng/source_market_service.py": {
-      "sha256": "702ba2ed9b9f66ecad2137d8f614da65f0c6f0339bded095386268839fa8d801",
+      "sha256": "db9c09c6076d778d8c03533144e50b264b5bb48a0c9a92258961f5818659d772",
       "source": "integrations/guanheng/source_market_service.py"
     },
     "integrations/guanheng/source_reference_capture.py": {
@@ -766,5 +766,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.34"
+  "version": "0.2.0a1+unified.36"
 }
