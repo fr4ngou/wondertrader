@@ -49,6 +49,15 @@ class HistoryReadOperations:
         from guanheng_qmt_shm.read_retention_client import inspect_saved_result
         return inspect_saved_result(record)
 
+    def can_replace_local_plan(self, record):
+        """原保留槽生成后拥有固定请求身份，窗口中的尚未同步投影不能覆盖它。"""
+        if self.client is None or record['attempted'] or record['request']['request_id'] is not None:
+            return False
+        slot = Path(record['retained_slot'])
+        self._directory(slot.parent.parent)
+        require(slot.parent.name == 'retained-reads' and re.fullmatch(r'[0-9a-f]{32}\.json', slot.name) is not None)
+        return not slot.exists()
+
     def observe(self, record, save, deadline):
         """无论成功或Pending均将原slot身份同步回窗口；重启续核同一原请求。"""
         if self.client is None:

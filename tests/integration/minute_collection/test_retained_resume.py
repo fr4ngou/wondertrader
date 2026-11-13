@@ -176,7 +176,7 @@ class RetainedResumeTests(unittest.TestCase):
             self.assertIs(record, preparation)
             return dict(ok=False, error_code='preparation_unknown') if record['consumed'] else None
 
-        def read(state, phase, directory, symbol, start, end, deadline):
+        def read(state, phase, directory, symbol, start, end, deadline, *, expected_binding=None):
             if phase == 'before':
                 return [], None
             readbacks.append((phase, symbol))

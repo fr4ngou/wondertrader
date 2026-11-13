@@ -250,6 +250,8 @@ class SourcePreparingMarket:
                 pages.append(self.reads.plan('market.history_1m',arguments,metadata,deadline,directory))
                 cursor=last+timedelta(minutes=1)
             holder[phase]=dict(binding=metadata['binding'],pages=pages);save()
+        if expected_binding is not None and holder[phase]['binding']!=expected_binding:
+            raise SourcePending('source changed before readback resumed')
         pages=holder[phase]['pages']
         require(type(pages)is list and 1<=len(pages)<=self.c['max_pages'])
         if self.follow:self._capacity(pages[0]['limits'],len(pages))
@@ -383,6 +385,9 @@ class SourcePreparingMarket:
         if state['published']is not None and(not self.closed_day_recovery or state['published'].get('reconciled_day')is not None):return state
         if state['empty']or state['published']is not None:
             if self.follow:
+                if self.closed_day_recovery and self._prepare_after_reconnect(
+                        state, directory, symbol, start, end, deadline):
+                    return state
                 self._continue_readback(state, directory, symbol, start, end, deadline)
             return state
         if self.follow and self.closed_day_recovery and state['before'] is not None:
@@ -408,21 +413,55 @@ class SourcePreparingMarket:
                 state['prepare']=self.reads.plan('market.history_prepare',self.source.prepare_arguments(symbol,
                     start.strftime('%Y%m%d%H%M00'),end.strftime('%Y%m%d%H%M00'),metadata,deadline),metadata,deadline,directory)
                 self._save(directory,state)
-            planned=state['prepare']['request']
-            require(planned['operation_id']=='market.history_prepare'and planned['arguments']['symbol']==symbol
-                and planned['arguments']['period']=='1m'and planned['arguments']['start_time']==start.strftime('%Y%m%d%H%M00')
-                and planned['arguments']['end_time']==end.strftime('%Y%m%d%H%M00'))
-            try:
-                prepared=self.reads.observe(state['prepare'],lambda:self._save(directory,state),deadline)
-            except SourcePending:
-                # 保留客户端把已交接的下载结果未知也报告为Pending；原终态允许继续只读回查。
-                prepared=self.reads.saved_reply(state['prepare'])
-                if prepared is None or prepared.get('error_code')!='preparation_unknown':
-                    raise
-            require(prepared['ok']is True or prepared.get('error_code')=='preparation_unknown')
-            rows,binding=self._reads(state,'after',directory,symbol,start,end,deadline)
+            rows,binding=self._read_after_prepare(state,directory,symbol,start,end,deadline)
         self._publish(state,directory,symbol,rows,binding,deadline)
         return state
+
+    def _read_after_prepare(self, state, directory, symbol, start, end, deadline, *, binding=None):
+        planned=state['prepare']['request']
+        require(planned['operation_id']=='market.history_prepare'and planned['arguments']['symbol']==symbol
+            and planned['arguments']['period']=='1m'and planned['arguments']['start_time']==start.strftime('%Y%m%d%H%M00')
+            and planned['arguments']['end_time']==end.strftime('%Y%m%d%H%M00'))
+        try:
+            prepared=self.reads.observe(state['prepare'],lambda:self._save(directory,state),deadline)
+        except SourcePending:
+            # 原未知终态已完整交接时，后续缓存读取仍可独立推进。
+            prepared=self.reads.saved_reply(state['prepare'])
+            if prepared is None or prepared.get('error_code')!='preparation_unknown':
+                raise
+        require(prepared['ok']is True or prepared.get('error_code')=='preparation_unknown')
+        return self._reads(state,'after',directory,symbol,start,end,deadline,expected_binding=binding)
+
+    def _prepare_after_reconnect(self, state, directory, symbol, start, end, deadline):
+        # 只有已验证的换代回查仍有缺口，且首次下载尚未生成身份时，才在当前代准入。
+        tracking=state['follow_up']; reads=tracking['reads']
+        if not self.c.get('retained_reads',False) or not reads or not reads[-1]['verified'] or reads[-1]['complete']:
+            return False
+        capture=reads[-1]['capture']
+        original=state['before']['binding']
+        binding=capture['binding']
+        if binding==original or state['after'] is not None:
+            return False
+        prepare=state['prepare']
+        replace=prepare is None or self.reads.can_replace_local_plan(prepare)
+        if not replace and prepare['binding']!=binding:
+            return False
+        metadata=self.source.binding(deadline)
+        if metadata['binding']!=binding:
+            return False
+        self._check_read_generation(original,binding)
+        if replace:
+            self._capacity(metadata['limits'],len(capture['pages']))
+            start_text=start.strftime('%Y%m%d%H%M00');end_text=end.strftime('%Y%m%d%H%M00')
+            remaining=tracking['deadline_ms']/1000-self.source.uptime.seconds()
+            if tracking['stopped_reason'] is not None or remaining<=0:
+                return False
+            arguments=self.source.prepare_arguments(symbol,start_text,end_text,metadata,min(deadline,self.clock()+remaining))
+            state['prepare']=self.reads.plan('market.history_prepare',arguments,metadata,deadline,directory)
+            self._save(directory,state)
+        rows,binding=self._read_after_prepare(state,directory,symbol,start,end,deadline,binding=binding)
+        self._publish(state,directory,symbol,rows,binding,deadline)
+        return True
 
     @staticmethod
     def _check_read_generation(previous, active):

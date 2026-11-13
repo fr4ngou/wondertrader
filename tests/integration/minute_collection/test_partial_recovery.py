@@ -28,6 +28,7 @@ class SourceFixture:
         self.now = 1000.  # 本机启动秒；重建业务对象继续使用同一时钟。
         self.uptime = self
         self.rows = []  # 当前来源可读原值，按Source毫秒时间排序。
+        self.download_rows = None  # 配置时模拟下载把完整分钟写入来源缓存。
         self.pending_once = False  # 下一次新读取在保存身份后返回未知。
         self.hold_pending = True  # 故障窗口持续至业务对象重建，期间只核原请求。
         self.pending_ids = []  # 已发生未知结果的原读取UUID，供恢复核验。
@@ -64,6 +65,9 @@ class ReadFixture:
     def saved_reply(self, record):
         return record['result']
 
+    def can_replace_local_plan(self, record):
+        return not record['attempted'] and record['request']['request_id'] is None
+
     def observe(self, record, save, deadline):
         source = self.source
         rid = record['request']['request_id']; source.observed_ids.append(rid)
@@ -77,8 +81,12 @@ class ReadFixture:
                 source.pending_once = False; source.pending_ids.append(rid)
                 raise preparation.SourcePending('fixture original read outcome unknown')
         request = record['request']
+        if rid is None:
+            request['request_id'] = str(uuid4())
         if request['operation_id'] == 'market.history_prepare':
             source.prepares += 1
+            if source.download_rows is not None:
+                source.rows = source.download_rows
             result = dict(ok=True, data={})
         else:
             args = request['arguments']
@@ -92,6 +100,58 @@ class ReadFixture:
 
 @unittest.skipUnless(os.environ.get('MCC_NATIVE_FIXTURE'), 'requires explicit fixed native fixture')
 class NativePartialRecoveryTests(unittest.TestCase):
+    def test_reconnect_with_unsubmitted_download_fills_remaining_gap_once(self):
+        parent = Path('E:/workspace/wondertrader-qa/minute-collection-regressions')
+        parent.mkdir(parents=True, exist_ok=True)
+        configuration = json.loads(Path(os.environ['MCC_NATIVE_FIXTURE']).read_bytes())
+        source = SourceFixture()
+        with tempfile.TemporaryDirectory(dir=parent) as root:
+            c = configuration['preparation']
+            c.update(workspace=str(Path(root) / 'recovery'), retained_reads=True,
+                     follow_up=dict(enabled=True, max_attempts=15, interval_seconds=60, total_seconds=86400,
+                                    rpc_timeout_seconds=10, journal_records=1024, journal_bytes=1073741824))
+            with patch.object(preparation, 'BoundHistorySource', lambda *a, **k: source), \
+                    patch.object(preparation, 'HistoryReadOperations', ReadFixture):
+                market = preparation.SourcePreparingMarket(configuration,
+                    wall_clock=lambda: 1700000000 + source.now)
+                try:
+                    grid = market.base.expected_minutes('SSE.510300', '2026-11-03')
+                    complete = [dict(time=int(preparation.stamp(m).timestamp() * 1000),
+                                     open=4., high=4., low=4., close=4., volume=100., amount=400.) for m in grid]
+                    query = dict(exchange='SSE', code='510300', **{'from': grid[0], 'to': grid[-1]}, limit=len(grid))
+                    request = dict(api_version=API_VERSION, action='history.source-query', request=query)
+                    source.rows = complete[:-2] + complete[-1:]
+                    original_observe = market.reads.observe
+
+                    def interrupted_before_submission(record, save, deadline):
+                        if record['request']['operation_id'] == 'market.history_prepare':
+                            record['request']['request_id'] = None
+                            save()
+                            raise preparation.SourcePending('fixture disconnect before download admission')
+                        return original_observe(record, save, deadline)
+
+                    with patch.object(market.reads, 'observe', side_effect=interrupted_before_submission):
+                        market.call(request)
+                    _, _, waiting = market._state(query)
+                    self.assertFalse(waiting['prepare']['attempted'])
+                    source.now += 61
+                    source.metadata['binding']['host_instance_id'] = 'replacement'
+                    market.call(request)
+                    _, _, partial = market._state(query)
+                    self.assertEqual(partial['published']['count'], 239)
+                    self.assertEqual(source.prepares, 0)
+                    source.download_rows = complete
+                    result = market.call(request)
+                    _, _, final = market._state(query)
+                    self.assertEqual([row['minute'] for row in result['data']['bars']], grid)
+                    self.assertEqual(final['follow_up']['deadline_ms'], waiting['follow_up']['deadline_ms'])
+                    self.assertEqual(final['before'], waiting['before'])
+                    self.assertEqual(final['prepare']['binding'], source.metadata['binding'])
+                    market.call(request)
+                    self.assertEqual(source.prepares, 1)
+                finally:
+                    market.close()
+
     def test_new_authenticated_generation_reads_complete_day_without_downloading_again(self):
         parent = Path('E:/workspace/wondertrader-qa/minute-collection-regressions')
         parent.mkdir(parents=True, exist_ok=True)
