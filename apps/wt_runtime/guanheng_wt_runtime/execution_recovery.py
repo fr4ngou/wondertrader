@@ -645,10 +645,27 @@ def strategy_state_mode(native, strategy_id, *, deadline=float('inf')):
     _require(mode=='resume_reconciled')
     transition,unused=load_transition(native,deadline=deadline)
     origin=state_origin_configuration(native,deadline=deadline)
-    present=any(row['id']==strategy_id for row in origin['strategies'])
-    names=('stradata/'+strategy_id+'.json','userdata/ud_'+strategy_id+'.json')
-    if present:
-        _require(names[0]in transition['state_files'])
+    prior = next((row for row in origin['strategies'] if row['id'] == strategy_id), None)
+    names = (f'stradata/{strategy_id}.json', f'userdata/ud_{strategy_id}.json')
+    files = transition['state_files']
+    if prior is not None:
+        if names[0] not in files:
+            profile = prior['parameters']['python_strategy']['schema']
+            if profile != 'guanheng.original-live-cta.v1' or names[1] not in files:
+                raise ValueError('recovery_missing_strategy_state')
+            raw = _read(Path(origin['output_directory']) / names[1], 4 * 1024 * 1024,
+                        clock=time.monotonic, deadline=deadline)
+            if hashlib.sha256(raw).hexdigest() != files[names[1]]:
+                raise ValueError('recovery_strategy_userdata_digest')
+            state = _json(_json(raw)['guanheng.quantity.state.v1'].encode('ascii'))
+            empty = {'sequence': 0, 'plan': None, 'buys': [], 'sells': [], 'last_date': None,
+                     'last_source': None, 'consumed_sha': None, 'consumed_codes': {},
+                     'intent_known_at': None, 'intent_prices': {}}
+            if (state.get('schema') != 'guanheng.original-live-intent.v1'
+                    or type(state.get('sequence')) is not int
+                    or any(key not in state or state[key] != value for key, value in empty.items())
+                    or state.get('atr_protection', {}) != {}):
+                raise ValueError('recovery_strategy_targets_required')
         return 'resume'
     added = _extension_row(native, deadline=deadline)
     _require(added is not None and strategy_id == added['id']

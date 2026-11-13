@@ -1063,8 +1063,25 @@ def main():
     if shared_profiles(native):
         from .account_attribution import create_runtime_attribution
         allocation, attribution = create_runtime_attribution(native,config,args.control,args.control_id,deadline=args.deadline)
-    strategies = build_strategies(native,publish,config,deadline=args.deadline,code_identity=code_identity,
-                                 retained_factory=RetainedStrategy,allocation=allocation)
+    try:
+        strategies = build_strategies(native,publish,config,deadline=args.deadline,code_identity=code_identity,
+                                     retained_factory=RetainedStrategy,allocation=allocation)
+    except Exception as error:
+        import traceback
+        frames = traceback.extract_tb(error.__traceback__)[-12:]
+        try:
+            with (args.control / 'strategy-start-failure.json').open('xb') as stream:
+                stream.write(_encode(dict(
+                    schema='guanheng.strategy-start-failure.v1',  # 私有诊断，不携配置或金融正文。
+                    stage='build_strategies',  # 策略装配阶段，Native 尚未运行。
+                    exception_type=type(error).__name__,  # 只记录异常类型。
+                    check=getattr(error, 'recovery_check', None),  # 固定恢复检查分类。
+                    strategy_id=getattr(error, 'strategy_id', None),  # 已登记策略实例。
+                    frames=[dict(file=Path(row.filename).name,function=row.name,line=row.lineno) for row in frames],
+                )))
+        except OSError:
+            pass  # 诊断写入异常时保留原装配失败。
+        raise
     # -S准入后，关键纯核与NSQ实际导入路径仍逐项属于同一次绑定源码。
     for name, module in tuple(sys.modules.items()):
         if name.split('.')[0] in _python_packages(native):

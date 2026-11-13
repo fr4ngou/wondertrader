@@ -93,7 +93,7 @@ EFR-21a：同一 `ParserQMTHostRetainedV6` 仅迁移本机 HTTP 端口时，兼�
 
 ## EFR-22 单账新增原版ctx
 
-显式策略扩展材料、固定新增行与比较边界见[OLS-6](original-live-strategy.md#ols-6-显式单账策略扩展材料)。恢复准入保留所有原金融文件SHA和原命令责任；首轮只要求原状态owner的ctx文件，并拒绝新增ctx已有stradata或userdata。后继正常关闭及clean恢复仍要求完整两ctx文件。新增依赖仅在显式扩展已核合同时接纳原版纯策略和行情SDK的安装文件，原Core、解释器和既有包约束继续保持。
+显式策略扩展材料、固定新增行与比较边界见[OLS-6](original-live-strategy.md#ols-6-显式单账策略扩展材料)。恢复准入保留所有原金融文件SHA和原命令责任；首轮只要求原状态owner的ctx文件，并拒绝新增ctx已有stradata或userdata。后继关闭及恢复核原金融文件完整摘要。已初始化的原版 profile 在首次调度前可以只有已绑定的初始 userdata，且序号为零、无信号消费和目标意图。此时允许缺省 stradata，仍恢复原策略状态和原归属账。其他已运行策略继续要求原目标文件。新增依赖仅在显式扩展已核合同时接纳原版纯策略和行情SDK的安装文件，原Core、解释器和既有包约束继续保持。
 
 ## 分析发布目录接续
 

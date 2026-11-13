@@ -137,6 +137,27 @@ def test_only_explicit_additional_python_packages(tmp_path):
     new['files'][0]=(new['files'][0][0],'d'*64)
     with pytest.raises(ValueError):recovery._compatible_python(old,new,strategy_upgrade=True,strategy_extension=True)
 
+@pytest.mark.parametrize('case', ['pristine', 'consumed', 'wrong_digest', 'missing'])
+def test_initialized_original_without_native_targets(tmp_path, monkeypatch, case):
+    _, current = fixture(tmp_path)
+    output = Path(current['output_directory'])
+    relative = f'userdata/ud_{NEW}.json'
+    state = dict(schema='guanheng.original-live-intent.v1', sequence=0, plan=None,
+                 buys=[], sells=[], last_date=None, last_source=None, consumed_sha=None,
+                 consumed_codes={}, intent_known_at=None, intent_prices={}, atr_protection={})
+    if case == 'consumed':
+        state['sequence'] = 1
+    reference = put(output / relative, {'guanheng.quantity.state.v1': json.dumps(state)})
+    files = {} if case == 'missing' else {relative: reference['sha256'] if case != 'wrong_digest' else 'f'*64}
+    monkeypatch.setattr(recovery, 'load_transition', lambda *a, **k: ({'state_files': files}, 'a'*64))
+    monkeypatch.setattr(recovery, 'state_origin_configuration', lambda *a, **k: current)
+    if case == 'pristine':
+        assert recovery.strategy_state_mode(current, NEW) == 'resume'
+    else:
+        with pytest.raises(ValueError, match='recovery_(missing_strategy_state|strategy_userdata_digest|strategy_targets_required)'):
+            recovery.strategy_state_mode(current, NEW)
+
+
 def test_mode_uses_verified_owner_not_new_config(monkeypatch,tmp_path):
     old,current=fixture(tmp_path);transition=dict(state_files={'stradata/'+OLD+'.json':'f'*64})
     monkeypatch.setattr(recovery,'load_transition',lambda *a,**k:(transition,'a'*64))

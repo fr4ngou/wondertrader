@@ -280,7 +280,27 @@ rj::Document state_identity(const fs::path& output,const rj::Value& strategies){
         }
     }
     need(files.count("portfolio/datas.json"));
-    for(const auto& strategy:strategies.GetArray())need(files.count("stradata/"+text(strategy,"id",63)+".json"));
+    for(const auto& strategy:strategies.GetArray()){
+        const auto id=text(strategy,"id",63);
+        if(files.count("stradata/"+id+".json"))continue;
+        // 首次调度前，原版 profile 只保存初始意图状态，原框架尚无目标文件。
+        const auto& params=member(member(strategy,"parameters"),"python_strategy");
+        need(text(params,"schema")=="guanheng.original-live-cta.v1");
+        const auto key="userdata/ud_"+id+".json";
+        const auto raw=read(output/fs::u8path(key),4*1024*1024);
+        need(files.count(key)&&files.at(key)==sha(raw));
+        const auto state=parse(text(parse(raw),"guanheng.quantity.state.v1",32768));
+        need(text(state,"schema")=="guanheng.original-live-intent.v1"&&number(state,"sequence",0,0)==0);
+        for(const auto* field:{"plan","last_date","last_source","consumed_sha","intent_known_at"})
+            need(member(state,field).IsNull());
+        for(const auto* field:{"buys","sells"}){const auto& value=member(state,field);need(value.IsArray()&&value.Empty());}
+        for(const auto* field:{"consumed_codes","intent_prices"}){
+            const auto& value=member(state,field);need(value.IsObject()&&value.MemberCount()==0);
+        }
+        if(state.HasMember("atr_protection")){
+            const auto& value=member(state,"atr_protection");need(value.IsObject()&&value.MemberCount()==0);
+        }
+    }
     for(const auto& item:files)result.AddMember(rj::Value(item.first.c_str(),a),rj::Value(item.second.c_str(),a),a);
     return result;
 }

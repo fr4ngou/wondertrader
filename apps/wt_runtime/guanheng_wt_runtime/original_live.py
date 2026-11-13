@@ -79,7 +79,16 @@ class OriginalLiveStrategy:
         self.execution_enabled=native['trader']['writes_enabled'];_need(type(self.execution_enabled)is bool,'execution_permission')
         self.identity=digest((self.id,self.version,{k:v for k,v in p.items() if k!='state_mode'},code_identity));self.initialized=False;self.sequence=0
         from .execution_recovery import strategy_state_mode
-        self.state_mode=strategy_state_mode(native,self.id,deadline=deadline) or p['state_mode']  # 已核原状态owner决定恢复模式；固定new配置不重置后继ctx。
+        try:
+            self.state_mode = strategy_state_mode(native, self.id, deadline=deadline) or p['state_mode']
+        except Exception as error:
+            error.strategy_id = self.id  # 来源为已校验的当前策略声明。
+            code = str(error)
+            error.recovery_check = code if code in (
+                'recovery_missing_strategy_state', 'recovery_strategy_userdata_digest',
+                'recovery_strategy_targets_required',
+            ) else 'recovery_strategy_state_unavailable'
+            raise
         self.previous_identity=None
         if self.state_mode=='resume' and getattr(configuration,'recovery_mode',None)=='resume_reconciled':
             from .execution_recovery import load_transition,state_origin_configuration
