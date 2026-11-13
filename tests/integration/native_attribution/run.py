@@ -8,7 +8,12 @@ from run_funds_host import FundsFixture
 from event_query_fixture import _Child,_FixtureOwners,decode,canonical,write_new,uptime_ms
 class Fixture(FundsFixture):
  def __init__(self,directory,deadline,mode):
-  super().__init__(directory,deadline,'positive');self.mode=mode;self.proof=directory/'prepared-before-submit.json';self.event_count=2 if mode=='event' else 0
+  super().__init__(directory,deadline,'sellable-200' if mode=='sell-event' else 'positive');self.mode=mode;self.proof=directory/'prepared-before-submit.json';self.event_count=2 if mode in ('event','sell-event') else 0
+ def row(self,kind,token):
+  value=super().row(kind,token)
+  if self.mode=='sell-event':
+   value['m_nOffsetFlag']=49
+  return value
  def insert(self,*values):
   assert threading.get_ident()==self.owner_thread and not self.sdk and values[3]=='000001.SZ'
   assert values[5]==10.01 and values[6]==(200 if self.mode=='legacy' else 100)
@@ -16,9 +21,14 @@ class Fixture(FundsFixture):
    proof=decode(self.proof.read_bytes());assert proof['quantity']==values[6] and proof['limit_price_cny']=='10.01'
    assert len(proof['command_id'])==36 and len(proof['command_sha256'])==64
   self.tokens.append(values[9]);self.sdk.append({'operation':'insert','args':list(values[:-1]),'uptime_ms':uptime_ms(),'prepared_proof_checked_before_sdk':self.mode!='legacy'})
-  if self.mode=='event':
+  if self.mode in ('event','sell-event'):
+   assert values[0]==(24 if self.mode=='sell-event' else 23)
    self.emit('order',self.row('order',values[9]));self.emit('deal',self.row('deal',values[9]))
  def detail(self,account,account_type,datatype):
+  if self.mode=='sell-event' and datatype=='deal' and not self.tokens:
+   row=super().row('deal','')
+   row.update(m_strOrderSysID='historical.1',m_strTradeID='historical.deal.1')
+   return [row]
   if self.tokens and datatype in ('order','deal'):
    self.queries.append({'datatype':datatype,'thread':threading.get_ident()})
    return [self.row(datatype,self.tokens[0])]
@@ -26,7 +36,7 @@ class Fixture(FundsFixture):
 def main():
  p=argparse.ArgumentParser();
  for name in ('exe','dll','factory','output'):p.add_argument('--'+name,type=Path,required=True)
- p.add_argument('--mode',choices=('allow','deny','wait','invalid','legacy','event','missing'),required=True);args=p.parse_args()
+ p.add_argument('--mode',choices=('allow','deny','wait','invalid','legacy','event','sell-event','missing'),required=True);args=p.parse_args()
  args.output.mkdir();(args.output/'owners').mkdir();end=uptime_ms()+55000;fixture=Fixture(args.output,end,args.mode);owners=_FixtureOwners();report=None
  def persist():
   write_new(args.output/'fixture.json',fixture.facts(),end)
@@ -39,8 +49,8 @@ def main():
   fixture.pump_until(lambda:fixture.child.job.poll() is not None and fixture.child.job.active_processes()==0);fixture.child.close()
   if (args.output/'native-result.json').is_file():report=decode((args.output/'native-result.json').read_bytes())
   assert fixture.child.exit_code==0 and report and report['passed'],{'exit':fixture.child.exit_code,'native':report}
-  assert len(fixture.sdk)==(1 if args.mode in ('allow','legacy','event') else 0)
-  if args.mode in ('allow','event'):
+  assert len(fixture.sdk)==(1 if args.mode in ('allow','legacy','event','sell-event') else 0)
+  if args.mode in ('allow','event','sell-event'):
    events=report['events'];prepared=next(e['data'] for e in events if e['kind']==7)
    fills=[e['data'] for e in events if e['kind']==8]
    query_fills=[json.loads(row) for e in events if e['kind']==12 and e['data']['kind']==8
@@ -48,6 +58,10 @@ def main():
    assert query_fills if args.mode=='allow' else fills
    fill=(query_fills if args.mode=='allow' else fills)[0]
    assert fill['command_id']==prepared['command_id'] and fill['user_tag']==prepared['user_tag'] and fill['quantity']==20
+   if args.mode=='sell-event':
+    same_trade=next(row for row in query_fills if row['trade_id']==fill['trade_id'])
+    keys=('trade_id','command_id','symbol','side','quantity','price_cny','amount_cny','trading_date','trade_time')
+    assert fill['side']=='sell' and all(fill[key]==same_trade[key] for key in keys)
   assert fixture.first.facts() is None and fixture.proxy.first.facts() is None
  assert not owners.failures and fixture.child.reaped and not fixture.child.forced
  assert fixture.host._closed_complete and fixture.host._io_resources_closed and fixture.agent._io_resources_closed and fixture.server_joined and fixture.proxy.joined

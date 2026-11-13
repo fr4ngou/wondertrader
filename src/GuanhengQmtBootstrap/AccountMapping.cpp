@@ -253,7 +253,9 @@ static AccountBatch map_account_rows_impl(unsigned stage,const rapidjson::Value&
    }else{
     for(auto k:(stage==1?std::vector<const char*>(std::begin(order_fields),std::end(order_fields)):std::vector<const char*>(std::begin(trade_fields),std::end(trade_fields))))if(k!=money)fact(facts,row,k,a,k!=code&&k!=exchange&&k!=account&&k!=money&&k!=order&&k!=trade&&k!=insert_date&&k!=insert_time&&k!=trade_date&&k!=trade_time);
     const auto& decoded_facts=decoded.facts;
-    std::string oid=*decoded_facts.order;double side_value=*decoded_facts.side;auto offset=side_value==48?wtp::WOT_OPEN:wtp::WOT_CLOSE;std::string raw_date=*decoded_facts.raw_date,raw_time=*decoded_facts.raw_time;unsigned day=*decoded_facts.date,time=*decoded_facts.time;add(identity,order,oid,a);add(identity,stage==1?insert_date:trade_date,raw_date,a);add(identity,stage==1?insert_time:trade_time,raw_time,a);
+    std::string oid=*decoded_facts.order;double side_value=*decoded_facts.side;
+    const bool buy=side_value==48;const auto offset=buy?wtp::WOT_OPEN:wtp::WOT_CLOSE;
+    std::string raw_date=*decoded_facts.raw_date,raw_time=*decoded_facts.raw_time;unsigned day=*decoded_facts.date,time=*decoded_facts.time;add(identity,order,oid,a);add(identity,stage==1?insert_date:trade_date,raw_date,a);add(identity,stage==1?insert_time:trade_time,raw_time,a);
     abi(slots,"direction",double(wtp::WDT_LONG),"股票现金买卖",a);abi(slots,"offsetType",double(offset),"OffsetFlag48/49",a);abi(slots,"userTag",std::string(),"未授本地管理资格",a);
     // 规范事实去重忽略日期/时间文本等价形式，元数据仍保留首次原文本。
     V canonical(rapidjson::kObjectType);add(canonical,"code",code_value,a);add(canonical,"exchange",exch,a);add(canonical,"order",oid,a);add(canonical,"side",side_value,a);add(canonical,"date",double(day),a);add(canonical,"time",double(time),a);
@@ -267,6 +269,8 @@ static AccountBatch map_account_rows_impl(unsigned stage,const rapidjson::Value&
      for(auto pair:{std::make_pair("quantity",qty),{"filled",filled_value},{"remaining",left},{"state",state_value},{"price",quote}})add(canonical,pair.first,pair.second,a);std::string normalized=json_text(canonical);auto inserted=seen.emplace(oid,std::make_pair(normalized,index));if(!inserted.second){check(inserted.first->second.first==normalized,"HTTP委托同ID事实冲突");batch.source_to_output.push_back(inserted.first->second.second);continue;}
      canonical_record(batch,canonical_limits,stage,binding,exch,code_value,day,oid,std::string(),normalized);
      auto p=append_owned(*batch.array,wtp::WTSOrderInfo::create());p->setCode(c->getCode());p->setExchange(c->getExchg());p->setContractInfo(c);p->setDirection(wtp::WDT_LONG);p->setOffsetType(offset);p->setPriceType(wtp::WPT_LIMITPRICE);p->setOrderFlag(wtp::WOF_NOR);p->setBusinessType(wtp::BT_CASH);p->setOrderID(oid.c_str());p->setEntrustID(oid.c_str());p->setUserTag("");p->setVolume(qty);p->setVolTraded(filled_value);p->setVolLeft(active?left:0);p->setPrice(quote);p->setOrderDate(day);p->setOrderTime(time);p->setError(state_num==57);
+     // WT账户消费者同时读取多空/开平和净方向，全部从同一原OffsetFlag初始化。
+     p->setNetDirection(buy);
      p->setOrderState(state_num==56?wtp::WOS_AllTraded:canceled?wtp::WOS_Canceled:(state_num==51||state_num==52)?wtp::WOS_Cancelling:filled_value>0?wtp::WOS_PartTraded_Queuing:wtp::WOS_NotTraded_Queuing);
      abi(slots,"orderID",oid,"原值",a);abi(slots,"entrustID",oid,"原合同号ABI承载",a);abi(slots,"orderState",double(p->getOrderState()),"原状态映射",a);abi(slots,"orderFlag",double(wtp::WOF_NOR),"中性：统计通道",a);abi(slots,"businessType",double(wtp::BT_CASH),"显式cash profile",a);abi(slots,"volume",qty,"原值",a);abi(slots,"volTraded",filled_value,"原值",a);abi(slots,"volLeft",active?left:0,"原状态活动余量",a);abi(slots,"price",quote,"原值",a);abi(slots,"priceType",double(wtp::WPT_LIMITPRICE),"中性：unknown价格类型，限统计",a);
      V unknown(rapidjson::kObjectType);add(unknown,"availability","unknown",a);unknown.AddMember("value",V(),a);add(unknown,"reason","源未公开价格类型",a);v.AddMember("price_type",unknown,a);
@@ -276,6 +280,7 @@ static AccountBatch map_account_rows_impl(unsigned stage,const rapidjson::Value&
      canonical_record(batch,canonical_limits,stage,binding,exch,code_value,day,oid,id,normalized);
      add(identity,trade,raw_id,a);add(identity,"derived_trade_id",id,a);add(identity,"mapping_version",protocol::mapping_version,a);
      auto p=append_owned(*batch.array,wtp::WTSTradeInfo::create(c->getCode(),c->getExchg()));p->setContractInfo(c);p->setDirection(wtp::WDT_LONG);p->setOffsetType(offset);p->setTradeID(id.c_str());p->setRefOrder(oid.c_str());p->setUserTag("");p->setVolume(qty);p->setPrice(pvalue);p->setAmount(amount_value);p->setTradeDate(day);p->setTradeTime(time);
+     p->setNetDirection(buy);
      abi(slots,"tradeID",id,protocol::mapping_version,a);abi(slots,"refOrder",oid,"原值",a);abi(slots,"volume",qty,"原值",a);abi(slots,"price",pvalue,"原值",a);abi(slots,"amount",amount_value,"原值",a);
     }
     abi(slots,"eventDate",double(day),"Asia/Shanghai来源日期",a);abi(slots,"eventTime",double(time),"Asia/Shanghai HHMMSSmmm",a);

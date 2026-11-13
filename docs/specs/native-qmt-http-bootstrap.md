@@ -57,7 +57,7 @@ ACCOUNT必需官方m_dBalance总资产和m_dAvailable可用资金，接收有限
 
 首版使用已核原m_字段：ORDER的m_strOrderSysID、证券/市场、m_nOffsetFlag、m_nVolumeTotalOriginal=Q、m_nVolumeTraded=F、m_nVolumeTotal=U、m_nOrderStatus、m_dLimitPrice及m_strInsertDate/Time；DEAL的m_strOrderSysID+m_strTradeID、证券/市场、m_nOffsetFlag、m_nVolume、m_dPrice、m_dTradeAmount及m_strTradeDate/Time。原标识是不截断的字符串，最多63个UTF-8字节，无NUL/控制字符；ORDER ID及DEAL RefOrder直接承载原合同号，不将OrderRef/internal ID猜作券商合同号，不改变前导零。WT TradeID使用下面单一版本的派生标识，原成交ID另存观察值。
 
-股票买卖使用OffsetFlag 48/49；Direction不替代买卖。订单Q>0、0≤F≤Q、U=Q-F；状态49/50/51/52/55为活动，活动余量U；53/54/57为撤拒终态，活动余量0、未成量Q-F；56须F=Q。待撤不授已撤，废单的未成量不称原已撤事实；可选m_dCancelAmount按已核状态核验。未知状态或必需矛盾使批失败。原状态和派生依据保留。
+股票买卖使用OffsetFlag 48/49。普通查询和实时回报的 WT 委托、成交对象均从同一原字段初始化净方向及开平，现金多头方向沿原股票表示。订单Q>0、0≤F≤Q、U=Q-F；状态49/50/51/52/55为活动，活动余量U；53/54/57为撤拒终态，活动余量0、未成量Q-F；56须F=Q。待撤不授已撤，废单的未成量不称原已撤事实；可选m_dCancelAmount按已核状态核验。未知状态或必需矛盾使批失败。原状态和派生依据保留。
 
 成交量/价为有限正数，原金额为有限非负源值，不用price×quantity填补。订单原报价按已核字段语义保留有限非负值，不以正报价推价格类型。当前源未公开价格类型、WT无Unknown枚举：仅在本限定统计通道使用LIMITPRICE作为明确ABI占位；元数据price_type=unknown/value=null，禁止展示为真实限价或进入执行。原Adapter对无管理tag的查询统计不读取此槽，须以固定源码与实际原链验证；后续真实价格类型另由源契约授予。
 

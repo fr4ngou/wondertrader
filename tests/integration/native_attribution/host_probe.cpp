@@ -94,7 +94,14 @@ int wmain(int argc,wchar_t** argv){
   check(initialized,"host_initialize");
   auto pump=[&](bool allow_fault=false){check(Clock::now()<end,"original_deadline");const auto rc=host->pump(64,16);if(!allow_fault)check(rc>=0&&host->status().fault==guanheng::ExecutionHostFault::None,"host_pump");Sleep(2);};
   while(host->status().phase!=guanheng::ExecutionHostPhase::Ready)pump();
-  auto command=host->command();const char* code="SZSE.STK.000001";wtp::wt_hashmap<std::string,double> targets;targets[code]=1000;command->set_position(targets);
+  auto command=host->command();const char* code="SZSE.STK.000001";wtp::wt_hashmap<std::string,double> targets;
+  if(hooks.mode=="sell-event"){
+   // 先读取同一证券的原买入回报，再让后续卖出复用原查询与实时转换路径。
+   const auto fills=hooks.fills;
+   check(functions.find(trader->getCString("instance_id"))->queryTrades()==0,"query_buy_before_sell");
+   while(hooks.fills==fills)pump();
+  }
+  targets[code]=hooks.mode=="sell-event"?900:1000;command->set_position(targets);
   for(unsigned n=0;n<3;++n){
    wtp::WTSTickStruct value={};std::strcpy(value.code,code);std::strcpy(value.exchg,"SZSE");value.price=10.01;
    value.action_date=value.trading_date=20261022;value.action_time=100000000+(n+1)*1000;
@@ -109,15 +116,22 @@ int wmain(int argc,wchar_t** argv){
    check(functions.find(trader->getCString("instance_id"))->queryTrades()==0,"query_original_deal");const auto d=host->status().plugin.queries;while(host->status().plugin.queries<d+1)pump();
    check(hooks.fills==1&&hooks.orders==1,"original_source_callbacks");
   }
-  if(hooks.mode=="event"){
-   while(hooks.fills<1||hooks.orders<1||host->undone(code)!=80)pump();
-   check(host->undone(code)==80,"event_original_undone");
+  if(hooks.mode=="event"||hooks.mode=="sell-event"){
+   const double remaining=hooks.mode=="sell-event"?-80:80;
+   while(hooks.fills<1||hooks.orders<1||host->undone(code)!=remaining)pump();
+   check(host->undone(code)==remaining,"event_original_undone");
+   if(hooks.mode=="sell-event"){
+    const auto fills=hooks.fills;
+    check(functions.find(trader->getCString("instance_id"))->queryTrades()==0,"query_same_sell");
+    while(hooks.fills==fills)pump();
+   }
   }
   const auto state=host->status();report.AddMember("inserts",state.plugin.inserts,a);report.AddMember("pending",state.plugin.pending_commands,a);
   report.AddMember("undone",host->undone(code),a);text(report,"last_command_id",state.plugin.last_command_id,a);
   if(hooks.mode=="deny")check(hooks.prepared==1&&state.plugin.pending_commands==1&&state.plugin.writes_blocked&&std::strlen(state.plugin.last_command_id)==36,"denied_keeps_original_uuid_receipt");
   if(hooks.mode=="wait"||hooks.mode=="invalid")check(!hooks.groups&&!hooks.children&&!hooks.prepared&&!state.plugin.inserts,"no_group_or_dispatch");
-  if(hooks.mode=="allow"||hooks.mode=="event")check(hooks.groups==1&&hooks.children==1&&hooks.prepared==1,"one_original_group_child_prepared");
+  if(hooks.mode=="allow"||hooks.mode=="event"||hooks.mode=="sell-event")
+   check(hooks.groups==1&&hooks.children==1&&hooks.prepared==1,"one_original_group_child_prepared");
   host->request_stop();check(host->close()==0,"physical_close");closed=host->status().phase==guanheng::ExecutionHostPhase::Closed;
   deleted=functions.find(trader->getCString("instance_id"))==nullptr;check(closed&&deleted,"deleted_original_api");host.reset();passed=true;
   }
