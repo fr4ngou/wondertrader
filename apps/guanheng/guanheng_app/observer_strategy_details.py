@@ -95,7 +95,7 @@ def project_execution(runtime, strategy, report=None):
         started_at=started_at, duration_seconds=duration)
 
 
-def observe_details(settings, configuration, deadline, strategy_id=None, securities=None):
+def observe_details(settings, configuration, deadline, strategy_id=None, securities=None, market_client_factory=None):
     from .wt_business_observation import read_business, observe_account
     from .strategy_runtime_projection import project_strategy
     from .account_publication import observe_published_account
@@ -161,6 +161,9 @@ def observe_details(settings, configuration, deadline, strategy_id=None, securit
         returns['cumulative_pct'] = _missing(capital_return['reason']) if rate is None else dict(value=rate, reason=None)
         if rate is not None:
             returns['valued_at'] = capital_return['valued_at']
+    if strategy and strategy.get('position_basis') == 'strategy-allocated':
+        from .strategy_position_quotes import project_latest_position_values
+        project_latest_position_values(strategy, settings, deadline, market_client_factory)
     return dict(schema_version='guanheng.strategy-details.v1', read_only=True, security_names=names,
         observed_at=datetime.now(timezone.utc).isoformat(), strategy=strategy_definition(strategy['strategy_id'],strategy['strategy_version'])if strategy else strategy_definition(strategy_id or 'resonance-regime-v1',None),
         # 本轮已解析的公开运行身份摘要；未配置为null，只用于隔离跨代展示缓存。
@@ -227,7 +230,7 @@ def observe_instances(rows, deadline):
         observed_at=datetime.now(timezone.utc).isoformat(), instances=result)
 
 
-def router(settings, configuration, invalid, securities=None):
+def router(settings, configuration, invalid, securities=None, market_client_factory=None):
     """兼容新增GET共用App有界读池和原2秒总截止，不构造WT运行owner。"""
     import asyncio
     from fastapi import APIRouter, HTTPException, Request
@@ -253,7 +256,7 @@ def router(settings, configuration, invalid, securities=None):
             raise HTTPException(503, 'WT详情读取配置无效，请由维护人员核对实例目录。')
         deadline, future = monotonic() + 2, None
         try:
-            operation = (lambda: observe_instances(instances, deadline)) if multi else (lambda: observe_details(settings, configuration, deadline,strategy_id,securities))
+            operation = (lambda: observe_instances(instances, deadline)) if multi else (lambda: observe_details(settings, configuration, deadline, strategy_id, securities, market_client_factory))
             future = request.app.state.reader.submit(lambda _remaining: operation(), deadline)
             wrapped = asyncio.wrap_future(future)
             wrapped.add_done_callback(lambda done: None if done.cancelled() else done.exception())

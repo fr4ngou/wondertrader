@@ -174,7 +174,7 @@ def observe_strategy(configuration,deadline,strategy_id=None,*,include_activity=
     return result
 
 
-def router(settings, securities=None):
+def router(settings, securities=None, market_client_factory=None):
     """两业务GET共用原App读池/2秒D；失败503由浏览器保留同查询成功结果。"""
     import asyncio
     from fastapi import APIRouter,HTTPException,Request
@@ -185,7 +185,7 @@ def router(settings, securities=None):
     except (ValueError,TypeError):invalid=True
     routes=APIRouter()
     from .observer_strategy_details import router as details_router
-    routes.include_router(details_router(settings,configuration,invalid,securities))
+    routes.include_router(details_router(settings,configuration,invalid,securities,market_client_factory))
     @routes.get('/v1/ui/account/overview')
     @routes.get('/v1/ui/strategy-runtime')
     async def read(request:Request):

@@ -31,6 +31,9 @@ class ConsoleSettings(BaseModel):
     wondertrader_market_url: str = ""
     wondertrader_market_token: SecretStr = SecretStr("")
     wondertrader_market_connect_ip: str = ""
+    # 策略持仓表使用的独立 WT 只读最近报价连接。
+    position_quote_url: str = ""
+    position_quote_token: SecretStr = SecretStr("")
     # 来源历史首次读取会解码整只证券；部署预算沿SDK最大30秒，默认2秒保持。
     wondertrader_market_timeout_seconds: float = Field(default=2.0, gt=0, le=30.0)
     # 显式选择来源标签读取；默认标准化服务的单位和时间合同保持。
@@ -65,6 +68,8 @@ class ConsoleSettings(BaseModel):
             wondertrader_market_url=os.environ.get("GUANHENG_MARKET_URL", ""),
             wondertrader_market_token=os.environ.get("GUANHENG_MARKET_TOKEN", ""),
             wondertrader_market_connect_ip=os.environ.get("GUANHENG_MARKET_CONNECT_IP", ""),
+            position_quote_url=os.environ.get("GUANHENG_POSITION_QUOTE_URL", ""),
+            position_quote_token=os.environ.get("GUANHENG_POSITION_QUOTE_TOKEN", ""),
             wondertrader_market_timeout_seconds=os.environ.get("GUANHENG_MARKET_TIMEOUT_SECONDS", "2"),
             wondertrader_history_semantics=os.environ.get("GUANHENG_HISTORY_SEMANTICS", "canonical"),
             wt_current_file=os.environ.get("GUANHENG_WT_CURRENT_FILE", ""),

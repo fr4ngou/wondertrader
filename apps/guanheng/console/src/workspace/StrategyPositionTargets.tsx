@@ -45,10 +45,10 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
   const accountRows = positionGroup?.status === 'complete' ? positionGroup.rows : undefined
   const actual = allocated ? positions.map(row => ({ symbol: row.symbol, held: row.broker_quantity,
     sellable: row.broker_sellable, marketValue: row.market_value_cny ?? null, quoteAt: row.market_value_observed_at,
-    profit: null }))
+    lastQuote: row.market_value_basis === 'last-quote', profit: null }))
     : (accountRows ?? []).map(row => ({ symbol: accountSymbol(row), held: quantityValue(row.fields.quantity),
       sellable: quantityValue(row.fields.sellable), marketValue: monetaryValue(row.fields.market_value),
-      quoteAt: undefined, profit: monetaryValue(row.fields.float_profit) }))
+      quoteAt: undefined, lastQuote: false, profit: monetaryValue(row.fields.float_profit) }))
       .filter(row => accountWide || strategySymbols.has(row.symbol))
   const rows = actual.filter((row): row is typeof row & { held: number } => row.held !== null && row.held !== 0)
   const showsProfit = rows.some(row => row.profit !== null)
@@ -77,13 +77,16 @@ export function StrategyPositionTargets({ details, positionGroup, positionRefres
       <table aria-label="持仓与目标仓位"><thead><tr><th scope="col">证券</th><th scope="col">实际持仓（份）</th>
         <th scope="col">市值（元）</th>{showsProfit ? <th scope="col">浮动盈亏（元）</th> : null}<th scope="col">可卖（份）</th>
         <th scope="col">目标仓位（份）</th><th scope="col">上次目标变化（份）</th><th scope="col">目标记录时间</th></tr></thead>
-        <tbody>{rows.map(({ symbol, held, sellable, marketValue, quoteAt, profit }, index) => {
+        <tbody>{rows.map(({ symbol, held, sellable, marketValue, quoteAt, lastQuote, profit }, index) => {
           const target = latest.get(symbol)
           return <tr key={`${symbol}-${index}`}>
             <th scope="row"><StrategySecurityLabel symbol={symbol} names={details.security_names} /></th>
             <td>{quantity(held)}</td>
             <td title={quoteAt ? `报价 ${absoluteChinaTime(quoteAt)}` : undefined}>
               {marketValue === null ? '—' : <FinancialValue value={marketValue} />}
+              {lastQuote && quoteAt ? <div className="strategy-catalog-note">
+                最近报价 <time dateTime={quoteAt}>{absoluteChinaTime(quoteAt)}</time>
+              </div> : null}
             </td>
             {showsProfit ? <td className={profit === null ? undefined : Number(profit) > 0 ? 'financial-gain' : Number(profit) < 0 ? 'financial-loss' : undefined}>
               {profit === null ? '—' : <FinancialValue value={profit} />}
