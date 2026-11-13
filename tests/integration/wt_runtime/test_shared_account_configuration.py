@@ -14,7 +14,7 @@ from guanheng_strategy_original.reference import DEFAULT_CODES
 from guanheng_market_client.exchange_calendar import encode
 
 
-@pytest.mark.parametrize('mode', ['legacy', 'generic', 'unfunded'])
+@pytest.mark.parametrize('mode', ['legacy', 'generic', 'unfunded', 'missing_relocated_book'])
 def test_seeded_strategies_have_separate_funds_and_real_native_borrow(tmp_path, mode):
     def save(name, value):
         path = tmp_path/name;raw=encode(value);path.write_bytes(raw)
@@ -32,7 +32,7 @@ def test_seeded_strategies_have_separate_funds_and_real_native_borrow(tmp_path, 
         positions=[],source_sha256=account['sha256']),source_evidence=dict(old_basis=old_basis,account_observation=account))
     third_id = 'research-original-etf'
     third_cash = '250000.05' if mode != 'unfunded' else '1000000'
-    if mode != 'legacy':
+    if mode in ('generic', 'unfunded'):
         initial['seeds'].append(dict(strategy_id=third_id, version='0.2.0a1', cash_cny=third_cash,
             positions=[], priority=2, universe=universe))
     start,finish=date(2026,11,1),date(2026,11,10)
@@ -52,11 +52,18 @@ def test_seeded_strategies_have_separate_funds_and_real_native_borrow(tmp_path, 
         dict(id=old_id,parameters=dict(python_strategy=dict(schema='guanheng.retained-cta.v1'))),
         dict(id=original_id,parameters=dict(python_strategy=dict(schema='guanheng.original-live-cta.v1',shared_account=shared,strategy_version='0.2.0a1',
             initial_capital_cny='1000000')))])
-    if mode != 'legacy':
+    if mode in ('generic', 'unfunded'):
         native['executer']['shared_account'] = shared
         native['strategies'][1]['parameters']['python_strategy'].pop('shared_account')
         native['strategies'].append(dict(id=third_id, parameters=dict(python_strategy=dict(
             schema='guanheng.original-live-cta.v1', strategy_version='0.2.0a1', initial_capital_cny=third_cash))))
+    if mode == 'missing_relocated_book':
+        native['shared_account_storage'] = {'allocation_root': str(tmp_path / 'moved')}
+        with pytest.raises(RuntimeError, match='shared_account_relocated_book_missing'):
+            create_runtime_attribution(native, SimpleNamespace(configuration=tmp_path/'execution.json'),
+                tmp_path, str(uuid4()), deadline=monotonic()+10)
+        assert not (financial/'account-allocation.sqlite3').exists()
+        return
     if mode == 'unfunded':
         with pytest.raises(RuntimeError, match='shared_account_initial_cash_unfunded'):
             create_runtime_attribution(native, SimpleNamespace(configuration=tmp_path/'execution.json'),

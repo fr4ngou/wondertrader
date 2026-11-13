@@ -79,7 +79,7 @@ def record_execution_process_loss(control, *, expected=None):
 
 def _business(value):
     """原Native业务配置；恢复选择不属于持仓模型身份。"""
-    value=copy.deepcopy(value);value.pop('recovery',None)
+    value=copy.deepcopy(value);value.pop('recovery',None);value.pop('shared_account_storage',None)
     return value
 
 
@@ -230,6 +230,7 @@ def execution_permission_origin_configuration(native, *, deadline=float('inf'), 
     origin = _json(body)
     before,after = _business(origin),_business(native)
     before.pop('execution_permission_origin',None);after.pop('execution_permission_origin')
+    before.pop('installation_root',None);after.pop('installation_root',None)
     old,current = before['trader'],after['trader']
     _require(type(old.get('writes_enabled')) is bool and type(current.get('writes_enabled')) is bool
         and old['writes_enabled'] is not current['writes_enabled'])
@@ -238,6 +239,8 @@ def execution_permission_origin_configuration(native, *, deadline=float('inf'), 
         _require((key in old) == (key in current))
         if key in old:current[key] = copy.deepcopy(old[key])
     _require(_same_business(before, after))
+    if 'strategy_extension_origin' in native:
+        return origin
     return execution_permission_origin_configuration(origin,deadline=deadline,depth=depth+1)
 
 
@@ -323,6 +326,18 @@ def _extension_row(native, *, deadline=float('inf')):
 
 def strategy_extension_configuration(native, *, deadline=float('inf')):
     """仅投影已冻结新增行；原单策略业务准入继续核其余所有字段。"""
+    # 双策略权限接续先核与同一实际策略集合的旧权限，再投影旧单策略历史。
+    for unused in range(16):
+        if 'strategy_extension_origin' not in native or 'execution_permission_origin' not in native:
+            break
+        marker = native['execution_permission_origin']
+        raw = _read(_path(marker['file']), 256 * 1024, deadline=deadline, clock=time.monotonic)
+        _require(hashlib.sha256(raw).hexdigest() == _sha(marker['sha256']))
+        if 'strategy_extension_origin' not in _json(raw):
+            break
+        native = execution_permission_origin_configuration(native, deadline=deadline)
+    else:
+        raise ValueError('execution_permission_origin_depth')
     marker=native.get('strategy_extension_origin')
     if marker is None:return native
     _require(type(marker)is dict and {'schema','file','sha256','added_strategy'}<=set(marker)

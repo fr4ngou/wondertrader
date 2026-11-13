@@ -88,7 +88,11 @@ def create_runtime_attribution(native, configuration, control_directory, control
     financial_root = Path(value['financial_root'])
     _need(financial_root.is_absolute() and financial_root.drive.upper() in ('D:', 'E:')
           and financial_root == Path(native['output_directory']), 'shared_account_financial_root')
-    root = Path(value.get('allocation_root', value['financial_root']))
+    storage = native.get('shared_account_storage')
+    if storage is not None:
+        _need(type(storage) is dict and set(storage) == {'allocation_root'}
+              and type(storage['allocation_root']) is str, 'shared_account_storage')
+    root = Path(value.get('allocation_root', value['financial_root']) if storage is None else storage['allocation_root'])
     _need(root.is_absolute() and root.drive.upper() in ('D:', 'E:'), 'shared_account_allocation_root')
     if root != financial_root:
         # 路径切换必须先迁入原账。缺少数据库时不能用初始化材料重建已运行账户。

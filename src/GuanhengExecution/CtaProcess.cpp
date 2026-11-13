@@ -439,6 +439,8 @@ rj::Document permission_model(const rj::Value& config,unsigned depth=0){
     const auto raw=read(path,256*1024);need(sha(raw)==text(marker,"sha256",64));auto original=parse(raw);
     rj::Document before;before.CopyFrom(original,before.GetAllocator());before.RemoveMember("recovery");
     before.RemoveMember("execution_permission_origin");current.RemoveMember("execution_permission_origin");
+    before.RemoveMember("shared_account_storage");current.RemoveMember("shared_account_storage");
+    before.RemoveMember("installation_root");current.RemoveMember("installation_root");
     need(member(before,"trader").IsObject()&&member(current,"trader").IsObject());
     const auto& old=before["trader"];auto& selected=current["trader"];
     const auto& enabled=member(selected,"writes_enabled");const auto& prior=member(old,"writes_enabled");
@@ -447,7 +449,9 @@ rj::Document permission_model(const rj::Value& config,unsigned depth=0){
         need(selected.HasMember(key)==old.HasMember(key));
         if(old.HasMember(key))selected[key].CopyFrom(old[key],current.GetAllocator());
     }
-    need(same_business(current,before));return permission_model(original,depth+1);
+    need(same_business(current,before));
+    if(config.HasMember("strategy_extension_origin"))return original;
+    return permission_model(original,depth+1);
 }
 
 // 显式只读市场引用回投原业务模型；原金融、账户及执行字段继续逐项核验。
@@ -812,8 +816,15 @@ bool positive_capital(const std::string& amount){
     return positive;
 }
 // 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
-rj::Document market_model(const rj::Value& config){
+rj::Document market_model(const rj::Value& config,unsigned depth=0){
+    need(depth<16);
     if(!config.HasMember("strategy_extension_origin"))return legacy_market_model(config);
+    if(config.HasMember("execution_permission_origin")){
+        const auto& permission=member(config,"execution_permission_origin");
+        const auto path=absolute(text(permission,"file"));const auto raw=read(path,256*1024);
+        need(sha(raw)==text(permission,"sha256",64));
+        if(parse(raw).HasMember("strategy_extension_origin"))return market_model(permission_model(config),depth+1);
+    }
     const auto& marker=member(config,"strategy_extension_origin");
     keys(marker,{"schema","file","sha256","added_strategy","dependency_handoff","retired_targets"});
     need(text(marker,"schema")=="guanheng.strategy-extension-origin.v1");
@@ -832,7 +843,7 @@ rj::Document market_model(const rj::Value& config){
     const auto retained_id=text(prior[0],"id",63);
     need(extension_instance_name(prior[0])!=extension_instance_name(added)
         &&text(member(member(prior[0],"parameters"),"python_strategy"),"schema")=="guanheng.retained-cta.v1");
-    rj::Document projected;projected.CopyFrom(config,projected.GetAllocator());projected.RemoveMember("strategy_extension_origin");
+    rj::Document projected;projected.CopyFrom(config,projected.GetAllocator());projected.RemoveMember("strategy_extension_origin");projected.RemoveMember("shared_account_storage");
     auto& keep=projected["strategies"];unsigned removed=0,retained=0;
     for(auto it=keep.Begin();it!=keep.End();){
         if(*it==added){it=keep.Erase(it);++removed;}
@@ -1268,7 +1279,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         native_log_attempted=true;
         { std::lock_guard<std::mutex> lock(request_log_mutex);request_log=&native_log; }
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
-        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","strategy_extension_origin"});
+        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","strategy_extension_origin","shared_account_storage"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
         std::string reader_cache_path;
         if(const auto* publication=cfg.HasMember("data")?daily_publication(cfg["data"]):nullptr){

@@ -10,7 +10,7 @@
 
 ## ASA-1 唯一owner、存储及精度
 
-由原执行租约持有人构造`AccountAllocation(financial_root, identity, owner_check=...)`。每次读写先调用原`owner_check`；该回调成功返回None，失去租约时抛原异常。模块独占 `account-allocation.sqlite3`。配置可用 `allocation_root` 指定已有账本的独立 D/E 盘绝对目录，缺省沿原金融目录。切盘前必须复制并核对已有账本，缺库时拒绝从初值重建。其他原 Native 状态继续沿 `financial_root`，原Journal始终只由原owner使用。短SQLite事务和同进程锁串行owner/worker的不可变关联；每个入口接受原单调deadline，锁等待/SQLite等待计入该D，取消/期限异常保留原异常。所有磁盘路径位于显式E/D金融root，SQLite临时存储使用内存。
+由原执行租约持有人构造`AccountAllocation(financial_root, identity, owner_check=...)`。每次读写先调用原`owner_check`；该回调成功返回None，失去租约时抛原异常。模块独占 `account-allocation.sqlite3`。配置可用 `allocation_root` 指定已有账本的独立 D/E 盘绝对目录，缺省沿原金融目录。切盘前必须复制并核对已有账本，缺库时拒绝从初值重建。后继配置可在执行配置根声明 `shared_account_storage`，仅指定绝对账本目录，沿原共享账户描述符的身份和初始凭据核同。原冻结策略行保持原身份。其他原 Native 状态继续沿 `financial_root`，原Journal始终只由原owner使用。短SQLite事务和同进程锁串行owner/worker的不可变关联；每个入口接受原单调deadline，锁等待/SQLite等待计入该D，取消/期限异常保留原异常。所有磁盘路径位于显式E/D金融root，SQLite临时存储使用内存。
 
 `asa-book.v3` 保留原账户、账本及基准身份。一个事务内验证 v2 的整账摘要，将订单、成交、计划、绑定和来源证明按原身份迁到独立行，保留原事件、收件、冲突和原水位。运行时仅加载相关行，策略余额、账户观察和活跃计划引用保持同一事务。升级前备份原件并先在副本执行迁移和对账。一个原账户只允许原 Native 账户租约持有人写账，进程内 SQLite 提交按同一 owner 锁串行。收到原回报先持久化收件，归属及已应用状态同批原子提交。进程在提交前退出时回滚归属并续核原收件，提交后退出时重放沿原 ID 幂等。切换数据盘要正常关闭旧 owner，使用 SQLite 一致性备份，核对全部原命令和待决责任后方可让新 owner 接管。v1 冻结原件不参与升级。
 
