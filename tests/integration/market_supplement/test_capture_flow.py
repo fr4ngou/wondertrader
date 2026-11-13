@@ -209,3 +209,34 @@ def test_invalid_qmt_value_never_enters_persistent_fact_rows(tmp_path):
     assert len(transport.sdk_calls)==2
     assert json.loads((tmp_path/'work/STATE.json').read_bytes())['rows']=={}
     assert not (tmp_path/'work/catalog.json').exists()
+
+@pytest.mark.parametrize(('total', 'page_number', 'has_rows', 'reason'), [
+    (0, 1, False, 'source_record_missing'),
+    (0, 2, False, 'source_pagination_invalid'),
+    (1, 1, False, 'source_pagination_invalid'),
+    (0, 1, True, 'source_pagination_invalid'),
+])
+def test_sse_zero_page_latest_date_keeps_previous_share_fact_and_records_gap(
+        tmp_path, total, page_number, has_rows, reason):
+    class EmptyLatest(FrozenFetch):
+        def get(self, url, params=None, referer=None):
+            raw = super().get(url, params, referer)
+            if params.get('STAT_DATE') == DAYS[-1]:
+                response = json.loads(raw)
+                response['pageHelp'] = dict(total=total, pageCount=0, pageNo=page_number)
+                if not has_rows:
+                    response['result'] = []
+                return json.dumps(response).encode()
+            return raw
+
+    targets = plan(('etf_total_shares', 'SSE.510300'), required=False)
+    descriptor = collect(tmp_path, targets, EmptyLatest(), QmtTransport())
+    store = MarketSupplementStore(descriptor)
+    try:
+        result = store.query(query())
+        assert [(row['date'], row['value']) for row in result['rows']] == [(DAYS[0], '1750001250')]
+        assert result['gaps'] == [dict(date=DAYS[-1], metric='etf_total_shares',
+                                      symbol='SSE.510300', reason=reason)]
+        store.verify_sources()
+    finally:
+        store.close()

@@ -155,6 +155,6 @@ class DailyBatchAnalysisSource(BatchAnalysisSource):
             _capture_slot_metadata(slot, original, anchor)
             reply = inspect_saved_result(original)  # 原SDK核请求/票据、完整响应及consumed，无网络或文件修改。
             if (reply is None or reply.get('ok') is not False
-                    or reply.get('error_code') != 'operation_interrupted'):
-                return slot  # 成功、未消费或其它未知均沿该槽；只有明确中断的纯读取选择后继。
+                    or reply.get('error_code') not in ('operation_interrupted', 'queue_timeout')):
+                return slot  # 未决请求保持原身份；确认中断或在执行前排队超时才允许后继纯读取。
             revision += 1

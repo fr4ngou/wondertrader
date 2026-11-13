@@ -68,7 +68,7 @@ HTTP action=`market.source-supplement-query`，路径`/api/market/v1/source-supp
 
 ## MSF-04 源口径与验证
 
-SSE份额按STAT_DATE精确匹配、TOT_VOL万份×10000为份；SZSE采用已实证可用的官方HTTP ShowReport XLSX，严格四表头日期/基金代码/基金简称/基金规模(份)，单位份直接保存，按日核全表日期、代码唯一和目标。旧HTTPS JSON current_size万份合同保留在历史证据，生产不混用倍数。XLSX最多64成员、总解压16MiB、20000数据行；inline/shared及数字单元统一处理，拒绝公式、重复、错日、错单位、坏ZIP/XML/Deflate。多日归档导入按相同源合同及固定原件逐日校验，最多150自然日每块，精确目标日历集合准入。
+SSE份额按STAT_DATE精确匹配、TOT_VOL万份×10000为份。请求第1页时，来源确认总记录、总页数均为0且结果为空，登记该日份额缺口为`source_record_missing`，保留原件；分页元数据与结果矛盾时保留分页错误。SZSE采用已实证可用的官方HTTP ShowReport XLSX，严格四表头日期/基金代码/基金简称/基金规模(份)，单位份直接保存，按日核全表日期、代码唯一和目标。旧HTTPS JSON current_size万份合同保留在历史证据，生产不混用倍数。XLSX最多64成员、总解压16MiB、20000数据行；inline/shared及数字单元统一处理，拒绝公式、重复、错日、错单位、坏ZIP/XML/Deflate。多日归档导入按相同源合同及固定原件逐日校验，最多150自然日每块，精确目标日历集合准入。
 
 融资默认复用原版RPTA_WEB_MARGIN_DAILYTRADE的FIN_BALANCE（发布方表头亿，转CNY），symbol固定CN.MARGIN_REPORT，报表市场覆盖尚待核；RPTA_RZRQ_LSHJ的RZYE是另一原表，不能混同或拼接。融资余额与总两融/买入额分别表达。官方成交额精确取SSE股票合计和SZSE HTTP 1803 JSON股票（含存托凭证），两市同日均成功才合并。双指数QMT amount代理单列，不填官方缺口。原项目算法/缺陷不复制到生产采集。源协议选择有实际成功和同刻失败对照，失败不扩大成未经实证的整源不可用结论。
 

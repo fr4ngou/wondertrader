@@ -242,7 +242,7 @@ UDI-R51：快照发布复用日线同业务跨通信代准入，逐一校验Nati
 
 UDI-R52：同一独占owner的新同日修订使用市场日根下的rNNN目录，NNN来自原INDEX递增revision。登记后仍沿原路径恢复；原成功任务、旧目录、逐槽UUID、内容SHA及未知执行责任保持。目录命名缩短Windows路径，不截短内容摘要或更改系统配置。尚未提交REQUEST且无新读取槽的旧准备目录可在受控采用时保留原件并重新登记短目录；已有请求/槽不迁名。
 
-UDI-R53：日线批读market.market_data的显式qmt.daily-batch-read.v1只读取缓存（fill_data=False、subscribe=False）。已保存、完整验签且consumed的terminal结果为operation_interrupted时，自有日线捕获可对同一参数建立后继只读观察；原失败槽、ID和结果保持。后继槽在同一slots目录按原batch_id.rN.json递增，已存在后继沿其原ID恢复；缺终态、未消费、未知网络结果或其它操作/错误继续原责任。捕获manifest精确引用实际成功槽，不能将后继结果写进旧槽；同一绝对截止及业务身份校验保持。SDK提供默认原路径的受保护选槽接缝，自有DailyBatchAnalysisSource显式选择后继规则；账户、订单、HPR和通用SDK默认行为保持。
+UDI-R53：日线批读market.market_data的显式qmt.daily-batch-read.v1只读取缓存（fill_data=False、subscribe=False）。已保存、完整验签且consumed的terminal结果为operation_interrupted或queue_timeout时，自有日线捕获可对同一参数建立后继只读观察。queue_timeout表示查询已在执行前出队；原失败槽、ID和结果保持。后继槽在同一slots目录按原batch_id.rN.json递增，已存在后继沿其原ID恢复；缺终态、未消费、未知网络结果或其它操作/错误继续原责任。捕获manifest精确引用实际成功槽，不能将后继结果写进旧槽；同一绝对截止及业务身份校验保持。SDK提供默认原路径的受保护选槽接缝，自有DailyBatchAnalysisSource显式选择后继规则；账户、订单、HPR和通用SDK默认行为保持。
 
 UDI-R54：原HPR经SDK完整校验且consumed、terminal错误为preparation_not_executed，并证明admitted_binding为原绑定、dispatch_binding/result_binding均为空时，计划将execution_state记为not_executed。该证据只确认原SDK未派发，允许后继计划按实际缓存缺口新建任务；原槽、ID、原错误及未知责任保持。未消费、缺终态、其它错误或任何派发/结果证明不为空继续unknown，旧不可变计划不回写。
 

@@ -217,7 +217,12 @@ def _sse_shares(code, day, get):
             _fail('source_pagination_invalid')
         total = _integer(meta.get('total'))
         page_count = _integer(meta.get('pageCount'), _MAX_PAGES)
-        if _integer(meta.get('pageNo'), _MAX_PAGES) != page or page_count < 1:
+        if _integer(meta.get('pageNo'), _MAX_PAGES) != page:
+            _fail('source_pagination_invalid')
+        if page_count == 0:
+            # 上交所目标日暂无记录时，第 1 页返回零总页数与空结果。
+            if page == 1 and total == 0 and not part:
+                _fail('source_record_missing')
             _fail('source_pagination_invalid')
         if expected is not None and (total, page_count) != expected:
             _fail('source_pagination_changed')
