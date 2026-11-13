@@ -183,6 +183,7 @@ class RetainedResumeTests(unittest.TestCase):
             return [(1, 2)], 'original-binding'
 
         self.owner._state = lambda query: (None, self.directory, self.state)
+        self.owner.follow = None
         self.owner._closed_grid = lambda query: []
         self.owner._reads = read
         self.owner._publish = lambda state, directory, symbol, rows, binding, deadline: state.update(

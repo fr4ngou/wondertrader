@@ -92,6 +92,61 @@ class ReadFixture:
 
 @unittest.skipUnless(os.environ.get('MCC_NATIVE_FIXTURE'), 'requires explicit fixed native fixture')
 class NativePartialRecoveryTests(unittest.TestCase):
+    def test_new_authenticated_generation_reads_complete_day_without_downloading_again(self):
+        parent = Path('E:/workspace/wondertrader-qa/minute-collection-regressions')
+        parent.mkdir(parents=True, exist_ok=True)
+        configuration = json.loads(Path(os.environ['MCC_NATIVE_FIXTURE']).read_bytes())
+        source = SourceFixture()
+        with tempfile.TemporaryDirectory(dir=parent) as root:
+            c = configuration['preparation']
+            c['workspace'] = str(Path(root) / 'recovery')
+            c['follow_up'] = dict(enabled=True, max_attempts=15, interval_seconds=60, total_seconds=86400,
+                                  rpc_timeout_seconds=10, journal_records=1024, journal_bytes=1073741824)
+            with patch.object(preparation, 'BoundHistorySource', lambda *a, **k: source), \
+                    patch.object(preparation, 'HistoryReadOperations', ReadFixture):
+                market = preparation.SourcePreparingMarket(configuration,
+                    wall_clock=lambda: 1700000000 + source.now)
+                try:
+                    grid = market.base.expected_minutes('SSE.510300', '2026-11-03')
+                    complete = [dict(time=int(preparation.stamp(m).timestamp() * 1000),
+                                     open=4., high=4., low=4., close=4., volume=100., amount=400.) for m in grid]
+                    query = dict(exchange='SSE', code='510300', **{'from': grid[0], 'to': grid[-1]}, limit=len(grid))
+                    request = dict(api_version=API_VERSION, action='history.source-query', request=query)
+                    source.rows = complete[:-1]
+                    # 初次读取和HPR已返回，首轮after断连留原读取身份。
+                    original_observe = market.reads.observe
+
+                    def interrupted_after(record, save, deadline):
+                        if source.prepares and record['request']['operation_id'] == 'market.history_1m':
+                            record['attempted'] = True
+                            save()
+                            raise preparation.SourcePending('fixture disconnect during first readback')
+                        return original_observe(record, save, deadline)
+
+                    with patch.object(market.reads, 'observe', side_effect=interrupted_after):
+                        market.call(request)
+                    _, _, prior = market._state(query)
+                    self.assertIsNone(prior['published'])
+                    self.assertTrue(prior['after']['pages'][0]['attempted'])
+                    prior_preparation = prior['prepare']['request']['request_id']
+                    source.now += 61
+                    source.metadata['binding'] = dict(host_instance_id='replacement', capability_sha256='changed')
+                    source.rows = complete
+                    with self.assertRaises(ValueError):
+                        market._window(query, preparation.time.monotonic() + 10)
+                    self.assertEqual(market._state(query)[2], prior)
+                    source.metadata['binding'] = dict(host_instance_id='replacement')
+                    response = market.call(request)
+                    _, _, resumed = market._state(query)
+                    self.assertEqual([row['minute'] for row in response['data']['bars']], grid)
+                    self.assertEqual(resumed['prepare']['request']['request_id'], prior_preparation)
+                    self.assertEqual(resumed['after'], prior['after'])
+                    capture = resumed['follow_up']['reads'][-1]['capture']
+                    self.assertEqual(capture['binding'], source.metadata['binding'])
+                    self.assertEqual(source.prepares, 1)
+                finally:
+                    market.close()
+
     def test_partial_and_empty_recover_after_unknown_read_and_restart(self):
         parent = Path('E:/workspace/wondertrader-qa/minute-collection-regressions')
         parent.mkdir(parents=True, exist_ok=True)

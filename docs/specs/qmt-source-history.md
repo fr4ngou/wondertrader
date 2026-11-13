@@ -202,7 +202,7 @@ source-preparing的成功data另含observation，schema=qmt.source-selection-obs
 
 preparation可选新增follow_up，缺少时原行为保持；提供时必须精确声明enabled=true、max_attempts(1..16)、interval_seconds(0.1..3600)、total_seconds(1..86400)、rpc_timeout_seconds(0.1..30)、journal_records、journal_bytes。间隔须不大于总时限。每窗口原HPR规划时固定启动跟踪总截止，页面刷新/limit变化/服务重启均不延长。每次公开调用最多推进一次后续观测；每次推进（含未决原只读ID的恢复）先持久消费一次max_attempts，设置下一可运行时间；间隔内不访问来源。每次RPC另受声明上限及原服务总D限制。
 
-排程在原独占窗口收据v2内保存；原before/prepare/after和每次后续只读capture保持原bound/profile/UUID/attempted/终态，Host Journal仍唯一拥有通信/执行事实。后续阶段只调用market.history_1m，原HPR Unknown/CallReturned及原UUID保持，任何断开/404/超时不授第二个下载。未决只读capture沿原UUID查询；下一次独立缓存观测只有在前次完整读到空缓存后才产生新只读UUID。后续原pages仍按max_rows-1/max_calendar_days且同一次捕获固定binding，跨再观测可换新binding并保留新profile谱系。
+排程在原独占窗口收据v2内保存；原before/prepare/after和每次后续只读capture保持原bound/profile/UUID/attempted/终态，Host Journal仍唯一拥有通信/执行事实。后续阶段只调用market.history_1m，原HPR Unknown/CallReturned及原UUID保持，任何断开/404/超时不授第二个下载。未决只读capture沿原UUID查询；下一次独立缓存观测只有在前次完整读到空缓存后才产生新只读UUID。后续原pages仍按max_rows-1/max_calendar_days且同一次捕获固定binding，跨再观测可换新binding并保留新profile谱系。闭合日保留模式若认证路由、能力和其余来源身份相同，且仅Host实例或传输代变化，则保留原HPR和各代页面，沿原后续观测预算从当前代重新只读整个窗口。旧未完成页面继续由原请求交接任务核查，当前代不拼接旧页或重新下载。
 
 跟踪时限使用持久Windows uptime毫秒；同时保存墙钟减uptime的锚，倒退、系统重启或墙钟跳变超过5秒时停止后续来源调用并明确Budget。恢复始终使用原deadline，固定运行次数与间隔；原生晚回不能授及时成功。已经完整核验并冻结的非空只读结果可在原本地导入责任下恢复发布，不产生新源请求；每次调用仍遵守原D。
 

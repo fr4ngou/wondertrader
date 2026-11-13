@@ -231,11 +231,13 @@ class SourcePreparingMarket:
                 session_id='shm:'+hashlib.sha256(canonical(binding)).hexdigest(),generation=1)
         return dict(profile,**source,dataset_version=profile['dataset_version']+':'+version)
 
-    def _reads(self,state,phase,directory,symbol,start,end,deadline,*,holder=None):
+    def _reads(self,state,phase,directory,symbol,start,end,deadline,*,holder=None,expected_binding=None):
         save=lambda:self._save(directory,state)
         holder=state if holder is None else holder
         if holder[phase]is None:
             metadata=self.source.binding(deadline)
+            if expected_binding is not None and metadata['binding'] != expected_binding:
+                raise SourcePending('source changed before readback started')
             limits=metadata['profile']['operation_profiles']['market.history_1m']['limits']
             maximum=limits['max_rows'];calendar_days=limits['max_calendar_days']
             require(maximum>=2)
@@ -381,11 +383,18 @@ class SourcePreparingMarket:
         if state['published']is not None and(not self.closed_day_recovery or state['published'].get('reconciled_day')is not None):return state
         if state['empty']or state['published']is not None:
             if self.follow:
-                try:self._follow_up(state,directory,symbol,start,end,deadline)
-                except (followup.FollowUpExhausted,SourcePreparationBudget)as error:
-                    state['follow_up']['stopped_reason']=str(error);self._save(directory,state)
-                    raise SourcePreparationBudget(str(error))from None
+                self._continue_readback(state, directory, symbol, start, end, deadline)
             return state
+        if self.follow and self.closed_day_recovery and state['before'] is not None:
+            active = self.source.binding(deadline)['binding']
+            previous = (state['after'] or state['before'])['binding']
+            if active != previous:
+                self._check_read_generation(previous, active)
+                if state['follow_up'] is None:
+                    state['follow_up'] = followup.initial(self.follow, self.source.uptime.seconds(), self.wall_clock())
+                    self._save(directory, state)
+                self._continue_readback(state, directory, symbol, start, end, deadline, active)
+                return state
         before,binding=self._reads(state,'before',directory,symbol,start,end,deadline)
         # 整日恢复以session标签为准；同条数且尾标签相同仍可能用时段外标签替代缺失分钟。
         sufficient=self._complete_rows(state,before)if self._closed_grid(state['query'])else len(before)>=target
@@ -415,13 +424,37 @@ class SourcePreparingMarket:
         self._publish(state,directory,symbol,rows,binding,deadline)
         return state
 
-    def _follow_up(self,state,directory,symbol,start,end,deadline):
+    @staticmethod
+    def _check_read_generation(previous, active):
+        # 传输代仅影响读取谱系；认证路由、能力及其他绑定仍须一致。
+        volatile = {'host_instance_id', 'transport_generation'}
+        require({k: v for k, v in previous.items() if k not in volatile}
+                == {k: v for k, v in active.items() if k not in volatile})
+
+    def _continue_readback(self, state, directory, symbol, start, end, deadline, active=None):
+        try:
+            self._follow_up(state, directory, symbol, start, end, deadline, active)
+        except (followup.FollowUpExhausted, SourcePreparationBudget) as error:
+            state['follow_up']['stopped_reason'] = str(error)
+            self._save(directory, state)
+            raise SourcePreparationBudget(str(error)) from None
+
+    def _follow_up(self,state,directory,symbol,start,end,deadline,active=None):
         """空/部分观测后只读；新capture先留额度，原HPR及原请求终态保持。"""
         tracking=state['follow_up'];require(tracking is not None)
         reads=tracking['reads']
         frozen=bool(reads and reads[-1]['verified']and(reads[-1].get('complete',False)if self.closed_day_recovery else not reads[-1]['empty']))
-        new_capture=not reads or(reads[-1]['verified']and not frozen)
+        generation_changed = False
+        if self.closed_day_recovery:
+            previous_capture = reads[-1]['capture'] if reads else None
+            previous = (previous_capture or state['after'] or state['before'])['binding']
+            active = self.source.binding(deadline)['binding'] if active is None else active
+            if previous != active:
+                self._check_read_generation(previous, active)
+                generation_changed = previous_capture is not None
+        new_capture=not reads or generation_changed or(reads[-1]['verified']and not frozen)
         if new_capture:
+            frozen = False
             followup.admit(tracking,self.follow,self.source.uptime.seconds(),self.wall_clock())
             reads.append(dict(capture=None,verified=False,empty=False))
             self._save(directory,state)
@@ -429,7 +462,7 @@ class SourcePreparingMarket:
         read_deadline=deadline if frozen else min(deadline,self.clock()+max(0,
             tracking['deadline_ms']/1000-self.source.uptime.seconds()))
         with self.source.rpc_budget(self.follow['rpc_timeout_seconds']):
-            rows,binding=self._reads(state,'capture',directory,symbol,start,end,read_deadline,holder=capture)
+            rows,binding=self._reads(state,'capture',directory,symbol,start,end,read_deadline,holder=capture,expected_binding=active)
         if self.clock()>=read_deadline:raise SourcePending('follow-up readback returned after deadline')
         capture.update(verified=True,empty=not bool(rows));self._save(directory,state)
         if self.closed_day_recovery:
