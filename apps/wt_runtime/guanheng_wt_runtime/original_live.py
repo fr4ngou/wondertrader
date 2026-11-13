@@ -102,6 +102,7 @@ class OriginalLiveStrategy:
         self._buys=set();self._sells=set();self._plan=None;self._last_date=None;self._last_source=None
         self._intent_known_at=None;self._intent_prices={};self._consumed_sha=None;self._consumed_codes={};self._announced=False
         self._atr_state={}
+        self._consumed_routes = {}
 
     def binding(self):return StrategyBinding(self.id,self.main,self.reads,self.targets if self.execution_enabled else (),self.callback,native_config_abi=2)
 
@@ -117,6 +118,7 @@ class OriginalLiveStrategy:
             last_source=self._last_source,  # 当前未完成动作的完整纯结果SHA；没有动作时为None。
             consumed_sha=self._consumed_sha,  # 最近消费结果的摘要，仅供观察修订，不替代逐证券水位。
             consumed_codes=dict(self._consumed_codes),  # 每证券{date,sha256}；缺项表示该证券尚未消费。
+            consumed_routes=dict(self._consumed_routes),  # 随意图保存的逐证券消费证据；旧状态可能缺失。
             intent_known_at=self._intent_known_at,  # 原信号实际已知截止，带时区ISO；初始None。
             intent_prices=dict(self._intent_prices))  # 原决策日原价收盘，CNY/份；缺证券为未知，不放宽cap。
 
@@ -149,7 +151,10 @@ class OriginalLiveStrategy:
             _need(view.ledger_cash_cny==self.initial_capital_cny and not view.pending_groups and all(r.quantity==0 for r in view.positions),'original_new_allocation_required')
             context.store_quantity_state(json.dumps(self._state(),sort_keys=True,separators=(',',':')))
         else:
-            state=json.loads(text);_need(type(state)is dict and set(state)==set(self._state()) and state['schema']=='guanheng.original-live-intent.v1'
+            state=json.loads(text)
+            if type(state) is dict:
+                state.setdefault('consumed_routes', {})  # 旧意图仅保存消费摘要，原信号细节继续未知。
+            _need(type(state)is dict and set(state)==set(self._state()) and state['schema']=='guanheng.original-live-intent.v1'
                 and state['identity']in (self.identity,self.previous_identity) and state['identity']is not None,'original_state_identity')
             _need(type(state['sequence'])is int and state['sequence']>=0,'original_state_sequence')
             for name in ('buys','sells'):_need(type(state[name])is list and len(state[name])==len(set(state[name])) and set(state[name])<=set(self.codes),'original_state_intent')
@@ -161,6 +166,22 @@ class OriginalLiveStrategy:
             _need(type(state['consumed_codes'])is dict and set(state['consumed_codes'])<=set(self.codes),'original_state_consumed')
             for row in state['consumed_codes'].values():
                 _need(type(row)is dict and set(row)=={'date','sha256'} and date.fromisoformat(row['date']).isoformat()==row['date'],'original_state_consumed');_sha(row['sha256'])
+            routes = state['consumed_routes']
+            _need(type(routes) is dict and routes.keys() <= state['consumed_codes'].keys(), 'original_state_consumed')
+            for code, row in routes.items():
+                consumed = state['consumed_codes'][code]
+                _need(type(row) is dict and set(row) == {'date', 'sha256', 'decision_at', 'eligible_date',
+                                                       'actions', 'model_held', 'auxiliary_missing'}
+                      and row['date'] == consumed['date'] and row['sha256'] == consumed['sha256']
+                      and date.fromisoformat(row['eligible_date']).isoformat() == row['eligible_date']
+                      and row['eligible_date'] > row['date']
+                      and datetime.fromisoformat(row['decision_at']).utcoffset() is not None
+                      and type(row['actions']) is list and all(a in ('BUY', 'SELL') for a in row['actions'])
+                      and (row['model_held'] is None or type(row['model_held']) is bool)
+                      and type(row['auxiliary_missing']) is list
+                      and all(type(r) is str and re.fullmatch('[a-z_]+', r) for r in row['auxiliary_missing']),
+                      'original_state_consumed')
+            self._consumed_routes = routes
             if state['intent_known_at'] is not None:
                 stamp=datetime.fromisoformat(state['intent_known_at']);_need(stamp.tzinfo is not None,'original_state_time')
             _need(type(state['intent_prices'])is dict and set(state['intent_prices'])<=set(self.codes),'original_state_prices')
@@ -185,6 +206,8 @@ class OriginalLiveStrategy:
         self.initialized=True
         self.publish(self.id,dict(
             status='initialized',  # ctx及自有分配已核初始化；不宣布成交或信号齐备。
+            signal_consumed_date=self._last_date,  # 已恢复的闭合信号日；没有消费时为None。
+            consumed_routes=self._published_consumed_routes(),  # 按执行证券呈现的已提交信号。
             definition=self._definition(),  # 原ctx已核证券声明；ASA暂缺时也保留证券范围。
             strategy_id=self.id,  # 独立原版线上策略身份。
             strategy_version=self.version,  # 本次线上执行模型版本，不改a1/a2历史报告。
@@ -210,6 +233,10 @@ class OriginalLiveStrategy:
             strategy_version=self.version,  # 已选择线上模型版本。
             symbols=[code+{'SSE':'.SH','SZSE':'.SZ'}[exchange]
                      for exchange,_,code in (symbol.split('.') for symbol in self.mapping.values())])  # 已核执行证券，含零持仓。
+
+    def _published_consumed_routes(self):
+        # 执行证券可不同于分析证券，使用本策略已核对的映射关联实际持仓。
+        return {self.mapping[code].rsplit('.', 1)[1]: row for code, row in self._consumed_routes.items()}
 
     def _confirmation_atr(self, prepared, small, own, actual, eligible, sells, new_buys):
         """用实际归属周期推进只升保护线，计算不持有券商或执行器。"""
@@ -285,7 +312,9 @@ class OriginalLiveStrategy:
         observation = dict(definition=self._definition(), sequence=self.sequence,
             owned_valuation=self._valuation(context, own, deadline),
             allocation_observation=None if own is None else allocation_projection(own,include_read_projection=True),
-            account_observation=asdict(broker), execution_qualified=False)
+            account_observation=asdict(broker), execution_qualified=False,
+            signal_consumed_date=self._last_date,  # 已提交的闭合信号日；候选计算不能推进。
+            consumed_routes=self._published_consumed_routes())  # 按执行证券呈现的已提交信号。
         if self.execution_enabled and own is not None and not self._announced:
             if self._plan is None and not self._sells and not self._buys:
                 from .profile_facts import announce_shared_hold
@@ -337,6 +366,7 @@ class OriginalLiveStrategy:
         buys=set(self._buys);sells={c for c in self._sells if actual[c]>0};plan=None if self._plan is None else dict(self._plan)
         last_date,last_source=self._last_date,self._last_source
         consumed_sha=self._consumed_sha;consumed_codes=dict(self._consumed_codes)
+        consumed_routes = dict(self._consumed_routes)
         intent_known_at,intent_prices=self._intent_known_at,dict(self._intent_prices)
         eligible=small['eligible_date']==trade and small['decision_date']<trade
         consumed_any=False
@@ -355,6 +385,18 @@ class OriginalLiveStrategy:
                 consumed_codes[c]=dict(
                     date=small['decision_date'],  # 此证券实际消费的闭合决策日ISO。
                     sha256=small['signal_sha256'])  # 当时完整纯结果SHA；后继修订不重复消费。
+                missing = set()
+                for entry in qualifications[c].get('optional_diagnostics', ()):
+                    reason, _, suffix = entry.partition(':')
+                    if suffix in ('', c):
+                        missing.add(reason)
+                consumed_routes[c] = dict(
+                    **consumed_codes[c],
+                    decision_at=small['decision_at'],  # 当时的信号知晓截止，带时区ISO。
+                    eligible_date=small['eligible_date'],  # 允许使用此信号的交易日。
+                    actions=[row['action'] for row in rows],  # 本日实际消费的原BUY/SELL；空为未触发。
+                    model_held=small['model_state'][c]['held'],  # 历史模型持仓，与实际份额独立。
+                    auxiliary_missing=sorted(missing))  # 此证券及全局辅助缺项原因码。
                 consumed_any=True
                 for row in rows:
                     _need(row['date']==small['decision_date'] and row['action'] in ('BUY','SELL'),'original_signal_record')
@@ -432,7 +474,7 @@ class OriginalLiveStrategy:
                 _need(dict(context.set_targets(vector))==dict(vector),'original_target_readback')
             except TargetQuoteUnavailable:
                 candidate.pop('desired_targets', None)
-                candidate.pop('signal_consumed_date', None)
+                candidate['signal_consumed_date'] = self._last_date
                 waiting('target_quote_unavailable')
                 return
         state=dict(
@@ -446,6 +488,7 @@ class OriginalLiveStrategy:
             last_source=last_source,  # 本轮未完成动作原纯结果SHA。
             consumed_sha=consumed_sha,  # 最近消费摘要，独立于当前意图来源。
             consumed_codes=consumed_codes,  # 逐证券决策日/原SHA，缺项尚未消费。
+            consumed_routes=consumed_routes,  # 逐证券当时消费的明细，与原意图同次提交。
             intent_known_at=intent_known_at,  # 原信号已知时刻，带时区ISO或初始None。
             intent_prices=intent_prices)  # 原价收盘CNY/份，不借新日结果重写旧cap。
         if self.confirmation:
@@ -456,4 +499,5 @@ class OriginalLiveStrategy:
         self._buys,self._sells,self._plan,self._last_date,self._last_source=buys,sells,plan,last_date,last_source
         self._intent_known_at,self._intent_prices,self._consumed_sha=intent_known_at,intent_prices,consumed_sha
         self._consumed_codes=consumed_codes
-        self.publish(self.id,candidate,deadline=deadline)
+        self._consumed_routes = consumed_routes
+        self.publish(self.id,dict(candidate, consumed_routes=self._published_consumed_routes()),deadline=deadline)

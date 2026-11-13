@@ -250,13 +250,42 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
 
 
 def _consumed_signal(report, symbols):
-    """只展示策略已消费的闭合信号；较晚发布的修订仍由原策略决定是否可消费。"""
+    """展示策略保存的已消费信号；旧报告仍可按原日期和修订标识核对。"""
+    from datetime import date
+    routes = report.get('consumed_routes')
+    decision_date = report.get('signal_consumed_date')
+    if 'consumed_routes' in report:
+        _require(type(routes) is dict)
+        if not routes:
+            return None
+        _require(type(decision_date) is str
+                 and date.fromisoformat(decision_date).isoformat() == decision_date)
+        current = {code: row for code, row in routes.items() if row['date'] == decision_date}
+        _require(bool(current))
+        eligible_days = {row['eligible_date'] for row in current.values()}
+        _require(len(eligible_days) == 1)
+        eligible_date = eligible_days.pop()
+        _require(date.fromisoformat(eligible_date).isoformat() == eligible_date and decision_date < eligible_date)
+        decision_at = max(_time(row['decision_at']) for row in current.values())
+        rows = []
+        for symbol in symbols:
+            row = current.get(symbol.split('.')[0])
+            if row is None:
+                rows.append(dict(symbol=symbol, qualified=False, actions=[], model_held=None, auxiliary_missing=[]))
+                continue
+            actions, model_held, missing = row['actions'], row['model_held'], row['auxiliary_missing']
+            _require(type(actions) is list and all(a in ('BUY', 'SELL') for a in actions)
+                     and (model_held is None or type(model_held) is bool)
+                     and type(missing) is list and all(type(r) is str and re.fullmatch('[a-z_]+', r) for r in missing))
+            rows.append(dict(symbol=symbol, qualified=True, actions=actions,
+                             model_held=model_held, auxiliary_missing=missing))
+        return dict(decision_at=decision_at, decision_date=decision_date,
+                    eligible_date=eligible_date, securities=rows)
     signal = report.get('signal')
     if (type(signal) is not dict or signal.get('schema') != 'guanheng.original-current-signal.v1'
             or report.get('signal_ready') is not True or report.get('signal_revision_after_consumption') is True
             or signal.get('decision_date') != report.get('signal_consumed_date')):
         return None
-    from datetime import date
     decision_date = signal['decision_date']
     eligible_date = signal['eligible_date']
     _require(type(decision_date) is str and type(eligible_date) is str

@@ -234,3 +234,14 @@ def test_closed_signal_has_its_own_decision_and_does_not_turn_model_hold_into_po
     assert [p['broker_quantity'] for p in projected['positions'] if p['symbol']=='159352.SZ'] == [0]
     row['signal_revision_after_consumption'] = True
     assert 'consumed_signal' not in project_strategy(wrapper(rows), strategy_id=NEW)
+    code = '159352'
+    row['signal']['signals_today'][code] = [dict(action='BUY')]
+    row['consumed_routes'] = {
+        code: dict(date='2026-11-06', sha256='d'*64, decision_at=STAMP, eligible_date='2026-11-09',
+                   actions=[], model_held=True, auxiliary_missing=['today_shares_missing'])}
+    row['signal_ready'] = False
+    frozen = project_strategy(wrapper(rows), strategy_id=NEW)['consumed_signal']
+    selected = next(r for r in frozen['securities'] if r['symbol'] == '159352.SZ')
+    assert selected == dict(symbol='159352.SZ', qualified=True, actions=[], model_held=True,
+                            auxiliary_missing=['today_shares_missing'])
+    assert all(not r['qualified'] and r['model_held'] is None for r in frozen['securities'] if r is not selected)

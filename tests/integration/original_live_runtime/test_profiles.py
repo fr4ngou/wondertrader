@@ -206,6 +206,27 @@ def test_revision_after_consumption_not_consumed(monkeypatch):
     owner,ctx,asa,sig,out=make(monkeypatch);owner.callback(ctx);schedule(owner,ctx)
     sig.small=small({DEFAULT_CODES[0]:'BUY'});sig.small['signal_sha256']='e'*64;schedule(owner,ctx)
     assert not any(ctx.targets.values()) and out[-1][0]['signal_revision_after_consumption']
+    assert out[-1][0]['consumed_routes'][DEFAULT_CODES[0]]['actions'] == []
+    assert out[-1][0]['consumed_routes'][DEFAULT_CODES[0]]['sha256'] == 'd'*64
+    resumed, recovered, _, _, restored = make(monkeypatch, mode='resume')
+    recovered.kv = ctx.kv
+    resumed.callback(recovered)
+    assert restored[-1][0]['consumed_routes'] == out[-1][0]['consumed_routes']
+    assert restored[-1][0]['signal_consumed_date'] == '2026-11-06'
+
+
+def test_restoring_old_signal_state_does_not_reinvent_consumed_rows(monkeypatch):
+    owner, ctx, _, _, _ = make(monkeypatch)
+    owner.callback(ctx)
+    schedule(owner, ctx)
+    old = json.loads(ctx.kv)
+    del old['consumed_routes']
+    resumed, recovered, _, _, reports = make(monkeypatch, mode='resume')
+    recovered.kv = json.dumps(old)
+    resumed.callback(recovered)
+    assert resumed._consumed_codes == owner._consumed_codes
+    assert reports[-1][0]['consumed_routes'] == {}
+
 
 def test_fixed_dispatch_packages_and_identity():
     old={'id':RETAINED_ID,'parameters':{'python_strategy':{'schema':RETAINED_PROFILE}}}
@@ -300,6 +321,11 @@ def test_one_unqualified_route_does_not_consume_or_block_other(monkeypatch):
     owner.callback(ctx);schedule(owner,ctx)
     assert ctx.targets[owner.mapping[a]]==0 and ctx.targets[owner.mapping[b]]==100000
     assert a not in owner._consumed_codes and b in owner._consumed_codes
+    sig.small['route_qualification'][a] = dict(qualified=True, reasons=[])
+    sig.small['signal_sha256'] = 'e'*64
+    schedule(owner, ctx)
+    routes = out[-1][0]['consumed_routes']
+    assert routes[a]['sha256'] == 'e'*64 and routes[b]['sha256'] == 'd'*64
 
 
 def test_route_qualification_ignores_optional_history_guards():
