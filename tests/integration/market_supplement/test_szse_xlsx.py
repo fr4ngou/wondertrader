@@ -47,6 +47,19 @@ def test_valid_xml_cell_encodings_keep_small_and_fractional_share_precision(mode
     assert result['value']=='123.125' and result['unit']=='share'
 
 
+def test_szse_padded_fund_code_matches_and_normalized_duplicates_are_rejected():
+    rows = [[DAYS[-1], '159352  ', 'ETF', '123.125']]
+    raw = szse_xlsx(DAYS[-1], rows=rows)
+    fact = collect_external('etf_total_shares', 'SZSE.159352', DAYS[-1], lambda *a: receipt(raw))
+    assert fact['value'] == '123.125' and fact['unit'] == 'share'
+
+    rows.append([DAYS[-1], '159352', 'ETF', '124'])
+    duplicate = szse_xlsx(DAYS[-1], rows=rows)
+    with pytest.raises(SourceUnavailable) as failure:
+        collect_external('etf_total_shares', 'SZSE.159352', DAYS[-1], lambda *a: receipt(duplicate))
+    assert failure.value.code == 'source_duplicate_record'
+
+
 @pytest.mark.parametrize('case,expected',[
     ('wrong_day','source_date_mismatch'),
     ('invalid_code','source_symbol_mismatch'),

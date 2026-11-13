@@ -269,11 +269,18 @@ def _szse_shares(code, day, get):
     rows = table[1:]
     if any(len(row) != 4 for row in rows):_fail('source_schema_invalid')
     if any(row[0] != day for row in rows):_fail('source_date_mismatch')
-    if any(re.fullmatch(r'[0-9]{6}', row[1]) is None for row in rows):_fail('source_symbol_mismatch')
-    if len({row[1] for row in rows}) != len(rows):_fail('source_duplicate_record')
-    selected = [row for row in rows if row[1] == code]
-    if len(selected) != 1:_fail('source_record_missing')
-    return _fact(_number(selected[0][3]), 'share', 'SZSE', [(parent, received)])
+    shares_by_code = {}
+    for _, raw_code, _, shares in rows:
+        # 官方 XLSX 可用 ASCII 空格填充基金代码；重复和选择均按规范代码判断。
+        fund_code = raw_code.strip(' ')
+        if re.fullmatch(r'[0-9]{6}', fund_code) is None:
+            _fail('source_symbol_mismatch')
+        if fund_code in shares_by_code:
+            _fail('source_duplicate_record')
+        shares_by_code[fund_code] = shares
+    if code not in shares_by_code:
+        _fail('source_record_missing')
+    return _fact(_number(shares_by_code[code]), 'share', 'SZSE', [(parent, received)])
 
 
 def _turnover(day, get):
