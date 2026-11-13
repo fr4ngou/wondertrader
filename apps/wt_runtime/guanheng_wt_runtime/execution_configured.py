@@ -1201,6 +1201,8 @@ def main():
                  'exception_type': type(error).__name__,
                  'frames': [{'file': Path(row.filename).name, 'function': row.name, 'line': row.lineno}
                             for row in traceback.extract_tb(error.__traceback__)[-16:]]}
+        if runtime._attribution is not None and runtime._attribution.failure is error:
+            value['attribution'] = runtime._attribution.failure_diagnostic
         with (args.control / 'callback-failure.json').open('xb') as stream:
             stream.write(_encode(value))
     return result

@@ -586,7 +586,7 @@
       "source": "integrations/guanheng/quote_collection.py"
     },
     "integrations/guanheng/quote_collection_service.py": {
-      "sha256": "738e0f7357842b3edf4b11ac3bdec08bce81980421c2554494b296504775dfd6",
+      "sha256": "ffeaa0f505d486c9c8d5b2b7f972cc02260e7f8b11592e96ef686b65b30fd7b2",
       "source": "integrations/guanheng/quote_collection_service.py"
     },
     "integrations/guanheng/quote_counter_observation.py": {

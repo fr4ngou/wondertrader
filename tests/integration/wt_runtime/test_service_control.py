@@ -667,8 +667,32 @@ class ServiceControlTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 controller._pre_native_execution_origin(current, status)
             marker.unlink()
+            (self.root / "process-events.jsonl").write_bytes(
+                _raw(dict(event, event="process_started")) + b"\n" +
+                _raw(dict(event, event="process_closed", code="unexpected_exit", exit_code=1)) + b"\n")
+            identity = dict(control_id=child_id, config_sha256=_sha(native), pid=123)
+            queue = dict(fault=0, accepting=False, inflight=False, accepted=0, entered=0,
+                         delivered=0, rejected=0, queued_commands=0, payload_bytes=0)
+            failure = dict(identity, schema="guanheng.execution.failure.v1", closed=False,
+                           stage="trader", execution_queue=queue)
+            _write(child / "failure.json", failure)
+            _write(child / "close-prepared.json", dict(identity, schema="guanheng.execution.close-prepared.v1",
+                   closed=True, ok=False, recovery_ready=False, error_code="trader"))
+            with patch.object(service_control, "require_process_exited") as exited:
+                self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
+                exited.assert_called_once_with(123)
+                claim = _write(root / f".cta-reconciled-{_sha(transition)}.json", {})
+                with self.assertRaises(ValueError):
+                    controller._pre_native_execution_origin(current, status)
+                claim.unlink()
+                queue["accepted"] = 1
+                _write(child / "failure.json", failure)
+                with self.assertRaises(ValueError):
+                    controller._pre_native_execution_origin(current, status)
+                queue["accepted"] = 0
+                _write(child / "failure.json", failure)
             _write(state, {"value": 11})
-            with self.assertRaises(ValueError):
+            with patch.object(service_control, "require_process_exited"), self.assertRaises(ValueError):
                 controller._pre_native_execution_origin(current, status)
 
     def _check_trading_adoption(self, *, faulted=False):

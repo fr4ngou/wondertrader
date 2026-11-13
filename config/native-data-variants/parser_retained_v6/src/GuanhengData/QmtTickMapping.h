@@ -5,6 +5,7 @@
 #include "QmtHttpEndpoint.h"
 #include <rapidjson/document.h>
 #include <windows.h>
+#include <stdexcept>
 #include <vector>
 
 namespace guanheng
@@ -26,6 +27,15 @@ std::uint64_t epoch_of(const rapidjson::Value& object);
 void validate_prices(double open,double high,double low,double close,double volume,double amount);
 rapidjson::Document parse(const std::string& text);
 Status check_profile(const QmtHttpProfile& profile);
+// 只携带本地校验步骤和已经规范化的请求证券，供行情诊断使用。
+class SnapshotMappingError : public std::invalid_argument
+{
+public:
+    SnapshotMappingError(const char* field, std::string symbol={})
+        : std::invalid_argument("qmt_host_snapshot_invalid"), field(field), symbol(std::move(symbol)) {}
+    const char* field; // 固定的本地校验字段。
+    std::string symbol; // 请求中的规范化沪深代码，批次级错误为空。
+};
 // 一次解析并完整校验最多 200 证券；任何缺失/重复/额外证券或非法值均失败，
 // 返回前不交付部分结果，顺序与请求 codes 一致。
 // omit_unformed仅供持续轮询：开盘前未形成OHLC的完整零成交原值不投递。

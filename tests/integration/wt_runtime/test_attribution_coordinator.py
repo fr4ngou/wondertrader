@@ -76,6 +76,27 @@ def prepared(coordinator, bridge, *, known_at=STAMP, buyer='new'):
     return command
 
 
+def test_source_processing_and_failure_recording_have_distinct_diagnostics(tmp_path, monkeypatch):
+    book, coordinator, bridge = setup(tmp_path)
+    command = prepared(coordinator, bridge)
+    source = dict(command, source_kind='query-result', source_sha256='d'*64)
+    order = dict(source, terminal=True, order_state=53, filled_quantity=20, remaining_quantity=0)
+
+    def recording_timeout(*args, **kwargs):
+        raise TimeoutError('allocation_deadline')
+
+    monkeypatch.setattr(book, 'mark_event_failed', recording_timeout)
+    assert send(bridge, 9, order)[0] == -1
+    assert bridge.failure.reason == 'terminal_missing_fills'
+    diagnostic = bridge.failure_diagnostic
+    assert diagnostic['phase'] == 'handle_event' and diagnostic['event_kind'] == 9
+    assert diagnostic['remaining_ms'] == 5000
+    assert diagnostic['exception']['reason'] == 'terminal_missing_fills'
+    assert diagnostic['recording_failure']['reason'] == 'allocation_deadline'
+    assert len(book.pending_events(deadline=end())) == 1
+    assert command['command_id'] not in json.dumps(diagnostic)
+
+
 def test_prepared_binding_is_durable_before_native_ack_and_old_inventory_stays_old(tmp_path):
     book, coordinator, bridge = setup(tmp_path)
     command = prepared(coordinator, bridge)

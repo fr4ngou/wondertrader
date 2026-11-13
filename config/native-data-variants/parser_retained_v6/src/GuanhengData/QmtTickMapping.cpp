@@ -117,31 +117,45 @@ Status check_profile(const QmtHttpProfile& profile)
 std::vector<MarketSnapshot> map_ticks(const std::vector<std::string>& codes,const std::string& data_json,
     const QmtHttpProfile& profile,const SourceSession& source,bool omit_unformed)
 {
-    if(codes.empty()||codes.size()>200)throw std::invalid_argument("快照证券数量非法");
-    auto data=parse(data_json);
-    if(data.MemberCount()!=codes.size())throw std::invalid_argument("快照证券范围不一致");
+    if(codes.empty()||codes.size()>200)throw SnapshotMappingError("batch_size");
+    rapidjson::Document data;
+    try{data=parse(data_json);}
+    catch(const std::invalid_argument&){throw SnapshotMappingError("json");}
+    if(data.MemberCount()!=codes.size())throw SnapshotMappingError("coverage");
     std::vector<MarketSnapshot> snapshots;snapshots.reserve(codes.size());
     std::set<std::string> requested;
     for(const auto& code:codes)
     {
-        const auto symbol=qmt_symbol(code);
-        if(!requested.insert(symbol).second)throw std::invalid_argument("快照请求证券重复");
-        const auto& row=member(data,symbol.c_str());const auto epoch=epoch_of(row);
-        const auto time=from_epoch(epoch,true);MarketSnapshot snapshot{};snapshot.source=source;
+        std::string symbol;
+        try{symbol=qmt_symbol(code);}
+        catch(const std::invalid_argument&){throw SnapshotMappingError("request_symbol");}
+        if(!requested.insert(symbol).second)throw SnapshotMappingError("duplicate_symbol",symbol);
+        const auto* field="row";
+        try {
+        const auto& row=member(data,symbol.c_str());
+        field="time";
+        const auto time=from_epoch(epoch_of(row),true);MarketSnapshot snapshot{};snapshot.source=source;
         snapshot.full_cumulative=true;snapshot.source_time_verified=true;auto& tick=snapshot.tick;
         const auto dot=code.find('.');std::memcpy(tick.exchg,code.data(),dot);std::memcpy(tick.code,code.data()+dot+1,6);
         tick.action_date=tick.trading_date=date_of(time);tick.action_time=(time.wHour*10000+time.wMinute*100+time.wSecond)*1000+time.wMilliseconds;
-        tick.price=number(row,"lastPrice");tick.open=number(row,"open");tick.high=number(row,"high");tick.low=number(row,"low");tick.pre_close=number(row,"lastClose");
-        tick.total_volume=number(row,"volume")*profile.volume_to_shares;tick.total_turnover=number(row,"amount")*profile.amount_to_yuan;
+        const auto read=[&](const char* key){field=key;return number(row,key);};
+        tick.price=read("lastPrice");tick.open=read("open");tick.high=read("high");tick.low=read("low");tick.pre_close=read("lastClose");
         if(tick.pre_close<=0)throw std::invalid_argument("昨收价非法");
+        tick.total_volume=read("volume")*profile.volume_to_shares;
+        tick.total_turnover=read("amount")*profile.amount_to_yuan;
         // 沪深开盘前完整原快照可能只有昨收区间和竞价参考价，尚无当日OHLC。
         // 仅此精确形状跳过投递；保留原结果消费责任，不生成/修补WT tick。
         if(omit_unformed && time.wHour<10 && (time.wHour<9 || time.wMinute<30)
             && tick.open==0 && tick.total_volume==0 && tick.total_turnover==0
             && tick.price>0 && tick.high==tick.pre_close && tick.low==tick.pre_close)
             continue;
+        if(tick.total_volume<0||!std::isfinite(tick.total_volume))throw SnapshotMappingError("volume",symbol);
+        if(tick.total_turnover<0||!std::isfinite(tick.total_turnover))throw SnapshotMappingError("amount",symbol);
+        field="ohlc";
         validate_prices(tick.open,tick.high,tick.low,tick.price,tick.total_volume,tick.total_turnover);
         snapshots.push_back(std::move(snapshot));
+        } catch(const SnapshotMappingError&) {throw;}
+        catch(const std::invalid_argument&) {throw SnapshotMappingError(field,symbol);}
     }
     return snapshots;
 }

@@ -12,12 +12,27 @@ from decimal import Decimal, ROUND_HALF_UP, localcontext
 import sys
 from threading import RLock, local
 from time import monotonic
+from pathlib import Path
+from traceback import extract_tb
 from uuid import UUID, NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
 
 
 class AttributionError(RuntimeError):
     """有限原因码；失败保留原Native责任，不产生补发命令。"""
+
+
+def _exception_diagnostic(error):
+    """仅保留本地异常类型、固定原因和调用位置。"""
+    from .account_allocation import AllocationError
+    reason = None
+    if type(error) in (AllocationError, AttributionError):
+        reason = str(error)
+    elif type(error) is TimeoutError and error.args == ('allocation_deadline',):
+        reason = 'allocation_deadline'
+    return {'exception_type': type(error).__name__, 'reason': reason,
+            'frames': [{'file': Path(row.filename).name, 'function': row.name, 'line': row.lineno}
+                       for row in extract_tb(error.__traceback__, limit=-16)]}
 
 
 def _need(value, reason):
@@ -109,6 +124,7 @@ class AttributionBridge:
         self._callback = NativeCallback(self._receive)
         self._runtime = None
         self._failure = None
+        self._failure_diagnostic = None
         self._borrow = local()
         self._owner = None
 
@@ -131,6 +147,11 @@ class AttributionBridge:
         """最近原异常供受控owner诊断；不把异常或源正文自动打印。"""
         return self._failure
 
+    @property
+    def failure_diagnostic(self):
+        """原回调阶段、原异常及失败原因落账结果，供进程结束时写入私有收据。"""
+        return self._failure_diagnostic
+
     def register(self, runtime):
         """原run前向已核SHA的Runtime DLL注册；其负责传给同次Managed/Standard。"""
         _need(self._runtime is None, 'callback_already_registered')
@@ -148,6 +169,9 @@ class AttributionBridge:
 
     def _receive(self, event_pointer, reply_pointer, user):
         previous_borrow = self.callback_active
+        started = self._clock()
+        phase = 'validate_header'
+        kind = role = remaining_ms = event_sha256 = deadline = None
         try:
             _need(not previous_borrow, 'attribution_callback_reentry')
             _need(bool(event_pointer) and bool(reply_pointer), 'attribution_pointer')
@@ -163,19 +187,22 @@ class AttributionBridge:
                   or (header.kind in (6, 7, 8, 9, 11) and header.thread_role in (2, 3)),
                   'attribution_thread_role')
             _need(header.kind not in (7, 8, 9) or header.remaining_ms > 0, 'attribution_original_deadline')
-            started = self._clock()
-            seconds = min(self._seconds, header.remaining_ms / 1000) if header.remaining_ms else self._seconds
+            kind, role, remaining_ms = header.kind, header.thread_role, header.remaining_ms
+            phase = 'decode_event'
+            seconds = min(self._seconds, remaining_ms / 1000) if remaining_ms else self._seconds
             deadline = started + seconds
             _need(0 < header.json_bytes <= 2 * 1024 * 1024 and bool(header.json_utf8), 'attribution_body_size')
             raw = C.string_at(header.json_utf8, header.json_bytes)
             body = json.loads(raw.decode('utf-8'), object_pairs_hook=_pairs, parse_constant=_invalid_constant)
             _need(type(body) is dict, 'attribution_body_type')
             _validate_tree(body)
+            event_sha256 = hashlib.sha256(raw).hexdigest()
             _need(self._clock() < deadline, 'attribution_deadline')
-            event = AttributionEvent(header.kind, header.thread_role, header.epoch, body, raw,
-                                     hashlib.sha256(raw).hexdigest(), deadline)
+            event = AttributionEvent(kind, role, header.epoch, body, raw, event_sha256, deadline)
             self._borrow.active = True
+            phase = 'handle_event'
             quantity = self._handler(event)
+            phase = 'validate_reply'
             _need(self._clock() < deadline, 'attribution_deadline')
             if header.kind == 4:
                 requested = body.get('requested_quantity')
@@ -191,6 +218,13 @@ class AttributionBridge:
             return 0
         except BaseException as error:
             self._failure = error
+            recording_error = getattr(error, '_attribution_recording_error', None)
+            self._failure_diagnostic = dict(
+                phase=phase, event_kind=kind, thread_role=role, event_sha256=event_sha256,
+                remaining_ms=remaining_ms, elapsed_ms=round((self._clock()-started)*1000, 3),
+                budget_ms=None if deadline is None else round((deadline-started)*1000, 3),
+                exception=_exception_diagnostic(error),
+                recording_failure=None if recording_error is None else _exception_diagnostic(recording_error))
             return -1  # C ABI不抛异常；原Native保留UUID/责任并关闭后继写入。
         finally:
             self._borrow.active = previous_borrow
@@ -410,11 +444,13 @@ class AttributionCoordinator:
         _need(provided is None or provided == command.command_id, 'attribution_command_conflict')
         return command
 
-    def _source(self, event, event_id):
+    def _source(self, event, event_id, command):
         from .account_allocation import FillFact, TerminalFact
         body, deadline = event.body, event.deadline
+        if command is not None:
+            provided = body.get('command_id')
+            _need(provided is None or provided == command.command_id, 'attribution_command_conflict')
         if event.kind == 8:
-            command = self._command(body, deadline)
             before_quantity = sum(p.quantity for sid in self.strategy_ids
                 for p in self.allocation.view(sid, deadline=deadline).positions if p.symbol == body['symbol'])
             day = datetime.strptime(str(body['trading_date']), '%Y%m%d').date().isoformat()
@@ -434,7 +470,6 @@ class AttributionCoordinator:
             if after_quantity != before_quantity:
                 self._last_mutating_fill_ms = self._utcnow().timestamp()*1000
         elif event.kind == 9:
-            command = self._command(body, deadline)
             tag = self._wt_identity(body)
             child = self.allocation.lookup_wt_child(tag, deadline=deadline)
             # 只投影尚有责任的自有SELL冻结；历史/外国O原件完整保留在inbox。
@@ -471,20 +506,38 @@ class AttributionCoordinator:
 
     def _receive_source(self, event):
         event_id = self._identity('source', event.kind, event.sha256)
-        inbox = self.allocation.receive_event(event_id, str(event.kind), event.raw,
-                    event.body.get('source_sha256'), deadline=event.deadline)
+        kind, body = str(event.kind), event.body
+        command = None
+        if event.kind in (8, 9):
+            tag = body.get('user_tag')
+            inbox, command = self.allocation.receive_broker_event(event_id, kind, event.raw,
+                body.get('source_sha256'), tag if type(tag) is str and tag else None, deadline=event.deadline)
+            if command is None:
+                return
+        else:
+            inbox = self.allocation.receive_event(event_id, kind, event.raw,
+                        body.get('source_sha256'), deadline=event.deadline)
         if inbox.applied:
             return
         try:
-            self._source(event, event_id)
+            self._source(event, event_id, command)
         except Exception as error:
-            reason = getattr(error, 'reason', str(error) if type(error) is AttributionError else type(error).__name__)
-            self.allocation.mark_event_failed(event_id, reason, deadline=event.deadline)
-            # O先于D及全账户无归属源行是保留事实等待核查；不能解释为未成交或补发。
-            if reason not in ('terminal_missing_fills', 'attribution_command_unmapped', 'attribution_wt_identity_missing'):
+            reason, recorded = self._record_event_failure(event_id, error, event.deadline)
+            # O先于D或插入结果缺归属时，保留原事实等待核查。
+            if not recorded or reason not in (
+                    'terminal_missing_fills', 'attribution_command_unmapped', 'attribution_wt_identity_missing'):
                 raise
         else:
             self.allocation.mark_event_applied(event_id, deadline=event.deadline)
+
+    def _record_event_failure(self, event_id, error, deadline):
+        reason = getattr(error, 'reason', str(error) if type(error) is AttributionError else type(error).__name__)
+        try:
+            self.allocation.mark_event_failed(event_id, reason, deadline=deadline)
+        except Exception as recording_error:
+            error._attribution_recording_error = recording_error
+            return reason, False
+        return reason, True
 
     def replay_pending(self, *, deadline, limit=100):
         """原owner用本轮绝对D续核已接收事实；不联网、不重发原命令。
@@ -593,8 +646,7 @@ class AttributionCoordinator:
                         self._price(body['limit_price_cny'])), deadline=deadline)
                     _need(permit.first_binding, 'attribution_original_command_requires_query')
                 except Exception as error:
-                    reason = getattr(error, 'reason', type(error).__name__)
-                    self.allocation.mark_event_failed(event_id, reason, deadline=deadline)
+                    self._record_event_failure(event_id, error, deadline)
                     raise
                 self.allocation.mark_event_applied(event_id, deadline=deadline)
             elif event.kind == 10:

@@ -10,6 +10,11 @@ namespace guanheng
 namespace
 {
 Status fail(ErrorCode code,const char* reason){return {code,reason};}
+Status snapshot_failure(const qmt_mapping::SnapshotMappingError& error)
+{
+    return {ErrorCode::InvalidInput,std::string("qmt_host_snapshot_invalid:")+error.field+
+        (error.symbol.empty()?"":":"+error.symbol)};
+}
 bool retryable_snapshot(const Status& status){
     if(status.code==ErrorCode::Pending||status.code==ErrorCode::Timeout||status.code==ErrorCode::SubmissionUnknown)return true;
     if(status.code==ErrorCode::Backpressure)return status.reason=="qmt_http_backpressure";
@@ -109,7 +114,7 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
             if(!value.result.status.ok())return value.result.status;
             if(!same_session(source_,client_->session()))return fail(ErrorCode::StaleSession,"qmt_host_source_changed");
             try{snapshots=qmt_mapping::map_ticks(codes,value.result.data_json,profile_,source_);}
-            catch(const std::invalid_argument&){return fail(ErrorCode::InvalidInput,"qmt_host_snapshot_invalid");}
+            catch(const qmt_mapping::SnapshotMappingError& error){return snapshot_failure(error);}
             return {};
         }
         if(value.receipt.request_body.empty()){
@@ -134,7 +139,7 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
         if(held_status_.ok()) {
             if(!same_session(source_,client_->session())){original_error_=fail(ErrorCode::StaleSession,"qmt_host_source_changed");return original_error_;}
             try{held_snapshots_=qmt_mapping::map_ticks(held_codes_,held_->result.data_json,profile_,source_,true);}
-            catch(const std::invalid_argument&){held_status_=fail(ErrorCode::InvalidInput,"qmt_host_snapshot_invalid");}
+            catch(const qmt_mapping::SnapshotMappingError& error){held_status_=snapshot_failure(error);}
         }
         mapped_=true;
     }

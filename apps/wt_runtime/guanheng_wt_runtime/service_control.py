@@ -545,7 +545,7 @@ class ServiceController:
         return transition_file
 
     def _pre_native_execution_origin(self, current, status):
-        """核子进程启动退出和原状态字节，再定位最后有效的执行观察。"""
+        """核子进程准入前退出和原状态字节，再定位最后有效的执行观察。"""
         execution = status.get("components", {}).get("execution", {})
         if (status.get("error_code") != "component_runtime_execution"
                 or execution.get("error_code") != "execution_start"
@@ -573,17 +573,22 @@ class ServiceController:
         child = root / child_id
         _inspect(child, directory=True)
         _require(terminal.get("event") == "process_closed" and terminal.get("code") == "unexpected_exit"
-                 and terminal.get("exit_code") == 2 and terminal.get("host_pid") is None
+                 and terminal.get("exit_code") in (1, 2) and terminal.get("host_pid") is None
                  and terminal.get("host_exit_code") is None
                  and any(row.get("control_id") == child_id and row.get("event") == "process_started"
-                         for row in records[:-1])
-                 and {item.name for item in child.iterdir()} == {"execution.json", "python-binding.json"})
+                         for row in records[:-1]))
         native = _pinned_json(child / "execution.json", descriptor["configuration_sha256"], 256 * 1024)
         transition_file = self._retained_execution_transition(current, descriptor)
         _require(transition_file is not None)
         reference = native["recovery"]["transition"]
         transition = _pinned_json(_path(transition_file, e_drive=True), reference["sha256"], 1024 * 1024)
         state_root = _path(native["output_directory"], e_drive=True)
+        if terminal["exit_code"] == 2:
+            _require({item.name for item in child.iterdir()} == {"execution.json", "python-binding.json"})
+        else:
+            self._verify_native_start_abort(child, child_id, descriptor["configuration_sha256"])
+        claim = state_root / f'.cta-reconciled-{reference["sha256"]}.json'
+        _require(not claim.exists() and not claim.with_suffix(".json.pending").exists())
         _require(execution_state_files(state_root) == transition["state_files"])
         seen = set()
         control_id = current["wt_control_id"]
@@ -609,6 +614,28 @@ class ServiceController:
                          and self._runtime_owner_active(origin) is False)
                 return origin
         raise ValueError("pre_native_execution_origin_missing")
+
+    @staticmethod
+    def _verify_native_start_abort(child, child_id, digest):
+        """只准入尚未建立任何执行或金融恢复责任的子进程退出。"""
+        _require(all(not (child / name).exists() for name in (
+            "ready.json", "reconciled.json", "lifecycle-started.json", "lifecycle-finished.json", "closed.json")))
+        _, failure = _json_file(child / "failure.json", 4096)
+        _, closed = _json_file(child / "close-prepared.json", 4096)
+        pid = failure.get("pid")
+        stage = failure.get("stage")
+        _require(type(pid) is int and pid > 0 and stage in ("trader", "reconcile_orders")
+                 and failure.get("schema") == "guanheng.execution.failure.v1" and failure.get("closed") is False
+                 and all(row.get("control_id") == child_id and row.get("config_sha256") == digest
+                         and row.get("pid") == pid for row in (failure, closed))
+                 and closed.get("schema") == "guanheng.execution.close-prepared.v1"
+                 and closed.get("closed") is True and closed.get("ok") is False
+                 and closed.get("recovery_ready") is False and closed.get("error_code") == stage)
+        queue = failure.get("execution_queue")
+        _require(type(queue) is dict and queue.get("accepting") is False and queue.get("inflight") is False
+                 and all(type(queue.get(key)) is int and queue[key] == 0 for key in (
+                     "fault", "accepted", "entered", "delivered", "rejected", "queued_commands", "payload_bytes")))
+        require_process_exited(pid)
 
     def _admit_bootstrap(self, previous: dict | None, status: dict | None, *, pre_native=False) -> None:
         """持原服务租约核退出证据及显式后继的作用范围。"""

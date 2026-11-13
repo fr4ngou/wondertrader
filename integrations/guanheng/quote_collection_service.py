@@ -23,6 +23,7 @@ import stat
 import threading
 import time
 from functools import partial
+from traceback import extract_tb
 from uuid import UUID
 from integrations.guanheng.quote_collection import QuoteCollection
 from integrations.guanheng.collection_coverage import CollectionCoverage
@@ -200,16 +201,17 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
     directory_created = False
     stop_deadline = None
     stage, error = 'configuration', None
-    failure_kind, failure_winerror = None, None
+    failures = []
+    failure_snapshot = None
     def remember_failure(code, exception):
-        nonlocal error, failure_kind, failure_winerror
-        if error is None:
-            error = code
-            kind = type(exception).__name__
-            failure_kind = kind if kind in ('PermissionError', 'FileNotFoundError', 'TimeoutError',
-                'ValueError', 'RuntimeError', 'OSError', 'MemoryError') else 'other'
-            winerror = getattr(exception, 'winerror', None)
-            failure_winerror = winerror if type(winerror) is int and 0 <= winerror <= 65535 else None
+        nonlocal error
+        error = error or code
+        winerror = getattr(exception, 'winerror', None)
+        failures.append(dict(
+            stage=code, exception_kind=type(exception).__name__,
+            winerror=winerror if type(winerror) is int and 0 <= winerror <= 65535 else None,
+            frames=[dict(file=Path(frame.filename).name, function=frame.name, line=frame.lineno)
+                    for frame in extract_tb(exception.__traceback__, limit=-8)]))
     publish = partial(publish_projection, control_directory)
     try:
         value, settings, native_raw, native_directory, data_root = _configuration(configuration, configuration_sha256)
@@ -253,6 +255,7 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
             snapshot = collection.status()
             if (snapshot['error'] is not None or snapshot['receiver_failure'] == 'consumer_failed'
                     or snapshot['receiver_cleanup_failure'] is not None):
+                failure_snapshot = snapshot
                 raise RuntimeError('collection stopped on source consumer failure')
             now = time.monotonic()
             if now >= next_status:
@@ -287,6 +290,11 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
             time.sleep(.05)
     except BaseException as exception:
         remember_failure(stage, exception)
+        if collection is not None and failure_snapshot is None:
+            try:
+                failure_snapshot = collection.status()
+            except Exception as status_error:
+                remember_failure('status_publish', status_error)
     finally:
         # 正常停止不另起预算；失败收尾保持强引用，外层Job拥有最终原截止。
         if maintenance is not None:
@@ -306,15 +314,23 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
             except BaseException as exception:
                 remember_failure('close_unconfirmed', exception)
         if ownership is not None and (collection is None or collection.closed_complete):
-            ownership.close()
-            resources.ownership = None
+            try:
+                ownership.close()
+                resources.ownership = None
+            except BaseException as exception:
+                remember_failure('writer_ownership', exception)
         if (collection is None or collection.closed_complete) and resources.maintenance is None:
             _ACTIVE_SERVICE = None
         if directory_created and error is not None:
             try:
+                primary = failures[0] if failures and failures[0]['stage'] == error else {}
                 publish('failure.json', dict(schema='qmt.quote-collector-failure.v1',
                     control_id=control_id, pid=os.getpid(), configuration_sha256=configuration_sha256,
-                    stage=error, exception_kind=failure_kind, winerror=failure_winerror,
+                    stage=error, exception_kind=primary.get('exception_kind'),
+                    winerror=primary.get('winerror'), failures=failures,
+                    source=None if failure_snapshot is None else {
+                        key: failure_snapshot[key] for key in ('phase', 'error', 'generation', 'connected',
+                            'receiver_failure', 'receiver_cleanup_failure', 'latest_source_time_ms', 'observed_wall_time')},
                     components_closed=collection is None or collection.closed_complete))
             except BaseException:
                 pass  # 原业务/资源失败保持；诊断写入失败不能替换其返回结果。

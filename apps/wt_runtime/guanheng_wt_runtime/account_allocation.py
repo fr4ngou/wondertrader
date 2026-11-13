@@ -492,6 +492,18 @@ class AccountAllocation:
 
     def receive_event(self, event_id, kind, raw_json, source_sha256, *, deadline):
         """持久接收原事件；失败保原正文，处理水位与原金融命令状态分开。"""
+        return self._receive_event(event_id, kind, raw_json, source_sha256,
+                                   deadline=deadline, broker=False, wt_order_id=None)[0]
+
+    def receive_broker_event(self, event_id, kind, raw_json, source_sha256, wt_order_id, *, deadline):
+        """在同一收件事务按原WT标识查归属并记录未关联原因。"""
+        _need(kind in ('8', '9'), 'event_kind_invalid')
+        if wt_order_id is not None:
+            _text(wt_order_id)
+        return self._receive_event(event_id, kind, raw_json, source_sha256,
+                                   deadline=deadline, broker=True, wt_order_id=wt_order_id)
+
+    def _receive_event(self, event_id, kind, raw_json, source_sha256, *, deadline, broker, wt_order_id):
         _text(event_id); _text(kind)
         if source_sha256 is not None: _sha(source_sha256)
         _need(type(raw_json) is bytes and 0 < len(raw_json) <= 2*1024*1024, 'event_bytes_invalid')
@@ -517,7 +529,19 @@ class AccountAllocation:
                 row = db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone()
             else:
                 _need(row[2] == kind and bytes(row[3]) == raw_json and row[4] == digest and row[5] == source_sha256, 'event_identity_conflict')
-            return self._inbox_row(row)
+            inbox = self._inbox_row(row)
+            command = None
+            if broker and not inbox.applied:
+                if wt_order_id is not None:
+                    _, state = self._load(db)
+                    command = self._prepared(state, wt_order_id)
+                if command is None:
+                    reason = ('attribution_wt_identity_missing' if wt_order_id is None
+                              else 'attribution_command_unmapped')
+                    if inbox.reason != reason:
+                        db.execute('UPDATE asa_inbox SET reason=? WHERE event_id=?', (reason, event_id))
+                        inbox = self._inbox_row(db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone())
+            return inbox, command
 
     def pending_events(self, *, limit=100, after_sequence=0, max_bytes=2*1024*1024, deadline):
         """按原收件顺序有界读取未投影事实；没有后台消费、重派或交易队列。"""
@@ -1068,11 +1092,18 @@ class AccountAllocation:
         _text(wt_order_id)
         with self._transaction(deadline) as db:
             _, state = self._load(db)
-            for command_id, command in state['commands'].items():
-                if command['wt_order_id'] == wt_order_id:
-                    return PreparedCommand(command['group'], wt_order_id, command_id, command['sha256'],
-                                           command['quantity'], Decimal(command['price']))
+            return self._prepared(state, wt_order_id)
+
+    @staticmethod
+    def _prepared(state, wt_order_id):
+        child = state['children'].get(wt_order_id)
+        if child is None or child['command'] is None:
             return None
+        command_id = child['command']
+        command = state['commands'][command_id]
+        _need(command['wt_order_id'] == wt_order_id, 'storage_invalid')
+        return PreparedCommand(command['group'], wt_order_id, command_id, command['sha256'],
+                               command['quantity'], Decimal(command['price']))
 
     def lookup_wt_child(self, wt_order_id, *, deadline):
         """只读原child处置，供收件证明恢复；未调用资格仍由原owner证明入口授予。"""

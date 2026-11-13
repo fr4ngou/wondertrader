@@ -68,7 +68,22 @@ int main(int argc,char** argv){try{require(argc==3,"two frozen data files requir
 bool rejected=false;try{qmt_mapping::map_ticks(codes,early,profile(),identity);}catch(const std::invalid_argument&){rejected=true;}require(rejected,"baseline must reject preopen");
 require(qmt_mapping::map_ticks(codes,early,profile(),identity,true).empty(),"unformed must emit zero ticks");require(qmt_mapping::map_ticks(codes,late,profile(),identity,true).size()==8,"formed must map eight");
 // 缺字段/负量/非零成交而open=0，保持硬失败。
-for(int mode=0;mode<3;++mode){auto d=qmt_mapping::parse(early);auto& row=d.MemberBegin()->value;if(mode==0)row.RemoveMember("lastClose");if(mode==1)row["volume"].SetInt(-1);if(mode==2)row["volume"].SetInt(1);rapidjson::StringBuffer b;rapidjson::Writer<rapidjson::StringBuffer>w(b);d.Accept(w);rejected=false;try{qmt_mapping::map_ticks(codes,b.GetString(),profile(),identity,true);}catch(const std::invalid_argument&){rejected=true;}require(rejected,"bad input must fail");}
+for(int mode=0;mode<3;++mode){
+    auto d=qmt_mapping::parse(early);auto& row=d.MemberBegin()->value;
+    if(mode==0)row.RemoveMember("lastClose");
+    if(mode==1)row["volume"].SetInt(-1);
+    if(mode==2)row["volume"].SetInt(1);
+    rapidjson::StringBuffer b;rapidjson::Writer<rapidjson::StringBuffer>w(b);d.Accept(w);
+    rejected=false;
+    try{qmt_mapping::map_ticks(codes,b.GetString(),profile(),identity,true);}
+    catch(const qmt_mapping::SnapshotMappingError& error){
+        const char* fields[]={"lastClose","volume","ohlc"};
+        require(error.symbol==d.MemberBegin()->name.GetString() && std::string(error.field)==fields[mode],
+                "snapshot failure must retain exact field and symbol");
+        rejected=true;
+    }
+    require(rejected,"bad input must fail");
+}
 _putenv_s("QNP_TEST_KEY","fixture");_putenv_s("QNP_TEST_SECRET","fixture");Spi spi;std::atomic<int> attempts{0};QmtPollingParser parser([&](const QmtHttpConfig& c,const QmtHttpProfile& p,Status& s)->std::shared_ptr<IMarketEndpoint>{auto attempt=++attempts;if(attempt<6){const char* reasons[]={"qmt_host_source_reconnect_deadline","qmt_http_deadline","qmt_host_deadline","qmt_http_exchange_failed","qmt_http_exchange_failed"};s={attempt==5?ErrorCode::IoError:ErrorCode::Timeout,reasons[attempt-1]};return {}; }auto e=std::make_shared<QmtHostEndpoint>(std::make_shared<QmtHostReadClient>(c),p,8,true);s=e->prepare(c.timeout_ms);return e;},true);
 auto cfg=config();require(parser.init(cfg),"init");cfg->release();parser.registerSpi(&spi);wtp::CodeSet subscribed;for(const auto& code:codes)subscribed.insert(code);parser.subscribe(subscribed);require(parser.connect(),"connect");auto until=std::chrono::steady_clock::now()+std::chrono::seconds(3);while(spi.quotes<8&&std::chrono::steady_clock::now()<until)std::this_thread::sleep_for(std::chrono::milliseconds(1));require(spi.quotes==8,"same worker must deliver valid later quote");require(spi.closes==0,"preopen must keep worker");require(parser.stop(1000).ok(),"bounded stop");require(acks==reads&&reads>=2&&resumes==0,"original consumption");for(auto failure:std::vector<Status>{{ErrorCode::InvalidInput,"qmt_host_snapshot_invalid"},{ErrorCode::Conflict,"fixture"},{ErrorCode::SubmissionUnknown,"fixture"},{ErrorCode::Timeout,"unregistered_timeout"},{ErrorCode::StaleSession,"fixture"}}) {
     Spi failed_spi;std::atomic<int> failed_attempts{0};

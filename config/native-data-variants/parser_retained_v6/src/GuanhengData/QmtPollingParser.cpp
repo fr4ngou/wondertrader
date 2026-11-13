@@ -51,6 +51,20 @@ std::string diagnostic_reason(const Status& status)
         "QMT polling callback outcome unknown","QMT polling worker failed","QMT polling dependency closed",
         "QMT polling endpoint unavailable","QMT polling startup cancelled","QMT HTTP callback cleanup is unresolved"};
     if(known.count(status.reason))return status.reason;
+    const std::string snapshot_prefix="qmt_host_snapshot_invalid:";
+    if(status.code==ErrorCode::InvalidInput && status.reason.compare(0,snapshot_prefix.size(),snapshot_prefix)==0) {
+        const auto detail=status.reason.substr(snapshot_prefix.size());
+        const auto split=detail.find(':');
+        static const std::set<std::string> fields={"batch_size","json","coverage","request_symbol","duplicate_symbol",
+            "row","time","lastPrice","open","high","low","lastClose","volume","amount","ohlc"};
+        if(fields.count(detail.substr(0,split))) {
+            if(split==std::string::npos)return status.reason;
+            const auto symbol=detail.substr(split+1);
+            if(symbol.size()==9 && (symbol.compare(6,3,".SH")==0 || symbol.compare(6,3,".SZ")==0)
+                && std::all_of(symbol.begin(),symbol.begin()+6,[](char digit){return digit>='0'&&digit<='9';}))
+                return status.reason;
+        }
+    }
     const std::string prefix="qmt_http_remote_failure:";
     if(status.reason.compare(0,prefix.size(),prefix)==0 && status.reason.size()>=prefix.size()+3) {
         const auto code=status.reason.substr(prefix.size(),3);
