@@ -1281,7 +1281,7 @@ export interface MarketChartBundle {
   source_provenance?: Array<{
     offset: number; count: number; first_at: string; last_at: string
     metadata: {
-      source: { provider: 'Qmt'; instance_id: string; session_id: string; generation: number }
+      source: { provider: 'Qmt' | 'BigQuant'; instance_id: string; session_id: string; generation: number }
       qualification: 'DevelopmentVerified'; dataset_version: string; content_id: string
       source_license: string; adjustment: 'none'; factor_version: ''; timezone: 'Asia/Shanghai'
       minute_boundary: 'left' | 'right' | 'unknown'; value_semantics: 'source'; timestamp_semantics: 'source_label'

@@ -98,7 +98,7 @@ class MarketChartNativeSource(MarketModel):
 
 class MarketChartSourceLabelSource(MarketModel):
     """1.5原值投影保留来源标签；未知单位不授标准化股数或闭合分钟语义。"""
-    provider: Literal["Qmt"]
+    provider: Literal["Qmt", "BigQuant", "Mixed"]
     dataset_version: str = Field(min_length=1, max_length=256)
     content_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     qualification: Literal["DevelopmentVerified"]
@@ -155,7 +155,7 @@ class MarketChartSourceObservation(MarketModel):
 
 
 class MarketChartSourceIdentity(MarketModel):
-    provider: Literal["Qmt"]
+    provider: Literal["Qmt", "BigQuant"]
     instance_id: str = Field(min_length=1, max_length=128)
     session_id: str = Field(min_length=1, max_length=128)
     generation: int = Field(strict=True, ge=1)
