@@ -492,18 +492,39 @@ class AccountAllocation:
 
     def receive_event(self, event_id, kind, raw_json, source_sha256, *, deadline):
         """持久接收原事件；失败保原正文，处理水位与原金融命令状态分开。"""
-        return self._receive_event(event_id, kind, raw_json, source_sha256,
-                                   deadline=deadline, broker=False, wt_order_id=None)[0]
+        digest = self._event_payload(event_id, kind, raw_json, source_sha256)
+        with self._transaction(deadline) as db:
+            return self._store_inbox(db, event_id, kind, raw_json, source_sha256, digest, None)
 
     def receive_broker_event(self, event_id, kind, raw_json, source_sha256, wt_order_id, *, deadline):
         """在同一收件事务按原WT标识查归属并记录未关联原因。"""
-        _need(kind in ('8', '9'), 'event_kind_invalid')
-        if wt_order_id is not None:
-            _text(wt_order_id)
-        return self._receive_event(event_id, kind, raw_json, source_sha256,
-                                   deadline=deadline, broker=True, wt_order_id=wt_order_id)
+        return self.receive_broker_events(kind, ((event_id, raw_json, source_sha256, wt_order_id),),
+                                          deadline=deadline)[0]
 
-    def _receive_event(self, event_id, kind, raw_json, source_sha256, *, deadline, broker, wt_order_id):
+    def receive_broker_events(self, kind, facts, *, deadline):
+        """同一原查询回报批次共用一次持久提交；返回逐行收件与原绑定。"""
+        _need(kind in ('8', '9') and type(facts) is tuple and 1 <= len(facts) <= 64, 'event_batch_invalid')
+        rows = []
+        for event_id, raw_json, source_sha256, wt_order_id in facts:
+            self._check(deadline)
+            if wt_order_id is not None:
+                _text(wt_order_id)
+            digest = self._event_payload(event_id, kind, raw_json, source_sha256)
+            rows.append((event_id, raw_json, source_sha256, wt_order_id, digest))
+        with self._transaction(deadline) as db:
+            _, state = self._load(db)
+            result = []
+            for event_id, raw_json, source_sha256, wt_order_id, digest in rows:
+                self._check(deadline)
+                command = None if wt_order_id is None else self._prepared(state, wt_order_id)
+                reason = None if command is not None else ('attribution_wt_identity_missing' if wt_order_id is None
+                                                            else 'attribution_command_unmapped')
+                inbox = self._store_inbox(db, event_id, kind, raw_json, source_sha256, digest, reason)
+                result.append((inbox, command))
+            return tuple(result)
+
+    @staticmethod
+    def _event_payload(event_id, kind, raw_json, source_sha256):
         _text(event_id); _text(kind)
         if source_sha256 is not None: _sha(source_sha256)
         _need(type(raw_json) is bytes and 0 < len(raw_json) <= 2*1024*1024, 'event_bytes_invalid')
@@ -520,28 +541,20 @@ class AccountAllocation:
             _need(type(value) is dict, 'event_json_invalid')
         except (ValueError, UnicodeError, RecursionError):
             raise AllocationError('event_json_invalid') from None
-        digest = hashlib.sha256(raw_json).hexdigest()
-        with self._transaction(deadline) as db:
-            row = db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone()
-            if row is None:
-                db.execute('INSERT INTO asa_inbox(event_id,kind,raw_json,payload_sha256,source_sha256,applied,reason) VALUES(?,?,?,?,?,0,NULL)',
-                           (event_id, kind, raw_json, digest, source_sha256))
-                row = db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone()
-            else:
-                _need(row[2] == kind and bytes(row[3]) == raw_json and row[4] == digest and row[5] == source_sha256, 'event_identity_conflict')
-            inbox = self._inbox_row(row)
-            command = None
-            if broker and not inbox.applied:
-                if wt_order_id is not None:
-                    _, state = self._load(db)
-                    command = self._prepared(state, wt_order_id)
-                if command is None:
-                    reason = ('attribution_wt_identity_missing' if wt_order_id is None
-                              else 'attribution_command_unmapped')
-                    if inbox.reason != reason:
-                        db.execute('UPDATE asa_inbox SET reason=? WHERE event_id=?', (reason, event_id))
-                        inbox = self._inbox_row(db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone())
-            return inbox, command
+        return hashlib.sha256(raw_json).hexdigest()
+
+    def _store_inbox(self, db, event_id, kind, raw_json, source_sha256, digest, reason):
+        row = db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone()
+        if row is None:
+            db.execute('INSERT INTO asa_inbox(event_id,kind,raw_json,payload_sha256,source_sha256,applied,reason) VALUES(?,?,?,?,?,0,?)',
+                       (event_id, kind, raw_json, digest, source_sha256, reason))
+        else:
+            _need(row[2] == kind and bytes(row[3]) == raw_json and row[4] == digest and row[5] == source_sha256,
+                  'event_identity_conflict')
+            if reason is None or row[6] or row[7] == reason:
+                return self._inbox_row(row)
+            db.execute('UPDATE asa_inbox SET reason=? WHERE event_id=?', (reason, event_id))
+        return self._inbox_row(db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone())
 
     def pending_events(self, *, limit=100, after_sequence=0, max_bytes=2*1024*1024, deadline):
         """按原收件顺序有界读取未投影事实；没有后台消费、重派或交易队列。"""

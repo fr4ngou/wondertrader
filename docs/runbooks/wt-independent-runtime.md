@@ -16,7 +16,7 @@ E:\guanheng\wt\venv\Scripts\guanheng-wt-service.exe stop --service-config E:\gua
 
 成功启动返回`state=ready`；来源尚未具备时返回组件的实际等待状态。重复启动返回`changed=false`并保持同一控制身份。正常停止返回`state=stopped`，重复停止返回`changed=false`。停止完成后再次启动会生成新`control_id`并保持同一`instance_id`，旧代状态和关闭收据继续保留。
 
-纯历史服务升级使用原稳定CURRENT与同instance_id：先准备新安装、固定新history descriptor/Runtime/ServiceConfig及逐级SHA，沿旧service执行stop，确认正常closed且旧owner实际退出，再用支持该动作的新WT安装执行`guanheng-wt-service.exe adopt-bootstrap --service-config <新service.json>`。该动作仅接受前后均只含history/source_market的正常关闭代；运行中、故障/未知、跨实例或含交易/账户等组件时保留原CURRENT并明确失败。它复用原租约和启动链，不自动停止。默认start继续按前代配置恢复，更新bootstrap路径后直接start仍沿前代；采用后普通start沿新代恢复。数据请求和未物化INPUTS/REQUEST迁移须在旧owner退出后再次核查。
+只读数据服务升级使用原稳定CURRENT与同instance_id。先准备新安装，固定各角色descriptor、Runtime、ServiceConfig及逐级SHA，沿旧service执行stop，确认正常closed且旧owner实际退出，再执行`guanheng-wt-service.exe adopt-bootstrap --service-config <新service.json>`。行情采集、历史补齐及其他已登记只读进程沿原角色和组件类型采用。运行中、故障或退出情况未知的只读代继续保持原CURRENT。交易服务采用须走原账户和金融状态交接。采用复用原租约及启动链，默认start沿前代配置恢复。数据请求和未物化INPUTS/REQUEST迁移须在旧owner退出后再次核查。
 
 正式交易配置沿同一命令切换。先固定后继执行描述符、Native配置及其恢复所需的同账户证明。交易Host部署有变化时，核对前后绑定各自匹配Native及沿用同一委托Journal。沿旧配置正常stop并确认退出后，执行新配置的adopt-bootstrap。原WT已有故障回执且关闭未完成时，入口沿原进程退出核查保留故障原件并确认组件实际退出，随后才准备新代。成功后核对旧策略资金、持仓、委托归属、独立策略初始状态及观衡当前代。仅更新bootstrap后调用start会按前代配置恢复。
 

@@ -23,7 +23,7 @@ from guanheng_market_client.runtime_status import (
 
 from .execution_recovery import execution_state_files, prepare_transition, require_process_exited
 from .managed_local_process import _inspect, _path, _read, _require, _sha
-from .runtime import RuntimeConfig
+from .runtime import RuntimeConfig, _READ_ONLY_PROCESSES
 
 
 _CURRENT_FIELDS = {
@@ -554,10 +554,17 @@ class ServiceController:
         _require(execution.get("pending") is False and execution.get("forced") is False
                  and execution.get("execution_ready") is False
                  and execution.get("source_wait_state") == "starting_execution"
-                 and all(row.get("state") == "closed" and row.get("pending") is False
+                 and all(row.get("pending") is False and row.get("forced") is False
                          for name, row in status["components"].items() if name != "execution"))
         path, digest = self._configuration_for(current)
         runtime = dict(RuntimeConfig.from_path(str(path), digest).components)
+        for name, row in status["components"].items():
+            if name == "execution" or row.get("state") == "closed":
+                continue
+            # 已退出的只读owner可以留下业务错误；其失败与执行金融准入独立。
+            _require(runtime[name].kind in _READ_ONLY_PROCESSES and row.get("state") == "faulted"
+                     and row.get("ready") is False)
+            # pending=false 已核原Job回收；快照PID可能已被Windows分给无关进程。
         role = runtime["execution"]
         descriptor = _pinned_json(_path(role.descriptor, e_drive=True), role.sha256, 256 * 1024)
         _require(descriptor.get("python_strategies") is True)
@@ -661,8 +668,9 @@ class ServiceController:
             _require(all(new_components[name] == old for name, old in old_components.items()
                          if name not in {"execution", "trade_host"}))
         else:
-            _require(closed is not None and tuple(old_components) == ("history",)
-                     and old_components["history"].kind == new_components["history"].kind == "source_market")
+            # 只读运行代在原owner完整关闭后，按既有角色工厂采用固定描述符。
+            _require(closed is not None and all(old.kind in _READ_ONLY_PROCESSES
+                         and new_components[name].kind == old.kind for name, old in old_components.items()))
         if closed is not None:
             _require(closed.get("status") == "stopped" and closed.get("components_closed") is True
                      and closed.get("error_code") is None and status.get("state") == "closed"

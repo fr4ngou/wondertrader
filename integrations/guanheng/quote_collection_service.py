@@ -203,6 +203,15 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
     stage, error = 'configuration', None
     failures = []
     failure_snapshot = None
+    def startup_phase(code):
+        try:
+            publish('startup.json', dict(schema='qmt.quote-collector-startup.v1', control_id=control_id,
+                configuration_sha256=configuration_sha256, pid=os.getpid(), stage=code,
+                observed_wall_time=time.time()), True)
+        except (OSError, ValueError) as exception:
+            print(f'quote collection startup diagnostic failed stage={code} type={type(exception).__name__}',
+                  file=sys.stderr, flush=True)
+
     def remember_failure(code, exception):
         nonlocal error
         error = error or code
@@ -220,9 +229,11 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
         config_path = control_directory/'native-input.json'
         write_private_new(config_path, native_raw)
         stage = 'writer_ownership'
+        startup_phase(stage)
         ownership = _WriterOwnership(data_root)
         resources.ownership = ownership
         stage = 'native_start'
+        startup_phase(stage)
         config = _json(native_raw)
         contracts = _json(_read(_path(config['basefiles']['contract']), 16777216))
         products = {'STK': 'stock', 'ETF': 'etf', 'IDX': 'index'}
@@ -237,12 +248,14 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
         collection.start()
         if 'maintenance' in value:
             stage = 'maintenance_start'
+            startup_phase(stage)
             from integrations.guanheng.collection_maintenance import MinuteCollectionMaintenance
             descriptor = value['maintenance']
             maintenance = MinuteCollectionMaintenance(_json(_read(_path(descriptor['path']), 16777216,
                 descriptor['sha256'])), coverage)
             resources.maintenance = maintenance
         stage = 'ready_publish'
+        startup_phase(stage)
         publish('ready.json', dict(schema='qmt.quote-collector-ready.v1', control_id=control_id,
                 pid=os.getpid(), configuration_sha256=configuration_sha256, listener_ready=True))
         stage = 'collection'

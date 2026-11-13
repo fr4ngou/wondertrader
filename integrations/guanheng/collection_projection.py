@@ -9,6 +9,7 @@ from .collection_status import replace_status
 
 PROJECTION_LIMITS = {
     'ready.json': 65536, 'closed.json': 65536, 'failure.json': 65536,  # 原父子进程收据预算保持。
+    'startup.json': 4096,  # 子进程被终止时保留已进入的初始化步骤。
     'status.json': 65536,  # 原65秒观察合同及页面只消费此小投影。
     'coverage.json': 8388608,  # 全证券资料/订阅/报价时间及计数，最大8MiB。
     'minute-maintenance.json': 16777216,  # 全证券乘维护日期的完整进度字段，最大16MiB。

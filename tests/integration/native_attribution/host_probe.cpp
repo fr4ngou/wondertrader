@@ -41,6 +41,18 @@ struct Hook {
     &&value["quantity"].GetDouble()==20&&field(value,"source_sha256").size()==64
     &&field(value,"command_id").size()==36&&value["fee_cny"].IsNull(),"fill_original_identity");}
    if(event->kind==GH_ATTR_ORDER){++h.orders;check(field(value,"source_sha256").size()==64,"order_source_identity");}
+   if(event->kind==GH_ATTR_QUERY_BATCH){
+    check(event->thread_role==2&&event->remaining_ms>0&&value["rows"].IsArray(),"query_batch_contract");
+    for(const auto& raw_row:value["rows"].GetArray()){
+     check(raw_row.IsString(),"query_original_row");
+     rapidjson::Document row;row.Parse(raw_row.GetString(),raw_row.GetStringLength());
+     check(!row.HasParseError()&&field(row,"source_kind")=="query-result"
+           &&field(row,"source_sha256").size()==64,"query_source_proof");
+     if(value["kind"].GetUint()==GH_ATTR_ORDER)++h.orders;
+     else if(value["kind"].GetUint()==GH_ATTR_FILL)++h.fills;
+     else return -1;
+    }
+   }
    reply->decision=0;reply->authorized_quantity=0;return 0;
   }catch(...){return -1;}
  }

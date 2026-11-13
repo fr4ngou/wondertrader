@@ -180,13 +180,13 @@ class AttributionBridge:
                   and reply.reserved == 0, 'attribution_reply_layout')
             reply.decision, reply.authorized_quantity = -1, 0
             _need(header.size == C.sizeof(NativeEvent) and header.version == 1
-                  and header.reserved == 0 and 1 <= header.kind <= 11
+                  and header.reserved == 0 and 1 <= header.kind <= 12
                   and header.thread_role in (1, 2, 3), 'attribution_event_layout')
             _need((header.kind == 1 and header.thread_role == 1 and header.epoch > 0)
-                  or (header.kind in (2, 3, 4, 5, 10) and header.thread_role == 2)
+                  or (header.kind in (2, 3, 4, 5, 10, 12) and header.thread_role == 2)
                   or (header.kind in (6, 7, 8, 9, 11) and header.thread_role in (2, 3)),
                   'attribution_thread_role')
-            _need(header.kind not in (7, 8, 9) or header.remaining_ms > 0, 'attribution_original_deadline')
+            _need(header.kind not in (7, 8, 9, 12) or header.remaining_ms > 0, 'attribution_original_deadline')
             kind, role, remaining_ms = header.kind, header.thread_role, header.remaining_ms
             phase = 'decode_event'
             seconds = min(self._seconds, remaining_ms / 1000) if remaining_ms else self._seconds
@@ -504,21 +504,7 @@ class AttributionCoordinator:
                     'unknown', body.get('source_sha256') or event.sha256), deadline=deadline)
             # SDKReturned/Queued/Dispatching沿原Host责任；此通知不授券商终态。
 
-    def _receive_source(self, event):
-        event_id = self._identity('source', event.kind, event.sha256)
-        kind, body = str(event.kind), event.body
-        command = None
-        if event.kind in (8, 9):
-            tag = body.get('user_tag')
-            inbox, command = self.allocation.receive_broker_event(event_id, kind, event.raw,
-                body.get('source_sha256'), tag if type(tag) is str and tag else None, deadline=event.deadline)
-            if command is None:
-                return
-        else:
-            inbox = self.allocation.receive_event(event_id, kind, event.raw,
-                        body.get('source_sha256'), deadline=event.deadline)
-        if inbox.applied:
-            return
+    def _project_source(self, event, event_id, command):
         try:
             self._source(event, event_id, command)
         except Exception as error:
@@ -529,6 +515,45 @@ class AttributionCoordinator:
                 raise
         else:
             self.allocation.mark_event_applied(event_id, deadline=event.deadline)
+
+    def _broker_fact(self, event):
+        tag = event.body.get('user_tag')
+        return (self._identity('source', event.kind, event.sha256), event.raw, event.body.get('source_sha256'),
+                tag if type(tag) is str and tag else None)
+
+    def _receive_source(self, event):
+        if event.kind in (8, 9):
+            self._receive_broker_events(event.kind, (event,), event.deadline)
+            return
+        event_id = self._identity('source', event.kind, event.sha256)
+        inbox = self.allocation.receive_event(event_id, str(event.kind), event.raw,
+                    event.body.get('source_sha256'), deadline=event.deadline)
+        if not inbox.applied:
+            self._project_source(event, event_id, None)
+
+    def _receive_broker_events(self, kind, events, deadline):
+        facts = tuple(self._broker_fact(event) for event in events)
+        received = self.allocation.receive_broker_events(str(kind), facts, deadline=deadline)
+        for event, (inbox, command) in zip(events, received, strict=True):
+            if not inbox.applied and command is not None:
+                self._project_source(event, inbox.event_id, command)
+
+    def _receive_query_batch(self, event):
+        body = event.body
+        _need(set(body) == {'kind', 'rows'} and type(body['kind']) is int and body['kind'] in (8, 9)
+              and type(body['rows']) is list and 1 <= len(body['rows']) <= 64, 'attribution_query_batch')
+        kind = body['kind']
+        rows = []
+        for item in body['rows']:
+            _need(self._clock() < event.deadline, 'attribution_deadline')
+            _need(type(item) is str, 'attribution_query_row')
+            raw = item.encode('utf-8')
+            row = json.loads(item, object_pairs_hook=_pairs, parse_constant=_invalid_constant)
+            _need(type(row) is dict and row.get('source_kind') == 'query-result', 'attribution_query_row')
+            _validate_tree(row)
+            rows.append(AttributionEvent(kind, event.thread_role, event.epoch, row, raw,
+                                         hashlib.sha256(raw).hexdigest(), event.deadline))
+        self._receive_broker_events(kind, tuple(rows), event.deadline)
 
     def _record_event_failure(self, event_id, error, deadline):
         reason = getattr(error, 'reason', str(error) if type(error) is AttributionError else type(error).__name__)
@@ -651,6 +676,8 @@ class AttributionCoordinator:
                 self.allocation.mark_event_applied(event_id, deadline=deadline)
             elif event.kind == 10:
                 self.allocation.record_group_end(self._group(body), body['accepted_children'], event.sha256, deadline=deadline)
+            elif event.kind == 12:
+                self._receive_query_batch(event)
             else:
                 self._receive_source(event)
             return None

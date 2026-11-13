@@ -394,7 +394,7 @@
       "source": "integrations/guanheng/collection_minute_reader.py"
     },
     "integrations/guanheng/collection_projection.py": {
-      "sha256": "19d44888904fe6c9ea9e7b6e941e9e517678be6f18574dad7f9bec743fa2f473",
+      "sha256": "977151a832c5b7926a2bb487dcebabc945a1eb0d3f378c5342e65f7d29bfdaec",
       "source": "integrations/guanheng/collection_projection.py"
     },
     "integrations/guanheng/collection_status.py": {
@@ -586,7 +586,7 @@
       "source": "integrations/guanheng/quote_collection.py"
     },
     "integrations/guanheng/quote_collection_service.py": {
-      "sha256": "ffeaa0f505d486c9c8d5b2b7f972cc02260e7f8b11592e96ef686b65b30fd7b2",
+      "sha256": "0bea5c7d2f5d9d8f172b829e60ea08b13b064291589c01584b8d5851e4da8c21",
       "source": "integrations/guanheng/quote_collection_service.py"
     },
     "integrations/guanheng/quote_counter_observation.py": {

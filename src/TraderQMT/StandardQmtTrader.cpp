@@ -1128,6 +1128,21 @@ struct StandardQmtTrader::Impl {
   const bool canonical=!mapped.batch.canonical_records.empty();
   require(canonical?mapped.batch.canonical_records.size()==mapped.batch.array->size():mapped.batch.result_sha.size()==64,
    "account_attribution_source_proof");
+  const auto kind=stage==2?GH_ATTR_FILL:GH_ATTR_ORDER;
+  std::vector<std::string> rows;
+  std::size_t batch_bytes=0;
+  // 以原回报顺序提交有限批次，同一查询截止覆盖编码、持久收件及归属。
+  const auto flush=[&]{
+   if(rows.empty())return;
+   rapidjson::Document batch(rapidjson::kObjectType);auto& allocator=batch.GetAllocator();
+   batch.AddMember("kind",kind,allocator);
+   rapidjson::Value values(rapidjson::kArrayType);
+   for(const auto& raw:rows)
+    values.PushBack(rapidjson::Value(raw.data(),static_cast<rapidjson::SizeType>(raw.size()),allocator),allocator);
+   batch.AddMember("rows",values,allocator);
+   attribution_notify_until(attribution,GH_ATTR_QUERY_BATCH,2,batch,until);
+   rows.clear();batch_bytes=0;
+  };
   for(unsigned i=0;i<mapped.batch.array->size();++i){
    if(Clock::now()>=until)throw AttributionDeadline{};
    rapidjson::Document view;require(parse_bounded_qmt_json(mapped.identity_views[i],view,identity_budget.max_identity_view_bytes)
@@ -1168,8 +1183,18 @@ struct StandardQmtTrader::Impl {
     attribution_uint(out,"order_state",static_cast<unsigned>(row->getOrderState()),a);out.AddMember("terminal",!row->isAlive(),a);
     attribution_uint(out,"trading_date",row->getOrderDate(),a);
    }
-   attribution_notify_until(attribution,stage==2?GH_ATTR_FILL:GH_ATTR_ORDER,2,out,until);
+   if(canonical)attribution_notify_until(attribution,kind,2,out,until);
+   else {
+    rapidjson::StringBuffer raw;rapidjson::Writer<rapidjson::StringBuffer> writer(raw);
+    require(out.Accept(writer),"account_attribution_source_encoding");
+    // 为二次转义预留空间；超出批次预算的单行沿原有ABI正文入口。
+    constexpr std::size_t batch_limit=256*1024;
+    if(rows.size()==64||batch_bytes+raw.GetSize()>batch_limit)flush();
+    if(raw.GetSize()>batch_limit)attribution_notify_until(attribution,kind,2,out,until);
+    else {rows.emplace_back(raw.GetString(),raw.GetSize());batch_bytes+=raw.GetSize();}
+   }
   }
+  flush();
   if(Clock::now()>=until)throw AttributionDeadline{};
  }
  // 原Insert完成值；SDKReturned只是命令返回，只有确定未进入可给零成交，不能充当券商订单终态。
@@ -3011,7 +3036,11 @@ int StandardQmtTrader::pump(std::uint32_t limit)
     x.callback([&]{if(result.stage==0)x.spi->onRspPosition(mapped.batch.array.get());
      else if(result.stage==1)x.spi->onRspOrders(mapped.batch.array.get());
      else if(result.stage==2)x.spi->onRspTrades(mapped.batch.array.get());else x.spi->onRspAccount(mapped.batch.array.get());});
-    x.source_facts(mapped,result.stage,result.deadline);
+    try{x.source_facts(mapped,result.stage,result.deadline);}
+    catch(const AttributionDeadline&){
+     const auto reason=result.stage==1?"account_attribution_order_query_deadline":"account_attribution_fill_query_deadline";
+     x.fail(failure(ErrorCode::Timeout,reason));break;
+    }
     if(result.stage==0)x.position_query_applied(mapped.batch,result.id);
     x.observation_refresh_applied(result.id);
     // 只有完整查询交给原SPI并返回，才公开本次事实的序号。活动单覆盖整个账户。
@@ -3052,7 +3081,7 @@ int StandardQmtTrader::pump(std::uint32_t limit)
   x.maintain_event_deadline();
   if(x.stop_requested)x.retire_candidates();
   return static_cast<int>(delivered);
- }catch(const AttributionDeadline&){x.fail(fixed_failure(ErrorCode::Timeout));x.retire_candidates();return StandardQmtFailure;}
+ }catch(const AttributionDeadline&){x.fail(failure(ErrorCode::Timeout,"account_attribution_deadline"));x.retire_candidates();return StandardQmtFailure;}
  catch(const EventCapacity&){x.fail(fixed_failure(ErrorCode::Backpressure));x.retire_candidates();return StandardQmtFailure;}
  catch(const EventOperationFailure& e){x.fail(fixed_failure(e.code));x.retire_candidates();return StandardQmtFailure;}
  catch(const std::exception& e){x.fail(x.events_enabled?fixed_failure(ErrorCode::IoError):failure(ErrorCode::IoError,e.what()));x.retire_candidates();return StandardQmtFailure;}

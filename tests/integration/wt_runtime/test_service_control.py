@@ -117,7 +117,8 @@ class _RuntimeFixture:
             "state": "faulted" if self.fail_next else "ready",
             "error_code": "fixture_failure" if self.fail_next else None,
             "ready": not self.fail_next,
-            "components": {component_name: component},
+            "components": {name: component if name == component_name else dict(component)
+                           for name in runtime["components"]},
         }
         _write(control / "status.json", status)
         process = _FakeProcess()
@@ -656,11 +657,12 @@ class ServiceControlTests(unittest.TestCase):
         origin_status = dict(components={"execution": {"business_observation": dict(
             config_sha256="d" * 64, ready_path=str(self.control / "ready.json"))}})
         component = SimpleNamespace(descriptor=str(descriptor), sha256=_sha(descriptor))
+        history_component = SimpleNamespace(kind="source_market")
         with patch.object(controller, "_configuration_for", return_value=(descriptor, "f" * 64)), \
                 patch.object(controller, "_generation_record", side_effect=records.get), \
                 patch.object(controller, "_runtime_owner_active", return_value=False), \
                 patch.object(service_control.RuntimeConfig, "from_path",
-                             return_value=SimpleNamespace(components=(("execution", component),))), \
+                             return_value=SimpleNamespace(components=(("execution", component), ("history", history_component)))), \
                 patch.object(service_control, "_runtime_status", return_value=origin_status):
             self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
             marker = _write(child / "lifecycle-started.json", {})
@@ -681,6 +683,13 @@ class ServiceControlTests(unittest.TestCase):
             with patch.object(service_control, "require_process_exited") as exited:
                 self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
                 exited.assert_called_once_with(123)
+                status["components"]["history"] = dict(state="faulted", ready=False, pending=False, forced=False, pid=321)
+                self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
+                self.assertEqual([call.args[0] for call in exited.call_args_list], [123, 123])
+                status["components"]["history"]["pending"] = True
+                with self.assertRaises(ValueError):
+                    controller._pre_native_execution_origin(current, status)
+                del status["components"]["history"]
                 claim = _write(root / f".cta-reconciled-{_sha(transition)}.json", {})
                 with self.assertRaises(ValueError):
                     controller._pre_native_execution_origin(current, status)
@@ -899,7 +908,24 @@ class ServiceControlTests(unittest.TestCase):
         controller,_,_=self._history_successor(change_instance=True)
         self._assert_adoption_rejected(controller)
 
-    def test_adoption_rejects_non_history_and_mixed_components(self):
+    def test_read_only_adoption_keeps_roles_and_accepts_new_collection_descriptor(self):
+        history = dict(kind='source_market', descriptor=str(self.host), sha256=_sha(self.host))
+        collection = dict(kind='quote_collection', descriptor=str(self.host), sha256=_sha(self.host))
+        before = {'history': history, 'collection': collection}
+        after = {**before, 'collection': {**collection, 'descriptor': str(self.root/'new-collector.json')}}
+        controller, first, runtime = self._history_successor(before_components=before, after_components=after)
+        with (
+            patch.object(controller, '_runtime_owner_active', return_value=False),
+            patch('guanheng_wt_runtime.service_control.require_process_exited'),
+        ):
+            code, adopted = controller.adopt_bootstrap()
+        self.assertEqual((code, adopted['state']), (0, 'ready'))
+        self.assertEqual(first['current']['wt_instance_id'], adopted['current']['wt_instance_id'])
+        record = json.loads((self.generations/adopted['current']['wt_control_id']/'generation.json').read_bytes())
+        self.assertEqual(record['runtime_configuration'], str(runtime))
+        self.assertEqual(controller.stop()[0], 0)
+
+    def test_adoption_rejects_changed_roles(self):
         history=dict(kind='source_market',descriptor=str(self.host),sha256=_sha(self.host))
         host=dict(kind='qmt_read',descriptor=str(self.host),sha256=_sha(self.host))
         for before,after in [({'host':host},{'history':history}),

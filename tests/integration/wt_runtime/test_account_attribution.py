@@ -89,7 +89,7 @@ def test_notify_must_explicitly_return_none():
     assert result == -1 and reply.decision == -1
 
 
-@pytest.mark.parametrize('kind', [7, 8, 9])
+@pytest.mark.parametrize('kind', [7, 8, 9, 12])
 def test_original_deadline_phase_cannot_convert_zero_to_new_budget(kind):
     seen = []
     bridge = AttributionBridge(lambda event: seen.append(event), callback_seconds=5)

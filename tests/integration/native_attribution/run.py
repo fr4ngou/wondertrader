@@ -41,7 +41,12 @@ def main():
   assert fixture.child.exit_code==0 and report and report['passed'],{'exit':fixture.child.exit_code,'native':report}
   assert len(fixture.sdk)==(1 if args.mode in ('allow','legacy','event') else 0)
   if args.mode in ('allow','event'):
-   events=report['events'];prepared=next(e['data'] for e in events if e['kind']==7);fill=next(e['data'] for e in events if e['kind']==8)
+   events=report['events'];prepared=next(e['data'] for e in events if e['kind']==7)
+   fills=[e['data'] for e in events if e['kind']==8]
+   query_fills=[json.loads(row) for e in events if e['kind']==12 and e['data']['kind']==8
+                for row in e['data']['rows']]
+   assert query_fills if args.mode=='allow' else fills
+   fill=(query_fills if args.mode=='allow' else fills)[0]
    assert fill['command_id']==prepared['command_id'] and fill['user_tag']==prepared['user_tag'] and fill['quantity']==20
   assert fixture.first.facts() is None and fixture.proxy.first.facts() is None
  assert not owners.failures and fixture.child.reaped and not fixture.child.forced

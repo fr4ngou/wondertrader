@@ -36,6 +36,8 @@ group/child/prepared的价格使用既有Standard price_text同一正文和品�
 
 源成交/订单事件从既有已验证映射提取有限白名单。原全账户QUERY默认不生成单行canonical记录；其source_kind=`query-result`、source_sha256为原完整result_sha，并附原request_id/output_index/lookup_sha。EVENT/selected-row的source_kind=`derived-facts`、source_sha256沿原mapper的derived_facts_SHA，并附原sequence/derived_page_sha256/derived_event_sha256。canonical key含账户字段，回调只给canonical_key_sha256，不复制key正文。源成交trade_id沿原WT mapper稳定nqh1派生ID，保持原金融去重决定。源price/amount保存有限double的完整往返十进制文本，保留原合法零值，不重新按tick修改源事实。重启查询未必在本进程Identity中有command UUID；保留已验证WT user_tag/entrust/broker身份，由ASA持久prepared索引查回，缺关联保持未知，不按revision猜归属。费用与账户字段不伪造，也不复制凭据或整段私有lookup正文。
 
+全账户 QUERY 的订单和成交按原回报顺序分批交给归属回调，kind 12 的正文包含原 kind 8 或 9 与逐行原 JSON 字节。每批在原查询截止内使用一次同步收件事务，单行身份及原证明摘要不变。已关联行再按原顺序和规则投影。实时 EVENT 继续使用原逐行入口。诊断记录原查询类型、回调阶段、剩余预算及首个失败原因。
+
 ## NAH-3 失败、恢复与默认兼容
 
 原group已建立后的准入拒绝、prepared关联失败、回调异常和超时分别保留原阶段。prepared失败既不能进入真实submit，也不能把原UUID换成新UUID重试；原pending保留完整receipt及原UUID，next_due不进入自动审计删除路径，原写围栏关闭。原owner的kind11继续给出本地NotSent事实，source_sha256=null，不能伪称收到Source回执；回收/恢复沿原Standard责任及ASA原关联核查。外部结果已经发生后，归属回调失败不重复交付WT或重发命令，保留源身份并关闭后继派发，恢复时按原事实幂等续接。

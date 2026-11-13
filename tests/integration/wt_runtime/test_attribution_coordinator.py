@@ -39,7 +39,7 @@ def setup(root, *, day=DAY, following=NEXT, now=STAMP, include_third=False):
 def send(bridge, kind, body, *, epoch=0):
     raw = json.dumps(body).encode();buffer = C.create_string_buffer(raw)
     role = 1 if kind == 1 else 3 if kind == 7 else 2
-    event = NativeEvent(C.sizeof(NativeEvent), 1, kind, role, epoch, 5000 if kind in (7,8,9) else 0,
+    event = NativeEvent(C.sizeof(NativeEvent), 1, kind, role, epoch, 5000 if kind in (7,8,9,12) else 0,
                         len(raw), 0, C.cast(buffer, C.c_void_p))
     reply = NativeReply(C.sizeof(NativeReply), 1, -1, 0, 0)
     result = bridge._callback(C.byref(event), C.byref(reply), None)
@@ -74,6 +74,32 @@ def prepared(coordinator, bridge, *, known_at=STAMP, buyer='new'):
     command = dict(child, command_id=str(uuid4()), command_sha256='c'*64)
     assert send(bridge, 7, command)[0] == 0, bridge.failure
     return command
+
+
+def test_broker_query_persists_original_rows_with_one_commit_and_keeps_replay_identity(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    book, coordinator, bridge = setup(tmp_path)
+    transactions = []
+    transaction = book._transaction
+
+    @contextmanager
+    def counted(deadline):
+        transactions.append(deadline)
+        with transaction(deadline) as db:
+            yield db
+
+    monkeypatch.setattr(book, '_transaction', counted)
+    rows = [json.dumps(dict(source_kind='query-result', source_sha256=SHA, output_index=i,
+                            user_tag=f'otp.history.{i}')) for i in range(44)]
+    assert send(bridge, 12, dict(kind=9, rows=rows))[0] == 0, bridge.failure
+    assert len(transactions) == 1
+    inbox = book.pending_events(deadline=end())
+    assert [row.raw_json for row in inbox] == [row.encode() for row in rows]
+    assert all(row.reason == 'attribution_command_unmapped' and not row.applied for row in inbox)
+    assert send(bridge, 9, json.loads(rows[0]))[0] == 0, bridge.failure
+    assert book.pending_events(deadline=end()) == inbox
+    assert send(bridge, 12, dict(kind=9, rows=[rows[0], '{}']))[0] == -1
+    assert book.pending_events(deadline=end()) == inbox
 
 
 def test_source_processing_and_failure_recording_have_distinct_diagnostics(tmp_path, monkeypatch):
