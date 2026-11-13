@@ -961,3 +961,36 @@ os._exit(23)
     assert after.reserved_cash_cny == before.reserved_cash_cny - D('40')
     assert after.pending_groups == before.pending_groups
     assert successor.lookup_prepared(command.wt_order_id, deadline=deadline()) == command
+
+
+def test_replay_lookup_seeks_the_original_order_index(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+
+    store, _ = book(tmp_path)
+    _, _, command = prepare(store, 11000, 3000, 4000)
+    unseen_tag = uid()
+    store.receive_broker_event('older-unbound', '8', json.dumps({'user_tag': unseen_tag}).encode(),
+                               SHA, unseen_tag, deadline=deadline())
+    tag = command.wt_order_id
+    store.receive_broker_event('bound', '8', json.dumps({'user_tag': tag}).encode(),
+                               SHA, tag, deadline=deadline())
+    store.receive_event('later-local', '7', b'{}', SHA, deadline=deadline())
+    original_transaction = store._transaction
+    plans = []
+
+    @contextmanager
+    def observed_transaction(until):
+        with original_transaction(until) as connection:
+            class Reader:
+                def execute(self, statement, parameters):
+                    plans.extend(row[3] for row in connection.execute('EXPLAIN QUERY PLAN ' + statement, parameters))
+                    return connection.execute(statement, parameters)
+
+            yield Reader()
+
+    monkeypatch.setattr(store, '_transaction', observed_transaction)
+    first, second = store.pending_events(replayable_only=True, deadline=deadline())
+    assert (first.event_id, second.event_id) == ('bound', 'later-local')
+    assert store.pending_events(replayable_only=True, after_sequence=first.sequence, deadline=deadline()) == (second,)
+    assert any('SEARCH inbox USING INDEX asa_inbox_pending_order (<expr>=? AND sequence>?)' in line
+               for line in plans)

@@ -709,11 +709,14 @@ class AccountAllocation:
             parameters = [after_sequence]
             if replayable_only:
                 # 以已绑定委托为索引读取收件，未归属的历史数据不占重放页。
+                # CROSS JOIN 固定先找原委托，+child.id 去掉列的类型亲和性，使 JSON 表达式索引可按委托查找。
+                # 原委托 ID 与 JSON user_tag 都按文本验证，比较仍保留原标识。
                 statement = """
                     SELECT * FROM asa_inbox WHERE applied=0 AND sequence>? AND kind NOT IN ('8','9')
                     UNION ALL
                     SELECT inbox.* FROM asa_record AS child
-                    JOIN asa_inbox AS inbox ON json_extract(CAST(inbox.raw_json AS TEXT), '$.user_tag')=child.id
+                    CROSS JOIN asa_inbox AS inbox INDEXED BY asa_inbox_pending_order
+                    ON json_extract(CAST(inbox.raw_json AS TEXT), '$.user_tag')=+child.id
                     WHERE child.kind='children' AND child.active=1 AND inbox.applied=0
                       AND inbox.kind IN ('8','9') AND inbox.sequence>?
                 """
