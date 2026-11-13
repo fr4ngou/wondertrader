@@ -1,5 +1,7 @@
 """原准备窗口的只读路由；按证券分目录，价格与成功证明仍在原Importer根。"""
 import hashlib
+import os
+import stat
 from pathlib import Path
 import re
 import time
@@ -34,31 +36,33 @@ class PreparedHistoryRepository:
         if not self.root.exists():
             return
         _inspect(self.root, True)
-        if self.partitioned:
-            if query is not None:
-                parent = self.root / (query['exchange'] + '.' + query['code'])
-                parents = [parent] if parent.exists() else []
-            else:
-                parents = []
-                for parent in self.root.iterdir():
-                    if parent.name in ('configuration.json', 'owner.lock'):
-                        continue
-                    require(re.fullmatch(r'(SSE|SZSE)\.[0-9]{6}', parent.name) is not None and parent.is_dir())
-                    _inspect(parent, True)
-                    parents.append(parent)
+        if self.partitioned and query is not None:
+            parent = self.root / (query['exchange'] + '.' + query['code'])
+            if not parent.exists():
+                return
+            _inspect(parent, True)
+            parents = (parent,)
+        elif self.partitioned:
+            parents = self._child_directories(self.root, r'(SSE|SZSE)\.[0-9]{6}')
         else:
-            parents = [self.root]
+            parents = (self.root,)
         count = 0
         for parent in parents:
-            _inspect(parent, True)
-            for path in parent.iterdir():
-                if not self.partitioned and path.name in ('configuration.json', 'owner.lock'):
-                    continue
-                require(re.fullmatch('[0-9a-f]{64}', path.name) is not None and path.is_dir())
-                _inspect(path, True)
+            for path in self._child_directories(parent, r'[0-9a-f]{64}'):
                 count += 1
                 require(count <= self.maximum)
                 yield path
+
+    def _child_directories(self, parent, pattern):
+        # scandir复用父目录枚举提供的文件属性，避免为每个窗口重复检查已核的同一祖先链。
+        with os.scandir(parent) as entries:
+            for entry in entries:
+                if parent == self.root and entry.name in ('configuration.json', 'owner.lock'):
+                    continue
+                info = entry.stat(follow_symlinks=False)
+                require(re.fullmatch(pattern, entry.name) is not None
+                        and stat.S_ISDIR(info.st_mode) and not getattr(info, 'st_file_attributes', 0) & 0x400)
+                yield Path(entry.path)
 
     def count(self):
         return sum(1 for unused in self.directories())

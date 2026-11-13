@@ -200,6 +200,20 @@ class RetainedResumeTests(unittest.TestCase):
         self.assertEqual(self.state['published'], dict(count=1, binding='original-binding'))
         self.assertEqual(preparation['request']['request_id'], self.rid)
 
+    def test_partition_count_retains_directory_and_budget_checks(self):
+        self.assertEqual(self.repository.count(), 1)
+        another = self.root/'SSE.510300'
+        another.mkdir()
+        (another/('f'*64)).mkdir()
+        self.assertEqual(self.repository.count(), 2)
+        self.repository.maximum = 1
+        with self.assertRaises(ValueError):
+            self.repository.count()
+        self.repository.maximum = 100
+        (another/('e'*64)).write_bytes(b'not a window directory')
+        with self.assertRaises(ValueError):
+            self.repository.count()
+
     def maintenance(self,resume):
         worker=MinuteCollectionMaintenance.__new__(MinuteCollectionMaintenance)
         worker.owner=threading.get_ident();worker.closed=False;worker.clock=time.monotonic
