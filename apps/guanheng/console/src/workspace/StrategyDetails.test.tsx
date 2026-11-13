@@ -84,6 +84,17 @@ function mount(strategy?: { strategy_id: string; strategy_version: string }, tar
  render(<QueryClientProvider client={c}><MemoryRouter><StrategyDetails strategy={strategy}/></MemoryRouter></QueryClientProvider>)
 }
 
+test('持仓报价过期时仍显示账本待确认手续费和最近合格估值', async () => {
+ const valuedAt = '2026-11-01T15:00:00+08:00'
+ const value = { ...fixture(),
+  calculation: { ...runtimeFixture.strategy, owned_valuation: { unknown_fee_count: 17 },
+   valuation_reason: 'position_price_unavailable' },
+  returns: { cumulative_pct: { value: '1.2', reason: null }, valued_at: valuedAt } }
+ vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(value)))
+ mount()
+ expect(await screen.findByText(/实际手续费待确认 · 最近合格估值/)).toHaveTextContent('15:00')
+})
+
 test('两种范围只显示有实际持仓的标的，同表保留持仓标的的零目标', async () => {
  const value = { ...fixture(), calculation: structuredClone(runtimeFixture.strategy), security_names: { '510300.SH': '沪深300ETF' } }
  const row = value.account.groups.position.rows[0]

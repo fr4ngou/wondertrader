@@ -65,7 +65,8 @@ export default function StrategyDetails({ strategy }: {
         primary={<StrategyPositionTargets details={data} positionGroup={positionGroup} positionRefreshed={currentGroups?.position.status === 'complete'} />}
         secondary={<>
       <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
-      {data.calculation?.valuation_reason === 'actual_fees_unconfirmed' ? <p role="status">实际手续费待确认{data.calculation.capital_return ? ' · 最近合格估值 ' + clock(data.calculation.capital_return.valued_at) : ''}</p> : null}
+      {(data.calculation?.owned_valuation?.unknown_fee_count ?? 0) > 0 || data.calculation?.valuation_reason === 'actual_fees_unconfirmed'
+        ? <p role="status">实际手续费待确认{data.returns.valued_at ? ' · 最近合格估值 ' + clock(data.returns.valued_at) : ''}</p> : null}
       {runFacts}
       {data.calculation_reason ? <p role="status">{data.calculation_reason}</p> : null}
       {data.calculation ? <p title={currentAuxiliaryPresentation(data.calculation).title}>策略最近计算：{data.calculation.status_label}；决策时间：{clock(data.calculation.decision_at)}；{currentAuxiliaryPresentation(data.calculation).label}</p> : null}

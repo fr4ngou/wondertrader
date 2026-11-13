@@ -39,7 +39,7 @@ NAP的原账户绑定在原ready/完整正文/Runtime前后根核验成功后通
 
 状态：accepted / source-validated，普通安装及实际采用另验。原配置CTA结果按 `strategy_id` 逐项验证和选择；目录汇集同轮全部身份，原单策略无参数查询保持兼容。多策略无选择的旧summary只保留旧策略，不将任意map顺序当选择。显式ID不存在时返回空选择，禁止退回其他策略。原版线上身份与原版WT回测身份分别保留来源版本。
 
-有 `allocation_observation` 的发布使用ASA原 `strategy_observation` 同一只读事务：自有份额、可卖、现金、原已提交目标、实际D分配和账本身份摘要。新增DTO字段均可缺，旧字段消费者保持兼容。实际D投影数量/金额/费用复用原持久allocations及原费用分配函数，内部转移不标实际柜台成交。发布只保留最近2000条且显式 `fills_truncated`，原账本不删。原成交时刻缺失时保持成交组partial，不能以App刷新时间生成买卖点；费用未知保持None。原owner读取时刻只表明当前归属账被观察，不表明任何价格估值。
+有 `allocation_observation` 的发布使用ASA原 `strategy_observation` 同一只读事务：自有份额、可卖、现金、原已提交目标、实际D分配和账本身份摘要。新增DTO字段均可缺，旧字段消费者保持兼容。实际D投影数量/金额/费用复用原持久allocations及原费用分配函数，内部转移不标实际柜台成交。手续费待确认提示沿自有账本笔数，报价缺失时继续展示；最近合格估值使用已核收益的原估值时间。发布只保留最近2000条且显式 `fills_truncated`，原账本不删。原成交时刻缺失时保持成交组partial，不能以App刷新时间生成买卖点；费用未知保持None。原owner读取时刻只表明当前归属账被观察，不表明任何价格估值。
 
 App按账本摘要+策略ID/版本隔离展示历史，当前进程身份仍逐代核实。同ETF两个策略分别复制各自持仓与原D分配，`attribution=strategy-allocated`。缺ASA成交投影时该策略成交保持unavailable，不能按NAP的同代码补入。旧单策略NAP路径保持 `account-universe-only`，界面明确账户聚合、策略归属未确认。账户页及详情的账户组保留原范围，并单列来源说明；策略详情持仓优先ASA。
 
