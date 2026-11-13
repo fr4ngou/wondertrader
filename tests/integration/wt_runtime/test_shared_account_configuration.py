@@ -94,6 +94,7 @@ def test_seeded_strategies_have_separate_funds_and_real_native_borrow(tmp_path, 
     assert bridge._callback(C.byref(event),C.byref(reply),None)==0,bridge.failure
     assert(financial/'account-allocation.sqlite3').exists()
     assert balances == [['12345.67','1000000.00'] + ([] if mode == 'legacy' else ['250000.05'])]
+    assert coordinator.close(monotonic()+5)
     # 返回回调后即收回借用；无法借后台普通线程绕过原Native owner。
     with pytest.raises(RuntimeError,match='attribution_owner_not_borrowed'):
         coordinator.view(original_id,deadline=monotonic()+5)

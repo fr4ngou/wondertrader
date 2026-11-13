@@ -175,7 +175,7 @@ SHM运输generation是nonce字符串；QMI的数值generation不能冒用它。�
 
 ### 选择与源端预算分离
 
-history.source-query的from/to是允许选择的闭区间，limit表示其中实际已发布的最近最多N根。它们不构成要求密集填满的自然分钟集合。准备层先读取原base及同workspace已发布的新根；按原标签选尾部，不按整个请求跨度拒绝已有可读数据。若已有最近N根且尾标签等于to，直接档案选择，不访问Host；coverage保持Unknown。同一尾窗已有未发布原准备收据时，选择仍成功，观察保持Partial及原UUID/Unknown等原事实，不将其标为无准备身份的Archive，也不推进源任务。
+history.source-query的from/to是允许选择的闭区间，limit表示其中实际已发布的最近最多N根。它们不构成要求密集填满的自然分钟集合。准备层先读取原base及同workspace已发布的新根；按原标签选尾部，不按整个请求跨度拒绝已有可读数据。若已有最近N根且尾标签等于to，直接档案选择，不访问Host；coverage保持Unknown。同一尾窗已有未发布原准备收据时，选择仍成功，观察保持Partial及原UUID/Unknown等原事实。组装观察时只读取本地已核原请求结果，原待定请求由历史补齐 owner 后继续核，不将其标为无准备身份的Archive，也不推进源任务。
 
 其余允许准备的昨日及以前请求，最多推进一个显式有界尾窗口：start=max(from,to-(max_window_minutes-1)自然分钟)，end=to。该窗口仅为部署容量/副作用范围，不能解释为交易网格、N根必在其中或市场已覆盖。原history_1m仍按max_rows-1/max_calendar_days分片且固定同一binding；limit较小也不放松原rows<count结束合同。最多一个原HPR任务，先读缓存；缓存实际条数达到min(limit,尾窗自然容量)时可直接发布，否则允许原HPR一次再回读，稀疏和零行事实保持。尾窗之外缺失、预算耗尽、源不可用或数量不足时，已有可读数据仍作为Partial选择返回，准备状态和观测范围明确；空数据仍沿Pending/Unavailable等原失败合同。全请求跨度不授扩大源任务/SDK窗口的权限。
 

@@ -249,6 +249,35 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
 
 
 
+def _consumed_signal(report, symbols):
+    """只展示策略已消费的闭合信号；较晚发布的修订仍由原策略决定是否可消费。"""
+    signal = report.get('signal')
+    if (type(signal) is not dict or signal.get('schema') != 'guanheng.original-current-signal.v1'
+            or report.get('signal_ready') is not True or report.get('signal_revision_after_consumption') is True
+            or signal.get('decision_date') != report.get('signal_consumed_date')):
+        return None
+    from datetime import date
+    decision_date = signal['decision_date']
+    eligible_date = signal['eligible_date']
+    _require(type(decision_date) is str and type(eligible_date) is str
+             and date.fromisoformat(decision_date).isoformat() == decision_date
+             and date.fromisoformat(eligible_date).isoformat() == eligible_date and decision_date < eligible_date)
+    rows = []
+    for symbol in symbols:
+        code = symbol.split('.')[0]
+        route = signal['route_qualification'][code]
+        actions = [row['action'] for row in signal['signals_today'][code]]
+        model_held = signal['model_state'][code]['held']
+        _require(type(route['qualified']) is bool and all(action in ('BUY', 'SELL') for action in actions)
+                 and (model_held is None or type(model_held) is bool))
+        missing = [value.partition(':')[0] for value in route.get('optional_diagnostics', ())
+                   if value.partition(':')[2] in ('', code)]
+        rows.append(dict(symbol=symbol, qualified=route['qualified'], actions=actions,
+                         model_held=model_held, auxiliary_missing=sorted(set(missing))))
+    return dict(decision_at=_time(signal['decision_at']), decision_date=decision_date,
+                eligible_date=eligible_date, securities=rows)
+
+
 def _allocated_strategy(identity,report,definition,symbols,allocation):
     """新/旧profile共用ASA归属投影；执行目标与实际份额分列，账户资金不混入。"""
     labels=dict(_LABELS,initialized='策略已初始化',waiting='等待策略所需事实',holding='保持当前目标',targets_ready='目标已准备')
@@ -275,6 +304,14 @@ def _allocated_strategy(identity,report,definition,symbols,allocation):
         for key in extra:extra[key]=legacy[key]
         weights={p['symbol']:p['target_weight'] for p in legacy['positions']}
         for row in rows:row['target_weight']=weights[row['symbol']]
+    consumed = None
+    if legacy is None:
+        try:
+            consumed = _consumed_signal(report, symbols)
+        except (KeyError, ValueError, TypeError, AttributeError):
+            logging.getLogger(__name__).warning('strategy_consumed_signal_invalid')
+        if consumed is not None:
+            extra.update(diagnostics_reason='not_recorded', current_auxiliary_reason='not_recorded')
     from .strategy_valuation_projection import project_owned_valuation
     valuation,valuation_state,valuation_reason=project_owned_valuation(identity,report,allocation)
     if valuation is not None and valuation_state in ('actual', 'reference-fee-pending'):
@@ -306,7 +343,9 @@ def _allocated_strategy(identity,report,definition,symbols,allocation):
             observed_at=current_time, account_observed_at=current_time, nav_cny=None))
     return dict(strategy_id=identity,display_name=definition['display_name'],strategy_version=definition['strategy_version'],
         owned_valuation=valuation,valuation_state=valuation_state,valuation_reason=valuation_reason,  # 原profile自有估值及独立缺失分类；App不估价。
-        status=status,status_label=labels[status],decision_at=None if legacy is None else legacy['decision_at'],
+        status=status,status_label=labels[status],
+        decision_at=(legacy['decision_at'] if legacy is not None else consumed and consumed['decision_at']),
+        **({'consumed_signal': consumed} if consumed is not None else {}),
         broker_observed_at=None if allocation is None else allocation['observed_at'],
         broker_position_qualified=False,execution_position_qualified=False,positions=rows,
         capital_baseline=baseline, capital=None,  # 分账估值沿自有资金投影，基准沿原策略。

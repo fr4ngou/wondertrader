@@ -61,6 +61,9 @@ class ReadFixture:
             binding=deepcopy(metadata['binding']), profile=deepcopy(metadata['profile']),
             limits=deepcopy(metadata['limits']), result=None, attempted=False)
 
+    def saved_reply(self, record):
+        return record['result']
+
     def observe(self, record, save, deadline):
         source = self.source
         rid = record['request']['request_id']; source.observed_ids.append(rid)

@@ -363,7 +363,7 @@ class RetainedStrategy:
         """只在原Native借用内更新源账户事实，随后读取独立策略归属。"""
         if self.allocation is None:return None
         reason = self.allocation.observe_context(context,deadline=deadline,max_age_seconds=self.max_age)
-        self.allocation_observation = self.allocation.strategy_observation(self.id,deadline=deadline)
+        self.allocation_observation = self.allocation.strategy_state(self.id,deadline=deadline)
         _need(self.allocation_observation.strategy.strategy_id==self.id,'retained_allocation_scope')
         from .owned_valuation import owned_valuation
         baseline=self.inputs.capital_baseline
@@ -1051,6 +1051,13 @@ def main():
         _check_publication_deadline(deadline)
         value=dict(value,native_setter_count=runtime.status()['setters'])  # 原ManagedStrategy累计setter调用数；原子只读，不推导交易事实。
         previous = reports.get(strategy_id)
+        if not refresh and previous:
+            prior = previous.get('allocation_observation')
+            current = value.get('allocation_observation')
+            if (prior and current and prior.get('book_scope_sha256') == current.get('book_scope_sha256')
+                    and prior['strategy']['revision'] == current['strategy']['revision']):
+                value['allocation_observation'] = dict(current, fills=prior.get('fills'),
+                    fills_truncated=prior.get('fills_truncated', False))
         if (not refresh and previous and 'capital_return' in previous
                 and value.get('capital') == previous.get('capital')
                 and (value.get('owned_valuation') == previous.get('owned_valuation')
@@ -1127,6 +1134,7 @@ def main():
         for strategy_id, strategy in capital_strategies.items()
     }
     seeded = set()
+    history_revisions = {}  # 后台已发布的成交历史账本版本，策略回调仅携带当前归属。
 
     def seed_shared_return(strategy_id, owner, deadline):
         """首次分账回查已绑定前代，即使新报价尚未到齐也可接续旧收益截止。"""
@@ -1150,7 +1158,8 @@ def main():
     def refresh_accounts():
         try:
             while not refresh_stop.wait(10):
-                for strategy_id, strategy in capital_strategies.items():
+                for strategy_id in set(capital_strategies) | (set(allocation.strategy_ids) if allocation else set()):
+                    strategy = capital_strategies.get(strategy_id)
                     deadline = time.monotonic()+2
                     if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
                         continue
@@ -1162,8 +1171,11 @@ def main():
                         continue
                     try:
                         reader = readers.get(strategy_id)
-                        owner = return_valuations[strategy_id]
-                        if reader is not None:
+                        owner = return_valuations.get(strategy_id)
+                        if owner is None:
+                            updated = dict(report)
+                            result = None
+                        elif reader is not None:
                             updated = dict(refresh_capital_report(report, reader, deadline,
                                 initial_basis=strategy._initial_capital_basis,
                                 origin=strategy.inputs.capital_baseline, anchor=strategy.inputs.cash_anchor))
@@ -1177,15 +1189,32 @@ def main():
                                 seed_shared_return(strategy_id, owner, min(deadline - .25, time.monotonic() + .75))
                                 if owner.settled is not None:
                                     result = owner.refresh(basis, deadline=deadline - .1)
-                        updated.pop('capital_return', None)
-                        if result is not None:
-                            updated['capital_return'] = result
+                        if owner is not None:
+                            updated.pop('capital_return', None)
+                            if result is not None:
+                                updated['capital_return'] = result
+                        history_revision = None
+                        observation = updated.get('allocation_observation')
+                        if allocation is not None and observation:
+                            revision = observation['strategy']['revision']
+                            if history_revisions.get(strategy_id) != revision:
+                                try:
+                                    history = allocation.strategy_history(strategy_id, deadline=deadline)
+                                except (OSError, ValueError, TimeoutError):
+                                    history = None
+                                if history is not None and history.strategy.revision == revision:
+                                    projection = allocation_projection(history, include_read_projection=True)
+                                    updated['allocation_observation'] = dict(observation, fills=projection['fills'],
+                                        fills_truncated=projection['fills_truncated'])
+                                    history_revision = revision
                         if not publication_lock.acquire(timeout=max(0,deadline-time.monotonic())):
                             continue
                         try:
                             # 期间策略提交了新估值时，本轮计算丢弃；下一轮读取新原值。
                             if reports.get(strategy_id) is report:
                                 publish_locked(strategy_id,updated,refresh=True,deadline=deadline)
+                                if history_revision is not None:
+                                    history_revisions[strategy_id] = history_revision
                         finally:
                             publication_lock.release()
                     except ProjectionPublicationTimeout:
@@ -1194,7 +1223,7 @@ def main():
             # 账户约束更新局部故障保留原资金/时点；原过期规则会撤销可用资格。
             with (args.control/'capital-refresh-failure.json').open('x',encoding='ascii') as stream:
                 json.dump(dict(exception_type=type(error).__name__),stream)
-    refresher = ThreadOwner(target=refresh_accounts,name='capital-account-constraint') if capital_strategies else None
+    refresher = ThreadOwner(target=refresh_accounts,name='capital-account-constraint') if capital_strategies or allocation is not None else None
     workers=tuple(s.signals for s in strategies if hasattr(s,'signals'))
     try:
         for worker in workers:worker.start()
@@ -1215,8 +1244,13 @@ def main():
                 json.dump(dict(
                     joined=joined,  # 原ThreadOwner已取得标准线程退出/join证明；False表示关闭未确认。
                     pending=refresher.pending),stream)  # 账户读取线程仍有生命周期责任；布尔值，由原owner提供。
-            _need(joined,'capital_refresh_close_unconfirmed')
+        allocation_closed = allocation is None or allocation.close(time.monotonic()+3)
+        if allocation is not None:
+            with (args.control/'allocation-checkpoint-closed.json').open('x', encoding='ascii') as stream:
+                json.dump(dict(closed=allocation_closed), stream)
+        _need(refresher is None or joined,'capital_refresh_close_unconfirmed')
         _need(workers_joined,'signal_worker_close_unconfirmed')
+        _need(allocation_closed,'allocation_checkpoint_close_unconfirmed')
     if runtime._last_error is not None:
         # 私有有限诊断只记类型/调用位置；账户、变量内容和异常正文保持在原owner内。
         import traceback

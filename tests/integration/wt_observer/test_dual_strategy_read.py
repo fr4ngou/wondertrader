@@ -215,3 +215,22 @@ def test_published_files_to_catalog_selected_details_and_live_http(tmp_path, mon
         assert client.get('/v1/ui/strategy-details?strategy_id=a&strategy_id=b').status_code == 422
         assert client.post('/v1/ui/strategy-details').status_code == 405
     assert app.state.shutdown_complete
+
+def test_closed_signal_has_its_own_decision_and_does_not_turn_model_hold_into_position(tmp_path):
+    rows = reports(make_book(tmp_path/'asa'))
+    row = rows[NEW]
+    codes = [code.rsplit('.', 1)[1] for code in CODES]
+    row.update(signal_ready=True, signal_consumed_date='2026-11-06', signal=dict(
+        schema='guanheng.original-current-signal.v1', decision_date='2026-11-06',
+        eligible_date='2026-11-09', decision_at=STAMP,
+        route_qualification={code:dict(qualified=True, optional_diagnostics=['today_shares_missing:'+code])
+                             for code in codes},
+        signals_today={code:[] for code in codes}, model_state={code:dict(held=True) for code in codes}))
+    projected = project_strategy(wrapper(rows), strategy_id=NEW)
+    assert projected['decision_at'] == STAMP
+    assert projected['diagnostics_reason'] == 'not_recorded'
+    assert projected['consumed_signal']['eligible_date'] == '2026-11-09'
+    assert all(r['model_held'] and not r['actions'] for r in projected['consumed_signal']['securities'])
+    assert [p['broker_quantity'] for p in projected['positions'] if p['symbol']=='159352.SZ'] == [0]
+    row['signal_revision_after_consumption'] = True
+    assert 'consumed_signal' not in project_strategy(wrapper(rows), strategy_id=NEW)

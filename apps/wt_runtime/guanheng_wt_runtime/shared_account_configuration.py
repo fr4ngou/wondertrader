@@ -24,15 +24,30 @@ def _fixed(descriptor, deadline, maximum=1024*1024):
 
 class _BorrowedAllocation:
     """配置对象不打开SQLite；首次原Native借用才初始化，后继重启核同原初值。"""
-    def __init__(self, root, identity, seeds, unallocated, snapshot):
+    def __init__(self, root, identity, seeds, unallocated, snapshot, *, require_existing=False):
         self._root, self._identity = root, identity  # 原金融状态根及稳定账本身份，保留跨代经济归属。
         self._seeds, self._unallocated, self._snapshot = seeds, unallocated, snapshot  # 显式冻结初值，不用账户available重建旧本金。
         self._allocation, self._bridge = None, None  # ASA唯一事实owner；bridge由同次Runtime装配后授同步借用。
+        self._initialized = False  # 初值验证成功后才向后继调用和热读发布。
+        self._require_existing = require_existing  # 独立账本路径须接续原库。
         self._lock = RLock()  # 首次Native owner/worker竞争共享同一初始化，等待计入原D。
 
     def bind(self, bridge):
         _need(self._bridge is None, 'shared_account_already_bound')
         self._bridge = bridge
+
+    def close(self, deadline):
+        return self._allocation is None or self._allocation.close(deadline)
+
+    def strategy_state(self, strategy_id, *, deadline):
+        allocation = self._allocation
+        _need(self._initialized, 'shared_account_state_unavailable')
+        return allocation.strategy_state(strategy_id, deadline=deadline)
+
+    def strategy_history(self, strategy_id, *, deadline):
+        if not self._initialized:
+            return None
+        return self._allocation.strategy_observation(strategy_id, deadline=deadline)
 
     def __getattr__(self, name):
         if name.startswith('_'):
@@ -42,11 +57,13 @@ class _BorrowedAllocation:
             self._bridge.owner_check()
             _need(self._lock.acquire(timeout=max(0, deadline-monotonic())), 'shared_account_deadline')
             try:
-                if self._allocation is None:
+                if not self._initialized:
                     from .account_allocation import AccountAllocation
-                    allocation = AccountAllocation(self._root, self._identity, owner_check=self._bridge.owner_check)
-                    allocation.initialize(self._seeds, self._unallocated, self._snapshot, deadline=deadline)
-                    self._allocation = allocation
+                    if self._allocation is None:
+                        self._allocation = AccountAllocation(self._root, self._identity, owner_check=self._bridge.owner_check,
+                                                             require_existing=self._require_existing, wal=True)
+                    self._allocation.initialize(self._seeds, self._unallocated, self._snapshot, deadline=deadline)
+                    self._initialized = True
             finally:
                 self._lock.release()
             return getattr(self._allocation, name)(*args, deadline=deadline, **kwargs)
@@ -64,12 +81,18 @@ def create_runtime_attribution(native, configuration, control_directory, control
     strategies = {row['id']: row['parameters']['python_strategy'] for row in native['strategies']}
     generic = 'shared_account' in native['executer']
     value = _fixed(shared_account_reference(native), deadline)
-    _need(type(value) is dict and set(value) == {'schema', 'identity', 'financial_root', 'initialization',
-          'calendar', 'fee_reserve_model', 'callback_seconds'}
+    fields = {'schema', 'identity', 'financial_root', 'initialization',
+              'calendar', 'fee_reserve_model', 'callback_seconds'}
+    _need(type(value) is dict and fields <= set(value) <= fields | {'allocation_root'}
           and value['schema'] == 'guanheng.shared-account-allocation.v1', 'shared_account_schema')
-    root = Path(value['financial_root'])
-    _need(root.is_absolute() and root.drive.upper() in ('D:', 'E:')
-          and root == Path(native['output_directory']), 'shared_account_financial_root')
+    financial_root = Path(value['financial_root'])
+    _need(financial_root.is_absolute() and financial_root.drive.upper() in ('D:', 'E:')
+          and financial_root == Path(native['output_directory']), 'shared_account_financial_root')
+    root = Path(value.get('allocation_root', value['financial_root']))
+    _need(root.is_absolute() and root.drive.upper() in ('D:', 'E:'), 'shared_account_allocation_root')
+    if root != financial_root:
+        # 路径切换必须先迁入原账。缺少数据库时不能用初始化材料重建已运行账户。
+        _need((root / 'account-allocation.sqlite3').is_file(), 'shared_account_relocated_book_missing')
     _need(Path(control_directory).is_absolute() and configuration.configuration.is_absolute(), 'shared_account_control')
     identity = BookIdentity(**value['identity'])
     account_scope = json.dumps(dict(account=native['trader']['expected_account'],
@@ -153,7 +176,8 @@ def create_runtime_attribution(native, configuration, control_directory, control
         with localcontext() as context:
             context.prec = 64
             return (fixed+unit*quantity).quantize(Decimal('.01'), rounding=ROUND_CEILING)
-    allocation = _BorrowedAllocation(root, identity, tuple(seeds), unallocated, snapshot)
+    allocation = _BorrowedAllocation(root, identity, tuple(seeds), unallocated, snapshot,
+                                     require_existing=root != financial_root)
     coordinator = AttributionCoordinator(allocation, control_id=control_id,
         account_scope_sha256=identity.account_scope_sha256, strategy_ids=tuple(strategies),
         fee_bound=fee_bound, settlement_day=settlement, trading_day_qualified=lambda day: day in days,

@@ -1,3 +1,4 @@
+#include <cstdio>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -486,8 +487,14 @@ public:
             if (!live() || Clock::now() >= deadline) return nullptr;
             return new DailySlice(code, std::move(bars), std::move(reservation));
         }
-        catch (const std::exception& error) { log(error.what()); return nullptr; }
-        catch (...) { log("realtime reader read failed"); return nullptr; }
+        catch (const std::exception& error) {
+            char message[480];
+            std::snprintf(message, sizeof(message), "realtime reader read failed code=%.32s period=%u end=%llu reason=%.320s",
+                code ? code : "", static_cast<unsigned>(period), static_cast<unsigned long long>(end), error.what());
+            log(message);
+            return nullptr;
+        }
+        catch (...) { log("realtime reader read failed with non-standard exception"); return nullptr; }
     }
 
     void onMinuteEnd(std::uint32_t date, std::uint32_t minute, std::uint32_t end_date = 0) override
@@ -508,7 +515,18 @@ public:
                 throw std::invalid_argument("native minute callback cutoff");
             native_minute_->onMinuteEnd(date, minute, end_date);
         }
-        catch (...) { log("realtime reader minute callback failed"); }
+        catch (const std::exception& error) {
+            char message[480];
+            std::snprintf(message, sizeof(message), "realtime reader minute callback failed date=%u minute=%u end_date=%u reason=%.320s",
+                date, minute, end_date, error.what());
+            log(message);
+        }
+        catch (...) {
+            char message[128];
+            std::snprintf(message, sizeof(message), "realtime reader minute callback failed date=%u minute=%u end_date=%u reason=non_standard_exception",
+                date, minute, end_date);
+            log(message);
+        }
     }
     WTSTickSlice* readTickSlice(const char*, std::uint32_t, std::uint64_t = 0) override { return nullptr; }
 

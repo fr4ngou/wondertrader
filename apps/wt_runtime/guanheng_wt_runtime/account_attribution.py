@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from dataclasses import asdict
 import hashlib
 import json
+import logging
 import math
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP, localcontext
@@ -264,6 +265,9 @@ class AttributionCoordinator:
         self._has_commit = False  # 本代两份策略意图齐备后收到过原WT全量提交。
         self._execution_targets = {}  # 本轮在Local按其配置倍数取整后的标准ETF目标。
         self._account_fingerprint, self._last_mutating_fill_ms = None, 0
+        self._reconcile_pending = True  # 首次接管先重放收件，正常热读复用已核账户版本。
+        self._qualified_account = None  # 最近通过对账的P/A来源与券商委托变化版本。
+        self._order_revision = 0  # 实际卖单冻结依据改变时撤销本轮快读资格。
         self._inbox_cursor = 0  # 原inbox分页水位，仅观察调度；unknown原件不阻塞后页。
         self._order_sources = {}  # 当前原O投影，原始每次证明保存在唯一ASA inbox。
         self._trading_day_qualified = trading_day_qualified
@@ -288,8 +292,14 @@ class AttributionCoordinator:
     def view(self, strategy_id, *, deadline):
         return self.allocation.view(strategy_id, deadline=deadline)
 
-    def strategy_observation(self, strategy_id, *, deadline):
-        return self.allocation.strategy_observation(strategy_id, deadline=deadline)
+    def strategy_state(self, strategy_id, *, deadline):
+        return self.allocation.strategy_state(strategy_id, deadline=deadline)
+
+    def strategy_history(self, strategy_id, *, deadline):
+        return self.allocation.strategy_history(strategy_id, deadline=deadline)
+
+    def close(self, deadline):
+        return self.allocation.close(deadline)
 
     def observe_context(self, context, *, deadline, max_age_seconds):
         """仅Managed借用内读取原完整P/A，核同D及O冻结后更新ASA/T+1。
@@ -298,31 +308,39 @@ class AttributionCoordinator:
         归属继续分别保存，不能把旧P/新A或未覆盖实际D的观察用于释放买入责任。
         """
         from .account_allocation import AccountSnapshot, AllocationError, OwnedPosition, SellReservation
+        broker = context.broker_observation()
+        if not broker.positions_known or not broker.account_known:
+            return 'account_observation_unknown'
+        now_ms = self._utcnow().timestamp()*1000
+        received = (broker.position_received_ms, broker.account_received_ms)
+        if any(t is None or not t <= now_ms < t+max_age_seconds*1000 for t in received):
+            return 'account_observation_stale'
+        if min(received) < self._last_mutating_fill_ms:
+            return 'account_observation_before_actual_fill'
+        received_day = datetime.fromtimestamp(min(received)/1000, timezone.utc).astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
+        day = received_day if self._account_observation_day is None else self._account_observation_day(received_day)
+        if day is None:
+            return 'account_observation_day_unqualified'
+        _need(type(day) is str and date.fromisoformat(day).isoformat() == day and day <= received_day,
+              'attribution_account_observation_day')
+        if self._trading_day_qualified is not None and not self._trading_day_qualified(day):
+            return 'account_trading_day_unqualified'
+        account_key = (broker.position_revision, broker.account_revision, received, day)
+        if (not self._reconcile_pending and self._qualified_account ==
+                (account_key, self._order_revision, self._last_mutating_fill_ms)):
+            return None
         self._enter(deadline)
         try:
-            self.replay_pending(deadline=deadline)
-            broker = context.broker_observation()
-            if not broker.positions_known or not broker.account_known:
-                return 'account_observation_unknown'
-            now_ms = self._utcnow().timestamp()*1000
-            received = (broker.position_received_ms, broker.account_received_ms)
-            if any(t is None or not t <= now_ms < t+max_age_seconds*1000 for t in received):
-                return 'account_observation_stale'
+            if self._reconcile_pending:
+                self.replay_pending(deadline=deadline)
             if min(received) < self._last_mutating_fill_ms:
                 return 'account_observation_before_actual_fill'
-            received_day = datetime.fromtimestamp(min(received)/1000, timezone.utc).astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
-            day = received_day if self._account_observation_day is None else self._account_observation_day(received_day)
-            if day is None:
-                return 'account_observation_day_unqualified'
-            _need(type(day) is str and date.fromisoformat(day).isoformat() == day and day <= received_day,
-                  'attribution_account_observation_day')
-            if self._trading_day_qualified is not None and not self._trading_day_qualified(day):
-                return 'account_trading_day_unqualified'
             account_body = asdict(broker)
             account_body.pop('published_epoch_ms')  # 展示副本发布不生成一份新的券商P/A。
             fingerprint = hashlib.sha256(json.dumps((self._control, day, account_body, self._order_sources), sort_keys=True,
                 separators=(',', ':'), allow_nan=False).encode()).hexdigest()
             if fingerprint == self._account_fingerprint:
+                self._qualified_account = (account_key, self._order_revision, self._last_mutating_fill_ms)
                 return None
             positions = []
             for row in broker.positions:
@@ -336,7 +354,7 @@ class AttributionCoordinator:
                 if command is not None:
                     reservations.append(SellReservation(command.command_id,
                         self._quantity(source['remaining_quantity']), source['source_sha256']))
-            prior = self.allocation.strategy_observation(self.strategy_ids[0], deadline=deadline)
+            prior = self.strategy_state(self.strategy_ids[0], deadline=deadline)
             available = self._source_decimal(repr(broker.available), '.01')
             snapshot = AccountSnapshot(prior.account_revision+1, day, available, tuple(positions), fingerprint, tuple(reservations))
             try:
@@ -346,6 +364,7 @@ class AttributionCoordinator:
                     return error.reason
                 raise
             self._account_fingerprint = fingerprint
+            self._qualified_account = (account_key, self._order_revision, self._last_mutating_fill_ms)
             return None
         finally:
             self._lock.release()
@@ -471,7 +490,9 @@ class AttributionCoordinator:
                 self._quantity(body['quantity']), self._source_decimal(body['price_cny'], '.001'), amount, fee, day, settlement,
                 body['source_sha256'], body['symbol'], body['side'], executed_at=executed.isoformat()), deadline=deadline)
             if applied_new_fill:
+                # 提交结果未知时也要求账户重新核对，避免沿用成交前的资金与持仓。
                 self._last_mutating_fill_ms = self._utcnow().timestamp()*1000
+            return 'new_fill' if applied_new_fill else 'duplicate_fill'
         elif event.kind == 9:
             tag = self._wt_identity(body)
             child = self.allocation.lookup_wt_child(tag, deadline=deadline)
@@ -479,11 +500,13 @@ class AttributionCoordinator:
             # 持久原终态排除乱序旧active O，内存无需另存无界终态墓碑。
             resolved = child is not None and child.terminal_state in ('filled', 'cancelled', 'rejected', 'not_called')
             if body['terminal'] or resolved:
-                self._order_sources.pop(tag, None)
+                if self._order_sources.pop(tag, None) is not None:
+                    self._order_revision += 1
             elif body['side'] == 'sell' and body['remaining_quantity']:
                 previous = self._order_sources.get(tag)
-                if previous is None or body['filled_quantity'] >= previous['filled_quantity']:
+                if previous is None or (body['filled_quantity'] >= previous['filled_quantity'] and previous != body):
                     self._order_sources[tag] = dict(body)
+                    self._order_revision += 1
             if body['terminal']:
                 state = {48: 'filled', 50: 'cancelled', 52: 'rejected', 53: 'cancelled'}.get(body['order_state'])
                 _need(state is not None, 'attribution_order_state')
@@ -509,7 +532,7 @@ class AttributionCoordinator:
 
     def _project_source(self, event, event_id, command):
         try:
-            self._source(event, event_id, command)
+            outcome = self._source(event, event_id, command)
         except Exception as error:
             reason, recorded = self._record_event_failure(event_id, error, event.deadline)
             # O先于D或插入结果缺归属时，保留原事实等待核查。
@@ -517,8 +540,11 @@ class AttributionCoordinator:
                     'terminal_missing_fills', 'attribution_command_unmapped', 'attribution_wt_identity_missing',
                     'fill_clock_pending'):
                 raise
+            self._reconcile_pending = True
+            return 'pending'
         else:
             self.allocation.mark_event_applied(event_id, deadline=event.deadline)
+            return outcome or 'applied'
 
     def _broker_fact(self, event):
         tag = event.body.get('user_tag')
@@ -536,28 +562,36 @@ class AttributionCoordinator:
             self._project_source(event, event_id, None)
 
     def _receive_broker_events(self, kind, events, deadline, *, query=False):
+        received_at = self._clock()
         facts = tuple(self._broker_fact(event) for event in events)
         received = self.allocation.receive_broker_events(str(kind), facts, deadline=deadline)
+        stored_at = self._clock()
         pending = [(event, inbox.event_id, command)
                    for event, (inbox, command) in zip(events, received, strict=True)
                    if not inbox.applied and command is not None]
-        if query and pending:
-            error = None
+        outcomes = []
+        error = None
+        if pending:
             def project():
                 nonlocal error
                 try:
                     for event, event_id, command in pending:
-                        self._project_source(event, event_id, command)
+                        outcomes.append(self._project_source(event, event_id, command))
                 except Exception as failure:
                     error = failure
 
+            # 已成功的前序行、已应用标记和冲突原件一起提交。
             self.allocation.project_broker_batch(project, deadline=deadline)
-            # 提交已成功的前序行及冲突原件，再沿原回调报告真实错误。
-            if error is not None:
-                raise error
-            return
-        for event, event_id, command in pending:
-            self._project_source(event, event_id, command)
+        if query:
+            logging.getLogger(__name__).info(
+                'broker_query kind=%s rows=%d previously_applied=%d unbound=%d new_fills=%d duplicate_fills=%d '
+                'applied_orders=%d pending=%d receive_ms=%.1f projection_ms=%.1f',
+                kind, len(events), sum(inbox.applied for inbox, _ in received),
+                sum(command is None for _, command in received), outcomes.count('new_fill'),
+                outcomes.count('duplicate_fill'), outcomes.count('applied'), outcomes.count('pending'),
+                (stored_at - received_at)*1000, (self._clock() - stored_at)*1000)
+        if error is not None:
+            raise error
 
     def _receive_query_batch(self, event):
         body = event.body
@@ -598,6 +632,7 @@ class AttributionCoordinator:
             if not page and self._inbox_cursor:
                 self._inbox_cursor = 0
                 page = self.allocation.pending_events(limit=limit, replayable_only=True, deadline=deadline)
+            self._reconcile_pending = bool(page)
             for inbox in page:
                 body = json.loads(inbox.raw_json, object_pairs_hook=_pairs, parse_constant=_invalid_constant)
                 if inbox.kind == '7':
@@ -692,6 +727,7 @@ class AttributionCoordinator:
                         body['command_id'], body['command_sha256'], self._quantity(body['quantity']),
                         self._price(body['limit_price_cny'])), deadline=deadline)
                     _need(permit.first_binding, 'attribution_original_command_requires_query')
+                    self._reconcile_pending = True  # 已持久未关联的回报现在可沿新绑定的原委托重放。
                 except Exception as error:
                     self._record_event_failure(event_id, error, deadline)
                     raise

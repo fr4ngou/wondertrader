@@ -65,9 +65,26 @@ export default function StrategyDetails({ strategy }: {
         primary={<StrategyPositionTargets details={data} positionGroup={positionGroup} positionRefreshed={currentGroups?.position.status === 'complete'} />}
         secondary={<>
       <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
+      {data.calculation?.valuation_reason === 'actual_fees_unconfirmed' ? <p role="status">实际手续费待确认{data.calculation.capital_return ? ' · 最近合格估值 ' + clock(data.calculation.capital_return.valued_at) : ''}</p> : null}
       {runFacts}
       {data.calculation_reason ? <p role="status">{data.calculation_reason}</p> : null}
       {data.calculation ? <p title={currentAuxiliaryPresentation(data.calculation).title}>策略最近计算：{data.calculation.status_label}；决策时间：{clock(data.calculation.decision_at)}；{currentAuxiliaryPresentation(data.calculation).label}</p> : null}
+      {data.calculation?.consumed_signal ? <section aria-label="已消费信号">
+        <p>{data.calculation.status === 'holding' ? '已计算，目标未变' : data.calculation.status_label} · 信号日 {data.calculation.consumed_signal.decision_date} · 适用交易日 {data.calculation.consumed_signal.eligible_date}</p>
+        <table>
+          <thead><tr><th>标的</th><th>信号</th><th>历史模型</th><th>辅助数据</th></tr></thead>
+          <tbody>{data.calculation.consumed_signal.securities.map(row => <tr key={row.symbol}>
+            <td>{row.symbol}</td>
+            <td>{row.qualified ? (row.actions.length ? row.actions.map(action => action === 'BUY' ? '买入' : '卖出').join('、') : '未触发') : '输入待核验'}</td>
+            <td>{row.model_held === null ? '未知' : row.model_held ? '持有' : '空仓'}</td>
+            <td>{row.auxiliary_missing.map(reason => ({
+              today_shares_missing: '缺份额', today_margin_missing: '缺融资', today_turnover_missing: '缺成交额',
+              shares_units_unknown: '份额单位待核验', margin_units_unknown: '融资单位待核验',
+              turnover_units_unknown: '成交额单位待核验',
+            }[reason] ?? '待核验')).join('、') || '无缺项记录'}</td>
+          </tr>)}</tbody>
+        </table>
+      </section> : null}
 
         </>} />
     </> : null}

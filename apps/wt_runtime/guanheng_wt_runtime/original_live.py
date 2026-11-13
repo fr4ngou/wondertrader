@@ -131,7 +131,7 @@ class OriginalLiveStrategy:
         _need(broker.positions_known and broker.position_received_ms is not None,'original_broker_unknown')
         stamp=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc)
         if not stamp<=now<stamp+timedelta(seconds=self.max_age):return None,broker
-        own=self.allocation.strategy_observation(self.id,deadline=deadline);_need(own.strategy.strategy_id==self.id,'original_allocation_scope')
+        own=self.allocation.strategy_state(self.id,deadline=deadline);_need(own.strategy.strategy_id==self.id,'original_allocation_scope')
         _need(all(row.symbol in self.targets for row in own.strategy.positions),'original_allocation_scope')
         return own,broker
 

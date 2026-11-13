@@ -33,6 +33,8 @@ class PublishedDaily final {
         std::set<std::string> covered_codes; // 已校验本次发布的日线证券，使用 WT 标准代码。
         std::uint32_t basis_date = 0; // 已核原出版物基准日YYYYMMDD；日线输出上界，不重写原日期。
         Path directory;
+        Path store; // 已核发布的日线目录。
+        rapidjson::Document inputs; // 已固定的发布输入清单，按请求核验单个证券原件。
         std::vector<Path> files, created_directories;
         std::unique_ptr<wtp::WtDataReader> reader;
         bool close() noexcept {
@@ -262,6 +264,49 @@ class PublishedDaily final {
         }
         need(read(target, raw.size(), deadline, &next) == raw, "daily publication projection changed");
     }
+    void load_symbol(Generation& generation, const std::string& code, Clock::time_point deadline) {
+        if (generation.covered_codes.count(code)) return;
+        const auto symbol = std::find_if(symbols_.begin(), symbols_.end(), [&](const auto& entry) {
+            return entry.second == code;
+        });
+        const auto& securities = field(generation.inputs, "securities");
+        need(securities.IsObject(), "daily publication securities");
+        need(symbol != symbols_.end() && securities.HasMember(symbol->first.c_str()), "daily publication symbol unavailable");
+        const auto& artifact = field(securities, symbol->first.c_str());
+        need(field(artifact, "count").IsUint() && field(artifact, "count").GetUint() <= 4096,
+            "daily publication bar capacity");
+        const auto first = code.find('.');
+        const auto last = code.rfind('.');
+        const auto relative = Path("his/day") / code.substr(0, first) / (code.substr(last + 1) + ".dsb");
+        need(absolute(text(field(artifact, "path"))) == generation.store / relative, "daily publication DSB mapping mismatch");
+        // 原 Reader 首次访问该证券时才读 DSB；共同资料与成功证券继续留在同一代。
+        const auto target = generation.directory / relative;
+        const auto partial = std::find(generation.files.begin(), generation.files.end(), target);
+        if (partial != generation.files.end()) {
+            std::error_code error;
+            std::filesystem::remove(target, error);
+            need(!error, "daily publication symbol cleanup pending");
+            generation.files.erase(partial);
+        }
+        const auto files = generation.files.size();
+        const auto pins = generation.pins.size();
+        const auto bytes = generation.bytes;
+        const auto directories = generation.directories;
+        try {
+            stage(target, pinned(artifact, generation, deadline), generation, deadline);
+        } catch (...) {
+            generation.pins.resize(pins);
+            generation.bytes = bytes;
+            generation.directories = directories;
+            if (generation.files.size() > files) {
+                std::error_code error;
+                std::filesystem::remove(target, error);
+                if (!error) generation.files.pop_back();
+            }
+            throw;
+        }
+        generation.covered_codes.insert(code);
+    }
 public:
     PublishedDaily(wtp::WTSVariant* config, std::uint32_t flag, wtp::IDataReaderSink* sink,
         wtp::IHisDataLoader* loader, std::map<std::string, std::string> symbols)
@@ -344,7 +389,7 @@ public:
         if (!requested.empty() && (requested.back()=='+' || requested.back()=='-')) requested.pop_back();
         if (current_ && current_->identity == signature) {
             check(deadline);
-            need(current_->covered_codes.count(requested)!=0, "daily publication symbol unavailable");
+            load_symbol(*current_, requested, deadline);
             return *current_->reader;
         }
         pending_ = std::make_unique<Generation>();
@@ -380,22 +425,8 @@ public:
         need(hash(factor_raw) == text(field(inputs, "factor_file_sha256")),
             "daily publication factor hash");
         stage(next->directory / "adjfactors.json", factor_raw, *next, deadline);
-        const auto& securities = field(inputs, "securities");
-        need(securities.IsObject(), "daily publication securities");
-        for (const auto& symbol : symbols_) {
-            if (!securities.HasMember(symbol.first.c_str())) continue;
-            const auto& artifact = field(securities, symbol.first.c_str());
-            need(field(artifact, "count").IsUint() && field(artifact, "count").GetUint() <= 4096,
-                "daily publication bar capacity");
-            const auto first = symbol.second.find('.');
-            const auto last = symbol.second.rfind('.');
-            const auto expected = store / "his/day" / symbol.second.substr(0, first) / (symbol.second.substr(last + 1) + ".dsb");
-            need(absolute(text(field(artifact, "path"))) == expected, "daily publication DSB mapping mismatch");
-            const auto raw = pinned(artifact, *next, deadline);
-            stage(next->directory / "his/day" / symbol.second.substr(0, first) / (symbol.second.substr(last + 1) + ".dsb"),
-                raw, *next, deadline);
-            next->covered_codes.insert(symbol.second);
-        }
+        next->inputs = std::move(inputs);
+        next->store = store;
         const auto& metadata = field(receipt, "metadata");
         need(metadata.IsArray() && metadata.Size() == 3, "daily publication metadata");
         for (const auto& artifact : metadata.GetArray()) pinned(artifact, *next, deadline);
@@ -416,7 +447,7 @@ public:
             pending_.reset();
         }
         check(deadline);
-        need(current_->covered_codes.count(requested)!=0, "daily publication symbol unavailable");
+        load_symbol(*current_, requested, deadline);
         return *current_->reader;
     }
     std::uint32_t basis_date() const {

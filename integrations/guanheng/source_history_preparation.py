@@ -448,8 +448,9 @@ class SourcePreparingMarket:
             if record is not None:
                 rid=record['request']['request_id'];preparation='Pending'
                 if record['result']is not None:
-                    terminal=self.reads.observe(record,lambda:None,deadline)
-                    preparation='CallReturned'if terminal['ok']else'Unknown'if terminal.get('error_code')=='preparation_unknown'else'Unavailable'
+                    terminal=self.reads.saved_reply(record)
+                    if terminal is not None:
+                        preparation='CallReturned'if terminal['ok']else'Unknown'if terminal.get('error_code')=='preparation_unknown'else'Unavailable'
         if phase in('Pending','Unavailable','NotSupported','Budget'):preparation=phase if rid is None else preparation
         return dict(schema='qmt.source-selection-observation.v1',state=phase if phase in('Archive','Observed')else'Partial',
             source_window=None if window is None else{key:window[key]for key in('from','to')},

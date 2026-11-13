@@ -134,6 +134,19 @@ int main(int argc, char** argv) { try {
         need(std::isnan(data.reader()->getAdjFactorByDate(missing_code.c_str(), 20261030)),
             "unpublished daily symbol returned factor");
         std::unique_ptr<IDataReader, FuncDeleteDataReader> oracle(make(), destroy); oracle->init(request.get(), &sink);
+        // 持有同批另一证券原件的独占句柄。请求本证券无需读它；解除后原证券可正常复用同一代。
+        const auto blocked_code = codes.back();
+        const auto dot = blocked_code.rfind('.');
+        const auto blocked = fs::path(request->getCString("path")) / "his/day" /
+            blocked_code.substr(0, blocked_code.find('.')) / (blocked_code.substr(dot + 1) + ".dsb");
+        const auto unavailable = CreateFileW(blocked.c_str(), GENERIC_READ, 0, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        need(unavailable != INVALID_HANDLE_VALUE, "lock other published symbol");
+        Slice available(data.get_kline_slice(codes.front().c_str(), KP_DAY, 1, 1));
+        auto* denied = data.get_kline_slice(blocked_code.c_str(), KP_DAY, 1, 1);
+        CloseHandle(unavailable);
+        need(available && !denied, "unrelated published symbol blocked independent read");
+        available.reset();
         for (const auto& code : codes) {
             Slice expected(oracle->readKlineSlice(code.c_str(), KP_DAY, 1536));
             Slice actual(data.get_kline_slice(code.c_str(), KP_DAY, 1, 1536));

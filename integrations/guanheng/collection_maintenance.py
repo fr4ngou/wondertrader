@@ -220,16 +220,18 @@ class MinuteCollectionMaintenance:
             if grid:
                 query = dict(exchange=symbol.split('.')[0], code=symbol.split('.')[1],
                              **{'from': grid[0], 'to': grid[-1]}, limit=len(grid))
-                result = self.producer.call(dict(api_version=API_VERSION, action='history.source-query', request=query))
-                labels = [bar['minute'] for bar in result['data'].get('bars', [])]
-                preferred = hashlib.sha256(canonical({k: query[k] for k in ('exchange', 'code', 'from', 'to')})).hexdigest()
+                recovery_status = 'source_query_pending'
                 try:
+                    result = self.producer.call(dict(api_version=API_VERSION, action='history.source-query', request=query))
+                    labels = [bar['minute'] for bar in result['data'].get('bars', [])]
+                    preferred = hashlib.sha256(canonical({k: query[k] for k in ('exchange', 'code', 'from', 'to')})).hexdigest()
+                    recovery_status = 'source_registry_pending'
                     candidates, unused = self.producer.repository.find(query, preferred,
                         deadline=self.clock() + self.c['interval_seconds'], byte_budget=[self.producer.c['max_bytes']], clock=self.clock)
                 except SourcePending:
                     # 只读注册扫描暂无完成证明；保留原窗口，下轮照常读回并核证。
                     row.update(state='recovery_pending', recovered_count=None,
-                               recovery_status='source_registry_pending', recovery_observed_at=self.wall_clock())
+                               recovery_status=recovery_status, recovery_observed_at=self.wall_clock())
                     self.retry_at[key] = self.clock() + self.c['retry_seconds']
                     self.next_step = self.clock() + self.c['interval_seconds']
                     return

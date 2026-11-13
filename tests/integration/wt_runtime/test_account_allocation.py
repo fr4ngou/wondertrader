@@ -82,6 +82,59 @@ def test_initial_old_inventory_new_zero_and_restart(tmp_path):
     assert view(reopened, 'old') == view(store, 'old')
 
 
+def test_wal_strategy_read_does_not_wait_for_writer_and_advances_after_commit(tmp_path):
+    from threading import Event
+
+    old, identity = book(tmp_path)
+    _, _, command = prepare(old, 11000, 3000, 4000)
+    store = AccountAllocation(tmp_path, identity, owner_check=lambda: None, require_existing=True, wal=True)
+    try:
+        before = store.view('old', deadline=deadline())
+        actual = fill(command, 20, fee='0')
+        changed, release = Event(), Event()
+
+        def write():
+            def project():
+                assert store.apply_fill(actual, deadline=deadline())
+                changed.set()
+                assert release.wait(5)
+            store.project_broker_batch(project, deadline=deadline())
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            writer = pool.submit(write)
+            try:
+                assert changed.wait(5)
+                observed = store.strategy_state('old', deadline=monotonic()+0.1)
+                assert observed.strategy == before
+                observed.opening_cycles.clear()
+                assert store.strategy_state('old', deadline=deadline()).opening_cycles
+                history = store.strategy_observation('old', deadline=monotonic()+0.1)
+                assert history.strategy == before and history.fills == ()
+            finally:
+                release.set()
+            writer.result(timeout=5)
+        observed = store.strategy_state('old', deadline=deadline())
+        assert observed.strategy.ledger_cash_cny == before.ledger_cash_cny - D('40')
+        assert observed.strategy.positions[0].quantity == before.positions[0].quantity + 20
+        assert len(store.strategy_observation('old', deadline=deadline()).fills) == 1
+        with sqlite3.connect(store.path) as reader:
+            assert reader.execute('PRAGMA journal_mode').fetchone()[0] == 'wal'
+    finally:
+        assert store.close(deadline())
+
+
+def test_relocated_storage_must_contain_original_book(tmp_path):
+    identity = BookIdentity(SHA, uid(), 'b'*64)
+    store = AccountAllocation(tmp_path, identity, owner_check=lambda: None, require_existing=True)
+    with pytest.raises(AllocationError, match='storage_invalid'):
+        store.view('old', deadline=deadline())
+    assert not store.path.exists()
+    store.path.touch()
+    with pytest.raises(AllocationError, match='storage_invalid'):
+        store.view('old', deadline=deadline())
+    assert store.path.stat().st_size == 0
+
+
 def test_same_direction_partial_fill_fifo_and_one_fee(tmp_path):
     store, _ = book(tmp_path)
     _, _, command = prepare(store, 11000, 3000, 4000)
@@ -615,9 +668,11 @@ def test_original_callback_chain_multi_proof_cycle_inbox_replay_and_terminal_reo
             store.apply_terminal(bad_terminal, deadline=deadline())
     with sqlite3.connect(store.path) as db:
         assert db.execute('SELECT COUNT(*) FROM asa_conflicts').fetchone()[0] == 2
-        state = json.loads(db.execute('SELECT value FROM asa_book WHERE id=1').fetchone()[0])
-    assert state['fills'][first.fill_id]['source_sha256'] == SHA
-    assert state['fills'][first.fill_id]['source_proofs'] == [SHA,'b'*64,'f'*64]
+        stored = json.loads(db.execute("SELECT payload FROM asa_record WHERE kind='fills' AND id=?", (first.fill_id,)).fetchone()[0])
+        proofs = db.execute("SELECT proof_id FROM asa_source_proof WHERE kind='fills' AND id=? ORDER BY rowid",
+                            (first.fill_id,)).fetchall()
+    assert stored['source_sha256'] == SHA
+    assert [row[0] for row in proofs] == [SHA,'b'*64,'f'*64]
     reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
     assert reopened.strategy_observation('new', deadline=deadline()) == store.strategy_observation('new', deadline=deadline())
 
@@ -818,3 +873,91 @@ def test_event_inbox_preserves_strict_original_json_boundary(tmp_path,raw):
     with pytest.raises(AllocationError,match='event_json_invalid'):
         store.receive_event('bad-source','8',raw,SHA,deadline=deadline())
     assert store.pending_events(deadline=deadline())==()
+
+def test_migrate_v2_and_reopen_with_concurrent_same_fill(tmp_path):
+    from guanheng_wt_runtime.allocation_records import digest
+    from guanheng_wt_runtime.account_allocation import _wire
+
+    store, identity = book(tmp_path)
+    _, _, command = prepare(store, 11000, 3000, 4000)
+    fact = fill(command, 20, fee='0')
+    with sqlite3.connect(store.path) as db:
+        core = json.loads(db.execute('SELECT value FROM asa_book WHERE id=1').fetchone()[0])
+        for kind in ('plans', 'groups', 'children', 'commands', 'fills'):
+            core[kind] = dict((key, json.loads(raw)) for key, raw in db.execute(
+                'SELECT id,payload FROM asa_record WHERE kind=?', (kind,)))
+        raw = _wire(core)
+        db.execute('UPDATE asa_book SET value=?,sha256=? WHERE id=1', (raw, digest(raw)))
+        db.execute("UPDATE asa_identity SET value=replace(value, 'asa-book.v3', 'asa-book.v2')")
+        db.execute('DROP TABLE asa_source_proof')
+        db.execute('DROP TABLE asa_record')
+
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert sum(pool.map(lambda _: reopened.apply_fill(fact, deadline=deadline()), range(12))) == 1
+    successor = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
+    assert successor.apply_fill(fact, deadline=deadline()) is False
+    assert pos(successor, 'old').quantity == 10020
+    assert successor.lookup_prepared(command.wt_order_id, deadline=deadline()) == command
+
+
+@pytest.mark.parametrize('committed', [False, True])
+def test_process_exit_while_projecting_or_after_commit_replays_original_once(tmp_path, committed):
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    store, identity = book(tmp_path)
+    _, _, command = prepare(store, 11000, 3000, 4000)
+    actual = fill(command, 20, fee='0')
+    event_id = uid()
+    raw = json.dumps({'user_tag': command.wt_order_id}).encode()
+    store.receive_broker_event(event_id, '8', raw, SHA, command.wt_order_id, deadline=deadline())
+    before = view(store, 'old')
+    # 子进程共享磁盘账本，分别在提交前和提交后立即退出。
+    script = """
+import os, sys
+from decimal import Decimal
+from time import monotonic
+from guanheng_wt_runtime.account_allocation import AccountAllocation, BookIdentity, FillFact
+root, scope, book_id, baseline, fill_id, cmd, quantity, price, amount, fee, day, settlement, sha, symbol, side, event_id, committed = sys.argv[1:]
+book = AccountAllocation(root, BookIdentity(scope, book_id, baseline), owner_check=lambda: None, wal=True)
+fact = FillFact(fill_id, cmd, int(quantity), Decimal(price), Decimal(amount), Decimal(fee), day, settlement, sha, symbol, side)
+d = monotonic() + 10
+def project():
+    book.apply_fill(fact, deadline=d)
+    book.mark_event_applied(event_id, deadline=d)
+    if committed == 'False':
+        os._exit(23)
+book.project_broker_batch(project, deadline=d)
+os._exit(23)
+"""
+    values = (tmp_path, identity.account_scope_sha256, identity.financial_book_id, identity.baseline_sha256,
+              actual.fill_id, actual.command_id, actual.quantity, actual.price_cny, actual.amount_cny,
+              actual.fee_cny, actual.trading_day, actual.settlement_day, actual.source_sha256, actual.symbol,
+              actual.side, event_id, committed)
+    env = dict(os.environ)
+    path = Path(allocation_module.__file__).resolve().parents[1]
+    env['PYTHONPATH'] = os.pathsep.join(filter(None, (str(path), env.get('PYTHONPATH'))))
+    result = subprocess.run([sys.executable, '-B', '-c', script, *map(str, values)], env=env, timeout=30)
+    assert result.returncode == 23
+    successor = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
+    pending = successor.pending_events(replayable_only=True, deadline=deadline())
+    assert [(event.event_id, event.raw_json) for event in pending] == ([] if committed else [(event_id, raw)])
+    if not committed:
+        assert view(successor, 'old') == before
+
+    def replay():
+        assert successor.apply_fill(actual, deadline=deadline()) is (not committed)
+        successor.mark_event_applied(event_id, deadline=deadline())
+
+    successor.project_broker_batch(replay, deadline=deadline())
+    assert successor.apply_fill(actual, deadline=deadline()) is False
+    assert successor.pending_events(replayable_only=True, deadline=deadline()) == ()
+    assert pos(successor, 'old').quantity == 10020
+    after = view(successor, 'old')
+    assert after.ledger_cash_cny == before.ledger_cash_cny - D('40')
+    assert after.reserved_cash_cny == before.reserved_cash_cny - D('40')
+    assert after.pending_groups == before.pending_groups
+    assert successor.lookup_prepared(command.wt_order_id, deadline=deadline()) == command

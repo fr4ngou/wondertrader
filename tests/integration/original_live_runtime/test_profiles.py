@@ -25,7 +25,7 @@ class Allocation:
     def __init__(self):
         self.calls=[];self.reason=None;self.own=StrategyObservation(StrategyView(ORIGINAL_ID,'0.2.0a1',Decimal(1000000),Decimal(1000000),Decimal(0),Decimal(1000000),0,(),(),1),1,'b'*64,'2026-11-09',{})
     def observe_context(self,ctx,**kw):self.calls.append('observe');return self.reason
-    def strategy_observation(self,sid,**kw):assert sid==self.own.strategy.strategy_id;self.calls.append('view');return self.own
+    def strategy_state(self,sid,**kw):assert sid==self.own.strategy.strategy_id;self.calls.append('view');return self.own
     def prepare_intent(self,sid,epoch,**kw):self.calls.append(('prepare',sid,epoch,kw))
 
 class Context:

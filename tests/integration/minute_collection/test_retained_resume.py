@@ -210,6 +210,32 @@ class RetainedResumeTests(unittest.TestCase):
         self.assertEqual(calls,['resume',retry_key[0],'resume',new_key[0]])
         self.assertNotIn(new_key,worker.queued)
 
+    def test_query_pending_keeps_same_window_and_allows_collection_to_continue(self):
+        worker, key = self.maintenance(lambda deadline: dict(state='empty'))
+        now = [100.]
+        worker.clock = lambda: now[0]
+        worker.producer.c['max_bytes'] = 4096
+        worker.producer.base = SimpleNamespace(expected_minutes=lambda symbol, day: [202610220931])
+        worker.producer.repository = SimpleNamespace(find=lambda *args, **kwargs: (
+            [(None, {'published': {'reconciled_day': key[1]}})], {}))
+        requests = []
+
+        def query(request):
+            requests.append(request)
+            if len(requests) == 1:
+                raise SourcePending('retained original history observation pending')
+            return dict(status=dict(code='Ok'), data={'bars': [{'minute': 202610220931}]})
+
+        worker.producer.call = query
+        worker.step(source_ready=True)
+        self.assertEqual(worker.rows[key]['recovery_status'], 'source_query_pending')
+        self.assertEqual(worker.retry_at, {key: 160.})
+        self.assertFalse(worker.closed)
+        now[0] = 161.
+        worker.step(source_ready=True)
+        self.assertEqual(requests[0], requests[1])
+        self.assertEqual(worker.rows[key]['state'], 'recovered')
+
     def test_registry_deadline_keeps_same_symbol_and_date_for_retry(self):
         from integrations.guanheng.source_history_transport import SourcePending
         worker, key = self.maintenance(lambda deadline: dict(state='empty'))

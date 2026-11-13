@@ -87,6 +87,17 @@ export type StrategyRuntime = {
     /** 原NSQ/分析等待阶段，不由页面推断执行状态。 */ status: keyof typeof runtimeLabels
     /** 与原阶段固定匹配的中文标签。 */ status_label: string
     /** 实际决策时刻，带时区ISO时间；尚未计算为null。 */ decision_at: string | null
+    /** WT 自有估值的等待原因，早期响应可缺。 */
+    valuation_reason?: string | null
+    /** 最近已核策略收益使用的估值时间。 */
+    capital_return?: { valued_at: string }
+    /** 已消费的闭合信号。日期为市场日，历史模型持有与实际归属分开。 */
+    consumed_signal?: {
+      decision_at: string
+      decision_date: string
+      eligible_date: string
+      securities: { symbol: string, qualified: boolean, actions: ('BUY' | 'SELL')[], model_held: boolean | null, auxiliary_missing: string[] }[]
+    }
     /** 券商持仓原接收时刻，带时区ISO时间；未知为null。 */ broker_observed_at: string | null
     /** 原兼容字段固定false，实际执行观察资格由下一字段表达。 */ broker_position_qualified: false
     /** 原执行观察是否通过准入，旧响应可缺失。 */ execution_position_qualified?: boolean
@@ -264,6 +275,22 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
         && (s.position_basis !== 'strategy-allocated' || typeof row.market_value_cny !== 'string'
           || !/^\d{1,64}(?:\.\d{1,64})?$/.test(row.market_value_cny) || !time(row.market_value_observed_at))) return invalid()
     seen.add(row.symbol)
+  }
+  if (s.consumed_signal !== undefined) {
+    const signal = s.consumed_signal
+    const day = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    if (!record(signal) || signal.decision_at !== s.decision_at || !day(signal.decision_date)
+      || !day(signal.eligible_date) || signal.decision_date >= signal.eligible_date
+      || !Array.isArray(signal.securities) || signal.securities.length !== seen.size) return invalid()
+    const remaining = new Set(seen)
+    for (const row of signal.securities) {
+      if (!record(row) || typeof row.symbol !== 'string' || !remaining.delete(row.symbol)
+        || typeof row.qualified !== 'boolean' || !Array.isArray(row.actions)
+        || !row.actions.every(action => action === 'BUY' || action === 'SELL')
+        || !(row.model_held === null || typeof row.model_held === 'boolean')
+        || !Array.isArray(row.auxiliary_missing)
+        || !row.auxiliary_missing.every(value => typeof value === 'string' && /^[a-z_]+$/.test(value))) return invalid()
+    }
   }
   if (s.position_basis !== undefined && s.position_basis !== 'strategy-allocated') return invalid()
   validateCapitalFields(s)

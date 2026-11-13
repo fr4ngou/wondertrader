@@ -349,6 +349,12 @@ def test_real_native_broker_value_refresh_has_stable_revision_and_unlocks_t1(tmp
     broker = replace(broker, published_epoch_ms=stamp+1)
     assert coordinator.observe_context(context, deadline=end(), max_age_seconds=30) is None
     assert book.strategy_observation('new', deadline=end()).account_revision == revision
+    with pytest.MonkeyPatch.context() as patch:
+        def unexpected_database_call(*args, **kwargs):
+            pytest.fail('already reconciled observations must not access SQLite')
+        patch.setattr(book, '_transaction', unexpected_database_call)
+        assert coordinator.observe_context(context, deadline=end(), max_age_seconds=30) is None
+        assert coordinator.strategy_state('new', deadline=end()).account_revision == revision
     assert book.view('new', deadline=end()).positions[0].sellable == 20
 
 

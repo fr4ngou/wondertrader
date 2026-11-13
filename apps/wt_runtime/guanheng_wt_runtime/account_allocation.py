@@ -1,8 +1,8 @@
 """ASA归属事实：借用原金融租约，记录原意图/命令/实际成交，绝不提交金融命令。"""
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from contextlib import closing, contextmanager
+from dataclasses import asdict, dataclass, field, replace
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -14,9 +14,12 @@ from pathlib import Path
 import re
 import sqlite3
 import stat
-from threading import RLock, local
+from threading import Event, RLock, local
 from time import monotonic
 from uuid import UUID
+
+from .allocation_records import KINDS, Records, decode, digest, save_proof, schema
+from .thread_owner import ThreadOwner
 
 
 class AllocationError(ValueError):
@@ -378,12 +381,12 @@ def _split(cents, parts):
 
 
 class AccountAllocation:
-    """单金融租约内的持久归属；owner/worker仅交不可变值，连接/锁逐调用释放。
+    """单金融租约内的持久归属。WAL连接由同一写锁串行使用，策略观察只读已提交快照。
 
     每个入口的deadline为调用方原monotonic绝对D；owner_check必须核原执行租约。
     返回许可只证明持久关联和占款，不表示原SDK调用、成交或交易权限。
     """
-    def __init__(self, financial_root, identity: BookIdentity, *, owner_check, clock=monotonic):
+    def __init__(self, financial_root, identity: BookIdentity, *, owner_check, clock=monotonic, require_existing=False, wal=False):
         _need(type(identity) is BookIdentity and callable(owner_check), 'owner_required')
         _sha(identity.account_scope_sha256); _uuid(identity.financial_book_id); _sha(identity.baseline_sha256)
         root = Path(financial_root)
@@ -395,12 +398,20 @@ class AccountAllocation:
             _need(not stat.S_ISLNK(info.st_mode) and not getattr(info, 'st_file_attributes', 0) & 1024, 'financial_root_invalid')
         self.path = root / 'account-allocation.sqlite3'
         self.identity, self.owner_check, self.clock = identity, owner_check, clock
+        self._require_existing = require_existing  # 切盘续接必须打开原账，缺失时禁止创建新库。
         self._lock = RLock()
+        self._committed = {}  # 只发布已提交版本，读线程无需等待写锁。
+        self._book_scope = hashlib.sha256(_wire(asdict(identity)).encode('ascii')).hexdigest()
+        self._wal = wal  # 开启后持有原SQLite连接，关闭时由运行owner回收。
+        self._connection = None  # 账本锁串行全部业务事务与连接关闭。
+        self._checkpoint_stop = Event()
+        self._checkpoint_owner = None  # 原执行进程退出前收回WAL维护线程。
+        self._closed = False  # 停止后禁止重新打开旧账本。
         self._projection = local()  # 查询回报借用同线程原账事务，禁止跨线程共享连接。
 
     def _check(self, deadline):
         _need(type(deadline) in (int, float) and math.isfinite(deadline), 'deadline_invalid')
-        _need(self.owner_check() is None, 'owner_required')
+        _need(not self._closed and self.owner_check() is None, 'owner_required')
         if self.clock() >= deadline:
             raise TimeoutError('allocation_deadline')
 
@@ -436,33 +447,47 @@ class AccountAllocation:
         db = None
         try:
             self._check(deadline)
-            if self.path.exists():
-                info = self.path.lstat()
-                _need(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and not getattr(info, 'st_file_attributes', 0) & 1024, 'storage_invalid')
-            db = sqlite3.connect(str(self.path), timeout=max(0, deadline-self.clock()), isolation_level=None)
-            db.execute('PRAGMA temp_store=MEMORY')
-            db.execute('PRAGMA synchronous=FULL')
+            db = self._connection
+            if db is None:
+                db = self._open(deadline)
+            db.execute('PRAGMA busy_timeout='+str(max(0, int((deadline-self.clock())*1000))))
+            changes_before = db.total_changes
             db.execute('BEGIN IMMEDIATE')
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-            _need(not tables or tables == {'asa_identity', 'asa_book', 'asa_events', 'asa_inbox', 'asa_conflicts'}, 'storage_invalid')
+            original_tables = {'asa_identity', 'asa_book', 'asa_events', 'asa_inbox', 'asa_conflicts'}
+            current_tables = original_tables | {'asa_record', 'asa_source_proof'}
+            _need(tables in (original_tables, current_tables) or (not tables and not self._require_existing),
+                  'storage_invalid')
             db.execute('CREATE TABLE IF NOT EXISTS asa_identity (id INTEGER PRIMARY KEY, value TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS asa_book (id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, value TEXT NOT NULL, sha256 TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS asa_events (identity TEXT PRIMARY KEY, payload TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS asa_inbox (sequence INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT UNIQUE NOT NULL, kind TEXT NOT NULL, raw_json BLOB NOT NULL, payload_sha256 TEXT NOT NULL, source_sha256 TEXT, applied INTEGER NOT NULL CHECK(applied IN(0,1)), reason TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS asa_conflicts (identity TEXT PRIMARY KEY, kind TEXT NOT NULL, fact_id TEXT NOT NULL, payload TEXT NOT NULL, source_sha256 TEXT NOT NULL)')
             row = db.execute('SELECT value FROM asa_identity WHERE id=1').fetchone()
-            identity = _wire({'schema': 'asa-book.v2', **asdict(self.identity)})
+            identity = _wire({'schema': 'asa-book.v3', **asdict(self.identity)})
+            if tables != current_tables:
+                schema(db)
             if row is None:
+                _need(not tables, 'storage_invalid')
                 db.execute('INSERT INTO asa_identity VALUES (1,?)', (identity,))
+            elif row[0] != identity:
+                _need(tables == original_tables
+                      and row[0] == _wire({'schema': 'asa-book.v2', **asdict(self.identity)}), 'book_identity_conflict')
+                self._migrate_records(db, deadline)
+                db.execute('UPDATE asa_identity SET value=? WHERE id=1', (identity,))
             else:
-                _need(row[0] == identity, 'book_identity_conflict')
+                _need(tables == current_tables, 'storage_invalid')
             rejection = None
             try:
                 yield db
             except _RecordedRejection as error:
                 rejection = error
             self._check(deadline)
+            snapshot = self._snapshot_after_changes(db, changes_before)
+            self._check(deadline)
             db.execute('COMMIT')
+            if snapshot is not None:
+                self._committed = snapshot
             # 提交后到达原D时保留已提交事实；调用方按原ID重读，不能当未执行。
             self._check(deadline)
             if rejection is not None:
@@ -477,27 +502,119 @@ class AccountAllocation:
                         if db.in_transaction:
                             db.rollback()
                     finally:
-                        db.close()
+                        if db is not self._connection:
+                            db.close()
             finally:
                 self._lock.release()
+
+    def _open(self, deadline):
+        if self.path.exists():
+            info = self.path.lstat()
+            _need(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and not getattr(info, 'st_file_attributes', 0) & 1024,
+                  'storage_invalid')
+        database = self.path.as_uri() + '?mode=rw' if self._require_existing else str(self.path)
+        db = sqlite3.connect(database, uri=self._require_existing, timeout=max(0, deadline-self.clock()),
+                             isolation_level=None, check_same_thread=not self._wal)
+        try:
+            db.execute('PRAGMA temp_store=MEMORY')
+            db.execute('PRAGMA synchronous=FULL')
+            if self._wal:
+                _need(db.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal', 'storage_wal_unavailable')
+                db.execute('PRAGMA wal_autocheckpoint=0')
+                self._checkpoint_owner = ThreadOwner(target=self._checkpoint_loop, name='allocation-checkpoint')
+                self._checkpoint_owner.start()
+                self._connection = db
+        except BaseException:
+            db.close()
+            raise
+        return db
+
+    def _checkpoint_loop(self):
+        import logging
+        logger = logging.getLogger(__name__)
+        while not self._checkpoint_stop.wait(1):
+            try:
+                with closing(sqlite3.connect(self.path.as_uri() + '?mode=rw', uri=True, timeout=0, isolation_level=None)) as db:
+                    db.execute('PRAGMA synchronous=FULL')
+                    db.execute('PRAGMA wal_checkpoint(PASSIVE)').fetchone()
+            except sqlite3.Error as error:
+                logger.warning('allocation_checkpoint_failed sqlite_code=%s', getattr(error, 'sqlite_errorname', None))
+
+    def close(self, deadline):
+        """原生调用结束后关闭连接，后台线程只执行checkpoint。"""
+        self._checkpoint_stop.set()
+        if self._checkpoint_owner is not None and not self._checkpoint_owner.join_until(deadline):
+            return False
+        if not self._lock.acquire(timeout=max(0, deadline-self.clock())):
+            return False
+        try:
+            self._closed = True
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+            return True
+        finally:
+            self._lock.release()
+
+    def _snapshot_after_changes(self, db, changes_before):
+        if db.total_changes == changes_before and self._committed:
+            return None
+        row = db.execute('SELECT revision FROM asa_book WHERE id=1').fetchone()
+        committed = next(iter(self._committed.values()), None)
+        if row is None or (committed is not None and committed.strategy.revision == row[0]):
+            return None
+        revision, state = self._load(db)
+        return {sid: self._strategy_observation(state, sid, revision) for sid in state['strategies']}
+
+    def strategy_state(self, strategy_id, *, deadline):
+        """从已提交版本读取本策略状态，不等账本写锁。"""
+        self._check(deadline)
+        snapshot = self._committed.get(strategy_id)
+        _need(snapshot is not None, 'strategy_state_unavailable')
+        return replace(snapshot, opening_cycles=dict(snapshot.opening_cycles),
+                       targets=None if snapshot.targets is None else dict(snapshot.targets))
+
+    def _migrate_records(self, db, deadline):
+        row = db.execute('SELECT revision,value,sha256 FROM asa_book WHERE id=1').fetchone()
+        _need(row is not None, 'not_initialized')
+        state = decode(row[1], row[2], _wire)
+        for kind in KINDS:
+            records = Records(db, kind, _wire)
+            for key, value in state.pop(kind).items():
+                self._check(deadline)
+                if kind == 'fills':
+                    for proof in value.pop('source_proofs'):
+                        self._check(deadline)
+                        save_proof(db, kind, key, proof, proof, _wire)
+                if kind == 'commands':
+                    for proof in value.pop('terminal_proofs', ()):
+                        self._check(deadline)
+                        save_proof(db, kind, key, proof['event_id'], proof, _wire)
+                records[key] = value
+            records.save()
+        raw = _wire(state)
+        db.execute('UPDATE asa_book SET value=?,sha256=? WHERE id=1', (raw, digest(raw)))
 
     @staticmethod
     def _load(db):
         row = db.execute('SELECT revision,value,sha256 FROM asa_book WHERE id=1').fetchone()
         _need(row is not None, 'not_initialized')
         try:
-            state = json.loads(row[1])
-            _need(_wire(state) == row[1] and hashlib.sha256(row[1].encode('ascii')).hexdigest() == row[2], 'storage_invalid')
-            _need(set(state) == {'strategies', 'unallocated_cash', 'unallocated_positions', 'account', 'plans', 'active_plan', 'groups', 'children', 'commands', 'fills'}, 'storage_invalid')
+            state = decode(row[1], row[2], _wire)
+            _need(set(state) == {'strategies', 'unallocated_cash', 'unallocated_positions', 'account', 'active_plan'},
+                  'storage_invalid')
         except (ValueError, TypeError):
             raise AllocationError('storage_invalid') from None
+        state.update((kind, Records(db, kind, _wire)) for kind in KINDS)
         return row[0], state
 
     @staticmethod
     def _save(db, revision, state):
-        raw = _wire(state)
+        for kind in KINDS:
+            state[kind].save()
+        raw = _wire({key: value for key, value in state.items() if key not in KINDS})
         db.execute('UPDATE asa_book SET revision=?,value=?,sha256=? WHERE id=1',
-                   (revision+1, raw, hashlib.sha256(raw.encode('ascii')).hexdigest()))
+                   (revision+1, raw, digest(raw)))
 
     @staticmethod
     def _event(db, identity, payload):
@@ -591,17 +708,16 @@ class AccountAllocation:
             statement = 'SELECT * FROM asa_inbox WHERE applied=0 AND sequence>?'
             parameters = [after_sequence]
             if replayable_only:
-                # 同一次账本读取确定哪些柜台原件已有归属；原件仍留在收件箱，
-                # 后续建立原委托绑定后，同一条记录自然进入重放范围。
-                _, state = self._load(db)
-                tags = [tag for tag, child in state['children'].items() if child['command'] is not None]
-                statement += '''
-                    AND (kind NOT IN ('8','9') OR (
-                        reason IS NOT 'attribution_wt_identity_missing'
-                        AND json_extract(CAST(raw_json AS TEXT), '$.user_tag') IN (SELECT value FROM json_each(?))
-                    ))
-                '''
-                parameters.append(_wire(tags))
+                # 以已绑定委托为索引读取收件，未归属的历史数据不占重放页。
+                statement = """
+                    SELECT * FROM asa_inbox WHERE applied=0 AND sequence>? AND kind NOT IN ('8','9')
+                    UNION ALL
+                    SELECT inbox.* FROM asa_record AS child
+                    JOIN asa_inbox AS inbox ON json_extract(CAST(inbox.raw_json AS TEXT), '$.user_tag')=child.id
+                    WHERE child.kind='children' AND child.active=1 AND inbox.applied=0
+                      AND inbox.kind IN ('8','9') AND inbox.sequence>?
+                """
+                parameters.append(after_sequence)
             statement += ' ORDER BY sequence LIMIT ?'
             parameters.append(limit)
             result, total = [], 0
@@ -708,7 +824,7 @@ class AccountAllocation:
             if not self._event(db, 'initialize', state):
                 return
             _need(db.execute('SELECT id FROM asa_book').fetchone() is None, 'already_initialized')
-            raw = _wire(state)
+            raw = _wire({key: value for key, value in state.items() if key not in KINDS})
             db.execute('INSERT INTO asa_book VALUES (1,1,?,?)', (raw, hashlib.sha256(raw.encode('ascii')).hexdigest()))
 
     @staticmethod
@@ -723,8 +839,12 @@ class AccountAllocation:
     def _reserves(state):
         cash = {s: 0 for s in state['strategies']}
         sells = {}
-        for g in state['groups'].values():
-            unknown = any(state['fills'][f]['fee'] is None for f in g['fills'])
+        groups = dict(state['groups'].items(active_only=True))
+        unknown_groups = {fill['group'] for _, fill in state['fills'].items(active_only=True)}
+        for group_id in unknown_groups.difference(groups):
+            groups[group_id] = state['groups'][group_id]
+        for group_id, g in groups.items():
+            unknown = group_id in unknown_groups
             remaining_fee = max(0, g['fee_bound']-g['fee_paid']) if not g['closed'] or unknown else 0
             for a in g['allocations']:
                 rest = 0 if g['closed'] else a['quantity']-a['filled']
@@ -872,7 +992,7 @@ class AccountAllocation:
             if not self._event(db, 'plan:'+plan_id, inputs):
                 return self._plan_view(state['plans'][plan_id])
             _need(plan_id not in state['plans'], 'storage_invalid')
-            blocked = {g['symbol']: 'pending_group' for g in state['groups'].values() if not g['closed']}
+            blocked = {g['symbol']: 'pending_group' for _, g in state['groups'].items(active_only=True)}
             if execution_targets is not None:
                 demands = self._native_demands(state, execution_targets, blocked)
                 plan = {'plan_id': plan_id, 'demands': demands, 'transfers': [], 'blocked_reasons': blocked,
@@ -1129,7 +1249,7 @@ class AccountAllocation:
                 _need(not any(state['commands'][c]['terminal'] == 'unknown' for c in group['commands']), 'group_unavailable')
                 _need((group['side'] == 'buy' and Decimal(price) <= Decimal(group['price']))
                       or (group['side'] == 'sell' and Decimal(price) >= Decimal(group['price'])), 'child_price_bound')
-                _need(not any(c['wt_order_id'] == command.wt_order_id for c in state['commands'].values()), 'wt_identity_conflict')
+                _need(child['command'] is None, 'wt_identity_conflict')
                 if group['side'] == 'buy':
                     cash, _ = self._reserves(state)
                     _need(all(state['strategies'][a['strategy']]['cash'] >= cash[a['strategy']]
@@ -1217,9 +1337,8 @@ class AccountAllocation:
                     db.execute('INSERT OR IGNORE INTO asa_conflicts VALUES(?,?,?,?,?)',
                                (identity, 'fill_economic_conflict', fact.fill_id, payload, fact.source_sha256))
                     raise _RecordedRejection('fill_economic_conflict')
+                save_proof(db, 'fills', fact.fill_id, fact.source_sha256, fact.source_sha256, _wire)
                 changed = False
-                if fact.source_sha256 not in existing['source_proofs']:
-                    existing['source_proofs'].append(fact.source_sha256); changed = True
                 if executed is not None and existing['executed_at'] is None:
                     existing['executed_at'] = executed; changed = True
                     for strategy in state['strategies'].values():
@@ -1232,6 +1351,7 @@ class AccountAllocation:
                 return False
             _need(self._event(db, 'fill:'+fact.fill_id, asdict(fact)), 'storage_invalid')
             self._apply_new_fill(state, fact, price, amount, fee, economics, executed)
+            save_proof(db, 'fills', fact.fill_id, fact.source_sha256, fact.source_sha256, _wire)
             self._save(db, rev, state)
             return True
 
@@ -1271,7 +1391,7 @@ class AccountAllocation:
         state['account']['adjustment'] += amount if group['side'] == 'sell' else -amount
         fill = {'group': command['group'], 'command': fact.command_id, 'quantity': fact.quantity, 'amount': amount,
                 'fee': None, 'allocations': allocations, 'source_sha256': fact.source_sha256,
-            'source_proofs': [fact.source_sha256], 'economics': economics, 'executed_at': executed}
+                'economics': economics, 'executed_at': executed}
         state['fills'][fact.fill_id] = fill; group['fills'].append(fact.fill_id)
         if fee is not None:
             self._fee(state, fill, fee)
@@ -1329,12 +1449,15 @@ class AccountAllocation:
                     _need(fact.filled_quantity is not None and fact.filled_quantity == command['filled'], 'terminal_missing_fills')
                 _need(fact.state != 'filled' or command['filled'] == command['quantity'], 'terminal_missing_fills')
                 _need(fact.state not in ('rejected', 'not_called') or command['filled'] == 0, 'terminal_has_fills')
-                command.setdefault('terminal_proofs', []).append(asdict(fact))
-                if prior not in definitive:
-                    if fact.state in definitive:
-                        for part in command['allocations']:
-                            next(a for a in group['allocations'] if a['strategy'] == part['strategy'])['prepared'] -= part['quantity']-part['filled']
-                    command['terminal'] = fact.state
+                save_proof(db, 'commands', fact.command_id, fact.event_id, asdict(fact), _wire)
+                if prior in definitive:
+                    # 保留新的来源证明，原终态及财务事实已应用。
+                    self._event(db, 'terminal:'+fact.event_id, asdict(fact))
+                    return
+                if fact.state in definitive:
+                    for part in command['allocations']:
+                        next(a for a in group['allocations'] if a['strategy'] == part['strategy'])['prepared'] -= part['quantity']-part['filled']
+                command['terminal'] = fact.state
                 self._close_if_resolved(state, group)
             self._event(db, 'terminal:'+fact.event_id, asdict(fact))
             self._save(db, rev, state)
@@ -1343,50 +1466,78 @@ class AccountAllocation:
     def _strategy_view(state, strategy_id, revision):
         _need(strategy_id in state['strategies'], 'strategy_unknown')
         strategy = state['strategies'][strategy_id]; cash, sells = AccountAllocation._reserves(state)
-        unknown = sum(fill['fee'] is None and any(a['strategy'] == strategy_id for a in fill['allocations']) for fill in state['fills'].values())
+        unknown = sum(fill['fee'] is None and any(a['strategy'] == strategy_id for a in fill['allocations']) for _, fill in state['fills'].items(active_only=True))
         reserved = cash[strategy_id]
         positions = tuple(PositionView(symbol, position['quantity'], position['sellable']-sells.get((strategy_id, symbol), 0),
                                        sells.get((strategy_id, symbol), 0)) for symbol, position in sorted(strategy['positions'].items()))
         return StrategyView(strategy_id, strategy['version'], None if unknown else _cny(strategy['cash']),
             _cny(strategy['cash']), _cny(reserved), _cny(max(0, strategy['cash']-reserved)), unknown, positions,
-            tuple(key for key, group in state['groups'].items() if not group['closed']
-                  and any(a['strategy'] == strategy_id for a in group['allocations'])), revision)
+            tuple(key for key, group in state['groups'].items(active_only=True)
+                  if any(a['strategy'] == strategy_id for a in group['allocations'])), revision)
+
+    def _strategy_observation(self, state, strategy_id, revision):
+        view = self._strategy_view(state, strategy_id, revision)
+        strategy = state['strategies'][strategy_id]
+        cycles = {}
+        fields = ('symbol', 'cycle_id', 'opened_at', 'source_sha256', 'status')
+        for symbol in strategy['universe']:
+            position = strategy['positions'].get(symbol)
+            if position is None or not position['quantity']:
+                cycles[symbol] = None
+            else:
+                cycle = strategy['cycles'].get(symbol)
+                cycles[symbol] = OpeningCycle(symbol, None, None, None, 'unknown') if cycle is None else OpeningCycle(**{k:cycle[k]for k in fields})
+        intent = strategy['intent']
+        return StrategyObservation(view, state['account']['revision'], state['account']['source_sha256'],
+            state['account']['day'], cycles, self._book_scope, datetime.now(timezone.utc).isoformat(),
+            None if intent is None else dict(intent['targets']))
+
+    @contextmanager
+    def _observation_transaction(self, deadline):
+        if not self._wal:
+            with self._transaction(deadline) as db:
+                yield db
+            return
+        _need(not self._closed, 'owner_required')
+        if self.clock() >= deadline:
+            raise TimeoutError('allocation_deadline')
+        database = self.path.as_uri() + '?mode=ro'
+        try:
+            with closing(sqlite3.connect(database, uri=True, timeout=max(0, deadline-self.clock()),
+                                        isolation_level=None)) as db:
+                db.execute('BEGIN')
+                yield db
+                db.execute('COMMIT')
+        except sqlite3.Error as error:
+            raise AllocationError('storage_read_unavailable') from error
 
     def strategy_observation(self, strategy_id, *, deadline):
-        """同一归属事务提供策略持仓/周期与账户来源身份；不复制账户D/P分配。"""
+        """从同一只读事务附加策略历史成交投影，用于报告。"""
         _text(strategy_id)
-        with self._transaction(deadline) as db:
+        with self._observation_transaction(deadline) as db:
             revision, state = self._load(db)
-            view = self._strategy_view(state, strategy_id, revision)
-            strategy = state['strategies'][strategy_id]; cycles = {}
-            fields = ('symbol', 'cycle_id', 'opened_at', 'source_sha256', 'status')
-            for symbol in strategy['universe']:
-                position = strategy['positions'].get(symbol)
-                if position is None or not position['quantity']:
-                    cycles[symbol] = None
-                else:
-                    cycle = strategy['cycles'].get(symbol)
-                    cycles[symbol] = OpeningCycle(symbol, None, None, None, 'unknown') if cycle is None else OpeningCycle(**{k:cycle[k]for k in fields})
-            # 从原已记账allocation投影数量/金额/费用，绝不按账户证券反推归属。
-            from collections import deque
-            allocated, allocated_count = deque(maxlen=2000), 0
-            for identity, fill in state['fills'].items():
-                self._check(deadline)
+            snapshot = self._strategy_observation(state, strategy_id, revision)
+            allocated = []
+            identities = db.execute("""
+                SELECT id FROM asa_record WHERE kind='fills' AND EXISTS (
+                    SELECT 1 FROM json_each(asa_record.payload, '$.allocations')
+                    WHERE json_extract(value, '$.strategy')=?
+                ) ORDER BY id DESC LIMIT 2001
+                """, (strategy_id,)).fetchall()
+            for (identity,) in reversed(identities[:2000]):
+                fill = state['fills'][identity]
+                if self.clock() >= deadline:
+                    raise TimeoutError('allocation_deadline')
                 parts = [(a['strategy'], a['quantity']) for a in fill['allocations']]
                 fees = [None] * len(parts) if fill['fee'] is None else _split(fill['fee'], parts)
                 for part, fee in zip(fill['allocations'], fees):
                     if part['strategy'] != strategy_id: continue
-                    allocated_count += 1
                     economics = fill['economics']
                     allocated.append(OwnedFillObservation(identity, economics['symbol'], economics['side'],
                         part['quantity'], Decimal(economics['price_milli']) / 1000,
                         _cny(part['amount_cents']), None if fee is None else _cny(fee),
                         economics['trading_day'], fill['executed_at'], fill['source_sha256']))
-            intent = strategy['intent']
-            return StrategyObservation(view, state['account']['revision'], state['account']['source_sha256'],
-                state['account']['day'], cycles, hashlib.sha256(_wire(asdict(self.identity)).encode('ascii')).hexdigest(),
-                datetime.now(timezone.utc).isoformat(), None if intent is None else dict(intent['targets']),
-                tuple(allocated), allocated_count > 2000)
+            return replace(snapshot, fills=tuple(allocated), fills_truncated=len(identities) > 2000)
 
     def view(self, strategy_id, *, deadline):
         _text(strategy_id)

@@ -39,6 +39,16 @@ class HistoryReadOperations:
             attempted=False, result=None,  # 尚未派发，原结果未知。
             retained_slot=str(slots / (uuid4().hex + '.json')))  # 仅本地原slot名称，传输ID仍由唯一客户端生成。
 
+    def saved_reply(self, record):
+        """投影本地已核终态，无网络、确认或新请求；未交接的保留结果继续显示待定。"""
+        if self.client is None:
+            if record.get('result') is None:
+                return None
+            # 原协议 result 已持久存在时 observe 只校验与解码。
+            return self.transport.observe(record, lambda: None, float('inf'))
+        from guanheng_qmt_shm.read_retention_client import inspect_saved_result
+        return inspect_saved_result(record)
+
     def observe(self, record, save, deadline):
         """无论成功或Pending均将原slot身份同步回窗口；重启续核同一原请求。"""
         if self.client is None:

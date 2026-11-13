@@ -48,7 +48,7 @@ class Context:
 class Bridge:
     def __init__(self,store):self.store=store
     def observe_context(self,*_a,**_kw):return None
-    def strategy_observation(self,sid,*,deadline):return self.store.strategy_observation(sid,deadline=deadline)
+    def strategy_state(self,sid,*,deadline):return self.store.strategy_state(sid,deadline=deadline)
     def prepare_intent(self,*_a,**_kw):raise AssertionError('read-only valuation must never prepare intent')
 
 
