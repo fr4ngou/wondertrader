@@ -412,7 +412,10 @@ class AttributionCoordinator:
                             v.reserved_cash_cny, v.unknown_fee_count) for sid, v in observations.items()),
                             tuple(sorted(self._execution_targets.items()))))
         if self._plan is None or self._plan[0] != fingerprint:
-            plan_id = self._identity(self._control, 'plan', fingerprint)
+            # 同一目标可经其他目标后再次出现；每次重新生效都要建立新计划，
+            # 历史同形计划的剩余份额仍用于核对原组，不能替代当前计划。
+            previous_plan_id = None if self._plan is None else self._plan[1]
+            plan_id = self._identity(self._control, 'plan', previous_plan_id, fingerprint)
             result = self.allocation.plan(plan_id, (), deadline=deadline,
                                           execution_targets=self._execution_targets)
             self._plan = fingerprint, result.plan_id
@@ -451,8 +454,6 @@ class AttributionCoordinator:
             provided = body.get('command_id')
             _need(provided is None or provided == command.command_id, 'attribution_command_conflict')
         if event.kind == 8:
-            before_quantity = sum(p.quantity for sid in self.strategy_ids
-                for p in self.allocation.view(sid, deadline=deadline).positions if p.symbol == body['symbol'])
             day = datetime.strptime(str(body['trading_date']), '%Y%m%d').date().isoformat()
             tick = body['trade_time']
             _need(type(tick) is int and 0 <= tick < 240000000, 'attribution_trade_time')
@@ -466,12 +467,10 @@ class AttributionCoordinator:
             settlement = self._settlement(day) if body['side'] == 'buy' else day
             amount = self._source_decimal(body['amount_cny'], '.01')
             fee = None if body.get('fee_cny') is None else self._source_decimal(body['fee_cny'], '.01')
-            self.allocation.apply_fill(FillFact(body['trade_id'], command.command_id,
+            applied_new_fill = self.allocation.apply_fill(FillFact(body['trade_id'], command.command_id,
                 self._quantity(body['quantity']), self._source_decimal(body['price_cny'], '.001'), amount, fee, day, settlement,
                 body['source_sha256'], body['symbol'], body['side'], executed_at=executed.isoformat()), deadline=deadline)
-            after_quantity = sum(p.quantity for sid in self.strategy_ids
-                for p in self.allocation.view(sid, deadline=deadline).positions if p.symbol == body['symbol'])
-            if after_quantity != before_quantity:
+            if applied_new_fill:
                 self._last_mutating_fill_ms = self._utcnow().timestamp()*1000
         elif event.kind == 9:
             tag = self._wt_identity(body)
@@ -577,10 +576,11 @@ class AttributionCoordinator:
         """
         self._enter(deadline)
         try:
-            page = self.allocation.pending_events(limit=limit, after_sequence=self._inbox_cursor, deadline=deadline)
+            page = self.allocation.pending_events(limit=limit, after_sequence=self._inbox_cursor,
+                                                  replayable_only=True, deadline=deadline)
             if not page and self._inbox_cursor:
                 self._inbox_cursor = 0
-                page = self.allocation.pending_events(limit=limit, after_sequence=0, deadline=deadline)
+                page = self.allocation.pending_events(limit=limit, replayable_only=True, deadline=deadline)
             for inbox in page:
                 body = json.loads(inbox.raw_json, object_pairs_hook=_pairs, parse_constant=_invalid_constant)
                 if inbox.kind == '7':

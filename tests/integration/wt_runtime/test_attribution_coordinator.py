@@ -207,6 +207,38 @@ def test_wait_for_complete_targets_then_use_wt_risk_cut_and_filter(tmp_path):
     assert book.view('old', deadline=end()).positions[0].quantity == 10000
 
 
+def test_return_to_previous_targets_rebuilds_active_plan(tmp_path):
+    _, coordinator, bridge = setup(tmp_path)
+    targets(coordinator, bridge)
+    request = dict(instance_id='qmt', symbol=CODE, side='buy', requested_quantity=100,
+                   limit_price_cny='10.01')
+    assert send(bridge, 4, request)[1].authorized_quantity == 100
+    assert send(bridge, 2, dict(targets=[dict(symbol=CODE, quantity=10000)]))[0] == 0
+    assert send(bridge, 4, request)[1].authorized_quantity == 0
+    assert send(bridge, 2, dict(targets=[dict(symbol=CODE, quantity=11000)]))[0] == 0
+    result, reply = send(bridge, 4, request)
+    assert result == 0, bridge.failure
+    assert reply.authorized_quantity == 100
+
+
+def test_replay_prioritizes_original_events_with_order_binding(tmp_path):
+    book, coordinator, bridge = setup(tmp_path)
+    command = prepared(coordinator, bridge)
+    for i in range(5):
+        historical = dict(source_kind='query-result', source_sha256=SHA,
+                          user_tag=f'otp.external.{i}', output_index=i)
+        assert send(bridge, 9, historical)[0] == 0
+    source = dict(command, source_kind='query-result', source_sha256='d'*64, trading_date=20261106)
+    order = dict(source, terminal=True, order_state=53, filled_quantity=20, remaining_quantity=0)
+    assert send(bridge, 9, order)[0] == 0
+    fill = dict(source, trade_id='nqh1.replay-bound', quantity=20, price_cny='10.01',
+                amount_cny='200.20', trade_time=93102000, fee_cny=None)
+    assert send(bridge, 8, fill)[0] == 0
+    coordinator.replay_pending(limit=1, deadline=end())
+    assert book.lookup_wt_child(command['user_tag'], deadline=end()).terminal_state == 'cancelled'
+    assert len(book.pending_events(deadline=end())) == 5
+
+
 def test_opposite_targets_never_transfer_without_broker_fill(tmp_path):
     from guanheng_wt_runtime.account_allocation import CommonPrice
     book, coordinator, bridge = setup(tmp_path)

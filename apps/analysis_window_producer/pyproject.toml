@@ -4,11 +4,11 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-analysis-window-producer"
-version = "0.1.0a16+market.28"
+version = "0.1.0a16+market.29"
 description = "WT-owned continuous QNA analysis window producer"
 requires-python = ">=3.12"
 classifiers = ["Private :: Do Not Upload"]
-dependencies = ["guanheng-native-analysis-core==0.1.0a4+market.21", "guanheng-wt-runtime==0.1.0a33+recovery.1", "guanheng-strategy-v1==0.1.0a13"]
+dependencies = ["guanheng-native-analysis-core==0.1.0a4+market.21", "guanheng-wt-runtime==0.1.0a34+recovery.1", "guanheng-strategy-v1==0.1.0a13"]
 
 [project.optional-dependencies]
 bound = ["guanheng-qmt-shm-host>=0.1.0a11,<0.2"]

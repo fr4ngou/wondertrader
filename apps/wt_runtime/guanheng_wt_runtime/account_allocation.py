@@ -556,13 +556,31 @@ class AccountAllocation:
             db.execute('UPDATE asa_inbox SET reason=? WHERE event_id=?', (reason, event_id))
         return self._inbox_row(db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone())
 
-    def pending_events(self, *, limit=100, after_sequence=0, max_bytes=2*1024*1024, deadline):
+    def pending_events(self, *, limit=100, after_sequence=0, max_bytes=2*1024*1024,
+                       replayable_only=False, deadline):
         """按原收件顺序有界读取未投影事实；没有后台消费、重派或交易队列。"""
         _need(type(limit) is int and 1 <= limit <= 1000, 'event_page_invalid')
         _quantity(after_sequence); _need(type(max_bytes) is int and 1 <= max_bytes <= 2*1024*1024, 'event_page_invalid')
+        _need(type(replayable_only) is bool, 'event_page_invalid')
         with self._transaction(deadline) as db:
+            statement = 'SELECT * FROM asa_inbox WHERE applied=0 AND sequence>?'
+            parameters = [after_sequence]
+            if replayable_only:
+                # 同一次账本读取确定哪些柜台原件已有归属；原件仍留在收件箱，
+                # 后续建立原委托绑定后，同一条记录自然进入重放范围。
+                _, state = self._load(db)
+                tags = [tag for tag, child in state['children'].items() if child['command'] is not None]
+                statement += '''
+                    AND (kind NOT IN ('8','9') OR (
+                        reason IS NOT 'attribution_wt_identity_missing'
+                        AND json_extract(CAST(raw_json AS TEXT), '$.user_tag') IN (SELECT value FROM json_each(?))
+                    ))
+                '''
+                parameters.append(_wire(tags))
+            statement += ' ORDER BY sequence LIMIT ?'
+            parameters.append(limit)
             result, total = [], 0
-            for row in db.execute('SELECT * FROM asa_inbox WHERE applied=0 AND sequence>? ORDER BY sequence LIMIT ?', (after_sequence, limit)):
+            for row in db.execute(statement, parameters):
                 if total+len(row[3]) > max_bytes:
                     _need(bool(result), 'event_page_budget'); break
                 result.append(self._inbox_row(row)); total += len(row[3]); self._check(deadline)
@@ -1147,6 +1165,7 @@ class AccountAllocation:
                     symbol=fact.symbol, side=fact.side)
 
     def apply_fill(self, fact: FillFact, *, deadline):
+        """在原成交身份下入账，首次分配实际数量时返回 True。"""
         _need(type(fact) is FillFact, 'fill_invalid')
         _text(fact.fill_id); _uuid(fact.command_id); _sha(fact.source_sha256)
         _quantity(fact.quantity, positive=True); price = _price(fact.price_cny); amount = _money(fact.amount_cny)
@@ -1185,10 +1204,11 @@ class AccountAllocation:
                 if fee is not None and existing['fee'] is None:
                     self._fee(state, existing, fee); changed = True
                 if changed: self._save(db, rev, state)
-                return
+                return False
             _need(self._event(db, 'fill:'+fact.fill_id, asdict(fact)), 'storage_invalid')
             self._apply_new_fill(state, fact, price, amount, fee, economics, executed)
             self._save(db, rev, state)
+            return True
 
     def _apply_new_fill(self, state, fact, price, amount, fee, economics, executed):
         command = state['commands'].get(fact.command_id)
