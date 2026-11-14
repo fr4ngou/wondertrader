@@ -38,6 +38,7 @@
 - **分账恢复**　21:59 正式 WT 采用 `185b1d7e`，接续原 D 盘账本。两套策略和行情接收就绪，交易写入关闭。原生就绪后对停机一致性副本逐表核对，交易指令 123 条、订单关联 101 条，分账原事实与证明逐行相同，17 笔待确认费用归属原 16 个委托组。候选迁移与旧安装回退在独立副本上核对两套策略资金、持仓和预留。收据见受控安装 `fee-reserve-185b1d7e/ACCEPTANCE.json`。
 - **策略状态接续**　23:17 正式 WT 采用 `677827d8`。两套策略的业务状态、资金、持仓与目标与停机前逐项一致，行情和观衡策略读取就绪，交易写入关闭。受控安装收据在 `strategy-decision-8e08701b/ACCEPTANCE.json`，开盘基线在 D 盘的 `NEXT-NATURAL-SESSION-BASELINE-49a1a4d7.json`。提交前后强制退出的结果见[策略决策与重启](../migration/wt-private-persistence-migration.md#策略决策与重启)。
 - **原生状态按变化保存**　11 月 15 日 01:52 正式 WT 采用 `16d7851b` 并启用 `on_change`。两个策略、行情、观衡及停机前后对账均通过，交易写入关闭。受控收据为 `native-state-save-16d7851b/ACCEPTANCE.json` 和 `IDLE-IO.json`。回退及采样范围见[迁移记录](../migration/wt-private-persistence-migration.md#通用原生状态按变化保存的修改范围)。
+- **分账批次耗时**　11 月 15 日 02:16 正式 WT 采用 `fbc09696`，标签 `deploy/wt-broker-batch-diagnostics-20261115-001`。保留 `on_change` 与既有不下单模式。原生已接账并收到行情，分账停机副本和新代双向对账，观衡逐策略读回就绪。已保存最新代开盘前基线。分账日志覆盖带行的查询批次，记录本地收件与投影耗时。隔离回报标本已读回，休市窗口无批次，开盘实测沿原日志汇总。上线与取样材料分别在受控发行和 D 盘验收的 `broker-batch-diagnostics-fbc09696` 目录。
 - **自然交易窗口**　11 月 16 日开盘后，从当前 WT 原生报告和观衡详情逐只核对原策略本轮决策、七只版实际消费的决策日与适用日、买卖判断、目标和实际持仓。开盘前两端目标与持仓已一致，七只版正式数据只读重放七只均合格且无买卖信号。自然计算继续待验。
 
 以上后继材料见受控目录 `wt-minute-callback-release-20261114-001`、`wt-history-startup-diagnostics-20261114-001` 及 `wt-consumed-signal-release-20261113-001/WT-STABILITY-REQUIREMENT-CROSSCHECK.json`。
