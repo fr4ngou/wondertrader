@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 import sys
 from threading import RLock, local
-from time import monotonic
+from time import monotonic, perf_counter
 from pathlib import Path
 from traceback import extract_tb
 from uuid import UUID, NAMESPACE_URL, uuid5
@@ -609,13 +609,15 @@ class AttributionCoordinator:
             new_fills=outcomes.count('new_fill'), duplicate_fills=outcomes.count('duplicate_fill'),
             applied_orders=outcomes.count('applied'), pending=outcomes.count('pending'),
             receive_ms=round((stored - started)*1000, 3),
-            projection_ms=round((self._clock() - stored)*1000, 3), deferred=deferred)
+            projection_ms=round((perf_counter() - stored)*1000, 3), deferred=deferred)
 
     def _receive_broker_events(self, kind, events, deadline, *, query=False):
         received_at = self._clock()
+        # Windows 部署的 monotonic 仅用于原截止，高精度计数器专用于耗时。
+        measured_at = perf_counter() if query else None
         facts = tuple(self._broker_fact(event) for event in events)
         received = self.allocation.receive_broker_events(str(kind), facts, deadline=deadline)
-        stored_at = self._clock()
+        stored_at = perf_counter() if query else None
         pending = {}
         restore_sells = {}
         for event, (inbox, command) in zip(events, received, strict=True):
@@ -665,12 +667,12 @@ class AttributionCoordinator:
                     kind, len(events), next(iter(pending)) if pending else next(iter(restore_sells.values()))[0],
                     (self._clock() - received_at)*1000)
                 if query:
-                    self._observe_broker_query(kind, received, outcomes, received_at, stored_at, deferred=True)
+                    self._observe_broker_query(kind, received, outcomes, measured_at, stored_at, deferred=True)
                 return _BROKER_PROJECTION_DEFERRED
             for tag in restore_sells:
                 self._sell_restore_pending.pop(tag, None)
         if query:
-            self._observe_broker_query(kind, received, outcomes, received_at, stored_at, deferred=False)
+            self._observe_broker_query(kind, received, outcomes, measured_at, stored_at, deferred=False)
 
     def _receive_query_batch(self, event):
         body = event.body

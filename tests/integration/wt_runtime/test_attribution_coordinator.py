@@ -222,6 +222,8 @@ def test_broker_query_persists_original_rows_with_one_commit_and_keeps_replay_id
     book, coordinator, bridge = setup(tmp_path)
     diagnostics = ProcessEventLog(tmp_path, str(uuid4()), 'cta-broker-query')
     monkeypatch.setattr(coordinator, '_broker_query_observation', diagnostics.broker_query)
+    ticks = iter((1.0, 1.00125, 1.00175))
+    monkeypatch.setattr('guanheng_wt_runtime.account_attribution.perf_counter', lambda: next(ticks))
     transactions = []
     transaction = book._transaction
 
@@ -239,7 +241,7 @@ def test_broker_query_persists_original_rows_with_one_commit_and_keeps_replay_id
     assert diagnostics.drain()
     [sample] = map(json.loads, (tmp_path / 'process-events.jsonl').read_bytes().splitlines())
     assert (sample['event'], sample['kind'], sample['rows'], sample['unbound']) == ('broker_query_batch', 9, 44, 44)
-    assert sample['receive_ms'] >= 0 and sample['projection_ms'] >= 0 and sample['deferred'] is False
+    assert sample['receive_ms'] == 1.25 and sample['projection_ms'] == .5 and sample['deferred'] is False
     assert 'otp.history' not in json.dumps(sample)
     inbox = book.pending_events(deadline=end())
     assert [row.raw_json for row in inbox] == [row.encode() for row in rows]
