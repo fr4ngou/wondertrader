@@ -47,6 +47,43 @@ def test_same_day_first_and_progress_disclosures_do_not_double_count():
         disclosure_increments([first, dict(progress, cumulative_cny=Decimal('30021593'))])
 
 
+def test_compact_notice_number_links_first_execution_to_same_plan(monkeypatch):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    first = ('证券代码:002008证券简称:样本公告编号:2026066关于首次回购公司股份的公告'
+             '《关于回购股份方案的公告暨回购报告书》(公告编号:2026065)。'
+             '公司首次回购股份1,295,000股,成交总金额为62,852,378.00元。')
+    second = first.replace('2026066', '2026068').replace('首次回购', '回购进展')
+    samples = {b'first': first, b'progress': second,
+               b'invalid': first.replace('2026066', '202606612')}
+    monkeypatch.setattr(buybacks, '_pdf_text', samples.__getitem__)
+    rows = [parse_execution(key, 'SZSE.002008', day) for key, day in
+            ((b'first', '2026-11-05'), (b'progress', '2026-11-06'))]
+    assert [row['plan_id'] for row in rows] == ['2026065', '2026065']
+    assert [row['increment_cny'] for row in disclosure_increments(rows)] == [Decimal('62852378'), 0]
+    with pytest.raises(SourceUnavailable, match='buyback_security_mismatch'):
+        parse_execution(b'invalid', 'SZSE.002008', '2026-11-05')
+
+
+def test_board_plan_approval_uses_original_date_instead_of_price_adjustment(monkeypatch):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    text = ('证券代码:300285证券简称:样本公告编号:2026-084关于回购公司股份实施完成暨股份变动的公告'
+            '公司于2025年11月6日召开第六届董事会第四次会议审议并通过了《关于回购公司股份方案的议案》。'
+            '2026年3月28日,公司召开董事会审议并通过了《关于调整回购股份价格上限的议案》。'
+            '价格调整自2026年3月31日起生效。根据《回购股份报告书》,本次回购价格上限调整。'
+            '一、回购股份的实施情况公司已回购股份5,861,258股,成交总金额为199,943,395.50元。'
+            '前次公司于2024年2月5日召开董事会审议并通过了《关于继续回购公司股份方案的议案》。')
+    monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
+
+    def resolve(references):
+        assert ('关于回购公司股份方案的公告', ('2025-11-06',)) in references
+        return {'2025-064'}
+
+    row = parse_execution(b'issuer', 'SZSE.300285', '2026-11-05', resolve_plan=resolve)
+    assert row['plan_id'] == '2025-064' and row['cumulative_cny'] == Decimal('199943395.50')
+
+
 def test_cninfo_directory_uses_actual_page_length_and_unique_ids():
     day = '2026-11-13'
 
@@ -183,6 +220,19 @@ def test_current_buyback_total_excludes_prior_plans_quoted_in_progress(monkeypat
     monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
     row = parse_execution(b'issuer', 'SZSE.000935', '2026-11-03')
     assert row['cumulative_cny'] == Decimal('27207224.76')
+
+
+def test_current_buyback_excludes_dated_multi_plan_total(monkeypatch):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    text = ('证券代码:300285证券简称:样本公告编号:2026-083关于回购公司股份比例达到1%的进展公告'
+            '《关于回购公司股份方案的公告》(公告编号:2025-064)。'
+            '截至2026年11月3日,公司以集中竞价交易方式回购公司股份5,861,258股,成交总金额199,943,395.50元。'
+            '截至2026年11月3日,公司本次和前次累计回购公司股份11,621,858股,成交总金额300,035,181.50元。')
+    monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
+
+    row = parse_execution(b'issuer', 'SZSE.300285', '2026-11-04')
+    assert row['cumulative_cny'] == Decimal('199943395.50')
 
 
 def test_missing_plan_number_requires_matched_proposal_pdf(monkeypatch):

@@ -17,15 +17,20 @@ ATTACHMENTS = 'https://static.cninfo.com.cn/'
 EXECUTION_TITLE = re.compile(r'首次回购|回购.{0,20}(?:进展|实施结果|完成|期限届满)')
 NON_MARKET_TITLE = re.compile(
     r'限制性股票|股票期权|专项贷款|债权人|前十[大名]|回购(?:A股|公司|的)?(?:股份)?注销|出售(?:已)?回购股份|合作方回购[^。]{0,60}权益')
-PLAN_REFERENCE = re.compile(r'《([^《》]{0,140}?回购[^《》]{0,90})》\((?:公告编号:)?(?:临)?(\d{4}-\d{2,4})\)')
+NOTICE_NUMBER = r'\d{4}-?\d{2,4}'
+PLAN_REFERENCE = re.compile(rf'《([^《》]{{0,140}}?回购[^《》]{{0,90}})》\((?:公告编号:)?(?:临)?({NOTICE_NUMBER})\)')
 PLAN_TITLE = re.compile(r'回购.{0,30}(?:方案|预案)(?:的公告)?(?:暨回购(?:股份)?报告书)?$')
 REPORT_TITLE = re.compile(r'(?:关于)?(回购(?:股份)?报告书)(?:的?公告)?$')
 NUMBERED_REFERENCES = re.compile(
-    r'((?:《[^《》]{1,140}》){2,8})\(公告编号:((?:临?\d{4}-\d{2,4}[、,]){1,7}临?\d{4}-\d{2,4})\)')
+    rf'((?:《[^《》]{{1,140}}》){{2,8}})\(公告编号:((?:临?{NOTICE_NUMBER}[、,]){{1,7}}临?{NOTICE_NUMBER})\)')
 PROPOSAL_DATE = re.compile(r'(20\d{2})[年/](\d{1,2})[月/](\d{1,2})日?')
 PHASED_PLAN = re.compile(r'((?:20\d{2}年)?第[一二三四五六七八九十\d]+[期次])(?:股份回购|回购(?:公司)?股份)方案')
 DISCLOSURE_DATE = re.compile(r'详见公司(?:于)?(20\d{2}年\d{1,2}月\d{1,2}日)在')
 SOURCE_CLAUSE = re.compile(r'详见公司(?:分别)?于([^。;；]{1,420})$')
+BOARD_APPROVAL = re.compile(
+    r'(20\d{2})年(\d{1,2})月(\d{1,2})日[^。;；]{0,100}?召开[^。;；]{0,60}?董事会'
+    r'[^。;；]{0,60}?审议(?:并)?通过(?:了)?《(关于[^《》]{0,50}?回购[^《》]{0,40}?方案)的议案》')
+EXECUTION_SECTION = re.compile(r'一、(?:股份回购|回购股份|回购)(?:的)?(?:实施情况|进展情况|进展)')
 MONEY = r'(?:为|:)?(?:人民币)?([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(\.[0-9]{1,6})?(万)?元'
 ACTUAL_AMOUNT = re.compile(r'(?:支付(?:的)?(?:资金总额|总金额)|(?:累计)?成交总?金额|使用资金总额)' + MONEY)
 DATED_EXECUTION_AMOUNT = re.compile(
@@ -35,6 +40,7 @@ INCLUDING_FEES = re.compile(r'\(含(?:交易|相关交易)?费用')
 DATED_REPURCHASE = re.compile(
     r'(?:截至?|本次首次回购至|实际回购期间为20\d{2}年\d{1,2}月\d{1,2}日至)'
     r'(20\d{2})[年/](\d{1,2})[月/](\d{1,2})日?[,，:]([^。]{1,360})')
+COMBINED_PLANS = re.compile(r'本次(?:和|及|与)前次[^。]{0,80}?回购')
 ZERO_EXECUTION = re.compile(r'尚未(?:实施(?:股份)?回购|股份回购|回购(?:公司)?股份)|未发生股份回购行为')
 BEFORE_EXECUTION = re.compile(r'尚未进入回购实施期,未发生股份回购行为')
 HEADER_BOILERPLATE = re.compile(
@@ -118,7 +124,7 @@ def _pdf_text(raw):
 
 def _header(body, symbol):
     # 页眉可能先重复公告标题，公告编号可能带交易所公告类别前缀。
-    header = re.search(r'(?:证券|股票)代码:(\d{6})(?:证券|股票)简称:.{1,32}?公告编号:(?:临)?(\d{4}-\d{2,4})',
+    header = re.search(rf'(?:证券|股票)代码:(\d{{6}})(?:证券|股票)简称:.{{1,32}}?公告编号:(?:临)?({NOTICE_NUMBER})(?![\d-])',
                        body[:220])
     security = re.fullmatch(r'(SSE\.(?:60|68)|SZSE\.(?:00|30))\d{4}', symbol)
     if header is None or security is None or header[1] != symbol.split('.')[1]:
@@ -150,7 +156,7 @@ def _numbered_references(text):
     # 只有并列标题与编号逐一对应时，才把其中的方案和报告书关联到同一引用。
     for titles, numbers in NUMBERED_REFERENCES.findall(text):
         titles = re.findall(r'《([^《》]+)》', titles)
-        numbers = re.findall(r'\d{4}-\d{2,4}', numbers)
+        numbers = re.findall(NOTICE_NUMBER, numbers)
         if len(titles) == len(numbers):
             references.extend(zip(titles, numbers))
     return references
@@ -210,12 +216,26 @@ def _proposal_references(text):
                 result.append((phases.pop(), (date(*map(int,match.groups())).isoformat(),)))
             except ValueError as error:
                 raise SourceUnavailable('buyback_proposal_date_invalid') from error
+    if not any(_proposal_kind(title) == 'proposal' for title, _ in result):
+        preface = EXECUTION_SECTION.split(text[:1200], maxsplit=1)[0]
+        approvals = {match.groups() for match in BOARD_APPROVAL.finditer(preface)}
+        if len(approvals) == 1:
+            year, month, day, title = approvals.pop()
+            try:
+                approved_on = date(int(year), int(month), int(day)).isoformat()
+            except ValueError as error:
+                raise SourceUnavailable('buyback_proposal_date_invalid') from error
+            # 议案日期仅用于查原方案，仍由同证券的索引及 PDF 标题核对公告号。
+            result.append((title + '的公告', (approved_on,)))
     return list(dict.fromkeys(result))
 
 
 def _execution_amounts(text, notice_date):
     """优先使用按明确截止日披露的执行金额，保留同一截止日的冲突。"""
     text = HEADER_BOILERPLATE.sub('', text)
+    # 同一截止日可同时报告本方案和多方案合计，合计不进入单方案差分。
+    text = DATED_REPURCHASE.sub(
+        lambda match: '' if COMBINED_PLANS.search(match[4]) else match[0], text)
 
     def amounts(section, pattern=ACTUAL_AMOUNT):
         values = set()
