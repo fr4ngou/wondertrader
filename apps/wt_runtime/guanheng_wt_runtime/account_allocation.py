@@ -19,7 +19,8 @@ from time import monotonic
 from uuid import UUID
 
 from .allocation_records import (KINDS, Records, broker_receipt_key, decode, digest,
-                                 ensure_broker_receipt_index, ensure_fill_strategy_index, save_proof, schema)
+                                 ensure_broker_receipt_index, ensure_fill_strategy_index,
+                                 create_pending_fee_groups, pending_fee_group_counts, save_proof, schema)
 from .thread_owner import ThreadOwner
 
 
@@ -408,6 +409,7 @@ class AccountAllocation:
         self._checkpoint_stop = Event()
         self._checkpoint_owner = None  # 原执行进程退出前收回WAL维护线程。
         self._closed = False  # 停止后禁止重新打开旧账本。
+        self._fee_groups_verified = False  # 首次接账须核原事实与派生计数，成功提交后标记。
         self._projection = local()  # 查询回报借用同线程原账事务，禁止跨线程共享连接。
 
     def _check(self, deadline):
@@ -456,7 +458,9 @@ class AccountAllocation:
             db.execute('BEGIN IMMEDIATE')
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
             has_fill_strategy_index = 'asa_fill_strategy' in tables
+            has_pending_fee_groups = 'asa_pending_fee_group' in tables
             tables.discard('asa_fill_strategy')
+            tables.discard('asa_pending_fee_group')
             original_tables = {'asa_identity', 'asa_book', 'asa_events', 'asa_inbox', 'asa_conflicts'}
             current_tables = original_tables | {'asa_record', 'asa_source_proof'}
             _need(tables in (original_tables, current_tables) or (not tables and not self._require_existing),
@@ -488,6 +492,22 @@ class AccountAllocation:
                                  "AND name IN ('asa_fill_strategy_insert','asa_fill_strategy_fee') "
                                  "AND tbl_name='asa_record'").fetchone()[0] == 2,
                       'storage_invalid')
+            if has_pending_fee_groups:
+                _need(db.execute("SELECT count(*) FROM sqlite_master WHERE type='trigger' "
+                                 "AND name IN ('asa_pending_fee_group_insert','asa_pending_fee_group_update') "
+                                 "AND tbl_name='asa_record'").fetchone()[0] == 2,
+                      'storage_invalid')
+            if not self._fee_groups_verified or not has_pending_fee_groups:
+                check_deadline = lambda: self._check(deadline)
+                try:
+                    counts = pending_fee_group_counts(db, _wire, check_deadline)
+                except (KeyError, TypeError, ValueError):
+                    raise AllocationError('storage_invalid') from None
+                if has_pending_fee_groups:
+                    _need(dict(db.execute('SELECT group_id,pending_count FROM asa_pending_fee_group')) == counts,
+                          'storage_invalid')
+                else:
+                    create_pending_fee_groups(db, counts, check_deadline)
             rejection = None
             try:
                 yield db
@@ -497,6 +517,7 @@ class AccountAllocation:
             snapshot = self._snapshot_after_changes(db, changes_before)
             self._check(deadline)
             db.execute('COMMIT')
+            self._fee_groups_verified = True
             if snapshot is not None:
                 self._committed = snapshot
             # 提交后到达原D时保留已提交事实；调用方按原ID重读，不能当未执行。
@@ -862,7 +883,7 @@ class AccountAllocation:
         cash = {s: 0 for s in state['strategies']}
         sells = {}
         groups = dict(state['groups'].items(active_only=True))
-        unknown_groups = {fill['group'] for _, fill in state['fills'].items(active_only=True)}
+        unknown_groups = state['fills'].pending_fee_groups()
         for group_id in unknown_groups.difference(groups):
             groups[group_id] = state['groups'][group_id]
         for group_id, g in groups.items():

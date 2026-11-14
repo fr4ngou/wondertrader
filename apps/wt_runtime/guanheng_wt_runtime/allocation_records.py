@@ -1,6 +1,7 @@
 """归属账本持久行。同一个 SQLite 事务按原身份读取、修改及提交相关记录。"""
 import hashlib
 import json
+from collections import Counter
 from decimal import Decimal, InvalidOperation
 
 
@@ -63,6 +64,40 @@ def ensure_fill_strategy_index(db):
     db.execute("""CREATE TRIGGER asa_fill_strategy_fee AFTER UPDATE OF active ON asa_record
         WHEN NEW.kind='fills' AND NEW.active<>OLD.active BEGIN
         UPDATE asa_fill_strategy SET fee_pending=NEW.active WHERE fill_id=NEW.id;
+        END""")
+
+
+def pending_fee_group_counts(db, wire, check_deadline):
+    """从原待确认成交核算每组笔数，供首次恢复与迁移核验。"""
+    counts = Counter()
+    for raw, sha256 in db.execute("SELECT payload,sha256 FROM asa_record WHERE kind='fills' AND active=1"):
+        check_deadline()
+        fill = decode(raw, sha256, wire)
+        if fill['fee'] is not None:
+            raise ValueError('storage_invalid')
+        counts[fill['group']] += 1
+    return counts
+
+
+def create_pending_fee_groups(db, counts, check_deadline):
+    """创建派生计数，写入和费用补记随原事务提交。"""
+    db.execute("""CREATE TABLE asa_pending_fee_group (
+        group_id TEXT PRIMARY KEY, pending_count INTEGER NOT NULL CHECK(pending_count>=0)
+    ) WITHOUT ROWID""")
+    for group, count in counts.items():
+        check_deadline()
+        db.execute('INSERT INTO asa_pending_fee_group VALUES (?,?)', (group, count))
+    db.execute("""CREATE TRIGGER asa_pending_fee_group_insert AFTER INSERT ON asa_record
+        WHEN NEW.kind='fills' AND NEW.active=1 BEGIN
+        INSERT INTO asa_pending_fee_group VALUES (json_extract(NEW.payload, '$.group'), 1)
+        ON CONFLICT(group_id) DO UPDATE SET pending_count=pending_count+1;
+        END""")
+    db.execute("""CREATE TRIGGER asa_pending_fee_group_update AFTER UPDATE OF active ON asa_record
+        WHEN NEW.kind='fills' AND OLD.active=1 AND NEW.active=0 BEGIN
+        UPDATE asa_pending_fee_group SET pending_count=pending_count-1
+        WHERE group_id=json_extract(OLD.payload, '$.group');
+        SELECT CASE WHEN changes()<>1 THEN RAISE(ABORT,'pending fee group missing') END;
+        DELETE FROM asa_pending_fee_group WHERE group_id=json_extract(OLD.payload, '$.group') AND pending_count=0;
         END""")
 
 
@@ -177,6 +212,22 @@ class Records:
             if not active_only or active(self.kind, value):
                 yield key, value
 
+    def pending_fee_groups(self):
+        """合并已落库计数和本次尚未保存的成交变化。"""
+        counts = dict(self.db.execute('SELECT group_id,pending_count FROM asa_pending_fee_group'))
+        for identity, value in self.loaded.items():
+            original = self.original.get(identity)
+            prior = None if original is None else json.loads(original)
+            before = prior is not None and prior['fee'] is None
+            after = value['fee'] is None
+            if before != after:
+                group = value['group']
+                count = counts.get(group, 0) + int(after) - int(before)
+                if count < 0:
+                    raise ValueError('storage_invalid')
+                counts[group] = count
+        return {group for group, count in counts.items() if count}
+
     def save(self):
         for key, value in self.loaded.items():
             raw = self.wire(value)
@@ -186,3 +237,4 @@ class Records:
                             'ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload,'
                             'sha256=excluded.sha256,active=excluded.active',
                             (self.kind, key, raw, digest(raw), active(self.kind, value)))
+            self.original[key] = raw

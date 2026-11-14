@@ -206,6 +206,55 @@ def test_unknown_fee_stays_unknown_until_original_fee_fact(tmp_path):
     assert view(store, 'new').reserved_cash_cny == 0
 
 
+def test_closed_group_fee_reserve_survives_partial_fee_and_restart(tmp_path, monkeypatch):
+    store, identity = book(tmp_path)
+    _, group, command = prepare(store, 10000, 100, 100)
+    first, second = (fill(command, 50, fee=None) for _ in range(2))
+    for fact in (first, second):
+        assert store.apply_fill(fact, deadline=deadline())
+    close(store, group, command, 'filled')
+    with closing(sqlite3.connect(store.path)) as db, db:
+        db.execute('DROP TRIGGER asa_pending_fee_group_insert')
+        db.execute('DROP TRIGGER asa_pending_fee_group_update')
+        db.execute('DROP TABLE asa_pending_fee_group')
+    original_items = allocation_module.Records.items
+
+    def items(records, *, active_only=False):
+        assert records.kind != 'fills'
+        return original_items(records, active_only=active_only)
+
+    monkeypatch.setattr(allocation_module.Records, 'items', items)
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None, require_existing=True)
+    assert view(reopened, 'new').reserved_cash_cny == D('5')
+    with reopened._transaction(deadline()) as db:
+        _, state = reopened._load(db)
+        state['fills'][first.fill_id]['fee'] = 100
+        assert state['fills'].pending_fee_groups() == {group}
+        state['fills'][second.fill_id]['fee'] = 100
+        assert state['fills'].pending_fee_groups() == set()
+    fact = FeeFact(uid(), first.fill_id, D('1'), SHA)
+    reopened.apply_fee(fact, deadline=deadline())
+    reopened.apply_fee(fact, deadline=deadline())
+    assert view(reopened, 'new').reserved_cash_cny == D('4')
+    reopened.apply_fee(FeeFact(uid(), second.fill_id, D('1'), SHA), deadline=deadline())
+    assert view(reopened, 'new').reserved_cash_cny == 0
+
+
+def test_reopening_rejects_fee_reserve_index_with_missing_group(tmp_path):
+    store, identity = book(tmp_path)
+    _, group, command = prepare(store, 10000, 100, 100)
+    store.apply_fill(fill(command, 100, fee=None), deadline=deadline())
+    close(store, group, command, 'filled')
+    assert view(store, 'new').reserved_cash_cny == D('5')
+    store.close(deadline())
+    with closing(sqlite3.connect(store.path)) as db, db:
+        db.execute('DELETE FROM asa_pending_fee_group WHERE group_id=?', (group,))
+
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None, require_existing=True)
+    with pytest.raises(AllocationError, match='storage_invalid'):
+        view(reopened, 'new')
+
+
 def test_principal_and_fee_precede_dispatch_and_failed_group_rolls_back(tmp_path):
     store, _ = book(tmp_path, new_cash='200')
     target(store, 'old', 10000); target(store, 'new', 100)
@@ -899,6 +948,9 @@ def test_migrate_v2_and_reopen_with_concurrent_same_fill(tmp_path):
         db.execute('DROP TRIGGER asa_fill_strategy_insert')
         db.execute('DROP TRIGGER asa_fill_strategy_fee')
         db.execute('DROP TABLE asa_fill_strategy')
+        db.execute('DROP TRIGGER asa_pending_fee_group_insert')
+        db.execute('DROP TRIGGER asa_pending_fee_group_update')
+        db.execute('DROP TABLE asa_pending_fee_group')
         db.execute('DROP TABLE asa_record')
 
     reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
