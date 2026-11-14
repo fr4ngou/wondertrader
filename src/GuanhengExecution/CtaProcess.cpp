@@ -3,6 +3,7 @@
 #include "CtaProcess.h"
 #include "CtaExecutionSession.h"
 #include "NativeRuntimeLog.h"
+#include "NativeStateSave.h"
 #include "GuanhengCommon/BoundedSignedHttp.h"
 #include <mutex>
 #include <algorithm>
@@ -387,6 +388,13 @@ void normalize_retained_parser_port(rj::Document& value){
     }
 }
 
+bool native_state_on_change(const rj::Value& cfg){
+    if(!cfg.HasMember("native_state_save"))return false;
+    const auto mode=text(cfg,"native_state_save",16);
+    need(mode=="native"||mode=="on_change");
+    return mode=="on_change";
+}
+
 // 比较投影只归一化已核运行接线及已批准目标修正；来源及金融身份保持严格。
 bool same_business(const rj::Value& left,const rj::Value& right){
     rj::Document before,after;before.CopyFrom(left,before.GetAllocator());after.CopyFrom(right,after.GetAllocator());
@@ -394,6 +402,8 @@ bool same_business(const rj::Value& left,const rj::Value& right){
         const auto& budget=member(*value,"budget");need(budget.IsObject());
         const auto duration=number(budget,"run_ms",0,86400000);need(duration==0||duration>=1000);
         (*value)["budget"].RemoveMember("run_ms");
+        native_state_on_change(*value);
+        value->RemoveMember("native_state_save"); // 只归一化业务比较，实际运行配置仍按原件校验。
         normalize_publication_cache(*value);
         normalize_retained_parser_port(*value);
         normalize_target_replacement(*value);
@@ -1425,8 +1435,9 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         native_log_attempted=true;
         { std::lock_guard<std::mutex> lock(request_log_mutex);request_log=&native_log; }
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
-        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","strategy_extension_origin","shared_account_storage","private_storage_origin"});
+        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","strategy_extension_origin","shared_account_storage","private_storage_origin","native_state_save"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
+        const bool save_on_change=native_state_on_change(cfg);
         std::string reader_cache_path;
         if(const auto* publication=cfg.HasMember("data")?daily_publication(cfg["data"]):nullptr){
             // 原配置用于账本证明；只有交给本代 Reader 的配置使用控制代的独占缓存。
@@ -1469,6 +1480,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         const auto output=absolute(text(cfg,"output_directory"));
         if(!fs::exists(output))need(fs::create_directory(output));need(fs::is_directory(output));
         WtHelper::setGenerateDir((output.generic_string()+"/").c_str());
+        if(save_on_change)guanheng::NativeStateSave::instance().enable();
         if(cfg.HasMember("recovery")){
             const auto& selection=cfg["recovery"];keys(selection,{"mode","transition"});const auto mode=text(selection,"mode",32);
             need(mode=="record_clean"||mode=="resume_clean"||mode=="resume_reconciled");
@@ -1525,6 +1537,10 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                         state.pending_commands,state.unsafe,state.active_orders,static_cast<unsigned>(status.fault),
                         status.plugin.error,callback_error);
                     native_log.request_rejection(message);
+                    return false;
+                }
+                if(!guanheng::NativeStateSave::instance().healthy()){
+                    native_log.request_rejection("CTA recovery requires all native state saves to be committed");
                     return false;
                 }
                 auto proof=receipt("guanheng.cta-clean.v2",id,recovery_config,true);auto& a=proof.GetAllocator();

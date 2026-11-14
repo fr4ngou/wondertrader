@@ -319,5 +319,23 @@ class StockOrderLotsRecoveryTests(unittest.TestCase):
         self.assertFalse(_same_business(self.fixture(),new))
 
 
+
+
+class NativeStateSaveRecoveryTests(unittest.TestCase):
+    def test_save_mode_changes_preserve_financial_identity(self):
+        native = {'budget': {'run_ms': 0}, 'output_directory': 'synthetic'}
+        for mode in ('native', 'on_change'):
+            selected = dict(native, native_state_save=mode)
+            self.assertTrue(_same_business(native, selected))
+            self.assertTrue(_same_business(selected, native))
+            self.assertEqual(selected['native_state_save'], mode)
+
+    def test_invalid_save_mode_rejected_during_recovery(self):
+        native = {'budget': {'run_ms': 0}}
+        for mode in ('', True, ['on_change'], None):
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                _same_business(native, dict(native, native_state_save=mode))
+
+
 if __name__ == "__main__":
     unittest.main()

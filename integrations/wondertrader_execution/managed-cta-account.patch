@@ -1507,10 +1507,21 @@
 +NS_WTP_END
 --- a/src/WtCore/WtEngine.cpp
 +++ b/src/WtCore/WtEngine.cpp
-@@ -36,6 +36,17 @@
+@@ -10,6 +10,9 @@
+ #include "WtEngine.h"
+ #include "WtDtMgr.h"
+ #include "WtHelper.h"
++#ifdef GH_MANAGED_NATIVE_STATE_SAVE
++#include "GuanhengExecution/NativeStateSave.h"
++#endif
+ 
+ #include "../Share/TimeUtils.hpp"
+ #include "../Share/StrUtil.hpp"
+@@ -35,6 +38,17 @@
+ 
  
  USING_NS_WTP;
- 
++
 +namespace
 +{
 +	thread_local WtEngine* task_worker_owner = nullptr;
@@ -1521,11 +1532,30 @@
 +		~TaskWorkerScope() { task_worker_owner = previous; }
 +	};
 +}
-+
+ 
  WtEngine::WtEngine()
  	: _port_fund(NULL)
- 	, _risk_volscale(1.0)
-@@ -1071,50 +1082,109 @@
+@@ -454,6 +468,19 @@
+ 		std::string filename = WtHelper::getPortifolioDir();
+ 		filename += "datas.json";
+ 
++#ifdef GH_MANAGED_NATIVE_STATE_SAVE
++		auto& stateSave = guanheng::NativeStateSave::instance();
++		if (stateSave.enabled())
++		{
++			rj::StringBuffer sb;
++			rj::PrettyWriter<rj::StringBuffer> writer(sb);
++			root.Accept(writer);
++			const auto error = stateSave.save(filename, {sb.GetString(), sb.GetSize()});
++			if (error)
++				WTSLogger::error("Native state save failed: {}, system error {}", filename, error.value());
++			return;
++		}
++#endif
+ 		BoostFile bf;
+ 		if (bf.create_new_file(filename.c_str()))
+ 		{
+@@ -1071,50 +1098,109 @@
  	}
  }
  
@@ -1659,7 +1689,7 @@
  }
  
  bool WtEngine::init_riskmon(WTSVariant* cfg)
-@@ -1215,4 +1285,4 @@
+@@ -1215,4 +1301,4 @@
  			<< totalprofit << "\n";
  		_close_logs->write_file(ss.str());
  	}
@@ -2114,5 +2144,100 @@
  	runner.run(false);
 -	return 0;
 +	return runner.exit_code();
+ }
+ 
+--- a/src/WtCore/CtaStraBaseCtx.cpp
++++ b/src/WtCore/CtaStraBaseCtx.cpp
+@@ -10,6 +10,9 @@
+ #include "CtaStraBaseCtx.h"
+ #include "WtCtaEngine.h"
+ #include "WtHelper.h"
++#ifdef GH_MANAGED_NATIVE_STATE_SAVE
++#include "GuanhengExecution/NativeStateSave.h"
++#endif
+ 
+ #include <exception>
+ #include <rapidjson/document.h>
+@@ -233,6 +236,22 @@
+ 		filename += _name;
+ 		filename += ".json";
+ 
++#ifdef GH_MANAGED_NATIVE_STATE_SAVE
++		auto& stateSave = guanheng::NativeStateSave::instance();
++		if (stateSave.enabled())
++		{
++			rj::StringBuffer sb;
++			rj::PrettyWriter<rj::StringBuffer> writer(sb);
++			root.Accept(writer);
++			const auto error = stateSave.save(filename, {sb.GetString(), sb.GetSize()});
++			if (error)
++			{
++				_ud_modified = true; // 保留原脏标记，下次保存时使用最新用户变量重试。
++				WTSLogger::error("Native state save failed: {}, system error {}", filename, error.value());
++			}
++			return;
++		}
++#endif
+ 		BoostFile bf;
+ 		if (bf.create_new_file(filename.c_str()))
+ 		{
+@@ -632,6 +651,19 @@
+ 		filename += _name;
+ 		filename += ".json";
+ 
++#ifdef GH_MANAGED_NATIVE_STATE_SAVE
++		auto& stateSave = guanheng::NativeStateSave::instance();
++		if (stateSave.enabled())
++		{
++			rj::StringBuffer sb;
++			rj::PrettyWriter<rj::StringBuffer> writer(sb);
++			root.Accept(writer);
++			const auto error = stateSave.save(filename, {sb.GetString(), sb.GetSize()});
++			if (error)
++				WTSLogger::error("Native state save failed: {}, system error {}", filename, error.value());
++			return;
++		}
++#endif
+ 		BoostFile bf;
+ 		if (bf.create_new_file(filename.c_str()))
+ 		{
+@@ -931,8 +963,8 @@
+ 
+ 	if(_ud_modified)
+ 	{
++		_ud_modified = false;
+ 		save_userdata();
+-		_ud_modified = false;
+ 	}
+ }
+ 
+@@ -994,8 +1026,8 @@
+ 
+ 				if (_ud_modified)
+ 				{
++					_ud_modified = false;
+ 					save_userdata();
+-					_ud_modified = false;
+ 				}
+ 
+ 				if(!_condtions.empty())
+@@ -1035,8 +1067,8 @@
+ 
+ 	if (_ud_modified)
+ 	{
++		_ud_modified = false;
+ 		save_userdata();
+-		_ud_modified = false;
+ 	}
+ }
+ 
+@@ -1105,8 +1137,8 @@
+ 
+ 	if (_ud_modified)
+ 	{
++		_ud_modified = false;
+ 		save_userdata();
+-		_ud_modified = false;
+ 	}
  }
  

@@ -18,15 +18,18 @@ def main():
     template_cache.mkdir()
     template_sentinel = template_cache / "owner.lock"
     template_sentinel.write_bytes(b"old generation")
-    for name, expected in (
-        ("old-directory", "market_cache"),
-        ("old-file", "market_cache"),
-        ("unused", "configuration"),
+    for name, expected, mode in (
+        ("old-directory", "market_cache", None),
+        ("old-file", "market_cache", None),
+        ("unused", "configuration", None),
+        ("explicit-native", "market_cache", "native"),
+        ("on-change", "market_cache", "on_change"),
+        ("invalid-save-mode", "configuration", "invalid"),
     ):
         control = root / name
         control.mkdir()
         cache = control / "daily-cache"
-        if name == "old-directory":
+        if name in ("old-directory", "explicit-native", "on-change", "invalid-save-mode"):
             cache.mkdir()
         elif name == "old-file":
             cache.write_bytes(b"existing file")
@@ -36,6 +39,8 @@ def main():
                                "daily": {"publication": {"cache_root": str(template_cache)}}}},
             "recovery": {"mode": "resume_reconciled"},
         }
+        if mode is not None:
+            cfg["native_state_save"] = mode
         raw = json.dumps(cfg).encode()
         config = control / "execution.json"
         config.write_bytes(raw)

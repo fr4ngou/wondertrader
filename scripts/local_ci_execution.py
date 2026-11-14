@@ -83,6 +83,13 @@ def main():
     run([cmake, '--build', build, '--target', recipe['target'], '--parallel', '2'], 'build', 600)
     run([sys.executable, '-I', '-B', ROOT / 'tests/integration/wt_runtime/check_execution_cache_startup.py',
          '--exe', build / 'bin/GuanhengCtaHost.exe', '--output', workspace / 'cache-startup'], 'cache-startup', 45)
+    save_probe = workspace / 'native_state_save_probe.exe'
+    run([compiler, '/nologo', '/std:c++17', '/EHsc', '/MD', '/utf-8',
+         '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/I' + str(owned / 'src'),
+         owned / 'tests/integration/qmt_broker_context/native_state_save_probe.cpp',
+         '/Fo' + str(workspace / 'native_state_save_probe.obj'), '/Fe' + str(save_probe)],
+        'native-state-save-compile', 60)
+    run([save_probe, workspace / 'native-state-save-files'], 'native-state-save', 30)
     includes = [owned / 'src', upstream / 'src', helper, seed / 'deps/rapidjson/include', seed / 'deps/spdlog/include',
                 *list((seed / 'deps/boost/libs').glob('*/include')),
                 *list((seed / 'deps/boost/libs/numeric').glob('*/include'))]
@@ -114,6 +121,7 @@ def main():
     if hashlib.sha256((helper / 'standard_probe.cpp').read_bytes()).hexdigest() != helper_sha256:
         raise ValueError('冻结的C++测试夹具在编译或运行期间发生变化')
     (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'workspace': str(workspace),
+        'native_state_save': {'passed': True, 'log': str(output / 'native-state-save.log')},
         'cache_startup': {'passed': True, 'log': str(output / 'cache-startup.log')},
         'cpp_fixture': {'path': str(helper / 'standard_probe.cpp'), 'sha256': helper_sha256},
         'standard_source_sha256': hashlib.sha256((owned / 'src/TraderQMT/StandardQmtTrader.cpp').read_bytes()).hexdigest(),

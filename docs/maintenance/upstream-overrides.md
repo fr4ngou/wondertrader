@@ -52,3 +52,7 @@
 用户2026-11-06明确批准[最终方案](../migration/native-stock-target-replacement-proposal.md)。仅修改现有runtime overlay的WtStockMinImpactExeUnit.h/.cpp；每条股票执行policy新增严格bool `replace_equal_position_target`，缺省false保持原提前返回，显式true时即使新目标等于当前可卖持仓也更新原_target_pos，再由原do_calc核总量、活动单、T+1、资金和数量。既有Borrowed工厂及引用配对保持。当前覆盖与CORE-011合成保存在[stock-reference.patch](../../integrations/wondertrader_stock_reference/stock-reference.patch)，构建清单分别登记两项批准行为和合成SHA；固定上游及原源码路径保持。
 
 该类增加私有bool成员，必须同批重编两个直接头消费者和完整WtExeFact工厂；自有Host严格验证配置类型与适用算法。Python和Native仅归一化同账发行比较中的该键，真实配置和SHA保持，原恢复R33保留原账、周期和未知责任。公开工厂回归入口为tests/integration/stock_target_replacement/run.py；缺省/false、true、非法值、在途委托及总量/可卖分离分别验收，实际部署仍需同一完整制品与首目标/真实P验证。上游提供等价目标替换语义并通过同组回归后退出本覆盖。维护者：模块B执行接入。
+
+## CORE-013：受管 CTA 原生状态按变化保存
+
+用户 2026-11-15 批准。原生组合、策略及用户变量 JSON 在 WT 内部保存，公开策略回调无法控制这三处写入。仅在 `CtaStraBaseCtx.cpp::save_userdata/save_data` 和 `WtEngine.cpp::save_datas` 接入自有保存器。受管宿主缺省及显式 `native` 保留原行为，`on_change` 按原 JSON 字节和文件身份跳过重复写入，改动随正常重启生效。ABI、文件路径和格式沿原实现。见[规格](../specs/wt-private-persistence.md)和[迁移及回退](../migration/wt-private-persistence-migration.md)。维护者：执行接入。上游提供等价保存接口并通过原写入边界、失败重试及配置回归后退出该覆盖。

@@ -143,6 +143,7 @@ def _same_business(left, right):
         duration = value['budget']['run_ms']
         _require(type(duration) is int and (duration == 0 or 1000 <= duration <= 86400000))
         value['budget'].pop('run_ms')
+        _require(value.pop('native_state_save', 'native') in ('native', 'on_change'))
         _normalize_publication_cache(value)
         _normalize_retained_parser_port(value)
         # 此显式执行修正不改变金融模型；只归一化比较副本，实际配置和原件SHA保持。

@@ -16,8 +16,9 @@
   "overlays": [
     {
       "path": "integrations/wondertrader_execution/managed-cta-account.patch",
-      "sha256": "d88865360d0d9d71d88400cf34e778b7584e370923e64e30601485d4deffe3c3",
+      "sha256": "a6113d726c6a69e3d5d49a6f77ba52b6daee8242b6ca01aff18176d3586d1f54",
       "files": [
+        "src/WtCore/CtaStraBaseCtx.cpp",
         "src/WtCore/CtaStrategyMgr.h",
         "src/WtCore/ParserAdapter.cpp",
         "src/WtCore/ParserAdapter.h",
@@ -39,7 +40,8 @@
         "CORE-004",
         "CORE-007",
         "CORE-009",
-        "position_by_query"
+        "position_by_query",
+        "CORE-013"
       ]
     },
     {
@@ -103,7 +105,7 @@
     },
     "src/WtCore/WtEngine.cpp": {
       "baseline_sha256": "fcf2d9e5d39e4b115f027d961cc2180e11b204a6ab3ab6ce7c605e8f107c4266",
-      "normalized_result_sha256": "6677db2e35bbe9260dc57422cdf00707e822579635a670d61fd34d8fac06001e"
+      "normalized_result_sha256": "ced25916e293ba0d009553673dee4da0d27a122738e787fc0810b0633dbfcb78"
     },
     "src/WtCore/WtEngine.h": {
       "baseline_sha256": "8b7d61c0aa05064794872cdc9cbdee76bb10864ffdc4ed45a479bc5d7e272a2b",
@@ -132,6 +134,10 @@
     "src/WtExeFact/WtStockMinImpactExeUnit.h": {
       "baseline_sha256": "ae699656cc721b6c1d9cb821c4392ab5d0711b53f70a4af759cb6f61ef2f391a",
       "normalized_result_sha256": "afa11b717616799570b2902b4adb21b5e997effeaa7abac93445bdcf854560f7"
+    },
+    "src/WtCore/CtaStraBaseCtx.cpp": {
+      "baseline_sha256": "3bca336cd0ada14bd7ffd4bf4d06bbcee409fd3d924fe531bada058e2d23f5ff",
+      "normalized_result_sha256": "430d0b74e0003826d4208315985b44315d44e065e47188ba85b3769397ef6899"
     }
   },
   "owned_directories": [

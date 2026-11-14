@@ -10,6 +10,9 @@
 #include "WtEngine.h"
 #include "WtDtMgr.h"
 #include "WtHelper.h"
+#ifdef GH_MANAGED_NATIVE_STATE_SAVE
+#include "GuanhengExecution/NativeStateSave.h"
+#endif
 
 #include "../Share/TimeUtils.hpp"
 #include "../Share/StrUtil.hpp"
@@ -465,6 +468,19 @@ void WtEngine::save_datas()
 		std::string filename = WtHelper::getPortifolioDir();
 		filename += "datas.json";
 
+#ifdef GH_MANAGED_NATIVE_STATE_SAVE
+		auto& stateSave = guanheng::NativeStateSave::instance();
+		if (stateSave.enabled())
+		{
+			rj::StringBuffer sb;
+			rj::PrettyWriter<rj::StringBuffer> writer(sb);
+			root.Accept(writer);
+			const auto error = stateSave.save(filename, {sb.GetString(), sb.GetSize()});
+			if (error)
+				WTSLogger::error("Native state save failed: {}, system error {}", filename, error.value());
+			return;
+		}
+#endif
 		BoostFile bf;
 		if (bf.create_new_file(filename.c_str()))
 		{
