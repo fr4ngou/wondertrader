@@ -7,7 +7,7 @@ from fractions import Fraction
 import json,math,re,time
 from .execution_strategy import StrategyBinding,TargetQuoteUnavailable,_need,register_main_minute
 from .execution_facts import canonical_raw_price
-from .strategy_state import StrategyStateRecord
+from .strategy_state import SharedStrategyState, StrategyStateRecord
 from .original_signal_runtime import OriginalSignalConfig,OriginalSignalWorker,_sha
 from .profile_facts import configured_etf_mapping,configured_native_facts,digest,quote_value,common_prices,allocation_projection
 
@@ -105,6 +105,7 @@ class OriginalLiveStrategy:
         self._intent_known_at=None;self._intent_prices={};self._consumed_sha=None;self._consumed_codes={};self._announced=False
         self._atr_state={}
         self._consumed_routes = {}
+        self.recovery_state = SharedStrategyState(INTENT_STATE, allocation, self.id)
 
     def binding(self):return StrategyBinding(self.id,self.main,self.reads,self.targets if self.execution_enabled else (),self.callback,native_config_abi=2)
 
@@ -128,9 +129,6 @@ class OriginalLiveStrategy:
             state['atr_protection'] = self._atr_state  # 按证券保存实际开仓周期及已处理闭合日的原价高点、保护线。
         return state
 
-    def _store_state(self,context,state):
-        self._state_revision=INTENT_STATE.commit(context,self._state_revision,state).revision
-
     def _view(self,context,deadline):
         reason=self.allocation.observe_context(context,deadline=deadline,max_age_seconds=self.max_age)
         broker=context.broker_observation();now=datetime.now(timezone.utc)
@@ -147,15 +145,14 @@ class OriginalLiveStrategy:
         deadline=min(self.start_deadline,time.monotonic()+self.seconds)
         own,broker=self._view(context,deadline)
         _need(own is not None,'original_initial_allocation')
-        saved=INTENT_STATE.read(context)
-        self._state_revision=saved.revision  # 原策略已接受的用户变量版本。
+        raw = self.recovery_state.restore(deadline=deadline)
+        saved = INTENT_STATE.read(context) if raw is None else self.recovery_state.current
         if self.state_mode=='new':
             _need(saved.value is None and context.facts().fund_pnl==0,'original_new_context_required')
             for symbol in self.targets:
                 p=context.position(symbol);_need(p.raw_position==0 and p.raw_valid==0 and p.first_entry==p.last_entry==0,'original_new_context_required')
             view=own.strategy
             _need(view.ledger_cash_cny==self.initial_capital_cny and not view.pending_groups and all(r.quantity==0 for r in view.positions),'original_new_allocation_required')
-            self._store_state(context,self._state())
         else:
             state=saved.value
             if type(state) is dict:
@@ -208,7 +205,7 @@ class OriginalLiveStrategy:
                                or (all(type(row[key]) in (int, float) and math.isfinite(row[key]) for key in ('peak','line'))
                                    and 0 <= row['line'] <= row['peak'])), 'confirmation_atr_state')
                 self._atr_state = atr
-            if state['identity']!=self.identity:self._store_state(context,self._state())
+        self.recovery_state.accept(context, self.recovery_state.stage(self._state()), deadline=deadline)
         self.initialized=True
         self.publish(self.id,dict(
             status='initialized',  # ctx及自有分配已核初始化；不宣布成交或信号齐备。
@@ -322,7 +319,12 @@ class OriginalLiveStrategy:
             signal_consumed_date=self._last_date,  # 已提交的闭合信号日；候选计算不能推进。
             consumed_routes=self._published_consumed_routes())  # 按执行证券呈现的已提交信号。
         if self.execution_enabled and own is not None and not self._announced:
-            if self._plan is None and not self._sells and not self._buys:
+            try:
+                self._announced = self.recovery_state.restore_target(context, deadline=deadline)
+            except TargetQuoteUnavailable:
+                self.publish(self.id, dict(observation, status='waiting', reason='target_quote_unavailable'), deadline=deadline)
+                return
+            if not self._announced and self._plan is None and not self._sells and not self._buys:
                 from .profile_facts import announce_shared_hold
                 try:
                     announce_shared_hold(context,self.id,self.targets,own,self.allocation,source_identity=self.identity,deadline=deadline)
@@ -330,7 +332,7 @@ class OriginalLiveStrategy:
                     self.publish(self.id, dict(observation, status='waiting', reason='target_quote_unavailable'), deadline=deadline)
                     return
                 self._announced=True
-            else:
+            elif not self._announced:
                 # 恢复的未完成目标沿原source/cap，不能以保持动作放宽买入上界。
                 quantities={r.symbol:r.quantity for r in own.strategy.positions}
                 desired={s:(quantities.get(s,0) if context.position(s).enum_target is None else int(context.position(s).enum_target)) for s in self.targets}
@@ -472,17 +474,6 @@ class OriginalLiveStrategy:
             signal_consumed_date=last_date,  # 最近消费闭合日，允许部分证券尚未合格。
             signal_revision_after_consumption=self._last_date==small['decision_date'] and self._consumed_sha!=small['signal_sha256'])  # 同日更晚修订只展示差异。
         self.publish(self.id,candidate,preview=True,deadline=deadline)
-        if changed and (sells or plan is not None) and self.execution_enabled:
-            _need(all(type(q)is int and q>=0 and q%100==0 for _,q in vector),'original_target_quantity')
-            self.allocation.prepare_intent(self.id,context.event.epoch,source_sha256=last_source,known_at=intent_known_at,
-                buy_price_caps=caps,common_prices=commons,deadline=deadline)
-            try:
-                _need(dict(context.set_targets(vector))==dict(vector),'original_target_readback')
-            except TargetQuoteUnavailable:
-                candidate.pop('desired_targets', None)
-                candidate['signal_consumed_date'] = self._last_date
-                waiting('target_quote_unavailable')
-                return
         state=dict(
             schema='guanheng.original-live-intent.v1',  # 同_state声明的唯一意图协议。
             identity=self.identity,  # 当前配置/代码身份SHA。
@@ -499,7 +490,20 @@ class OriginalLiveStrategy:
             intent_prices=intent_prices)  # 原价收盘CNY/份，不借新日结果重写旧cap。
         if self.confirmation:
             state['atr_protection'] = atr_state
-        self._store_state(context,state)
+        staged = self.recovery_state.stage(state)
+        submitting = changed and (sells or plan is not None) and self.execution_enabled
+        if submitting:
+            _need(all(type(q)is int and q>=0 and q%100==0 for _,q in vector),'original_target_quantity')
+            self.allocation.prepare_intent(self.id,context.event.epoch,source_sha256=last_source,known_at=intent_known_at,
+                buy_price_caps=caps,common_prices=commons,strategy_state=self.recovery_state.for_target(staged),deadline=deadline)
+            try:
+                _need(dict(context.set_targets(vector))==dict(vector),'original_target_readback')
+            except TargetQuoteUnavailable:
+                candidate.pop('desired_targets', None)
+                candidate['signal_consumed_date'] = self._last_date
+                waiting('target_quote_unavailable')
+                return
+        self.recovery_state.accept(context, staged, target_committed=submitting, deadline=deadline)
         if self.confirmation:
             self._atr_state = atr_state
         self._buys,self._sells,self._plan,self._last_date,self._last_source=buys,sells,plan,last_date,last_source

@@ -306,6 +306,15 @@ class AttributionCoordinator:
     def strategy_state(self, strategy_id, *, deadline):
         return self.allocation.strategy_state(strategy_id, deadline=deadline)
 
+    def load_strategy_state(self, strategy_id, key, *, deadline):
+        return self.allocation.load_strategy_state(strategy_id, key, deadline=deadline)
+
+    def commit_strategy_state(self, strategy_id, update, *, deadline):
+        return self.allocation.commit_strategy_state(strategy_id, update, deadline=deadline)
+
+    def restore_strategy_target(self, strategy_id, key, *, deadline):
+        return self.allocation.recovery_target(strategy_id, key, deadline=deadline)
+
     def strategy_history(self, strategy_id, *, deadline):
         return self.allocation.strategy_history(strategy_id, deadline=deadline)
 
@@ -391,13 +400,14 @@ class AttributionCoordinator:
             self._lock.release()
 
     def prepare_intent(self, strategy_id, epoch, *, source_sha256, known_at,
-                       buy_price_caps, common_prices, deadline):
+                       buy_price_caps, common_prices, strategy_state=None, recovery_target=None, deadline):
         """原ctx setter前保存本轮不可变元数据；同策略只保留最新借用epoch。"""
         _need(strategy_id in self.strategy_ids and type(epoch) is int and epoch > 0, 'attribution_intent')
         _need(type(buy_price_caps) is dict and type(common_prices) is tuple, 'attribution_intent')
         self._enter(deadline)
         try:
-            self._metadata[strategy_id] = (epoch, source_sha256, known_at, dict(buy_price_caps), common_prices)
+            self._metadata[strategy_id] = (epoch, source_sha256, known_at, dict(buy_price_caps), common_prices,
+                                           strategy_state, recovery_target)
         finally:
             self._lock.release()
 
@@ -743,14 +753,22 @@ class AttributionCoordinator:
                       'attribution_intent_metadata')
                 targets = tuple(Target(row['symbol'], self._quantity(row['quantity']), metadata[3].get(row['symbol']))
                                 for row in body['targets'])
-                intent_id = self._identity(self._control, sid, event.epoch, event.sha256)
                 previous = self.allocation.current_targets(deadline=deadline)[sid]
-                revision = (previous.revision if previous is not None and previous.intent_id == intent_id
-                            else self.allocation.view(sid, deadline=deadline).revision+1)
-                self.allocation.record_targets(TargetIntent(intent_id, sid, revision, targets,
-                    metadata[1], metadata[2]), deadline=deadline)
-                if previous is None or previous.intent_id != intent_id:
-                    self._armed = False  # 首setter前的新意图须等原WT合并commit，旧已绑定组仍继续原责任。
+                recovery_target = metadata[6]
+                if recovery_target is not None:
+                    _need(previous is not None and previous.intent_id == recovery_target and metadata[5] is None
+                          and previous.targets == tuple(sorted(targets, key=lambda item: item.symbol))
+                          and (previous.source_sha256, previous.known_at) == metadata[1:3],
+                          'attribution_recovery_target_changed')
+                    self._armed = False
+                else:
+                    intent_id = self._identity(self._control, sid, event.epoch, event.sha256)
+                    revision = (previous.revision if previous is not None and previous.intent_id == intent_id
+                                else self.allocation.view(sid, deadline=deadline).revision+1)
+                    self.allocation.record_targets(TargetIntent(intent_id, sid, revision, targets,
+                        metadata[1], metadata[2]), strategy_state=metadata[5], deadline=deadline)
+                    if previous is None or previous.intent_id != intent_id:
+                        self._armed = False  # 首setter前的新意图须等原WT合并commit，旧已绑定组仍继续原责任。
                 self._seen_strategies.add(sid)
             elif event.kind in (2, 3):
                 if event.kind == 2:

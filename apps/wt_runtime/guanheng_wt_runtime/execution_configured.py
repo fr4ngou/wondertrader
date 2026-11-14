@@ -21,7 +21,7 @@ from .execution_strategy import (CtaBridgeError, CtaRuntime, NativeBarReadError,
                                  TargetQuoteUnavailable, _need, register_main_minute)
 from .managed_local_process import _inspect, _json, _read
 from .thread_owner import ThreadOwner
-from .strategy_state import StrategyStateRecord
+from .strategy_state import SharedStrategyState, StrategyStateRecord
 from .profile_facts import allocation_projection
 from .execution_market_window import MarketInputDeadline, check_market_input_deadline, native_history_matches
 
@@ -264,6 +264,7 @@ class RetainedStrategy:
         self.state_identity = _digest(identity)
         # 故障恢复显式核前代发行身份；原状态模型、输入和数量不变量保持。
         self.previous_state_identity = None
+        self.recovery_state = SharedStrategyState(RETAINED_STATE, allocation, self.id) if allocation is not None else None
         self.recovery_native = native  # 原已准入恢复链；仅用于核验前代合法原报价及原时点。
         self.retained_market_source = None  # 保留报价时的原控制/文件SHA，独立于当前现金与NAP。
         self.initial_market_window = None  # 初始化只读验证的出版物元数据，不产生目标或新行情事件。
@@ -347,9 +348,12 @@ class RetainedStrategy:
     def _load_state(self, text):
         _need(type(text) is str and 1 <= len(text) <= 32768, 'quantity_state_missing')
         value = _json(text.encode('ascii'))
+        previous_identity = self.previous_state_identity or self.state_identity
         _need(set(value) == {'schema','strategy_id','identity','sequence','state','state_id','cycles','exits'}
               and value['schema'] == 'guanheng.retained-quantity-state.v1' and value['strategy_id'] == self.id
-              and value['identity'] == (self.previous_state_identity or self.state_identity), 'quantity_state_identity')
+              and (value['identity'] == previous_identity or
+                   (getattr(self, 'recovery_state', None) is not None and value['identity'] == self.state_identity)),
+              'quantity_state_identity')
         seq = value['sequence'];_need(type(seq) is int and 0 <= seq <= 9007199254740991, 'quantity_state_sequence')
         state = _restore_quantity_state(value['state'])
         if state is not None:
@@ -358,7 +362,7 @@ class RetainedStrategy:
                   and state.target.algorithm_id == self.algorithm_identity, 'quantity_state_identity')
         metadata, exits = self._metadata(value['cycles']), self._exit_values(value['exits'])
         expected = _json(self._state_payload(state,seq,metadata,exits).encode('ascii'))
-        expected['identity'] = self.previous_state_identity or self.state_identity
+        expected['identity'] = value['identity']
         _need(_encode(expected).decode('ascii') == text, 'quantity_state_encoding')
         self.state, self.sequence, self.cycles, self.exits = state, seq, metadata, exits
         self.restored_state_id, self.restored_sequence = None if state is None else state.state_id, seq
@@ -404,12 +408,16 @@ class RetainedStrategy:
         _need(broker.positions_known, 'broker_unknown')
         rows = self._broker_rows(broker)
         if self.recovery in ('resume_clean','resume_reconciled'):
-            saved = context.load_quantity_state()
+            saved = self.recovery_state.restore(deadline=self.start_deadline) if self.recovery_state is not None else None
+            if saved is None:
+                saved = context.load_quantity_state()
             self._load_state(saved)
             self._state_revision = hashlib.sha256(saved.encode('ascii')).hexdigest()
             # 同策略恢复保留原冻结阶段；原WT活动订单参与后续pending观察。
             # 角色首次换代的旧计划由_load_state在核原配置后明确退役。
         else:
+            if self.recovery_state is not None:
+                _need(self.recovery_state.restore(deadline=self.start_deadline) is None, 'fresh_strategy_required')
             _need(context.facts().fund_pnl == 0, 'takeover_mark_required')
             text = context.load_quantity_state()
             if self.takeover:
@@ -442,7 +450,10 @@ class RetainedStrategy:
                            if not rows.get(self.mapping[symbol],(0,0))[0]}
         # 原主K线触发规则保持，用户状态由原dirty保存流程落盘。
         register_main_minute(context, self.main, deadline=self.start_deadline)
-        if self.recovery not in ('resume_clean','resume_reconciled'):
+        if self.recovery_state is not None:
+            value = json.loads(self._state_payload(self.state, self.sequence, self.cycles, self.exits))
+            self.recovery_state.accept(context, self.recovery_state.stage(value), deadline=self.start_deadline)
+        elif self.recovery not in ('resume_clean','resume_reconciled'):
             # 首次接管可消费已核对的旧初值标记；此后只接受当前策略状态协议。
             initial = self._state_payload(None,0,self.cycles,self.exits)
             context.store_quantity_state(initial)
@@ -840,8 +851,9 @@ class RetainedStrategy:
         if status is None and self.execution_enabled and self.allocation is not None and not self._shared_announced:
             from .profile_facts import announce_shared_hold
             try:
-                announce_shared_hold(context,self.id,self.targets,self.allocation_observation,self.allocation,
-                    source_identity=self.state_identity,deadline=deadline)
+                if self.recovery_state is None or not self.recovery_state.restore_target(context, deadline=deadline):
+                    announce_shared_hold(context,self.id,self.targets,self.allocation_observation,self.allocation,
+                        source_identity=self.state_identity,deadline=deadline)
             except TargetQuoteUnavailable:
                 status, reason = 'waiting_market_input', 'target_quote_unavailable'
             else:
@@ -988,13 +1000,15 @@ class RetainedStrategy:
             if vector:candidate['target_readback'] = dict(vector)
         # 编码和投影预检共用本轮D，随后才进入原setter/KV副作用。
         text = self._state_payload(state,self.sequence,metadata,exits)
+        staged = None if self.recovery_state is None else self.recovery_state.stage(json.loads(text))
         self._publish(candidate,preview=True,deadline=deadline);check()
         if vector:
             if self.allocation is not None:
                 from .profile_facts import common_prices
                 commons=common_prices(context,self.mapping,self.native_price_ticks,self.participants,now=cutoff,max_age=self.max_age)
                 self.allocation.prepare_intent(self.id,context.event.epoch,source_sha256=result['input_sha256'],known_at=cutoff.isoformat(),
-                    buy_price_caps={},common_prices=commons,deadline=deadline)
+                    buy_price_caps={},common_prices=commons,
+                    strategy_state=None if staged is None else self.recovery_state.for_target(staged),deadline=deadline)
             try:
                 _need(dict(context.set_targets(vector)) == dict(vector), 'target_readback')
             except TargetQuoteUnavailable:
@@ -1003,7 +1017,11 @@ class RetainedStrategy:
                 self._publish(candidate, deadline=deadline)
                 return
             check()
-        self._store_state(context,text);check()
+        if staged is None:
+            self._store_state(context,text)
+        else:
+            self.recovery_state.accept(context, staged, target_committed=bool(vector), deadline=deadline)
+        check()
         self.state,self.cycles,self.exits = state,metadata,exits
         self._publish(candidate,deadline=deadline);check()
 

@@ -7,11 +7,13 @@ from time import monotonic
 from uuid import uuid4
 from types import SimpleNamespace
 from dataclasses import replace
+from hashlib import sha256
 
 import pytest
 
 from guanheng_wt_runtime.account_allocation import AccountAllocation, AccountSnapshot, BookIdentity, OwnedPosition, StrategySeed
 from guanheng_wt_runtime.account_attribution import AttributionBridge, AttributionCoordinator, NativeEvent, NativeReply
+from guanheng_wt_runtime.strategy_state import StrategyStateWrite
 
 CODE, SHA = 'SSE.ETF.510500', 'a'*64
 DAY, NEXT = '2026-11-06', '2026-11-09'
@@ -74,6 +76,64 @@ def prepared(coordinator, bridge, *, known_at=STAMP, buyer='new'):
     command = dict(child, command_id=str(uuid4()), command_sha256='c'*64)
     assert send(bridge, 7, command)[0] == 0, bridge.failure
     return command
+
+
+def test_strategy_recovery_state_and_target_share_commit(tmp_path, monkeypatch):
+    book, coordinator, bridge = setup(tmp_path)
+    key = 'strategy-decision'
+    before = '{"schema":"strategy.v1","line":9}'
+    after = '{"schema":"strategy.v1","line":10}'
+    initial = StrategyStateWrite(key, None, before)
+    book.commit_strategy_state('new', initial, deadline=end())
+    first = StrategyStateWrite(key, sha256(before.encode('ascii')).hexdigest(), after)
+    body = dict(strategy_id='new', targets=[dict(symbol=CODE, quantity=100)])
+
+    def submit(bridge, coordinator, epoch, update):
+        coordinator.prepare_intent('new', epoch, source_sha256=SHA, known_at=STAMP,
+            buy_price_caps={}, common_prices=(), strategy_state=update, deadline=end())
+        return send(bridge, 1, body, epoch=epoch)[0]
+
+    assert submit(bridge, coordinator, 1, first) == 0, bridge.failure
+    original = book.current_targets(deadline=end())['new']
+    assert submit(bridge, coordinator, 1, first) == 0, bridge.failure
+    assert book.current_targets(deadline=end())['new'] == original
+    assert book.load_strategy_state('old', key, deadline=end()) is None
+
+    # 策略状态已进入事务时出错，目标、状态和去重事件都应回滚。
+    body['targets'][0]['quantity'] = 200
+    next_state = StrategyStateWrite(key, sha256(after.encode('ascii')).hexdigest(), before)
+    with monkeypatch.context() as patch:
+        def interrupt(*_):
+            raise RuntimeError('simulated pre-commit interruption')
+
+        patch.setattr(book, '_save', interrupt)
+        assert submit(bridge, coordinator, 2, next_state) != 0
+    assert book.load_strategy_state('new', key, deadline=end()) == after
+    assert book.current_targets(deadline=end())['new'] == original
+    # 以前的状态版本尝试提交新目标，两项均不能写入。
+    assert submit(bridge, coordinator, 3, StrategyStateWrite(key, first.expected_revision, before)) != 0
+    identity = book.identity
+    book.close(end())
+    recovered = AccountAllocation(tmp_path, identity, owner_check=lambda: None, require_existing=True)
+    try:
+        assert recovered.load_strategy_state('new', key, deadline=end()) == after
+        assert recovered.current_targets(deadline=end())['new'] == original
+        assert original.targets[0].quantity == 100
+        successor = AttributionCoordinator(recovered, control_id=str(uuid4()), account_scope_sha256=SHA,
+            strategy_ids=('old', 'new'), fee_bound=lambda *args: D('5'), settlement_day=lambda day: NEXT)
+        resume_bridge = AttributionBridge(successor, callback_seconds=5)
+        restored = successor.restore_strategy_target('new', key, deadline=end())
+        assert restored == original
+        successor.prepare_intent('new', 1, source_sha256=SHA, known_at=STAMP, buy_price_caps={},
+            common_prices=(), recovery_target=restored.intent_id, deadline=end())
+        body['targets'][0]['quantity'] = 100
+        assert send(resume_bridge, 1, body, epoch=1)[0] == 0, resume_bridge.failure
+        assert recovered.current_targets(deadline=end())['new'] == original
+        body['targets'][0]['quantity'] = 200
+        assert send(resume_bridge, 1, body, epoch=1)[0] != 0
+        assert recovered.current_targets(deadline=end())['new'] == original
+    finally:
+        recovered.close(end())
 
 
 @pytest.mark.parametrize('kind', [8, 12])

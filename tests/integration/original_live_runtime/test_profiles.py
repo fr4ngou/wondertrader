@@ -23,10 +23,13 @@ class Broker:
 
 class Allocation:
     def __init__(self):
-        self.calls=[];self.reason=None;self.own=StrategyObservation(StrategyView(ORIGINAL_ID,'0.2.0a1',Decimal(1000000),Decimal(1000000),Decimal(0),Decimal(1000000),0,(),(),1),1,'b'*64,'2026-11-09',{})
+        self.calls=[];self.reason=None;self.states={};self.own=StrategyObservation(StrategyView(ORIGINAL_ID,'0.2.0a1',Decimal(1000000),Decimal(1000000),Decimal(0),Decimal(1000000),0,(),(),1),1,'b'*64,'2026-11-09',{})
     def observe_context(self,ctx,**kw):self.calls.append('observe');return self.reason
     def strategy_state(self,sid,**kw):assert sid==self.own.strategy.strategy_id;self.calls.append('view');return self.own
     def prepare_intent(self,sid,epoch,**kw):self.calls.append(('prepare',sid,epoch,kw))
+    def load_strategy_state(self,sid,key,**kw):return self.states.get((sid,key))
+    def commit_strategy_state(self,sid,update,**kw):self.states[sid,update.key]=update.value
+    def restore_strategy_target(self,sid,key,**kw):return None
 
 class Context:
     def __init__(self,code):
@@ -124,6 +127,33 @@ def test_signal_to_nine_complete_targets_metadata_before_set(monkeypatch):
     assert event[3]['buy_price_caps']=={symbol:Decimal('9.5')} and event[3]['known_at']==sig.small['decision_at']
     assert json.loads(ctx.kv)['last_source']=='d'*64
     schedule(owner,ctx);assert ctx.calls.count('set')==2
+
+
+def test_original_resumes_committed_signal_after_stale_native_mirror(monkeypatch):
+    code = DEFAULT_CODES[0]
+    owner, ctx, allocation, signals, _ = make(monkeypatch, {code: 'BUY'})
+    owner.callback(ctx)
+    stale = ctx.kv
+    ordinary_setter = ctx.set_targets
+
+    def accept_target(vector):
+        submission = [call for call in allocation.calls if isinstance(call, tuple)][-1][3]
+        update = submission.get('strategy_state')
+        if update is not None:
+            allocation.commit_strategy_state(owner.id, update)
+        return ordinary_setter(vector)
+
+    ctx.set_targets = accept_target
+    schedule(owner, ctx)
+    assert json.loads(ctx.kv)['last_date'] == '2026-11-06'
+    ctx.kv = stale
+    ctx.targets.clear()
+    resumed, _, _, _, _ = make(monkeypatch, mode='resume', signals=signals, allocation=allocation)
+    ctx.event = NS(kind=1, epoch=1, tdate=20261109)
+    resumed.callback(ctx)
+    assert resumed._last_date == '2026-11-06'
+    assert resumed._plan[code] == 100000
+    assert json.loads(ctx.kv)['last_date'] == resumed._last_date
 
 
 def test_opening_substitution_uses_original_signal_and_execution_quote(monkeypatch):
@@ -506,7 +536,9 @@ def test_retained_readonly_waiting_market_never_announces_targets():
     owner.recovery='resume_clean';owner.restored_state_id=owner.restored_sequence=None;owner.capital_observation=None
     owner.inputs=NS(request=Request(),capital_baseline=None);owner.market_window=NS(read=lambda *a,**kw:NS(request=None,publication={},reason='waiting_source'))
     from guanheng_wt_runtime.execution_configured import RETAINED_STATE
-    owner.state_identity='a'*64;owner._state_revision=None;published=[];owner._publish=lambda v,**kw:published.append(v)
+    from guanheng_wt_runtime.strategy_state import SharedStrategyState
+    owner.recovery_state = SharedStrategyState(RETAINED_STATE, owner.allocation, owner.id)
+    owner.state_identity='a'*64;published=[];owner._publish=lambda v,**kw:published.append(v)
     ctx=Context('510300');readonly_setter(owner,ctx);owner.callback(ctx)
     assert owner.binding().execution_symbols==() and not owner._shared_announced and published[-1]['status']=='waiting_market_input'
     saved=RETAINED_STATE.read(ctx)
@@ -516,7 +548,8 @@ def test_retained_readonly_waiting_market_never_announces_targets():
     assert published[-1]['sequence'] == 2 and ctx.calls.count('state') == 1
     assert RETAINED_STATE.read(ctx) == saved
     owner.state_identity='b'*64
-    owner._store_state(ctx,owner._state_payload(owner.state,owner.sequence,owner.cycles,owner.exits))
+    owner.recovery_state.accept(ctx, owner.recovery_state.stage(
+        json.loads(owner._state_payload(owner.state,owner.sequence,owner.cycles,owner.exits))), deadline=time.monotonic()+2)
     assert RETAINED_STATE.read(ctx).value['identity'] == 'b'*64 and ctx.calls.count('state') == 2
     resumed=RetainedStrategy.__new__(RetainedStrategy)
     resumed.id=owner.id;resumed.state_identity=owner.state_identity;resumed.previous_state_identity=None

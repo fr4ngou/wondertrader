@@ -16,6 +16,13 @@ class StrategyStateRevision:
     revision: str | None  # 原编码摘要；None表示从未写入。
 
 
+@dataclass(frozen=True)
+class StrategyStateWrite:
+    key: str  # 策略实例内的记录键。
+    expected_revision: str | None  # 读取的账本版本，None 表示该键尚未建立。
+    value: str  # 原策略规范 ASCII 编码的一组业务字段。
+
+
 def _pairs(items):
     fields = {}
     for key, value in items:
@@ -48,24 +55,81 @@ class StrategyStateRecord:
     def read(self, context, *, key=None):
         """从当前策略专属的原 WT 用户变量读取；沿回调门面核线程与生命周期。"""
         raw = context.load_quantity_state() if key is None else context.load_userdata(key)
+        return self.decode(raw)
+
+    def decode(self, raw):
         if not raw:
             return StrategyStateRevision(None, None)
         return StrategyStateRevision(self._decode(raw), hashlib.sha256(raw.encode('ascii')).hexdigest())
 
+    def stage(self, previous, value):
+        """保留现有序列化，过滤单独变化的观察字段，生成一次比较写入。"""
+        raw = _encode(value)
+        proposed = self.decode(raw)
+        if previous.value is not None:
+            before = {key: item for key, item in previous.value.items() if key not in self.transient_keys}
+            after = {key: item for key, item in value.items() if key not in self.transient_keys}
+            if _encode(before) == _encode(after):
+                return previous, None
+        return proposed, StrategyStateWrite(self.schema, previous.revision, raw)
+
     def commit(self, context, expected_revision, value, *, key=None):
         """校验预期版本后发布整组业务键，按规范字节判断相等。"""
-        raw = _encode(value)
-        proposed = self._decode(raw)
         previous = self.read(context, key=key)
         if previous.revision != expected_revision:
             raise StrategyStateConflict('strategy_state_revision')
-        if previous.value is not None:
-            before = {key: item for key, item in previous.value.items() if key not in self.transient_keys}
-            after = {key: item for key, item in proposed.items() if key not in self.transient_keys}
-            if _encode(before) == _encode(after):
-                return previous
-        if key is None:
-            context.store_quantity_state(raw)
-        else:
-            context.store_userdata(key, raw)
-        return StrategyStateRevision(proposed, hashlib.sha256(raw.encode('ascii')).hexdigest())
+        proposed, update = self.stage(previous, value)
+        if update is not None:
+            if key is None:
+                context.store_quantity_state(update.value)
+            else:
+                context.store_userdata(key, update.value)
+        return proposed
+
+
+class SharedStrategyState:
+    """共享账户状态槽，首次从已验证的原用户变量迁入。账本提交后更新兼容副本。"""
+    def __init__(self, record, allocation, strategy_id):
+        self.record = record
+        self.allocation = allocation
+        self.strategy_id = strategy_id
+        self.current = StrategyStateRevision(None, None)  # 本策略已接受的账本版本。
+        self._mirrored_revision = None  # 同一 CTA 的兼容用户变量已同步的业务版本。
+
+    def restore(self, *, deadline):
+        raw = self.allocation.load_strategy_state(self.strategy_id, self.record.schema, deadline=deadline)
+        self.current = self.record.decode(raw)
+        return raw
+
+    def stage(self, value):
+        return self.record.stage(self.current, value)
+
+    def for_target(self, staged):
+        revision, update = staged
+        return update or StrategyStateWrite(self.record.schema, revision.revision, _encode(revision.value))
+
+    def restore_target(self, context, *, deadline):
+        """用原目标身份重新交给 WT 合并；首次迁入且没有绑定目标时走原初始化。"""
+        target = self.allocation.restore_strategy_target(self.strategy_id, self.record.schema, deadline=deadline)
+        if target is None:
+            return False
+        caps = {row.symbol: row.buy_price_cap_cny for row in target.targets if row.buy_price_cap_cny is not None}
+        self.allocation.prepare_intent(self.strategy_id, context.event.epoch, source_sha256=target.source_sha256,
+            known_at=target.known_at, buy_price_caps=caps, common_prices=(), recovery_target=target.intent_id,
+            deadline=deadline)
+        vector = tuple((row.symbol, row.quantity) for row in target.targets)
+        if dict(context.set_targets(vector)) != dict(vector):
+            raise ValueError('strategy_recovery_target_readback')
+        return True
+
+    def accept(self, context, staged, *, target_committed=False, deadline):
+        revision, update = staged
+        if update is not None:
+            if not target_committed:
+                self.allocation.commit_strategy_state(self.strategy_id, update, deadline=deadline)
+            self.current = revision
+        if revision.revision != self._mirrored_revision:
+            raw = _encode(revision.value)
+            if context.load_quantity_state() != raw:
+                context.store_quantity_state(raw)
+            self._mirrored_revision = revision.revision

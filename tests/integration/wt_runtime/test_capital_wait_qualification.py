@@ -82,6 +82,7 @@ class CapitalWaitQualification(unittest.TestCase):
         strategy.seconds = 2; strategy.max_age = 300; strategy.sequence = 1
         strategy.initialized = True; strategy.state = None; strategy.exits = (); strategy.cycles = {}
         strategy.allocation = None; strategy.allocation_observation = None; strategy.deal_history = None
+        strategy.recovery_state = None
         strategy.recovery = 'record_clean'; strategy.restored_state_id = None; strategy.restored_sequence = None
         strategy.capital_reader = self.reader; strategy.capital_observation = deepcopy(self.value)
         strategy.market_window = (SimpleNamespace(read=lambda *_args, **_kw:

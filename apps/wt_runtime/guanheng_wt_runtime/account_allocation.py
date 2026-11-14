@@ -22,6 +22,7 @@ from .allocation_records import (KINDS, Records, broker_receipt_key, decode, dig
                                  ensure_broker_receipt_index, ensure_fill_strategy_index,
                                  create_pending_fee_groups, pending_fee_group_counts, save_proof, schema)
 from .thread_owner import ThreadOwner
+from .strategy_state import StrategyStateConflict, StrategyStateWrite
 
 
 class AllocationError(ValueError):
@@ -933,7 +934,79 @@ class AccountAllocation:
             state['account'] = account
             self._save(db, rev, state)
 
-    def record_targets(self, intent: TargetIntent, *, deadline):
+    @staticmethod
+    def _strategy_state_digest(update):
+        _need(type(update) is StrategyStateWrite and type(update.key) is str
+              and re.fullmatch(r'[a-z][a-z0-9_.-]{0,127}', update.key)
+              and type(update.value) is str and 1 <= len(update.value) <= 32768
+              and all(32 <= ord(char) < 127 for char in update.value), 'strategy_state_invalid')
+        if update.expected_revision is not None:
+            _sha(update.expected_revision)
+        return digest(update.value)
+
+    @staticmethod
+    def _read_strategy_state(db, strategy_id, key):
+        identity = _wire([strategy_id, key])
+        row = db.execute("SELECT payload,sha256 FROM asa_record WHERE kind='strategy_state' AND id=?",
+                         (identity,)).fetchone()
+        if row is None:
+            return identity, None, None
+        raw, sha256 = row
+        _need(type(raw) is str and raw.isascii() and digest(raw) == sha256, 'strategy_state_invalid')
+        return identity, raw, sha256
+
+    @classmethod
+    def _write_strategy_state(cls, db, strategy_id, update, sha256):
+        identity, stored, revision = cls._read_strategy_state(db, strategy_id, update.key)
+        if revision != update.expected_revision:
+            raise StrategyStateConflict('strategy_state_revision')
+        if stored == update.value:
+            return
+        db.execute("INSERT INTO asa_record VALUES ('strategy_state',?,?,?,0) "
+                   "ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload,sha256=excluded.sha256",
+                   (identity, update.value, sha256))
+
+    def load_strategy_state(self, strategy_id, key, *, deadline):
+        _text(strategy_id); _text(key)
+        with self._transaction(deadline) as db:
+            _, state = self._load(db)
+            _need(strategy_id in state['strategies'], 'strategy_unknown')
+            _, raw, _ = self._read_strategy_state(db, strategy_id, key)
+            return raw
+
+    def recovery_target(self, strategy_id, key, *, deadline):
+        """返回已绑定该策略状态槽的当前目标及其原身份。"""
+        with self._transaction(deadline) as db:
+            _, state = self._load(db)
+            _need(strategy_id in state['strategies'], 'strategy_unknown')
+            item = state['strategies'][strategy_id]['intent']
+            if item is None:
+                return None
+            row = db.execute('SELECT payload FROM asa_events WHERE identity=?',
+                             ('intent:' + item['intent_id'],)).fetchone()
+            _need(row is not None, 'storage_invalid')
+            event = json.loads(row[0])
+            link = event.pop('recovery_state', None)
+            _need(event == {'strategy': strategy_id, **item}, 'storage_invalid')
+            if link is None:
+                return None
+            _need(type(link) is dict and set(link) == {'key', 'sha256'}, 'storage_invalid')
+            _sha(link['sha256'])
+            if link['key'] != key:
+                return None
+            _, raw, _ = self._read_strategy_state(db, strategy_id, key)
+            _need(raw is not None, 'strategy_state_invalid')
+            return self._target_intent(strategy_id, item)
+
+    def commit_strategy_state(self, strategy_id, update, *, deadline):
+        _text(strategy_id)
+        sha256 = self._strategy_state_digest(update)
+        with self._transaction(deadline) as db:
+            _, state = self._load(db)
+            _need(strategy_id in state['strategies'], 'strategy_unknown')
+            self._write_strategy_state(db, strategy_id, update, sha256)
+
+    def record_targets(self, intent: TargetIntent, *, strategy_state=None, deadline):
         _need(type(intent) is TargetIntent and type(intent.targets) is tuple, 'intent_invalid')
         _uuid(intent.intent_id); _text(intent.strategy_id); _quantity(intent.revision, positive=True)
         _sha(intent.source_sha256); _stamp(intent.known_at)
@@ -946,15 +1019,21 @@ class AccountAllocation:
             caps[target.symbol] = None if target.buy_price_cap_cny is None else _price(target.buy_price_cap_cny)
         payload = {'intent_id': intent.intent_id, 'revision': intent.revision, 'targets': targets,
                    'buy_caps': caps, 'source_sha256': intent.source_sha256, 'known_at': intent.known_at}
+        event = {'strategy': intent.strategy_id, **payload}
+        if strategy_state is not None:
+            sha256 = self._strategy_state_digest(strategy_state)
+            event['recovery_state'] = {'key': strategy_state.key, 'sha256': sha256}
         with self._transaction(deadline) as db:
             rev, state = self._load(db)
             _need(intent.strategy_id in state['strategies'], 'strategy_unknown')
-            if not self._event(db, 'intent:'+intent.intent_id, {'strategy': intent.strategy_id, **payload}):
+            if not self._event(db, 'intent:'+intent.intent_id, event):
                 return
             strategy = state['strategies'][intent.strategy_id]
             _need(set(targets) == set(strategy['universe']), 'target_scope_incomplete')
             _need(strategy['intent'] is None or intent.revision > strategy['intent']['revision'], 'intent_stale')
             _need(all(not p['quantity'] or symbol in targets for symbol, p in strategy['positions'].items()), 'target_scope_incomplete')
+            if strategy_state is not None:
+                self._write_strategy_state(db, intent.strategy_id, strategy_state, sha256)
             strategy['intent'] = payload
             self._save(db, rev, state)
 
@@ -965,10 +1044,16 @@ class AccountAllocation:
             result = {}
             for sid, strategy in state['strategies'].items():
                 item = strategy['intent']
-                result[sid] = None if item is None else TargetIntent(item['intent_id'], sid, item['revision'],
-                    tuple(Target(symbol, qty, None if item['buy_caps'][symbol] is None else Decimal(item['buy_caps'][symbol]))
-                          for symbol, qty in sorted(item['targets'].items())), item['source_sha256'], item['known_at'])
+                result[sid] = None if item is None else self._target_intent(sid, item)
             return result
+
+    @staticmethod
+    def _target_intent(strategy_id, item):
+        targets = tuple(Target(symbol, quantity, None if item['buy_caps'][symbol] is None
+                               else Decimal(item['buy_caps'][symbol]))
+                        for symbol, quantity in sorted(item['targets'].items()))
+        return TargetIntent(item['intent_id'], strategy_id, item['revision'], targets,
+                            item['source_sha256'], item['known_at'])
 
     @classmethod
     def _native_demands(cls, state, execution_targets, blocked):

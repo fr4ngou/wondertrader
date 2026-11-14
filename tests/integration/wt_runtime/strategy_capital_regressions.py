@@ -105,6 +105,7 @@ def main():
         capital={k:origin[k]for k in ('total_cny','source')})
     loaded=RetainedRuntimeInput.from_dict(json.loads(prepared.runtime_input))
     strategy=RetainedStrategy.__new__(RetainedStrategy)
+    strategy.recovery_state = None
     strategy.inputs=loaded; strategy.execution=tuple(c.symbol for c in loaded.request.cycles)
     strategy.mapping={s:('SSE'if s.endswith('.SH')else'SZSE')+'.ETF.'+s[:6]for s in strategy.execution}
     strategy.targets=tuple(strategy.mapping.values());strategy.id='resonance-regime-v1'
