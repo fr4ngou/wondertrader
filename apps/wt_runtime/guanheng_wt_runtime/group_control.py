@@ -2,30 +2,15 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
 import time
-from typing import get_type_hints
 
 from guanheng_wt_runtime.managed_local_process import _path, _read, _require, _sha
 from guanheng_wt_runtime.service_control import ServiceConfig, ServiceController, _ServiceLease, _publish
 from guanheng_wt_runtime.runtime import RuntimeConfig
-
-
-def _service_snapshot(raw):
-    """由同一已核SHA字节构造原配置，避免再次读取已被替换的service.json。"""
-    value = json.loads(raw)
-    names = {field.name for field in fields(ServiceConfig)}
-    _require(type(value) is dict and set(value) == names | {'schema'}
-             and value['schema'] == 'guanheng.wt-service.v1')
-    types = get_type_hints(ServiceConfig)
-    _require(all(types[name] in (Path, str) for name in names))
-    service = ServiceConfig(**{name: _path(value[name], e_drive=True) if types[name] is Path
-                              else _sha(value[name]) for name in names})
-    service.validate()
-    return service
 
 
 @dataclass(frozen=True)
@@ -55,7 +40,7 @@ class GroupConfig:
             path = _path(row['configuration'], e_drive=True)
             raw = _read(path, 65536)
             _require(hashlib.sha256(raw).hexdigest() == _sha(row['sha256']))
-            service = _service_snapshot(raw)
+            service = ServiceConfig.from_mapping(json.loads(raw))
             _require(service.current_file not in currents and service.current_file != status_file)
             names.add(name)
             currents.add(service.current_file)

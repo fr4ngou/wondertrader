@@ -215,6 +215,71 @@ def test_owned_broker_query_uses_one_projection_commit(tmp_path, monkeypatch):
         assert db.execute("SELECT COUNT(*) FROM asa_conflicts WHERE kind='fill_economic_conflict'").fetchone()[0] == 1
 
 
+def test_compaction_keeps_original_receipts_and_replays_one_unbound_fact(tmp_path):
+    from hashlib import sha256
+    import sqlite3
+    from contextlib import closing
+    from guanheng_wt_runtime.allocation_compaction import compact
+
+    book, _, _ = setup(tmp_path)
+    tag = 'otp.future-binding'
+    fill = dict(source_kind='query-result', source_sha256=SHA, trading_date=20261106,
+                trade_id='nqh1.unbound', user_tag=tag, quantity=20, price_cny='10.01', amount_cny='200.20')
+    originals = [json.dumps(dict(fill, request_id=str(i))).encode() for i in range(3)]
+    with book._transaction(end()) as db:
+        db.executemany(
+            "INSERT INTO asa_inbox(event_id,kind,raw_json,payload_sha256,source_sha256,applied,reason)"
+            " VALUES(?,'8',?,?,?,0,'attribution_command_unmapped')",
+            ((str(uuid4()), raw, sha256(raw).hexdigest(), SHA) for raw in originals))
+    output = tmp_path / 'rehearsal'
+    report = compact(book.path, output)
+    assert (report['original_receipts'], report['candidate_receipts'], report['mapped_duplicates']) == (3, 1, 2)
+    with closing(sqlite3.connect(output / 'receipt-map.sqlite3')) as mapping:
+        assert mapping.execute('SELECT original_sequence, retained_sequence FROM receipt ORDER BY original_sequence'
+                               ).fetchall() == [(2, 1), (3, 1)]
+    with closing(sqlite3.connect(output / 'original.sqlite3')) as archive:
+        assert [row[0] for row in archive.execute('SELECT raw_json FROM asa_inbox ORDER BY sequence')] == originals
+    resumed = AccountAllocation(output, book.identity, owner_check=lambda: None, require_existing=True)
+    replay, command = resumed.receive_broker_event(str(uuid4()), '8', originals[-1], SHA, tag, deadline=end())
+    assert command is None and replay.sequence == 1 and replay.raw_json == originals[0]
+    assert resumed.pending_events(deadline=end()) == (replay,)
+
+
+def test_query_receipt_deduplicates_on_business_state_across_restart(tmp_path):
+    book, coordinator, bridge = setup(tmp_path)
+    command = prepared(coordinator, bridge)
+    fill = dict(command, source_kind='query-result', source_sha256='d'*64, trading_date=20261106,
+                trade_id='nqh1.repeat', quantity=20, price_cny='10.01', amount_cny='200.20',
+                trade_time=93102000, fee_cny=None, request_id='first', output_index=0)
+
+    def accept(active_bridge, row):
+        assert send(active_bridge, 12, dict(kind=8, rows=[json.dumps(row)]))[0] == 0, active_bridge.failure
+
+    def counts(store):
+        with store._transaction(end()) as db:
+            return tuple(db.execute(sql).fetchone()[0] for sql in (
+                "SELECT count(*) FROM asa_inbox WHERE kind='8'",
+                "SELECT count(*) FROM asa_source_proof WHERE kind='fills'",
+            ))
+
+    accept(bridge, fill)
+    for index in range(15):
+        accept(bridge, dict(fill, request_id=f'query-{index}', output_index=index, source_sha256='e'*64))
+    accept(bridge, dict(fill, request_id='equivalent-format', price_cny='10.0100', amount_cny='200.2', quantity=20.0))
+    assert counts(book) == (1, 1)
+    reopened = AccountAllocation(tmp_path, book.identity, owner_check=lambda: None, require_existing=True)
+    resumed = AttributionCoordinator(reopened, control_id=str(uuid4()), account_scope_sha256=SHA,
+        strategy_ids=coordinator.strategy_ids, fee_bound=lambda *args: D('5'), settlement_day=lambda _: NEXT)
+    resumed_bridge = AttributionBridge(resumed, callback_seconds=5)
+    accept(resumed_bridge, dict(fill, request_id='after-restart', native_generation=2, source_sha256='f'*64))
+    assert counts(reopened) == (1, 1)
+    accept(resumed_bridge, dict(fill, request_id='fee', source_sha256='1'*64, fee_cny='1.00'))
+    assert counts(reopened) == (2, 2)
+    accept(resumed_bridge, dict(fill, request_id='fee-again', source_sha256='2'*64, fee_cny='1.00'))
+    assert counts(reopened) == (2, 2)
+    assert reopened.view('new', deadline=end()).positions[0].quantity == 20
+
+
 def test_source_processing_and_failure_recording_have_distinct_diagnostics(tmp_path, monkeypatch):
     book, coordinator, bridge = setup(tmp_path)
     command = prepared(coordinator, bridge)
@@ -490,7 +555,7 @@ def test_denied_prepared_receipt_remains_until_original_no_call_then_replay_neve
     assert book.view('new',deadline=end()).pending_groups == ()
 
 
-def test_order_projection_keeps_only_live_owned_sell_and_ignores_late_active_after_terminal(tmp_path):
+def test_order_projection_keeps_only_live_owned_sell_and_ignores_late_active_after_terminal(tmp_path, monkeypatch):
     book, coordinator, bridge = setup(tmp_path)
     for sid, quantity, epoch in [('old', 9900, 1), ('new', 0, 2)]:
         coordinator.prepare_intent(sid, epoch, source_sha256=SHA, known_at=STAMP,
@@ -504,9 +569,32 @@ def test_order_projection_keeps_only_live_owned_sell_and_ignores_late_active_aft
     assert send(bridge,6,command)[0] == 0
     assert send(bridge,10,dict(group,accepted_children=1))[0] == 0
     assert send(bridge,7,command)[0] == 0
-    order=dict(command,source_sha256='d'*64,terminal=False,order_state=49,filled_quantity=0,remaining_quantity=100)
+    order=dict(command,source_kind='query-result',source_sha256='d'*64,terminal=False,order_state=49,
+               filled_quantity=0,remaining_quantity=100,order_id='qmt.123',trading_date=20261106)
     assert send(bridge,9,order)[0] == 0
     assert set(coordinator._order_sources) == {command['user_tag']}
+    coordinator._order_sources.clear()
+    def timeout(*args, **kwargs):
+        raise TimeoutError('allocation_deadline')
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(book, 'project_broker_batch', timeout)
+        assert send(bridge,9,dict(order,request_id='new-query'))[0] == 0
+        assert coordinator._order_sources == {}
+        assert coordinator._broker_projection_needs_account
+    coordinator.replay_pending(deadline=end())
+    assert not coordinator._sell_restore_pending
+    assert set(coordinator._order_sources) == {command['user_tag']}
+    with book._transaction(end()) as db:
+        assert db.execute("SELECT count(*) FROM asa_inbox WHERE kind='9'").fetchone()[0] == 1
+    reduced = dict(order, remaining_quantity=90, source_sha256='1'*64)
+    assert send(bridge,9,reduced)[0] == 0
+    coordinator._order_sources.clear()
+    assert send(bridge,9,dict(order,request_id='restart-old'))[0] == 0
+    assert send(bridge,9,dict(reduced,request_id='restart-new'))[0] == 0
+    assert coordinator._order_sources[command['user_tag']]['remaining_quantity'] == 90
+    assert send(bridge,9,dict(order,request_id='late-old'))[0] == 0
+    assert coordinator._order_sources[command['user_tag']]['remaining_quantity'] == 90
     assert book.lookup_wt_child(command['user_tag'],deadline=end()).terminal_state is None
     assert send(bridge,9,dict(order,terminal=True,order_state=53,remaining_quantity=0,source_sha256='e'*64))[0] == 0
     assert coordinator._order_sources == {}

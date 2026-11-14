@@ -5,8 +5,9 @@ from datetime import date,datetime,timedelta,timezone
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import json,math,re,time
-from .execution_strategy import StrategyBinding,TargetQuoteUnavailable,_need
+from .execution_strategy import StrategyBinding,TargetQuoteUnavailable,_need,register_main_minute
 from .execution_facts import canonical_raw_price
+from .strategy_state import StrategyStateRecord
 from .original_signal_runtime import OriginalSignalConfig,OriginalSignalWorker,_sha
 from .profile_facts import configured_etf_mapping,configured_native_facts,digest,quote_value,common_prices,allocation_projection
 
@@ -15,6 +16,7 @@ ORIGINAL_STRATEGY_ID='resonance-original-wt-351f9d5-stable'
 ORIGINAL_LIVE_VERSION='0.2.0a1'
 CONFIRM_LIVE_ID='resonance-kc50-pullback-confirm'
 CONFIRM_LIVE_VERSION='0.3.0a1'
+INTENT_STATE=StrategyStateRecord('guanheng.original-live-intent.v1', frozenset({'sequence'}))
 
 
 def initial_capital(parameters):
@@ -126,6 +128,9 @@ class OriginalLiveStrategy:
             state['atr_protection'] = self._atr_state  # 按证券保存实际开仓周期及已处理闭合日的原价高点、保护线。
         return state
 
+    def _store_state(self,context,state):
+        self._state_revision=INTENT_STATE.commit(context,self._state_revision,state).revision
+
     def _view(self,context,deadline):
         reason=self.allocation.observe_context(context,deadline=deadline,max_age_seconds=self.max_age)
         broker=context.broker_observation();now=datetime.now(timezone.utc)
@@ -138,20 +143,21 @@ class OriginalLiveStrategy:
         return own,broker
 
     def _initialize(self,context):
-        context.bars(self.main,'m1',1,main=True)
+        register_main_minute(context, self.main, deadline=self.start_deadline)
         deadline=min(self.start_deadline,time.monotonic()+self.seconds)
         own,broker=self._view(context,deadline)
         _need(own is not None,'original_initial_allocation')
-        text=context.load_quantity_state()
+        saved=INTENT_STATE.read(context)
+        self._state_revision=saved.revision  # 原策略已接受的用户变量版本。
         if self.state_mode=='new':
-            _need(text=='' and context.facts().fund_pnl==0,'original_new_context_required')
+            _need(saved.value is None and context.facts().fund_pnl==0,'original_new_context_required')
             for symbol in self.targets:
                 p=context.position(symbol);_need(p.raw_position==0 and p.raw_valid==0 and p.first_entry==p.last_entry==0,'original_new_context_required')
             view=own.strategy
             _need(view.ledger_cash_cny==self.initial_capital_cny and not view.pending_groups and all(r.quantity==0 for r in view.positions),'original_new_allocation_required')
-            context.store_quantity_state(json.dumps(self._state(),sort_keys=True,separators=(',',':')))
+            self._store_state(context,self._state())
         else:
-            state=json.loads(text)
+            state=saved.value
             if type(state) is dict:
                 state.setdefault('consumed_routes', {})  # 旧意图仅保存消费摘要，原信号细节继续未知。
             _need(type(state)is dict and set(state)==set(self._state()) and state['schema']=='guanheng.original-live-intent.v1'
@@ -202,7 +208,7 @@ class OriginalLiveStrategy:
                                or (all(type(row[key]) in (int, float) and math.isfinite(row[key]) for key in ('peak','line'))
                                    and 0 <= row['line'] <= row['peak'])), 'confirmation_atr_state')
                 self._atr_state = atr
-            if state['identity']!=self.identity:context.store_quantity_state(json.dumps(self._state(),sort_keys=True,separators=(',',':')))
+            if state['identity']!=self.identity:self._store_state(context,self._state())
         self.initialized=True
         self.publish(self.id,dict(
             status='initialized',  # ctx及自有分配已核初始化；不宣布成交或信号齐备。
@@ -493,7 +499,7 @@ class OriginalLiveStrategy:
             intent_prices=intent_prices)  # 原价收盘CNY/份，不借新日结果重写旧cap。
         if self.confirmation:
             state['atr_protection'] = atr_state
-        context.store_quantity_state(json.dumps(state,sort_keys=True,separators=(',',':')))
+        self._store_state(context,state)
         if self.confirmation:
             self._atr_state = atr_state
         self._buys,self._sells,self._plan,self._last_date,self._last_source=buys,sells,plan,last_date,last_source

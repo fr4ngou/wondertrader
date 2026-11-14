@@ -17,6 +17,8 @@ def save(path, value):
 
 
 class InitializationAbortTests(unittest.TestCase):
+    writes_disabled = False
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[4])
         self.addCleanup(temp.cleanup)
@@ -45,8 +47,13 @@ class InitializationAbortTests(unittest.TestCase):
             predecessor_configuration_sha256=source_sha, predecessor_python_binding_sha256=binding_sha,
             predecessor_installation_sha256="a" * 64, successor_installation_sha256="b" * 64,
             state_files=self.state))
-        abort_sha = save(self.abort / "execution.json", dict(self.config, recovery={
-            "mode": "resume_reconciled", "transition": {"file": str(old), "sha256": old_sha}}))
+        self.aborted_config = dict(self.config, recovery={
+            "mode": "resume_reconciled", "transition": {"file": str(old), "sha256": old_sha}})
+        if self.writes_disabled:
+            self.aborted_config['trader'] = dict(self.config['trader'], writes_enabled=False)
+            self.aborted_config['execution_permission_origin'] = dict(
+                schema='guanheng.execution-permission-origin.v1', file=str(self.origin/'execution.json'), sha256=source_sha)
+        abort_sha = save(self.abort / "execution.json", self.aborted_config)
         identity = dict(control_id=self.abort.name, config_sha256=abort_sha, pid=1002)
         admission = self.abort / "reconciled.json"
         admission_sha = save(admission, dict(identity, schema="guanheng.cta-reconciled.v1",
@@ -105,4 +112,22 @@ class InitializationAbortTests(unittest.TestCase):
     def test_changed_trader_or_state_rejected(self):
         self.assert_rejected(dict(self.config, trader=dict(self.config["trader"], writes_enabled=False)))
         self.transition["state_files"] = {"portfolio/datas.json": "9" * 64}
+        self.assert_rejected()
+
+
+class ReadOnlyInitializationAbortTests(InitializationAbortTests):
+    writes_disabled = True
+
+    def test_zero_effect_abort_returns_original_financial_owner(self):
+        with patch('guanheng_wt_runtime.execution_recovery.require_process_exited'):
+            restored = initialization_abort_origin(self.transition, current=self.aborted_config)
+        self.assertEqual(restored['configuration'], self.config)
+        self.assert_rejected(self.config)
+
+    def assert_rejected(self, current=None):
+        super().assert_rejected(self.aborted_config if current is None else current)
+
+    def test_changed_trader_or_state_rejected(self):
+        self.assert_rejected(dict(self.aborted_config, trader=dict(self.aborted_config['trader'], expected_account='other')))
+        self.transition['state_files'] = {'portfolio/datas.json': '9' * 64}
         self.assert_rejected()

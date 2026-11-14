@@ -43,6 +43,13 @@ def _path(value, *, e_drive=False):
     return Path(value)
 
 
+def runtime_control_path(value):
+    """解析受管运行收据目录，兼容原 E 盘与配置的 D 盘。"""
+    path = _path(value)
+    _require(path.drive.casefold() in ('d:', 'e:'))
+    return path
+
+
 def _inspect(path, *, directory=False):
     # 每个祖先与叶子均先lstat；不resolve跟随重解析点，不接受链接到其它身份。
     for item in reversed((path, *path.parents)):

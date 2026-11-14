@@ -22,7 +22,8 @@ def main():
     libraries=[build/'cmake/lib/WTSTools.lib',build/'cmake/lib/WTSUtils.lib']+list((build/'cmake/product/readonly-support/deps/boost').rglob('*.lib'))
     commands.append([link,'/nologo','/out:'+str(work/'probe.exe'),str(obj)]+[str(x) for x in libraries]+['synchronization.lib','ws2_32.lib','psapi.lib','dbghelp.lib','version.lib','user32.lib','shell32.lib','advapi32.lib'])
     with contextlib.redirect_stdout(io.StringIO()):native.run(commands[-1],env=env,cwd=work,log=work/'link.log',timeout=60,private_console=True)
-    for mode in ('normal','rotation','utf8','open-failure','write-failure'):
+    modes = ('normal','rotation','utf8','open-failure','write-failure','batch')
+    for mode in modes:
         commands.append([str(work/'probe.exe'),mode,str(work/mode)])
         native.run(commands[-1],env=env,cwd=work,log=work/(mode+'.log'),timeout=20,private_console=True)
     # 按原UTF-8字节和物理文件验收，覆盖中文边界与轮转实际落盘。
@@ -34,6 +35,6 @@ def main():
     assert [len(x.encode('utf8')) for x in bodies]==[8191,8190,8192]
     assert bodies==['a'*8191,'b'*8190,'c'*8192]
     sha=lambda path:hashlib.sha256(path.read_bytes()).hexdigest()
-    result=dict(passed=True,physical_rotated_files={x.name:x.stat().st_size for x in rotated},utf8_body_bytes=[len(x.encode('utf8')) for x in bodies],results={mode:(work/(mode+'.log')).read_text(encoding='utf8') for mode in ('normal','rotation','utf8','open-failure','write-failure')},commands=commands,source_sha256={str(x.relative_to(stage)):sha(x) for x in stage.rglob('*') if x.is_file()},libraries={str(x):sha(x) for x in libraries})
+    result=dict(passed=True,physical_rotated_files={x.name:x.stat().st_size for x in rotated},utf8_body_bytes=[len(x.encode('utf8')) for x in bodies],results={mode:(work/(mode+'.log')).read_text(encoding='utf8') for mode in modes},commands=commands,source_sha256={str(x.relative_to(stage)):sha(x) for x in stage.rglob('*') if x.is_file()},libraries={str(x):sha(x) for x in libraries})
     (work/'RESULT.json').write_text(json.dumps(result,indent=2),encoding='utf8')
 if __name__=='__main__':main()

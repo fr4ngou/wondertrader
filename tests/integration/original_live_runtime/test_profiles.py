@@ -374,6 +374,23 @@ def test_waiting_original_announces_hold_and_old_sell_authorizes(tmp_path,monkey
     assert all(p.quantity == 0 for p in book.view(ORIGINAL_ID, deadline=time.monotonic()+5).positions)
 
 
+def test_original_state_skips_identical_business_snapshot_and_checks_revision(monkeypatch):
+    from guanheng_wt_runtime.strategy_state import StrategyStateConflict
+
+    owner, ctx, _, _, _ = make(monkeypatch, {DEFAULT_CODES[0]: 'BUY'})
+    owner.callback(ctx)
+    schedule(owner, ctx)
+    saved = mod.INTENT_STATE.read(ctx)
+    count = ctx.calls.count('state')
+    for epoch in (3, 4):
+        ctx.event = NS(kind=4, epoch=epoch, tdate=20261109)
+        owner.callback(ctx)
+    assert ctx.calls.count('state') == count
+    assert mod.INTENT_STATE.read(ctx) == saved
+    with pytest.raises(StrategyStateConflict, match='strategy_state_revision'):
+        mod.INTENT_STATE.commit(ctx, None, saved.value)
+
+
 def test_resume_preserves_pending_original_caps_and_context_not_reseeded(monkeypatch):
     c=DEFAULT_CODES[0];owner,ctx,asa,sig,out=make(monkeypatch,{c:'BUY'});owner.callback(ctx);schedule(owner,ctx)
     saved=ctx.kv;resumed,newctx,newasa,newsig,newout=make(monkeypatch,mode='resume');newctx.kv=saved
@@ -488,9 +505,24 @@ def test_retained_readonly_waiting_market_never_announces_targets():
     owner._allocation_refresh=lambda *a:None;owner._shared_announced=False;owner.cycles={};owner.exits=();owner.flat_sources={};owner.state=None
     owner.recovery='resume_clean';owner.restored_state_id=owner.restored_sequence=None;owner.capital_observation=None
     owner.inputs=NS(request=Request(),capital_baseline=None);owner.market_window=NS(read=lambda *a,**kw:NS(request=None,publication={},reason='waiting_source'))
-    owner._state_payload=lambda *a:'original-state';published=[];owner._publish=lambda v,**kw:published.append(v)
+    from guanheng_wt_runtime.execution_configured import RETAINED_STATE
+    owner.state_identity='a'*64;owner._state_revision=None;published=[];owner._publish=lambda v,**kw:published.append(v)
     ctx=Context('510300');readonly_setter(owner,ctx);owner.callback(ctx)
     assert owner.binding().execution_symbols==() and not owner._shared_announced and published[-1]['status']=='waiting_market_input'
+    saved=RETAINED_STATE.read(ctx)
+    assert ctx.calls.count('state') == 1 and saved.value['sequence'] == 1
+    ctx.event=NS(kind=4,epoch=2,tdate=20261109)
+    owner.callback(ctx)
+    assert published[-1]['sequence'] == 2 and ctx.calls.count('state') == 1
+    assert RETAINED_STATE.read(ctx) == saved
+    owner.state_identity='b'*64
+    owner._store_state(ctx,owner._state_payload(owner.state,owner.sequence,owner.cycles,owner.exits))
+    assert RETAINED_STATE.read(ctx).value['identity'] == 'b'*64 and ctx.calls.count('state') == 2
+    resumed=RetainedStrategy.__new__(RetainedStrategy)
+    resumed.id=owner.id;resumed.state_identity=owner.state_identity;resumed.previous_state_identity=None
+    resumed.execution=owner.execution
+    resumed._load_state(ctx.kv)
+    assert resumed.sequence == owner.sequence and resumed.state is None and resumed.cycles == {} and resumed.exits == ()
 
 
 def unit_evidence_descriptor(tmp_path):

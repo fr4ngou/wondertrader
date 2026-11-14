@@ -3,11 +3,25 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from pathlib import Path
 from uuid import uuid4
 
 
 MAX_SNAPSHOT_BYTES = 65536  # 与现有Runtime状态读取上限一致，单位字节；单代仅保留一份候选。
+
+
+# 保留观衡公开的文件发布时间；相同状态至多每秒刷新一次。
+STATUS_HEARTBEAT_SECONDS = 1.0
+
+
+def _encode(value):
+    raw = json.dumps(value, ensure_ascii=True, allow_nan=False,
+                     sort_keys=True, separators=(',', ':')).encode('ascii')
+    if not 0 < len(raw) <= MAX_SNAPSHOT_BYTES:
+        raise ValueError('runtime snapshot exceeds read capacity')
+    return raw
 
 
 class SnapshotPublisher:
@@ -30,10 +44,10 @@ class SnapshotPublisher:
 
     def publish(self, value):
         """一次提交最新值；True表示可见，False仅表示本轮32/33共享冲突。"""
-        raw = json.dumps(value, ensure_ascii=True, allow_nan=False,
-            sort_keys=True, separators=(',', ':')).encode('ascii')
-        if not 0 < len(raw) <= MAX_SNAPSHOT_BYTES:
-            raise ValueError('runtime snapshot exceeds read capacity')
+        return self.publish_bytes(_encode(value))
+
+    def publish_bytes(self, raw):
+        """发布由本模块验证过的不可变快照字节。"""
         try:
             # 失败候选只在本owner下一次调用中改写，不排队旧状态或创建第二份临时文件。
             # 先完整关闭写句柄再替换；读者始终取得完整的上次或本次快照。
@@ -56,3 +70,57 @@ class SnapshotPublisher:
         self._pending = False
         self._candidate_identity = None
         return True
+
+
+
+class BackgroundSnapshotPublisher:
+    """常态只提交最新快照，首份和停止快照沿监督入口同步发布。"""
+    def __init__(self, publisher, *, initial_published=None):
+        self._publisher = publisher  # 初始发布结束后，普通写入只归工作线程。
+        self._initial_published = None if initial_published is None else _encode(initial_published)  # 已发布的首帧。
+        self._initial_time = time.monotonic()  # 首帧发布和工作线程交接时点。
+        self._condition = threading.Condition()  # 只保护候选和回执；持锁期间不写盘。
+        self._pending = None  # 未处理的最近一次提交字节；新状态覆盖此槽。
+        self._failure = None  # 首个后台失败，由监督循环或关闭路径重新抛出。
+        self._closing = False  # 关闭后后台退出，监督者在确认 join 后接管最终发布。
+        self._thread = threading.Thread(target=self._run, name='wt-status-writer', daemon=True)
+        self._thread.start()
+
+    def submit(self, value):
+        """在监督线程编码快照并交接，重抛已经发生的写入错误。"""
+        raw = _encode(value)
+        with self._condition:
+            if self._failure is not None:
+                raise self._failure
+            self._pending = raw
+            self._condition.notify()
+
+    def _run(self):
+        last_published, published_at = self._initial_published, self._initial_time
+        try:
+            while True:
+                with self._condition:
+                    self._condition.wait_for(lambda: self._closing or self._pending is not None)
+                    if self._closing:
+                        return
+                    raw, self._pending = self._pending, None
+                now = time.monotonic()
+                if raw == last_published and now - published_at < STATUS_HEARTBEAT_SECONDS:
+                    continue
+                if self._publisher.publish_bytes(raw):
+                    last_published, published_at = raw, time.monotonic()
+        except Exception as error:
+            with self._condition:
+                self._failure = error
+
+    def stop(self, seconds):
+        """在既有关闭预算内收回文件写入权；即使发生错误也先确认线程退出。"""
+        with self._condition:
+            self._closing = True
+            self._pending = None
+            self._condition.notify()
+        self._thread.join(seconds)
+        if self._thread.is_alive():
+            raise TimeoutError('runtime snapshot writer stop deadline')
+        if self._failure is not None:
+            raise self._failure

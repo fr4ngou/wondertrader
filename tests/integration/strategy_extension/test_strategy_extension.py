@@ -101,6 +101,80 @@ def test_native_actual_fault_admission_preserves_files(tmp_path,tamper):
     assert original=={p.relative_to(output).as_posix():p.read_bytes()for p in output.rglob('*.json')if p.parent.name in ('stradata','userdata','portfolio')}
     assert not(output/'stradata'/f'{NEW}.json').exists()
 
+@pytest.mark.parametrize('candidate_state', ['fresh', 'interrupted', 'withdrawn', 'source-changed', 'no-order'])
+def test_native_private_storage_admission(tmp_path, candidate_state):
+    from contextlib import closing
+    import sqlite3
+    import sys
+    from guanheng_wt_runtime import private_storage
+
+    previous, _ = fixture(tmp_path)
+    if candidate_state == 'no-order':
+        previous['trader']['writes_enabled'] = True
+    origin = tmp_path / 'old'
+    target_control = tmp_path / 'successor'
+    target_control.mkdir()
+    native_origin = Path(previous['output_directory'])
+    original_model = {key: value for key, value in previous.items() if key != 'recovery'}
+    # Native 的干净关闭摘要取移除末尾 recovery 后的实际 JSON 顺序。
+    raw = recovery.canonical(original_model)[:-1] + b',"recovery":' + recovery.canonical(previous['recovery']) + b'}'
+    config_path = origin / 'execution.json'
+    config_path.write_bytes(raw)
+    config = dict(file=str(config_path), sha256=sha256(raw).hexdigest())
+    binding = put(origin / 'python-binding.json', dict(schema='guanheng.cta-python-binding.v1', files=[]))
+    with subprocess.Popen([sys.executable, '-B', '-c', '']) as owner:
+        assert owner.wait(timeout=5) == 0
+        identity = dict(control_id=origin.name, config_sha256=config['sha256'], pid=owner.pid)
+    put(origin / 'ready.json', dict(schema='guanheng.execution.ready.v1', **identity))
+    put(origin / 'closed.json', dict(schema='guanheng.execution.closed.v2', **identity, closed=True,
+        ok=True, resources_closed=True, recovery_ready=True, exit_code=0, error_code=None))
+    files = recovery.execution_state_files(native_origin)
+    original_marker = native_origin / '.cta-clean.json'
+    marker = put(original_marker, dict(schema='guanheng.cta-clean.v2', closed=True, control_id=origin.name,
+        config_sha256=recovery.digest(original_model), closed_config_sha256=config['sha256'],
+        installation_sha256='a'*64, pid=identity['pid'], closed_receipt=str(origin/'closed.json'), files=files))
+    with private_storage.native_output_lease(native_origin):
+        pass
+    databases = (tmp_path/'communication.sqlite3', tmp_path/'account-allocation.sqlite3')
+    for database in databases:
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute('CREATE TABLE original (identity INTEGER PRIMARY KEY)')
+    private = tmp_path / 'private'
+    copy = private_storage.prepare_private_copy(origin, native_origin, *databases, private)
+    target = private / 'native'
+    archive = native_origin / ('.cta-relocated-' + copy['sha256'] + '.json')
+    current = dict(previous, output_directory=str(target), private_storage_origin=copy,
+        shared_account_storage=dict(allocation_root=str(private/'allocation')))
+    if candidate_state == 'no-order':
+        current['trader'] = dict(previous['trader'], writes_enabled=False)
+        current['execution_permission_origin'] = dict(schema='guanheng.execution-permission-origin.v1', **config)
+    transition = dict(schema='guanheng.execution-recovery-transition.v1', predecessor_configuration=config['file'],
+        predecessor_configuration_sha256=config['sha256'], predecessor_control_directory=str(origin),
+        predecessor_installation_sha256='a'*64, successor_installation_sha256='b'*64,
+        predecessor_python_binding_sha256=binding['sha256'], successor_python_code_identity='c'*64, state_files=files)
+    current['recovery'] = dict(mode='resume_reconciled', transition=put(tmp_path/'transition.json', transition))
+    if candidate_state in ('interrupted', 'withdrawn'):
+        original_marker.rename(archive)
+        (target / original_marker.name).rename(target / '.cta-clean.consumed.json')
+        if candidate_state == 'withdrawn':
+            private_storage.abandon_private_copy(copy, control=origin, configuration_sha256=config['sha256'],
+                output=native_origin, journal=databases[0], allocation=databases[1])
+    if candidate_state == 'source-changed':
+        put(native_origin / 'portfolio/datas.json', dict(changed=True))
+    accepted = candidate_state in ('fresh', 'interrupted', 'no-order')
+    if accepted:
+        assert recovery.compatible_business_configuration(current, previous)
+    request = dict(mode='admit-private-storage', current=current, installation='b'*64,
+        id='synthetic-successor', configuration='d'*64, control=str(target_control))
+    native(request, tmp_path, accepted)
+    assert recovery.execution_state_files(target) == files
+    assert original_marker.exists() is not accepted
+    assert (target_control / 'reconciled.json').exists() is accepted
+    if accepted:
+        assert private_storage.file_sha256(archive) == marker['sha256']
+        assert recovery.execution_state_files(native_origin) == files
+        native(request, tmp_path, False)  # 已认领的迁移快照不能再次接管。
+
 @pytest.mark.parametrize('change',['account','old_row','added_row','drop','marker_sha','row_sha','old_origin_added'])
 def test_identity_changes_rejected(tmp_path,change):
     old,current=fixture(tmp_path);changed=deepcopy(current)

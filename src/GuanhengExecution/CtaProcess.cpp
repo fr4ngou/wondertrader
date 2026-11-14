@@ -445,6 +445,44 @@ rj::Document permission_model(const rj::Value& config,unsigned depth=0){
     rj::Document before;before.CopyFrom(original,before.GetAllocator());before.RemoveMember("recovery");
     before.RemoveMember("execution_permission_origin");current.RemoveMember("execution_permission_origin");
     before.RemoveMember("shared_account_storage");current.RemoveMember("shared_account_storage");
+    // 换代可更新当前安装引用；固定证券、原安装和Source交接材料仍逐项相同。
+    auto handoff=[](const rj::Value& model)->const rj::Value*{
+        if(!model.HasMember("strategy_extension_origin"))return nullptr;
+        const auto& extension=member(model,"strategy_extension_origin");
+        return extension.HasMember("dependency_handoff")?&extension["dependency_handoff"]:nullptr;
+    };
+    const auto* previous_handoff=handoff(before);const auto* current_handoff=handoff(current);
+    if(previous_handoff&&current_handoff&&*previous_handoff!=*current_handoff){
+    std::map<std::string,std::string> original_files;
+    for(auto* model:{&before,&current})if(model->HasMember("strategy_extension_origin")){
+        auto& extension=(*model)["strategy_extension_origin"];
+        if(!extension.HasMember("dependency_handoff"))continue;
+        auto& reference=extension["dependency_handoff"];
+        keys(reference,{"file","sha256"});
+        const auto material=read(absolute(text(reference,"file")),1024*1024);
+        need(sha(material)==text(reference,"sha256",64));auto proof=parse(material);
+        const auto& installation=member(proof,"current_installation");
+        keys(installation,{"file","sha256"});
+        const auto path=absolute(text(installation,"file"));
+        const auto manifest_raw=read(path,256*1024);
+        need(sha(manifest_raw)==text(installation,"sha256",64));
+        const auto actual=absolute(text(*model,"installation_root")).parent_path()/"execution-install.json";
+        const auto fixed=parse(manifest_raw);const auto manifest=parse(actual==path?manifest_raw:read(actual,256*1024));
+        const auto& files=member(manifest,"files");
+        std::map<std::string,std::string> static_files;
+        const auto& base=member(*model,"base_data");need(base.IsObject());
+        for(auto it=base.MemberBegin();it!=base.MemberEnd();++it){
+            const auto name="app/"+text(base,it->name.GetString());static_files.emplace(name,text(files,name.c_str(),64));
+        }
+        const auto& env=member(*model,"environment");
+        for(const char* key:{"fees","filters"})if(env.HasMember(key)&&!text(env,key).empty()){
+            const auto name="app/"+text(env,key);static_files.emplace(name,text(files,name.c_str(),64));
+        }
+        for(const auto& row:static_files)need(row.second==text(member(fixed,"files"),row.first.c_str(),64));
+        if(model==&before)original_files=std::move(static_files);else need(static_files==original_files);
+        proof.RemoveMember("current_installation");reference.CopyFrom(proof,model->GetAllocator());
+    }
+    }
     before.RemoveMember("installation_root");current.RemoveMember("installation_root");
     need(member(before,"trader").IsObject()&&member(current,"trader").IsObject());
     const auto& old=before["trader"];auto& selected=current["trader"];
@@ -820,10 +858,38 @@ bool positive_capital(const std::string& amount){
     }
     return positive;
 }
+// 配置中的持久化引用只投影路径；实际启动由跨盘恢复凭据核原所有者和目标文件。
+rj::Document private_storage_copy(const rj::Value& config){
+    const auto& reference=member(config,"private_storage_origin");
+    keys(reference,{"file","sha256"});need(reference.MemberCount()==2);
+    const auto path=absolute(text(reference,"file"));physical(path);
+    const auto raw=read(path,4*1024*1024);need(sha(raw)==text(reference,"sha256",64));
+    auto proof=parse(raw);
+    keys(proof,{"schema","predecessor_control","predecessor_configuration_sha256","predecessor_closed_sha256",
+        "original_output","target_output","native_files","databases","compaction_sha256"});
+    const auto original=absolute(text(proof,"original_output"));const auto target=absolute(text(proof,"target_output"));
+    need(text(proof,"schema")=="guanheng.wt-private-storage-copy.v1"&&proof.MemberCount()==9
+        &&original!=target&&target==absolute(text(config,"output_directory"))&&target==path.parent_path()/"native");
+    const auto allocation=absolute(text(member(member(proof,"databases"),"allocation"),"target"));
+    need(allocation==path.parent_path()/"allocation"/"account-allocation.sqlite3"
+        &&allocation.parent_path()==absolute(text(member(config,"shared_account_storage"),"allocation_root")));
+    return proof;
+}
 // 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
 rj::Document market_model(const rj::Value& config,unsigned depth=0){
     need(depth<16);
-    if(!config.HasMember("strategy_extension_origin"))return legacy_market_model(config);
+    if(config.HasMember("private_storage_origin")){
+        const auto proof=private_storage_copy(config);
+        rj::Document projected;projected.CopyFrom(config,projected.GetAllocator());
+        projected["output_directory"].CopyFrom(member(proof,"original_output"),projected.GetAllocator());
+        projected.RemoveMember("private_storage_origin");
+        return market_model(projected,depth+1);
+    }
+    if(!config.HasMember("strategy_extension_origin")){
+        auto model=legacy_market_model(config);
+        model.RemoveMember("shared_account_storage");
+        return model;
+    }
     if(config.HasMember("execution_permission_origin")){
         const auto& permission=member(config,"execution_permission_origin");
         const auto path=absolute(text(permission,"file"));const auto raw=read(path,256*1024);
@@ -923,6 +989,59 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     need(!initialization_abort||(!fs::exists(previous/"ready.json")&&!transition.HasMember("restoration")));
     const auto ready_raw=read(previous/(initialization_abort?"failure.json":"ready.json"),4096);const auto ready=parse(ready_raw);
     const bool clean_transition=fs::exists(previous/"closed.json");
+    const auto previous_output=absolute(text(prior_config,"output_directory"));
+    const bool storage_moved=previous_output!=output;
+    Handle previous_lease;
+    const auto active_marker=output/".cta-clean.json";
+    const auto consumed=output/".cta-clean.consumed.json";
+    auto clean_marker=active_marker;
+    const auto claimed=output/(".cta-reconciled-"+transition_sha+".json");
+    fs::path previous_marker, archived_marker;
+    if(storage_moved){
+        need(clean_transition&&!initialization_abort&&!transition.HasMember("restoration")
+             &&!prior_config.HasMember("private_storage_origin")&&current.HasMember("private_storage_origin"));
+        const auto proof=private_storage_copy(current);
+        need(absolute(text(proof,"predecessor_control"))==previous
+            &&text(proof,"predecessor_configuration_sha256",64)==prior_sha
+            &&absolute(text(proof,"original_output"))==previous_output
+            &&sha(read(previous/"closed.json",4096))==text(proof,"predecessor_closed_sha256",64));
+        // 同时持有旧根和当前根的原生租约，排除旧配置并发取回关闭标记。
+        physical(previous_output);
+        previous_lease.value=CreateFileW((previous_output/".cta-session.lock").c_str(),
+            GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+        need(previous_lease.value!=INVALID_HANDLE_VALUE);
+        BY_HANDLE_FILE_INFORMATION lock_info{};
+        need(GetFileInformationByHandle(previous_lease.value,&lock_info)&&lock_info.nNumberOfLinks==1
+             &&!(lock_info.dwFileAttributes&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY)));
+        previous_marker=previous_output/".cta-clean.json";
+        archived_marker=previous_output/(".cta-relocated-"+text(member(current,"private_storage_origin"),"sha256",64)+".json");
+        const bool already_archived=fs::exists(archived_marker);
+        need(already_archived!=fs::exists(previous_marker));
+        // 目标租约已持有；撤回收据一旦发布，原快照永久失去接管资格。
+        need(!fs::exists(output.parent_path()/"abandoned.json"));
+        // 已认领目录可能已经接收回报；跨盘准入只能使用尚未认领的候选。
+        for(const auto& item:fs::directory_iterator(output)){
+            const auto filename=item.path().filename().wstring();
+            need(filename.rfind(L".cta-reconciled-",0)!=0);
+        }
+        // 关闭凭据已更名、认领尚未开始时，可以继续同一次迁移。
+        if(!fs::exists(active_marker)){
+            need(already_archived);
+            clean_marker=consumed;
+        }
+        const auto original_marker=read(already_archived?archived_marker:previous_marker,256*1024);
+        const auto& copy_files=member(proof,"native_files");
+        need(original_marker==read(clean_marker,256*1024)
+            &&sha(original_marker)==text(copy_files,".cta-clean.json",64));
+        const auto& state_files=member(transition,"state_files");need(state_files.IsObject());
+        need(encode(state_identity(previous_output,member(prior_config,"strategies")))==encode(state_files));
+        for(auto it=state_files.MemberBegin();it!=state_files.MemberEnd();++it)
+            need(member(copy_files,it->name.GetString())==it->value);
+    }else{
+        need(current.HasMember("private_storage_origin")==prior_config.HasMember("private_storage_origin"));
+        if(current.HasMember("private_storage_origin"))
+            need(member(current,"private_storage_origin")==member(prior_config,"private_storage_origin"));
+    }
     need(!transition.HasMember("restoration")||clean_transition);
     const bool lost_transition=!clean_transition&&!fs::exists(previous/"close-prepared.json")
         &&!fs::exists(previous/"failure.json")&&fs::exists(previous/"owner-loss.json");
@@ -959,8 +1078,19 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
             &&sha(read(origin/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64));
         auto source=parse(source_raw);
         if(aborted_loss){
-            // 仅沿已验证的异常退出认领接续，实际账户、执行权限和业务配置逐项保持。
-            need(member(source,"trader")==member(prior_config,"trader")&&member(source,"trader")==member(current,"trader"));
+            const auto& prior_trader=member(prior_config,"trader");
+            const auto& source_trader=member(source,"trader");
+            need(prior_trader==member(current,"trader"));
+            if(source_trader!=prior_trader){
+                // 只允许已核定的停写代继续停写，完整柜台身份仍逐项一致。
+                need(member(source_trader,"writes_enabled").IsTrue()&&member(prior_trader,"writes_enabled").IsFalse());
+                rj::Document read_only;read_only.CopyFrom(source_trader,read_only.GetAllocator());
+                read_only["writes_enabled"].SetBool(false);need(read_only==prior_trader);
+                const auto& permission=member(prior_config,"execution_permission_origin");
+                need(text(permission,"schema")=="guanheng.execution-permission-origin.v1"
+                    &&absolute(text(permission,"file"))==origin/"execution.json"
+                    &&text(permission,"sha256",64)==sha(source_raw));
+            }
             const auto& queue=member(ready,"execution_queue");
             keys(queue,{"fault","accepting","inflight","accepted","entered","delivered","rejected","queued_commands","payload_bytes"});
             need(member(ready,"closed").IsFalse()&&member(queue,"accepting").IsFalse()&&member(queue,"inflight").IsFalse());
@@ -1028,7 +1158,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
                 &&member(closed,"recovery_ready").IsTrue()&&member(closed,"exit_code").IsInt()
                 &&member(closed,"exit_code").GetInt()==0&&member(closed,"error_code").IsNull()
                 &&member(closed,"resources_closed").IsTrue());
-            const auto clean_raw=read(output/".cta-clean.json",256*1024);const auto origin=parse(clean_raw);
+            const auto clean_raw=read(clean_marker,256*1024);const auto origin=parse(clean_raw);
             need(text(origin,"schema")=="guanheng.cta-clean.v2"&&text(origin,"control_id")==text(ready,"control_id")
                 &&text(origin,"config_sha256")==sha(encode(prior_config))&&member(origin,"closed").IsTrue()
                 &&member(origin,"pid")==member(ready,"pid")&&text(origin,"closed_config_sha256")==prior_sha
@@ -1091,7 +1221,6 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     if(process.value)need(WaitForSingleObject(process.value,0)==WAIT_OBJECT_0);
     else need(GetLastError()==ERROR_INVALID_PARAMETER);
     need(sha(read(previous/"python-binding.json",256*1024))==text(transition,"predecessor_python_binding_sha256"));
-    const auto consumed=output/".cta-clean.consumed.json";
     if(clean_transition){/* 原成功关闭证明已在同根租约内完整核验。 */}
     else if(fs::exists(previous/"installation-identity.json")){
         const auto origin=parse(read(previous/"installation-identity.json",4096));same_origin(origin);
@@ -1115,7 +1244,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     }else need(false);
     need((clean_transition||!fs::exists(output/".cta-clean.json"))&&!fs::exists(output/".cta-clean.prepared.json")
         &&encode(transition_state_identity(output,current,state_owner))==encode(member(transition,"state_files")));
-    const auto claimed=output/(".cta-reconciled-"+transition_sha+".json");need(!fs::exists(claimed));
+    need(!fs::exists(claimed)&&!fs::exists(fs::path(claimed.wstring()+L".pending")));
     auto proof=receipt("guanheng.cta-reconciled.v1",id,configuration,false);auto& a=proof.GetAllocator();
     proof.AddMember("transition_sha256",rj::Value(transition_sha.c_str(),a),a); // 配置绑定的固定发行材料摘要。
     proof.AddMember("admission_kind",rj::Value(initialization_abort?"initialization_abort_reconciled":transition.HasMember("restoration")?"restored_snapshot":clean_transition?"clean_transition":lost_transition?"process_lost_reconciled":"fault_reconciled",a),a); // 启动失败原状态、正常关闭、显式恢复和故障依据分别保留。
@@ -1125,7 +1254,9 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
     proof.AddMember("predecessor_control_id",rj::Value(text(ready,"control_id").c_str(),a),a); // 上代真实控制ID。
     proof.AddMember("state_files",rj::Value(member(transition,"state_files"),a),a); // 原金融JSON相对路径与字节摘要，仅作准入证据。
     // 独立核查收据记录新代认领；原failure/consumed与金融JSON均保留原字节。
-    if(clean_transition)need(MoveFileExW((output/".cta-clean.json").c_str(),consumed.c_str(),
+    if(storage_moved&&!fs::exists(archived_marker))
+        need(MoveFileExW(previous_marker.c_str(),archived_marker.c_str(),MOVEFILE_WRITE_THROUGH)!=0);
+    if(clean_transition&&clean_marker==active_marker)need(MoveFileExW(active_marker.c_str(),consumed.c_str(),
         MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0);
     if(!abort_claim.empty())publish(abort_claim,proof);
     publish(claimed,proof);publish(control/"reconciled.json",proof);
@@ -1285,7 +1416,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         native_log_attempted=true;
         { std::lock_guard<std::mutex> lock(request_log_mutex);request_log=&native_log; }
         const auto raw=read(config_path,256*1024);need(sha(raw)==expected_sha);auto cfg=parse(raw);
-        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","strategy_extension_origin","shared_account_storage"});
+        keys(cfg,{"schema_version","installation_root","output_directory","base_data","trader","executer","environment","data","parsers","strategies","budget","queue","recovery","takeover","observation_refresh","market_input_origin","execution_permission_origin","strategy_extension_origin","shared_account_storage","private_storage_origin"});
         need(text(cfg,"schema_version")=="guanheng.cta-execution.v1");
         std::string reader_cache_path;
         if(const auto* publication=cfg.HasMember("data")?daily_publication(cfg["data"]):nullptr){
@@ -1302,6 +1433,10 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             reader_cache_path=reader_cache.string();
             need(fs::path(reader_cache_path)==reader_cache);
             stage="configuration";
+        }
+        if(cfg.HasMember("private_storage_origin")){
+            need(text(member(cfg,"recovery"),"mode")=="resume_reconciled");
+            private_storage_copy(cfg);
         }
         if(cfg.HasMember("execution_permission_origin")){
             need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
@@ -1585,6 +1720,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                 log_state.AddMember("attempted_records",logging.attempted_records,l);
                 log_state.AddMember("write_failures",logging.write_failures,l);
                 log_state.AddMember("truncated_records",logging.truncated_records,l);
+                log_state.AddMember("dropped_records",logging.dropped_records,l); // 普通日志队满时丢弃条数。
+                log_state.AddMember("flushes",logging.flushes,l); // 主动请求刷新日志文件次数。
                 log_state.AddMember("max_file_bytes",guanheng::NativeRuntimeLog::file_bytes,l);
                 log_state.AddMember("max_files",guanheng::NativeRuntimeLog::backup_files+1,l);
                 publish(control/"native-log-status.json",log_state,true);
@@ -1765,6 +1902,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         value.AddMember("initialized",logging.initialized,a);value.AddMember("file_opened",logging.file_opened,a);
         value.AddMember("attempted_records",logging.attempted_records,a);value.AddMember("write_failures",logging.write_failures,a);
         value.AddMember("truncated_records",logging.truncated_records,a);
+        value.AddMember("dropped_records",logging.dropped_records,a); // 普通日志队满时丢弃条数。
+        value.AddMember("flushes",logging.flushes,a); // 包含退出排空后的主动刷新。
         value.AddMember("max_file_bytes",guanheng::NativeRuntimeLog::file_bytes,a);
         value.AddMember("max_files",guanheng::NativeRuntimeLog::backup_files+1,a);
         publish(control/"native-log-status.json",value,true);

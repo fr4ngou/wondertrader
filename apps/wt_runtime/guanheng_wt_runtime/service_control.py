@@ -22,7 +22,7 @@ from guanheng_market_client.runtime_status import (
 )
 
 from .execution_recovery import execution_state_files, prepare_transition, require_process_exited
-from .managed_local_process import _inspect, _path, _read, _require, _sha
+from .managed_local_process import _inspect, _path, _read, _require, _sha, runtime_control_path
 from .runtime import RuntimeConfig, _READ_ONLY_PROCESSES
 
 
@@ -159,12 +159,18 @@ class ServiceConfig:
     current_file: Path  # 严格五字段 guanheng.wt-current.v1 的稳定公开文件。
     environment_file: Path  # 启动环境私有 JSON；值只注入子进程，禁止进入输出或 CURRENT。
     environment_sha256: str  # 环境正文原字节 SHA256；防止 start 前输入漂移。
+    private_control_root: Path | None = None  # 后继父运行代的目录；缺省使用原 control_root，旧收据保留原位置。
 
     @classmethod
     def from_path(cls, path: str | Path) -> "ServiceConfig":
         """读取严格私有配置；仅验证身份，不启动进程或读取账户事实。"""
         source = _path(str(path), e_drive=True)
         _, value = _json_file(source, 64 * 1024)
+        return cls.from_mapping(value)
+
+    @classmethod
+    def from_mapping(cls, value: dict) -> "ServiceConfig":
+        """解析已读取并由调用者固定的私有配置，供组入口和独立入口共用。"""
         fields = {
             "schema",
             "pythonw",
@@ -177,7 +183,8 @@ class ServiceConfig:
             "environment_file",
             "environment_sha256",
         }
-        _require(set(value) == fields and value["schema"] == "guanheng.wt-service.v1")
+        _require(type(value) is dict and fields <= set(value) <= fields | {"private_control_root"}
+                 and value["schema"] == "guanheng.wt-service.v1")
         result = cls(
             pythonw=_path(value["pythonw"], e_drive=True),
             pythonw_sha256=_sha(value["pythonw_sha256"]),
@@ -188,6 +195,8 @@ class ServiceConfig:
             current_file=_path(value["current_file"], e_drive=True),
             environment_file=_path(value["environment_file"], e_drive=True),
             environment_sha256=_sha(value["environment_sha256"]),
+            private_control_root=(runtime_control_path(value["private_control_root"])
+                                  if "private_control_root" in value else None),
         )
         result.validate()
         return result
@@ -198,6 +207,9 @@ class ServiceConfig:
             _inspect(path)
         for directory in (self.control_root, self.generation_root, self.current_file.parent):
             _inspect(directory, directory=True)
+        if self.private_control_root is not None:
+            _inspect(self.private_control_root, directory=True)
+            _require(self.private_control_root not in (self.generation_root, self.current_file.parent))
         _require(self.current_file.parent != self.generation_root)
         _require(hashlib.sha256(_read(self.pythonw, 64 * 1024 * 1024)).hexdigest() == self.pythonw_sha256)
         _require(
@@ -251,7 +263,7 @@ def validate_current(value: dict) -> dict:
     """验证公开 CURRENT 的冻结五字段；每个字段含义见 WT 服务控制规格。"""
     _require(type(value) is dict and set(value) == _CURRENT_FIELDS)
     _require(value["schema"] == "guanheng.wt-current.v1")
-    status_file = _path(value["wt_status_file"], e_drive=True)
+    status_file = runtime_control_path(value["wt_status_file"])
     control_id = _canonical_uuid(value["wt_control_id"])
     instance_id = _canonical_uuid(value["wt_instance_id"])
     configuration_sha256 = _sha(value["wt_configuration_sha256"])
@@ -385,6 +397,8 @@ class ServiceController:
             "--control-directory", str(control_directory), "--control-id", current["wt_control_id"],
             "--record-process-loss",
         ]
+        if control_directory.parent != self.config.control_root:
+            command.extend(("--instance-lease-root", str(self.config.control_root)))
         result = subprocess.run(
             command, cwd=str(runtime_path.parent), env=self._environment(), stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
@@ -404,8 +418,8 @@ class ServiceController:
         if reference is None:
             return
         _require(reference.get("schema") == "guanheng.execution-observation-reference.v1")
-        child = _path(reference["path"], e_drive=True).parent
-        _require(_path(reference["ready_path"], e_drive=True) == child / "ready.json")
+        child = runtime_control_path(reference["path"]).parent
+        _require(runtime_control_path(reference["ready_path"]) == child / "ready.json")
         if not any(os.path.lexists(child / name) for name in ("closed.json", "close-prepared.json", "failure.json", "owner-loss.json")):
             if not self._record_process_loss(current):
                 raise ValueError("execution_predecessor_exit_unconfirmed")
@@ -416,17 +430,17 @@ class ServiceController:
             _, value = _json_file(path, 16 * 1024)
         except FileNotFoundError:
             return None
+        fields = {
+            "schema",
+            "control_id",
+            "runtime_configuration",
+            "runtime_configuration_sha256",
+            "predecessor_control_id",
+            "transition_file",
+            "runtime_owner_file",
+        }
         _require(
-            set(value)
-            == {
-                "schema",
-                "control_id",
-                "runtime_configuration",
-                "runtime_configuration_sha256",
-                "predecessor_control_id",
-                "transition_file",
-                "runtime_owner_file",
-            }
+            fields <= set(value) <= fields | {"runtime_status_file"}
             and value["schema"] == "guanheng.wt-service-generation.v1"
             and value["control_id"] == control_id
         )
@@ -435,7 +449,19 @@ class ServiceController:
         _require(value["predecessor_control_id"] is None or _canonical_uuid(value["predecessor_control_id"]))
         _require(value["transition_file"] is None or _path(value["transition_file"], e_drive=True))
         _path(value["runtime_owner_file"], e_drive=True)
+        if "runtime_status_file" in value:
+            self._generation_status_file(control_id, value)
         return value
+
+    def _generation_status_file(self, control_id, record):
+        """按代登记的目录找父回执，旧代按原控制根解释。"""
+        original = self.config.control_root / control_id / "status.json"
+        if record is None or "runtime_status_file" not in record:
+            return original
+        path = runtime_control_path(record["runtime_status_file"])
+        private = self.config.private_control_root
+        _require(path == original or private is not None and path == private / control_id / "status.json")
+        return path
 
     def _runtime_owner_active(self, current: dict) -> bool | None:
         """核本代ready、私有owner身份及当前OS创建时间；None表示身份材料未知。"""
@@ -499,7 +525,8 @@ class ServiceController:
         if current is None:
             return None
         status_file = Path(current["wt_status_file"])
-        _require(status_file.parent.parent == self.config.control_root)
+        _require(status_file == self._generation_status_file(current["wt_control_id"],
+                                                            self._generation_record(current["wt_control_id"])))
         bootstrap = RuntimeConfig.from_path(
             str(self.config.bootstrap_configuration), self.config.bootstrap_configuration_sha256
         )
@@ -560,7 +587,7 @@ class ServiceController:
             _require(transition_file is None)
         return transition_file
 
-    def _pre_native_execution_origin(self, current, status):
+    def _pre_native_execution_origin(self, current, status, *, aborted_control=None):
         """核子进程准入前退出和原状态字节，再定位最后有效的执行观察。"""
         execution = status.get("components", {}).get("execution", {})
         if (status.get("error_code") != "component_runtime_execution"
@@ -584,9 +611,10 @@ class ServiceController:
         role = runtime["execution"]
         descriptor = _pinned_json(_path(role.descriptor, e_drive=True), role.sha256, 256 * 1024)
         _require(descriptor.get("python_strategies") is True)
-        root = _path(descriptor["control_root"], e_drive=True)
+        root = runtime_control_path(descriptor["control_root"])
         from .execution_process import ManagedExecutionProcess
-        events = _read(root / "process-events.jsonl", 1024 * 1024).splitlines()
+        from .runtime_diagnostics import ProcessEventLog
+        events = _read(root / "process-events.jsonl", ProcessEventLog.DEFAULT_MAX_BYTES).splitlines()
         records = [json.loads(row) for row in events]
         records = [row for row in records if row.get("schema") == "guanheng.process-event.v1"
                    and row.get("component") == ManagedExecutionProcess._thread_name]
@@ -597,23 +625,52 @@ class ServiceController:
         _inspect(child, directory=True)
         _require(terminal.get("event") == "process_closed" and terminal.get("code") == "unexpected_exit"
                  and terminal.get("exit_code") in (1, 2) and terminal.get("host_pid") is None
-                 and terminal.get("host_exit_code") is None
-                 and any(row.get("control_id") == child_id and row.get("event") == "process_started"
-                         for row in records[:-1]))
+                 and terminal.get("host_exit_code") is None)
+        def started(row):
+            return (row.get("schema") == "guanheng.process-event.v1"
+                    and row.get("component") == ManagedExecutionProcess._thread_name
+                    and row.get("control_id") == child_id and row.get("event") == "process_started")
+
+        if not any(started(row) for row in records[:-1]):
+            # 退出附近发生轮转时，启动记录仍归同一控制代。只遍历本系列原有的三份备份。
+            found = False
+            for index in range(1, ProcessEventLog.DEFAULT_BACKUPS + 1):
+                try:
+                    rows = _read(root / f"process-events.jsonl.{index}", ProcessEventLog.DEFAULT_MAX_BYTES).splitlines()
+                except FileNotFoundError:
+                    break
+                if any(started(json.loads(row)) for row in rows):
+                    found = True
+                    break
+            _require(found)
         native = _pinned_json(child / "execution.json", descriptor["configuration_sha256"], 256 * 1024)
         transition_file = self._retained_execution_transition(current, descriptor)
         _require(transition_file is not None)
         reference = native["recovery"]["transition"]
         transition = _pinned_json(_path(transition_file, e_drive=True), reference["sha256"], 1024 * 1024)
-        state_root = _path(native["output_directory"], e_drive=True)
+        state_root = _path(native["output_directory"])
+        _require(state_root.drive.lower() in ("d:", "e:"))
         if terminal["exit_code"] == 2 and not (child / "failure.json").exists():
-            _require({item.name for item in child.iterdir()} == {"execution.json", "python-binding.json"})
+            names = {item.name for item in child.iterdir()}
+            expected = {"execution.json", "python-binding.json"}
+            if "python-start-failure.json" in names:
+                _, diagnostic = _json_file(child / "python-start-failure.json", 4096)
+                _require(diagnostic.get("schema") == "guanheng.cta-python-start-failure.v1"
+                         and diagnostic.get("control_id") == child_id
+                         and diagnostic.get("config_sha256") == descriptor["configuration_sha256"]
+                         and diagnostic.get("stage") in ("python_binding", "execution_configuration",
+                                                         "execution_transition"))
+                expected.add("python-start-failure.json")
+            _require(names == expected)
         else:
             # 原生初始化可以先写完整退出收据，再返回启动失败码。
             self._verify_native_start_abort(child, child_id, descriptor["configuration_sha256"])
         claim = state_root / f'.cta-reconciled-{reference["sha256"]}.json'
         _require(not claim.exists() and not claim.with_suffix(".json.pending").exists())
         _require(execution_state_files(state_root) == transition["state_files"])
+        if aborted_control is not None:
+            _require("initialization_abort" in transition
+                     and _path(transition["predecessor_control_directory"]) == aborted_control)
         seen = set()
         control_id = current["wt_control_id"]
         while control_id is not None:
@@ -628,9 +685,21 @@ class ServiceController:
             _require(previous is not None)
             origin = validate_current(dict(current, wt_control_id=control_id,
                 wt_configuration_sha256=previous["runtime_configuration_sha256"],
-                wt_status_file=str(self.config.control_root / control_id / "status.json")))
+                wt_status_file=str(self._generation_status_file(control_id, previous))))
             origin_status = _runtime_status(origin, allow_pending=False)
             observation = origin_status["components"]["execution"]["business_observation"]
+            if aborted_control is not None:
+                if (origin_status.get("error_code") == "component_runtime_execution"
+                        and origin_status["components"]["execution"].get("error_code") == "execution_start"
+                        and observation is None):
+                    origin_path, origin_sha = self._configuration_for(origin)
+                    role = dict(RuntimeConfig.from_path(str(origin_path), origin_sha).components)["execution"]
+                    source = _pinned_json(_path(role.descriptor), role.sha256, 256 * 1024)
+                    if source["configuration_sha256"] == transition["predecessor_configuration_sha256"]:
+                        _require(runtime_control_path(source["control_root"]) == aborted_control.parent
+                                 and self._runtime_owner_active(origin) is False)
+                        return origin
+                continue
             if observation is not None:
                 _require(type(observation) is dict
                          and observation["config_sha256"] == transition["predecessor_configuration_sha256"]
@@ -702,7 +771,7 @@ class ServiceController:
                 _require(self._record_process_loss(previous))
 
     @staticmethod
-    def _trade_deployment_identity(component):
+    def _trade_deployment_identity(component, *, include_storage_model=False):
         """从已固定的交易部署读取原Journal和绑定身份，沿Source协议解码。"""
         from guanheng_qmt_shm.trade_deployment_identity import reference_deployment_identity
 
@@ -714,8 +783,18 @@ class ServiceController:
         deployment = _read(pair / "deployment.json", 16 * 1024 * 1024)
         _require(hashlib.sha256(deployment).hexdigest() == _sha(manifest["config_sha256"]))
         identity = reference_deployment_identity(deployment)
-        host = json.loads(deployment)["host"]
-        return identity, (host["listen_host"], host["listen_port"])
+        model = json.loads(deployment)
+        host = model["host"]
+        endpoint = (host["listen_host"], host["listen_port"])
+        if include_storage_model:
+            # 迁盘只改变通信库位置。其他Host、Agent、凭据与权限字段仍逐项相同。
+            host.pop("journal_path")
+            _require(_path(host.pop("operation_policies_path")) == pair / "policy.json")
+            policies = _read(pair / "policy.json", 1024 * 1024)
+            policies_sha = hashlib.sha256(policies).hexdigest()
+            _require(policies_sha == _sha(manifest["files"]["policy.json"]))
+            return identity, endpoint, hashlib.sha256(_canonical([model, policies_sha])).hexdigest()
+        return identity, endpoint
 
     @staticmethod
     def _require_trade_endpoint(trader, endpoint):
@@ -739,7 +818,8 @@ class ServiceController:
         origin = _pinned_json(_path(identity["file"], e_drive=True), identity["sha256"], 65536)
         _require(origin == predecessor)
 
-    def _require_managed_trade_handoff(self, previous_runtime, candidate, native, new_native):
+    def _require_managed_trade_handoff(self, previous_runtime, candidate, native, new_native, *,
+                                       private_storage=None, predecessor_control=None, predecessor_sha=None):
         from .execution_dependency_handoff import TRANSPORT
 
         old_trade = dict(previous_runtime.components).get("trade_host")
@@ -747,41 +827,79 @@ class ServiceController:
         old_trader, new_trader = native["trader"], new_native["trader"]
         old_binding, new_binding = old_trader["binding_sha256"], new_trader["binding_sha256"]
         if old_trade is None:
-            _require(new_trade is None and old_binding == new_binding)
+            _require(private_storage is None and new_trade is None and old_binding == new_binding)
             return
         _require(new_trade is not None)
-        before, old_endpoint = self._trade_deployment_identity(old_trade)
-        after, new_endpoint = (before, old_endpoint) if old_trade == new_trade else self._trade_deployment_identity(new_trade)
-        _require(before["journal_path"] == after["journal_path"]
-                 and before["trade_binding_sha256"] == old_binding
+        if private_storage is None:
+            before, old_endpoint = self._trade_deployment_identity(old_trade)
+            after, new_endpoint = (before, old_endpoint) if old_trade == new_trade else self._trade_deployment_identity(new_trade)
+        else:
+            before, old_endpoint, old_model = self._trade_deployment_identity(old_trade, include_storage_model=True)
+            after, new_endpoint, new_model = self._trade_deployment_identity(new_trade, include_storage_model=True)
+            _require(old_model == new_model)
+        _require(before["trade_binding_sha256"] == old_binding
                  and after["trade_binding_sha256"] == new_binding)
+        if private_storage is None:
+            _require(before["journal_path"] == after["journal_path"])
+        else:
+            from .private_storage import verify_private_copy
+            from .shared_account_configuration import allocation_storage
+
+            configured = new_native.get("private_storage_origin")
+            _require(native.get("private_storage_origin") is None
+                     and type(configured) is dict and set(configured) == {"file", "sha256"}
+                     and _path(configured["file"]) == _path(private_storage["file"])
+                     and _sha(configured["sha256"]) == _sha(private_storage["sha256"])
+                     and old_binding == new_binding
+                     and before["journal_path"] != after["journal_path"])
+            deadline = self._clock() + candidate.startup_seconds
+            _, old_root, old_output = allocation_storage(native, deadline=deadline)
+            _, new_root, new_output = allocation_storage(new_native, deadline=deadline)
+            verify_private_copy(private_storage, control=predecessor_control,
+                configuration_sha256=predecessor_sha, output=old_output,
+                journal=before["journal_path"], allocation=old_root / "account-allocation.sqlite3",
+                target_output=new_output, target_journal=after["journal_path"],
+                target_allocation=new_root / "account-allocation.sqlite3")
         self._require_trade_endpoint(old_trader, old_endpoint)
         self._require_trade_endpoint(new_trader, new_endpoint)
         if any(old_trader.get(key) != new_trader.get(key) for key in TRANSPORT):
             self._require_trade_source_origin(new_native, before)
 
-    def _recover_execution(self, generation, previous_status, runtime_value, descriptor, candidate, previous_runtime):
+    def _recover_execution(self, generation, previous_status, runtime_value, descriptor, candidate, previous_runtime,
+                           *, private_storage=None, aborted_control=None):
         """以实际前代为账本来源，使用普通重启与显式采用共用的执行交接。"""
         execution_status = previous_status.get("components", {}).get("execution")
         _require(type(execution_status) is dict)
         observation = execution_status.get("business_observation")
-        _require(type(observation) is dict and observation.get("schema") == "guanheng.execution-observation-reference.v1")
-        predecessor_control = _path(observation["path"], e_drive=True).parent
-        _require(_path(observation["ready_path"], e_drive=True) == predecessor_control / "ready.json")
-        ready = read_status(predecessor_control / "ready.json", 4096)
+        if aborted_control is None:
+            _require(type(observation) is dict and observation.get("schema") == "guanheng.execution-observation-reference.v1")
+            predecessor_control = runtime_control_path(observation["path"]).parent
+            _require(runtime_control_path(observation["ready_path"]) == predecessor_control / "ready.json")
+            ready = read_status(predecessor_control / "ready.json", 4096)
+            previous_native_sha = _sha(observation["config_sha256"])
+            _require(ready.get("schema") == "guanheng.execution.ready.v1"
+                     and ready.get("control_id") == observation["control_id"]
+                     and ready.get("config_sha256") == previous_native_sha
+                     and ready.get("pid") == observation["pid"])
+        else:
+            role = dict(previous_runtime.components)["execution"]
+            old_descriptor = _pinned_json(_path(role.descriptor), role.sha256, 256 * 1024)
+            predecessor_control = runtime_control_path(str(aborted_control))
+            _require(predecessor_control.parent == runtime_control_path(old_descriptor["control_root"])
+                     and _canonical_uuid(predecessor_control.name) and observation is None)
+            previous_native_sha = _sha(old_descriptor["configuration_sha256"])
         previous_native = predecessor_control / "execution.json"
-        previous_native_sha = _sha(observation["config_sha256"])
         native = _pinned_json(previous_native, previous_native_sha, 256 * 1024)
-        _require(ready.get("schema") == "guanheng.execution.ready.v1"
-                 and ready.get("control_id") == observation["control_id"]
-                 and ready.get("config_sha256") == previous_native_sha
-                 and ready.get("pid") == observation["pid"])
         if candidate is not None:
             _require(descriptor.get("python_strategies") is True)
             new_native = _pinned_json(_path(descriptor["configuration"], e_drive=True),
                                       descriptor["configuration_sha256"], 256 * 1024)
-            self._require_managed_trade_handoff(previous_runtime, candidate, native, new_native)
+            self._require_managed_trade_handoff(previous_runtime, candidate, native, new_native,
+                private_storage=private_storage, predecessor_control=predecessor_control,
+                predecessor_sha=previous_native_sha)
             native = new_native
+        if aborted_control is not None:
+            _require(native["trader"]["writes_enabled"] is False)
         store = native.get("data", {}).get("store", {})
         daily = store.get("daily", {})
         if store.get("module") == "GuanhengRealtimeReader" and "publication" in daily:
@@ -796,7 +914,7 @@ class ServiceController:
             _write_exclusive(native_template, native)
             transition = prepare_transition(
                 native_template, previous_native, predecessor_control, transition_path,
-                successor_python=self.config.pythonw,
+                successor_python=self.config.pythonw, initialization_abort=aborted_control is not None,
             )
         native["recovery"] = {"mode": "resume_reconciled", "transition": transition}
         native_path = generation / "native.json"
@@ -817,13 +935,15 @@ class ServiceController:
         return str(transition_path)
 
     def _new_generation(self, previous: dict | None, previous_status: dict | None, *, adopt_bootstrap=False,
-                        execution_origin=None) -> tuple[dict, Path]:
+                        execution_origin=None, private_storage=None, aborted_control=None,
+                        startup_seconds=None) -> tuple[dict, Path]:
         control_id = str(uuid4())
         generation = self.config.generation_root / control_id
         generation.mkdir()
         try:
             return self._materialize_generation(control_id, generation, previous, previous_status, adopt_bootstrap,
-                                                execution_origin=execution_origin)
+                                                execution_origin=execution_origin, private_storage=private_storage,
+                                                aborted_control=aborted_control, startup_seconds=startup_seconds)
         except Exception:
             self._discard_generation(control_id)
             raise
@@ -837,7 +957,8 @@ class ServiceController:
         generation.rmdir()
 
     def _materialize_generation(self, control_id, generation, previous, previous_status, adopt_bootstrap,
-                                *, execution_origin=None):
+                                *, execution_origin=None, private_storage=None, aborted_control=None,
+                                startup_seconds=None):
         owner_file = generation / "runtime-owner.json"
         runtime_path = self.config.bootstrap_configuration
         runtime_sha = self.config.bootstrap_configuration_sha256
@@ -863,6 +984,8 @@ class ServiceController:
                         _require(not adopt_bootstrap)
                         # 本代没有实际Native；原交接继续绑定最后实际执行代。
                         transition_file = self._retained_execution_transition(previous, descriptor)
+                        if startup_seconds is not None:
+                            runtime_value["startup_seconds"] = startup_seconds
                     else:
                         origin_status, origin_runtime = previous_status, previous_runtime
                         if execution_origin is not None:
@@ -871,7 +994,8 @@ class ServiceController:
                             origin_runtime = RuntimeConfig.from_path(str(origin_path), origin_sha)
                         transition_file = self._recover_execution(
                             generation, origin_status, runtime_value, descriptor,
-                            runtime if adopt_bootstrap else None, origin_runtime,
+                            runtime if adopt_bootstrap else None, origin_runtime, private_storage=private_storage,
+                            aborted_control=aborted_control,
                         )
                 runtime_path = generation / "runtime.json"
                 runtime_sha = _write_exclusive(runtime_path, runtime_value)
@@ -880,7 +1004,7 @@ class ServiceController:
         current = validate_current(
             {
                 "schema": "guanheng.wt-current.v1",
-                "wt_status_file": str(self.config.control_root / control_id / "status.json"),
+                "wt_status_file": str((self.config.private_control_root or self.config.control_root) / control_id / "status.json"),
                 "wt_control_id": control_id,
                 "wt_instance_id": runtime.instance_id,
                 "wt_configuration_sha256": runtime_sha,
@@ -896,6 +1020,7 @@ class ServiceController:
                 "predecessor_control_id": previous["wt_control_id"] if previous else None,
                 "transition_file": transition_file,
                 "runtime_owner_file": str(owner_file),
+                "runtime_status_file": current["wt_status_file"],  # 本代状态与日志所在的已配置控制根。
             },
         )
         return current, runtime_path
@@ -934,25 +1059,251 @@ class ServiceController:
                 state = status.get("state", "starting")
         return 0, _safe_projection("status", current, status, state, changed=False)
 
-    def start(self) -> tuple[int, dict]:
+    def start(self, *, startup_seconds=None) -> tuple[int, dict]:
         """默认按原代恢复；已有bootstrap变化由显式采用动作负责。"""
-        return self._start()
+        return self._start(startup_seconds=startup_seconds)
+
+    def prepare_private_storage(self, private_root: Path) -> dict:
+        """在正式服务租约内制作干净关闭后的迁移候选，不启动新代。"""
+        return self._stopped_storage(private_root)
+
+    def abandon_private_storage(self, reference) -> dict:
+        """退役从未认领的候选，恢复旧凭据。原服务依旧由普通 start 启动。"""
+        return self._stopped_storage(None, abandon=reference)
+
+    def _stopped_storage(self, private_root, *, abandon=None):
+        from .private_storage import (abandon_private_copy, journal_owner_lease, native_output_lease,
+                                      prepare_private_copy, private_copy_reference)
+        from .shared_account_configuration import allocation_storage
+
+        with _ServiceLease(self.config.current_file):
+            current = self._owned_current()
+            _require(current is not None)
+            status = _runtime_status(current, allow_pending=False)
+            restore_current = False
+            if abandon is not None and _terminal(current, "closed.json", allow_pending=False) is None:
+                failure = _terminal(current, "failure.json", allow_pending=False)
+                _require(status is not None and failure is not None
+                         and failure.get("pid") == status["pid"] and status.get("state") == "faulted"
+                         and all(row.get("pending") is False and row.get("ready") is False
+                                 for row in status["components"].values())
+                         and status["components"]["execution"].get("business_observation") is None)
+                require_process_exited(status["pid"])
+                path, digest = self._configuration_for(current)
+                runtime = RuntimeConfig.from_path(str(path), digest)
+                role = dict(runtime.components)["execution"]
+                descriptor = _pinned_json(_path(role.descriptor), role.sha256, 256 * 1024)
+                native = _pinned_json(_path(descriptor["configuration"]), descriptor["configuration_sha256"], 256 * 1024)
+                _, copy = private_copy_reference(abandon)
+                configured = native.get("private_storage_origin")
+                _require(type(configured) is dict
+                         and _path(configured["file"]) == _path(abandon["file"])
+                         and configured["sha256"] == abandon["sha256"]
+                         and native["trader"]["writes_enabled"] is False)
+                transition = self._retained_execution_transition(current, descriptor)
+                _require(transition is not None)
+                seen = {current["wt_control_id"]}
+                predecessor = self._generation_record(current["wt_control_id"])["predecessor_control_id"]
+                while True:
+                    _require(predecessor is not None and predecessor not in seen)
+                    seen.add(predecessor)
+                    record = self._generation_record(predecessor)
+                    _require(record is not None)
+                    origin = validate_current(dict(current, wt_control_id=predecessor,
+                        wt_configuration_sha256=record["runtime_configuration_sha256"],
+                        wt_status_file=str(self._generation_status_file(predecessor, record))))
+                    if _terminal(origin, "closed.json", allow_pending=False) is not None:
+                        break
+                    _require(record["transition_file"] == transition
+                             and _terminal(origin, "failure.json", allow_pending=False) is not None)
+                    predecessor = record["predecessor_control_id"]
+                current = origin
+                status = _runtime_status(current, allow_pending=False)
+                observed = status["components"]["execution"]["business_observation"]
+                _require(_path(observed["ready_path"]).parent == _path(copy["predecessor_control"]))
+                restore_current = True
+            _require(_terminal(current, "closed.json", allow_pending=False) is not None)
+            self._admit_bootstrap(current, status)
+            path, digest = self._configuration_for(current)
+            runtime = RuntimeConfig.from_path(str(path), digest)
+            trade = dict(runtime.components).get("trade_host")
+            _require(trade is not None)
+            trade_identity, _ = self._trade_deployment_identity(trade)
+            reference = status["components"]["execution"]["business_observation"]
+            _require(reference["schema"] == "guanheng.execution-observation-reference.v1")
+            control = _path(reference["path"]).parent
+            _require(_path(reference["ready_path"]) == control / "ready.json")
+            native = _pinned_json(control / "execution.json", reference["config_sha256"], 256 * 1024)
+            _, allocation_root, output = allocation_storage(native, deadline=self._clock() + runtime.stop_seconds)
+            allocation = allocation_root / "account-allocation.sqlite3"
+            if abandon is not None:
+                result = abandon_private_copy(abandon, control=control, configuration_sha256=reference["config_sha256"],
+                                            output=output, journal=trade_identity["journal_path"], allocation=allocation)
+                if restore_current:
+                    _publish(self.config.current_file, current)
+                return result
+            journal = _path(trade_identity["journal_path"])
+            with native_output_lease(output), journal_owner_lease(journal):
+                return prepare_private_copy(control, output, journal, allocation, private_root, compact_allocation=True)
+
+    def prepare_private_successor(self, reference, pair, native_template, native_sha256, output, *, no_order=False,
+                                  successor_pythonw=None) -> dict:
+        """物化跨盘配置并走正式前置检查；仍由显式采用命令启动。"""
+        from .execution_recovery import compatible_business_configuration
+        from .private_storage import private_copy_reference
+
+        pair, native_template, output = (_path(str(path), e_drive=True) for path in (pair, native_template, output))
+        with _ServiceLease(self.config.current_file):
+            current = self._owned_current()
+            _require(current is not None and _terminal(current, "closed.json", allow_pending=False) is not None)
+            status = _runtime_status(current, allow_pending=False)
+            self._admit_bootstrap(current, status)
+            runtime_path, runtime_sha = self._configuration_for(current)
+            before = RuntimeConfig.from_path(str(runtime_path), runtime_sha)
+            runtime = _pinned_json(runtime_path, runtime_sha, 64 * 1024)
+            observation = status["components"]["execution"]["business_observation"]
+            _require(observation["schema"] == "guanheng.execution-observation-reference.v1")
+            control = runtime_control_path(observation["path"]).parent
+            _require(runtime_control_path(observation["ready_path"]) == control / "ready.json")
+            predecessor_sha = _sha(observation["config_sha256"])
+            previous_native = _pinned_json(control / "execution.json", predecessor_sha, 256 * 1024)
+            _, storage = private_copy_reference(reference)
+            native = _pinned_json(native_template, native_sha256, 256 * 1024)
+            _require("private_storage_origin" not in native)
+            if no_order:
+                # 使用原权限交接协议，冻结正式前代并在原生交易入口禁用委托和撤单。
+                _require(type(native.get("trader", {}).get("writes_enabled")) is bool)
+                if native["trader"]["writes_enabled"]:
+                    _require(previous_native["trader"]["writes_enabled"] is True)
+                    native["trader"]["writes_enabled"] = False
+                    native["execution_permission_origin"] = {
+                        "schema": "guanheng.execution-permission-origin.v1",  # 既有权限切换材料。
+                        "file": str(control / "execution.json"),  # 实际前代配置，不包含凭据正文。
+                        "sha256": predecessor_sha,  # 前代原始配置摘要。
+                    }
+            _require(compatible_business_configuration(native, previous_native))
+            native.update(
+                output_directory=storage["target_output"],
+                shared_account_storage={"allocation_root": str(_path(storage["databases"]["allocation"]["target"]).parent)},
+                private_storage_origin=reference,
+                recovery={"mode": "resume_clean"},  # 采用命令生成真实前代接续材料。
+            )
+
+            trade_role = runtime["components"]["trade_host"]
+            trade = _pinned_json(_path(trade_role["descriptor"]), trade_role["sha256"], 65536)
+            pair_raw, pair_manifest = _json_file(pair / "manifest.json", 2 * 1024 * 1024)
+            trade.update(pair_directory=str(pair), pair_manifest_sha256=hashlib.sha256(pair_raw).hexdigest(),
+                         pythonw=str(_path(pair_manifest["host_python"])),
+                         pythonw_sha256=_sha(pair_manifest["host_python_sha256"]),
+                         installed_agent=str(_path(pair_manifest["agent_package"])))
+            execution_role = runtime["components"]["execution"]
+            execution = _pinned_json(_path(execution_role["descriptor"]), execution_role["sha256"], 256 * 1024)
+            _require(execution.get("python_strategies") is True)
+            execution.pop("initial_inventory", None)
+            if "installation_root" in native:
+                # Native 模板与执行描述符使用同一安装根；换代继续由原清单检查覆盖。
+                installation = _path(native["installation_root"], e_drive=True)
+                _require(installation.name == "app")
+                _inspect(installation.parent, directory=True)
+                execution["installation"] = str(installation.parent)
+
+            _inspect(output.parent, directory=True)
+            output.mkdir()
+            private_control = runtime_control_path(storage["target_output"]).parent / "execution-control"
+            private_control.mkdir()
+            execution["control_root"] = str(private_control)
+            trade_control = private_control.with_name("trade-control")
+            trade_control.mkdir()
+            trade["control_root"] = str(trade_control)
+            runtime_control = private_control.with_name("runtime-control")
+            runtime_control.mkdir()
+            native_path = output / "native-template.json"
+            execution.update(configuration=str(native_path), configuration_sha256=_write_exclusive(native_path, native))
+            for name, role, value in (("trade-host.json", trade_role, trade), ("execution.json", execution_role, execution)):
+                path = output / name
+                role.update(descriptor=str(path), sha256=_write_exclusive(path, value))
+            runtime_file = output / "runtime.json"
+            digest = _write_exclusive(runtime_file, runtime)
+            after = RuntimeConfig.from_path(str(runtime_file), digest)
+            self._require_managed_trade_handoff(before, after, previous_native, native, private_storage=reference,
+                                                predecessor_control=control, predecessor_sha=predecessor_sha)
+            service = {"schema": "guanheng.wt-service.v1",
+                       **{key: str(value) if isinstance(value, Path) else value
+                          for key, value in vars(self.config).items() if value is not None},
+                       "private_control_root": str(runtime_control),
+                       "bootstrap_configuration": str(runtime_file), "bootstrap_configuration_sha256": digest}
+            if successor_pythonw is not None:
+                interpreter = _path(str(successor_pythonw), e_drive=True)
+                _require(interpreter.name.casefold() == 'pythonw.exe')
+                service.update(pythonw=str(interpreter),
+                               pythonw_sha256=hashlib.sha256(_read(interpreter, 64 * 1024 * 1024)).hexdigest())
+            service_path = output / "service.json"
+            service_sha = _write_exclusive(service_path, service)
+            ServiceConfig.from_path(service_path)
+            result = {"file": str(service_path), "sha256": service_sha}
+            if no_order:
+                result["writes_enabled"] = native["trader"]["writes_enabled"]
+            return result
 
     def adopt_bootstrap(self) -> tuple[int, dict]:
         """正常旧owner退出后采用固定新bootstrap；保持稳定CURRENT与原实例。"""
         return self._start(adopt_bootstrap=True)
 
-    def _start(self, *, adopt_bootstrap=False) -> tuple[int, dict]:
-        action = "adopt-bootstrap" if adopt_bootstrap else "start"
+    def adopt_private_storage(self, reference) -> tuple[int, dict]:
+        """采用已核停止水位及新配置，保持同一服务的 CURRENT 变更租约。"""
+        return self._start(adopt_bootstrap=True, private_storage=reference)
+
+    def recover_initialization_abort(self, control) -> tuple[int, dict]:
+        """按原生认领材料接续未就绪的失败代，执行器只读。"""
+        return self._start(adopt_bootstrap=True, aborted_control=control)
+
+    def _start(self, *, adopt_bootstrap=False, private_storage=None, aborted_control=None,
+               startup_seconds=None) -> tuple[int, dict]:
+        action = "recover-initialization-abort" if aborted_control is not None else (
+            "adopt-private-storage" if private_storage is not None else (
+            "adopt-bootstrap" if adopt_bootstrap else "start")
+        )
         with _ServiceLease(self.config.current_file):
             previous = self._owned_current()
             previous_status = _runtime_status(previous) if previous else None
             execution_origin = None
+            if startup_seconds is not None:
+                _require(not adopt_bootstrap and previous is not None and previous_status is not None)
+                path, digest = self._configuration_for(previous)
+                runtime = RuntimeConfig.from_path(str(path), digest)
+                _require("execution" in dict(runtime.components)
+                         and self._execution_start_not_reached(previous, previous_status, runtime))
+                require_process_exited(previous_status["pid"])
             if adopt_bootstrap:
-                if previous_status is not None:
+                if aborted_control is not None:
+                    _require(previous_status is not None and _terminal(previous, "failure.json") is not None
+                             and previous_status.get("error_code") == "component_runtime_execution")
+                    execution = previous_status["components"]["execution"]
+                    _require(execution.get("error_code") == "execution_start"
+                             and execution.get("business_observation") is None and execution.get("pid") is None
+                             and all(row.get("pending") is False and row.get("forced") is False
+                                     and row.get("ready") is False for row in previous_status["components"].values()))
+                    role_path, role_sha = self._configuration_for(previous)
+                    role = dict(RuntimeConfig.from_path(str(role_path), role_sha).components)["execution"]
+                    descriptor = _pinned_json(_path(role.descriptor), role.sha256, 256 * 1024)
+                    requested = runtime_control_path(str(aborted_control))
+                    _require(requested.parent == runtime_control_path(descriptor["control_root"]))
+                    # 上次重试在 Python 校验阶段退出时，沿未认领的原交接材料找已核失败代。
+                    if (_sha(descriptor["configuration_sha256"]) !=
+                            hashlib.sha256(_read(requested / "execution.json", 256 * 1024)).hexdigest()):
+                        execution_origin = self._pre_native_execution_origin(
+                            previous, previous_status, aborted_control=requested)
+                        _require(execution_origin is not None)
+                elif previous_status is not None:
                     execution_origin = self._pre_native_execution_origin(previous, previous_status)
-                self._admit_bootstrap(previous, previous_status, pre_native=execution_origin is not None)
-                if execution_origin is not None:
+                if private_storage is not None:
+                    _require(previous is not None and execution_origin is None
+                             and _terminal(previous, "closed.json", allow_pending=False) is not None
+                             and "execution" in dict(RuntimeConfig.from_path(
+                                 str(self.config.bootstrap_configuration), self.config.bootstrap_configuration_sha256).components))
+                self._admit_bootstrap(previous, previous_status,
+                                      pre_native=execution_origin is not None or aborted_control is not None)
+                if execution_origin is not None and aborted_control is None:
                     self._record_missing_execution_exit(execution_origin)
             elif previous is not None:
                 closed = _terminal(previous, "closed.json")
@@ -971,7 +1322,8 @@ class ServiceController:
                         return 2, _safe_projection(action, previous, previous_status, "process_lost", changed=False)
             environment = self._environment()
             current, runtime_path = self._new_generation(previous, previous_status,
-                adopt_bootstrap=adopt_bootstrap, execution_origin=execution_origin)
+                adopt_bootstrap=adopt_bootstrap, execution_origin=execution_origin, private_storage=private_storage,
+                aborted_control=aborted_control, startup_seconds=startup_seconds)
             control_directory = Path(current["wt_status_file"]).parent
             command = [
                 str(self.config.pythonw),
@@ -988,6 +1340,8 @@ class ServiceController:
                 "--control-id",
                 current["wt_control_id"],
             ]
+            if control_directory.parent != self.config.control_root:
+                command.extend(("--instance-lease-root", str(self.config.control_root)))
             try:
                 startup_seconds = RuntimeConfig.from_path(
                     str(runtime_path), current["wt_configuration_sha256"]
@@ -1062,12 +1416,33 @@ class ServiceController:
 def main(argv=None) -> int:
     """安装后 CLI；标准输出只含有限公开结果，私有配置和异常正文不输出。"""
     parser = argparse.ArgumentParser(description="WT日常启停与当前实例入口")
-    parser.add_argument("action", choices=("start", "stop", "status", "adopt-bootstrap"))
+    parser.add_argument("action", choices=("start", "stop", "status", "adopt-bootstrap", "adopt-private-storage",
+                                           "recover-initialization-abort"))
+    parser.add_argument("--aborted-control")
+    parser.add_argument("--startup-seconds", type=float)
+    parser.add_argument("--storage-receipt")
+    parser.add_argument("--storage-sha256")
     parser.add_argument("--service-config", required=True)
     args = parser.parse_args(argv)
+    if (args.action == "recover-initialization-abort") != bool(args.aborted_control):
+        parser.error("recover-initialization-abort requires --aborted-control")
+    if args.startup_seconds is not None and args.action != "start":
+        parser.error("--startup-seconds requires start")
+    migration = args.action == "adopt-private-storage"
+    if migration != bool(args.storage_receipt and args.storage_sha256) or (
+            not migration and (args.storage_receipt or args.storage_sha256)):
+        parser.error("adopt-private-storage requires both storage receipt and SHA256")
     try:
         controller = ServiceController(ServiceConfig.from_path(args.service_config))
-        code, value = getattr(controller, args.action.replace("-", "_"))()
+        if migration:
+            code, value = controller.adopt_private_storage(
+                {"file": str(_path(args.storage_receipt)), "sha256": _sha(args.storage_sha256)})
+        elif args.aborted_control:
+            code, value = controller.recover_initialization_abort(args.aborted_control)
+        elif args.startup_seconds is not None:
+            code, value = controller.start(startup_seconds=args.startup_seconds)
+        else:
+            code, value = getattr(controller, args.action.replace("-", "_"))()
     except Exception:
         code, value = 2, {
             "schema": "guanheng.wt-service-result.v1",

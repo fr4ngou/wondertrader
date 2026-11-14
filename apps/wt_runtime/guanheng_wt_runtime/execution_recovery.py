@@ -77,9 +77,20 @@ def record_execution_process_loss(control, *, expected=None):
     return value
 
 
+def _storage_model(native):
+    from .private_storage import configured_private_copy
+    private = configured_private_copy(native)
+    if private is None:
+        return native
+    model = copy.deepcopy(native)
+    model['output_directory'] = private['original_output']
+    model.pop('private_storage_origin')
+    return model
+
+
 def _business(value):
     """原Native业务配置；恢复选择不属于持仓模型身份。"""
-    value=copy.deepcopy(value);value.pop('recovery',None);value.pop('shared_account_storage',None)
+    value=copy.deepcopy(_storage_model(value));value.pop('recovery',None);value.pop('shared_account_storage',None)
     return value
 
 
@@ -231,6 +242,37 @@ def execution_permission_origin_configuration(native, *, deadline=float('inf'), 
     before,after = _business(origin),_business(native)
     before.pop('execution_permission_origin',None);after.pop('execution_permission_origin')
     before.pop('installation_root',None);after.pop('installation_root',None)
+    def extension_installation(model, configuration):
+        extension = model.get('strategy_extension_origin', {})
+        reference = extension.get('dependency_handoff')
+        if reference is None:
+            return
+        _require(type(reference) is dict and set(reference) == {'file', 'sha256'})
+        raw = _read(_path(reference['file']), 1024 * 1024, deadline=deadline, clock=time.monotonic)
+        _require(hashlib.sha256(raw).hexdigest() == _sha(reference['sha256']))
+        proof = _json(raw)
+        installation = proof.pop('current_installation')
+        _require(type(installation) is dict and set(installation) == {'file', 'sha256'})
+        path = _path(installation['file'])
+        manifest = _read(path, 256 * 1024, deadline=deadline, clock=time.monotonic)
+        _require(hashlib.sha256(manifest).hexdigest() == _sha(installation['sha256']))
+        extension['dependency_handoff'] = proof
+        static_names = set(configuration['base_data'].values())
+        static_names.update(configuration['environment'].get(key) for key in ('fees', 'filters'))
+        actual = _path(configuration['installation_root']).parent / 'execution-install.json'
+        if actual != path:
+            # 旧权限代可能继承原依赖清单；实际安装仍需使用相同的静态交易资料。
+            actual_manifest = _json(_read(actual, 256 * 1024, deadline=deadline, clock=time.monotonic))
+        else:
+            actual_manifest = _json(manifest)
+        files, fixed = actual_manifest['files'], _json(manifest)['files']
+        keys = ['app/' + name for name in static_names if name]
+        _require(all(_sha(files[key]) == _sha(fixed[key]) for key in keys))
+        return {key: files[key] for key in keys}
+    before_extension = before.get('strategy_extension_origin', {})
+    after_extension = after.get('strategy_extension_origin', {})
+    if before_extension.get('dependency_handoff') != after_extension.get('dependency_handoff'):
+        _require(extension_installation(before, origin) == extension_installation(after, native))
     old,current = before['trader'],after['trader']
     _require(type(old.get('writes_enabled')) is bool and type(current.get('writes_enabled')) is bool
         and old['writes_enabled'] is not current['writes_enabled'])
@@ -250,7 +292,7 @@ def market_origin_configuration(native, *, deadline=float('inf')):
     原参考只允许一跳且没有另一份origin，避免循环别名。准备阶段尚未注入
     takeover，按相同阶段比较；Native准入再核实际原takeover及状态文件。
     """
-    native=strategy_extension_configuration(native,deadline=deadline)
+    native=strategy_extension_configuration(_storage_model(native),deadline=deadline)
     # 已发布的历史运行代只按实际配置接账。旧标记不再触发回投或换标。
     if 'role_replacement' in native:
         return native
@@ -494,8 +536,17 @@ def initialization_abort_origin(transition, *, current=None, deadline=float('inf
     configuration=_json(config_raw)
     _require(compatible_business_configuration(prior,configuration,deadline=deadline))
     if kind == 'process_lost_reconciled':
-        _require(prior['trader'] == configuration['trader']
-                 and (current is None or current['trader'] == prior['trader']))
+        prior_trader, source_trader = prior['trader'], configuration['trader']
+        _require(current is None or current['trader'] == prior_trader)
+        if prior_trader != source_trader:
+            # 已接账且从未开放队列的只读代可继续停写，不能用该路径恢复写权限。
+            _require(source_trader['writes_enabled'] is True
+                     and prior_trader == dict(source_trader, writes_enabled=False)
+                     and prior.get('execution_permission_origin') == {
+                         'schema': 'guanheng.execution-permission-origin.v1',
+                         'file': str(origin / 'execution.json'),
+                         'sha256': snapshot['predecessor_configuration_sha256'],
+                     })
         _validate_lost_initialization_abort(previous, origin, admitted, raw, failure, snapshot,
                                             configuration, transition, read)
         return dict(configuration=configuration,configuration_sha256=snapshot['predecessor_configuration_sha256'],
@@ -631,6 +682,8 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
     _require(required<=set(value)<=required|{'restoration','initialization_abort'}
         and value['schema'] == 'guanheng.execution-recovery-transition.v1')
     previous_configuration=predecessor_configuration(native,deadline=deadline)
+    _require_storage_predecessor(native, previous_configuration, value['predecessor_control_directory'],
+                                 value['predecessor_configuration_sha256'])
     _require(compatible_business_configuration(native,previous_configuration,deadline=deadline))
     previous = Path(value['predecessor_control_directory']); _inspect(previous, directory=True)
     old_raw = _read(previous / 'python-binding.json', 256 * 1024, deadline=deadline,clock=time.monotonic)
@@ -654,7 +707,7 @@ def load_transition(native, identities=None, *, binding=None, deadline=float('in
 def strategy_state_mode(native, strategy_id, *, deadline=float('inf')):
     """从已核恢复源确定新增ctx首次初始化或既有ctx恢复；不读取/重置策略资金。"""
     if 'strategy_extension_origin'not in native:return None
-    strategy_extension_configuration(native,deadline=deadline)
+    strategy_extension_configuration(_storage_model(native),deadline=deadline)
     mode=native['recovery']['mode']
     if mode=='resume_clean':return 'resume'
     _require(mode=='resume_reconciled')
@@ -739,6 +792,22 @@ def execution_state_files(root):
     return files
 
 
+def _require_storage_predecessor(native, previous, predecessor_control, predecessor_sha):
+    from .private_storage import configured_private_copy
+    private = configured_private_copy(native)
+    prior = configured_private_copy(previous)
+    if native.get('output_directory') == previous.get('output_directory'):
+        _require(native.get('private_storage_origin') == previous.get('private_storage_origin'))
+        return
+    if Path(native['output_directory']) == Path(previous['output_directory']):
+        _require(native.get('private_storage_origin') == previous.get('private_storage_origin'))
+    else:
+        _require(prior is None and private is not None
+                 and _path(private['original_output']) == _path(previous['output_directory'])
+                 and _path(private['predecessor_control']) == Path(predecessor_control)
+                 and private['predecessor_configuration_sha256'] == predecessor_sha)
+
+
 def prepare_transition(configuration, predecessor_configuration, predecessor_control, destination, *,
                        successor_python=None, initialization_abort=False):
     """冻结发行交接材料；只读取上代状态，实际准入由持有租约的 Native 再核。"""
@@ -750,7 +819,13 @@ def prepare_transition(configuration, predecessor_configuration, predecessor_con
     old = _json(old_raw)
     _require(compatible_business_configuration(native,old))
     root = Path(native['output_directory'])
-    _require(root == Path(old['output_directory']))
+    _require_storage_predecessor(native, old, predecessor_control, hashlib.sha256(old_raw).hexdigest())
+    marker = root / '.cta-clean.json'
+    if root != Path(old['output_directory']):
+        from .private_storage import configured_private_copy, pending_target_marker
+        _require(not initialization_abort)
+        copy = configured_private_copy(native)
+        marker = pending_target_marker(root, copy['native_files']['.cta-clean.json'])
     current = PythonExecutionProcessConfig.load(Path(native['installation_root']).parent,
         configuration, predecessor_control.parent)
     identities = dict(current.python_files)
@@ -766,8 +841,8 @@ def prepare_transition(configuration, predecessor_configuration, predecessor_con
         successor_base = base.with_name(interpreter.name)
         identities[str(successor_base)] = hashlib.sha256(_read(successor_base, 32 * 1024 * 1024)).hexdigest()
     binding = _read(predecessor_control / 'python-binding.json', 256 * 1024)
-    if (root / '.cta-clean.json').exists():
-        origin = _json(_read(root / '.cta-clean.json', 256 * 1024))
+    if marker.exists():
+        origin = _json(_read(marker, 256 * 1024))
         old_installation = origin['installation_sha256']
     elif (predecessor_control / 'installation-identity.json').exists():
         origin = _json(_read(predecessor_control / 'installation-identity.json', 4096))

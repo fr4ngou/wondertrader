@@ -4,7 +4,8 @@ import hashlib
 from pathlib import Path
 import threading
 import time
-from .managed_local_process import (ManagedLocalProcess, _require, _sha, _path, _inspect, _read, _json)
+from .managed_local_process import (ManagedLocalProcess, _require, _sha, _path, _inspect, _read, _json,
+                                    runtime_control_path)
 from .qmt_host_process import HostProcessConfig
 
 _FIELDS = {'schema', 'pythonw', 'pythonw_sha256', 'pair_directory', 'pair_manifest_sha256',
@@ -25,6 +26,9 @@ def _analysis_identity(value, key, version, operations):
 @dataclass(frozen=True)
 class TradeHostProcessConfig(HostProcessConfig):
     """只含路径、SHA和预算；复用原部署值验证，空配置不启动。"""
+    def _validate_control_root(self):
+        runtime_control_path(self.control_root)
+
     @classmethod
     def from_path(cls, path, expected_sha256=None):
         if path is None or path == '':

@@ -18,6 +18,10 @@ WT运行侧入口支持start、stop、status及显式adopt-bootstrap。内部受
 
 后继使用原Native实际配置、金融根、库存输入及原关闭/故障证据，沿既有prepare_transition及原Native接收流程生成本代配置和新控制目录。当前实例指针准确反映新一代，包括启动、等待来源、运行和失败；保留旧代原件。发生未解决金融责任时由原执行链报告，启动器不绕过或重写证明。
 
+`recover-initialization-abort --aborted-control <实际失败的原生控制目录>` 用于已认领旧账、原生尚未就绪且执行队列没有活动的失败代。控制器核原父进程退出、旧代执行描述符、失败子进程、接账认领和金融状态摘要。后继保持柜台绑定和原账，配置须禁用委托及撤单。材料沿原初始化中断恢复协议生成，原生启动时仍核柜台查询及输出租约。若重试在进入原生执行前退出，可沿未认领的原交接及未变化的金融状态，定位原失败代并用当前已安装版本重做材料。绑定、配置和交接校验的异常在子进程控制目录保留阶段、身份及源码位置。
+
+私有持久化后继服务可配置 `private_control_root`，使用已存在的本地 D/E 盘受控目录保存父进程状态、日志和控制收据。缺省沿 `control_root` 发布。稳定 `CURRENT`、原实例锁和原配置代索引沿用各自的旧位置。新配置代登记 `runtime_status_file`，恢复时核它属于已配置控制根和对应 UUID。旧代按原控制根读取。首次迁移、普通重启和失联核查使用同一实例锁，跨盘状态目录与旧启动入口共享这一把锁。执行器和交易 Host 各自的后继控制根由[私有持久化迁移](../migration/wt-private-persistence-migration.md)生成。
+
 ### 显式采用后继配置
 
 默认start在已有CURRENT时继续按原代配置恢复。操作员准备并固定新bootstrap的路径和SHA后，通过同一adopt-bootstrap命令显式采用。
@@ -33,6 +37,8 @@ adopt-bootstrap持原ServiceLease核对旧代CURRENT、generation、ready/owner�
 Runtime按固定依赖顺序逐项start，首个失败立即返回；组件工厂及未启动owner的close均不创建Native进程。前代最终status与failure收据绑定同一Runtime身份及PID，failure已记录原关闭结论，status保留早于execution的component_start_<角色>且该角色确在本代配置的execution之前，并且execution已closed、无PID/业务引用/待回收资源/错误或强杀时，Controller可确认本代没有调用execution.start。仅缺少PID或业务引用不构成此资格。
 
 该分支重用原execution descriptor、Native配置和已准备recovery transition原件及摘要，generation记录继续指向同一原transition；保留其最后实际Native前代身份、库存输入和原账。其它来源owner的关闭失败保留原责任，由其既有恢复协议处理。生成新Runtime控制代，不取未执行代的业务观察，不新做金融transition，不写clean或账本。首次启动尚无transition时同样保留原尚未使用的输入。transition及原Native配置摘要必须核实；Native仍沿原接收流程核原账、原责任及实际准入。
+
+`start --startup-seconds <秒>` 可在此类失败后指定新一代的整组启动预算，取值沿 Runtime 配置范围。控制器先确认原父进程退出。该参数只更新本次物化的 Runtime 启动预算，后续普通启动沿已采用代的预算运行。原角色描述符、交易权限和恢复材料原样接续。
 
 实际execution已启动、启动尝试发生在execution本身、执行owner退出/关闭未确认、原件缺失或状态无法严格证明时，继续原实际Native恢复/核查路径。不得用此分支跳过未知执行责任。验收覆盖依赖启动失败→同一ServiceController.start后继成功、重复前置失败保持同一transition与账本，以及已启动/缺失证明拒绝复用；线上采用另验。
 

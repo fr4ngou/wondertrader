@@ -88,9 +88,13 @@ class ExecutionProcessConfig:
         _require(config.get('schema_version') == 'guanheng.cta-execution.v1'
                  and Path(config['installation_root']) == installation / 'app'
                  and 'role_replacement' not in config)
+        if 'private_storage_origin' in config:
+            from .private_storage import configured_private_copy
+            configured_private_copy(config)
+            _require(config.get('recovery', {}).get('mode') in ('resume_clean', 'resume_reconciled'))
         if 'strategy_extension_origin' in config:
-            from .execution_recovery import strategy_extension_configuration
-            strategy_extension_configuration(config)
+            from .execution_recovery import _storage_model, strategy_extension_configuration
+            strategy_extension_configuration(_storage_model(config))
             _require(config.get('recovery',{}).get('mode') in ('resume_clean','resume_reconciled'))
         if 'observation_refresh' in config:
             refresh=config['observation_refresh']

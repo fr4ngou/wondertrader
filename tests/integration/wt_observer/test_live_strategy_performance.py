@@ -99,6 +99,15 @@ class LiveTests(unittest.TestCase):
         self.value['account_binding_sha256']='2'*64
         return anchor
 
+    def test_same_snapshot_does_not_update_observation_rows(self):
+        self.read()
+        from contextlib import closing
+        import sqlite3
+        with closing(sqlite3.connect(Path(self.temp.name)/'live-strategy-observations.sqlite3')) as db, db:
+            db.execute("CREATE TRIGGER reject_redundant BEFORE UPDATE ON observations "
+                       "BEGIN SELECT RAISE(ABORT, 'redundant observation update'); END")
+        self.assertTrue(self.read()['current']['is_current'])
+
     def test_actual_source_days_nav_gaps_and_account_trade_attribution_survive_restart(self):
         value=self.read()
         self.assertTrue(value['current']['is_current'])

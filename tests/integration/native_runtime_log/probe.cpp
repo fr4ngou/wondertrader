@@ -43,6 +43,8 @@ int main(int argc, char** argv) {
                 emit(u8"动态执行器真实日志");
                 WTSLogger::log_raw(wtp::LL_DEBUG, "hidden-debug");
                 WTSLogger::log_raw(wtp::LL_ERROR, "root-error");
+                require(read(directory / "native.log").find("root-error") != std::string::npos,
+                    "critical record must be visible before close");
                 const auto status = log.status();
                 require(status.attempted_records == 2 && status.write_failures == 0, "real callback must receive info and error");
                 log.start(directory / "duplicate");
@@ -50,7 +52,13 @@ int main(int argc, char** argv) {
             } else if (mode == "rotation") {
                 // 足量真实回调越过四个文件，验证原spdlog的轮转及旧记录淘汰。
                 const std::string body(NativeRuntimeLog::message_bytes, 'x');
-                for (int index = 0; index < 1000; ++index) emit(body);
+                for (int round = 0; round < 10; ++round) {
+                    for (int index = 0; index < 100; ++index) emit(body);
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                    while (log.status().flushes <= static_cast<std::uint64_t>(round)
+                           && std::chrono::steady_clock::now() < deadline) Sleep(5);
+                    require(log.status().flushes > static_cast<std::uint64_t>(round), "background rotation flush");
+                }
                 emit("rotation-tail");
                 require(log.status().attempted_records == 1001 && log.status().write_failures == 0, "rotation callbacks");
             } else if (mode == "utf8") {
@@ -66,13 +74,17 @@ int main(int argc, char** argv) {
                 require(held != INVALID_HANDLE_VALUE, "file sharing fixture");
                 const std::string body(NativeRuntimeLog::message_bytes, 'x');
                 int business_progress = 0;
-                while (!log.status().write_failures && business_progress < 200) {
+                while (business_progress < 180) {
                     emit(body); ++business_progress;
                 }
-                require(log.status().write_failures > 0 && business_progress < 200, "real rotation failure must be counted without throwing");
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                while (!log.status().write_failures && std::chrono::steady_clock::now() < deadline) Sleep(5);
+                require(log.status().write_failures > 0, "real rotation failure must be counted without throwing");
                 CloseHandle(held);
                 emit("after-write-failure"); ++business_progress;
                 require(log.status().attempted_records == static_cast<std::uint64_t>(business_progress), "write failure control flow");
+            } else if (mode == "batch") {
+                for (int index = 0; index < 100; ++index) emit("ordinary-" + std::to_string(index));
             } else {
                 require(false, "unknown mode");
             }
@@ -90,8 +102,20 @@ int main(int argc, char** argv) {
         }
         if (mode == "write-failure") require(read(directory / "native.log").find("after-write-failure") != std::string::npos, "write recovery");
         const auto status = log.status();
+        if (mode == "batch") {
+            std::ifstream input(directory / "native.log");
+            for (int index = 0; index < 100; ++index) {
+                std::string line;
+                const auto text = "] ordinary-" + std::to_string(index);
+                require(static_cast<bool>(std::getline(input, line)) && line.size() >= text.size()
+                    && line.compare(line.size() - text.size(), text.size(), text) == 0, "ordered drain");
+            }
+            require(input.peek() == std::char_traits<char>::eof(), "each ordinary log written once");
+            require(status.dropped_records == 0 && status.flushes < 10, "ordinary log flush must be coalesced");
+        }
         std::cout << "PASS " << mode << " attempted=" << status.attempted_records
-            << " failures=" << status.write_failures << " truncated=" << status.truncated_records << '\n';
+            << " failures=" << status.write_failures << " truncated=" << status.truncated_records
+            << " dropped=" << status.dropped_records << " flushes=" << status.flushes << '\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

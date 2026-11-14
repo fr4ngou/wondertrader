@@ -44,9 +44,16 @@ int main(int argc,char** argv){
             retired.verify_retirement(code);
             need(retired.targets(code)==0&&active.targets(code)==100.0);
         }
-        else if(mode=="admit"){
+        else if(mode=="admit"||mode=="admit-private-storage"){
             const auto& current=member(request,"current");
-            admit_reconciled(member(current,"recovery"),current,absolute(text(current,"output_directory")),member(current,"strategies"),
+            const auto output=absolute(text(current,"output_directory"));
+            Handle lease;
+            if(mode=="admit-private-storage"){
+                lease.value=CreateFileW((output/".cta-session.lock").c_str(),GENERIC_READ|GENERIC_WRITE,0,
+                    nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+                need(lease.value!=INVALID_HANDLE_VALUE);
+            }
+            admit_reconciled(member(current,"recovery"),current,output,member(current,"strategies"),
                 text(request,"installation"),text(request,"id"),text(request,"configuration"),absolute(text(request,"control")));
         }else need(false);
         std::cout<<"{\"ok\":true}";return 0;

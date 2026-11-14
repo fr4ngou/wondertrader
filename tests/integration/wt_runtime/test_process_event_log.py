@@ -117,6 +117,35 @@ class ProcessLogTests(unittest.TestCase):
                 for line in path.read_text(encoding='utf8').splitlines():
                     self.assertEqual(json.loads(line)['schema'], 'guanheng.process-event.v1')
 
+    def test_ready_burst_is_batched_without_merging_failure_or_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = ProcessEventLog(directory, 'run', 'test')
+            entered, release = threading.Event(), threading.Event()
+            sync = runtime_diagnostics.os.fsync
+
+            def block_first(fd):
+                if not entered.is_set():
+                    entered.set()
+                    if not release.wait(5):
+                        raise TimeoutError('test disk gate')
+                sync(fd)
+
+            with patch.object(runtime_diagnostics.os, 'fsync', side_effect=block_first) as commits:
+                try:
+                    log.event('process_started')
+                    self.assertTrue(entered.wait(2))
+                    for _ in range(20):
+                        log.event('process_ready')
+                    log.event('process_failure', code='host_exit')
+                    log.event('process_closed', code='unexpected_exit', exit_code=2)
+                finally:
+                    release.set()
+                self.assertTrue(log.drain(5))
+            self.assertEqual(commits.call_count, 4)
+            events = [json.loads(line)['event'] for line in (Path(directory)/'process-events.jsonl').read_bytes().splitlines()]
+            self.assertEqual(events, ['process_started', *(['process_ready']*20), 'process_failure', 'process_closed'])
+            self.assertEqual(log.snapshot()['records_written'], 23)
+
     def test_oversized_line_and_custom_exception_never_leak(self):
         with tempfile.TemporaryDirectory() as directory:
             log = ProcessEventLog(directory, 'run', 'test')

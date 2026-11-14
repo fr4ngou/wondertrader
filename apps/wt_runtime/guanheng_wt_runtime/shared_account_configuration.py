@@ -70,24 +70,22 @@ class _BorrowedAllocation:
         return invoke
 
 
-def create_runtime_attribution(native, configuration, control_directory, control_id, *, deadline):
-    """由账户配置和各策略seed装配同一归属owner，保持原初值和来源身份。"""
-    from .account_allocation import (BookIdentity, StrategySeed, OwnedPosition, OpeningCycle,
-                                     AccountSnapshot, SellReservation, _money)
-    from .strategy_profiles import ORIGINAL_PROFILE, shared_profiles, shared_account_reference
-    from guanheng_market_client.exchange_calendar import official_calendar
+def allocation_storage(native, *, deadline):
+    """核既有分账描述符并返回金融根和数据库根，不打开数据库。"""
+    from .strategy_profiles import shared_account_reference
 
-    _need(shared_profiles(native), 'shared_account_profile')
-    strategies = {row['id']: row['parameters']['python_strategy'] for row in native['strategies']}
-    generic = 'shared_account' in native['executer']
     value = _fixed(shared_account_reference(native), deadline)
     fields = {'schema', 'identity', 'financial_root', 'initialization',
               'calendar', 'fee_reserve_model', 'callback_seconds'}
     _need(type(value) is dict and fields <= set(value) <= fields | {'allocation_root'}
           and value['schema'] == 'guanheng.shared-account-allocation.v1', 'shared_account_schema')
     financial_root = Path(value['financial_root'])
+    from .private_storage import configured_private_copy
+    private = configured_private_copy(native)
+    approved_origin = Path(native['output_directory'] if private is None else private['original_output'])
     _need(financial_root.is_absolute() and financial_root.drive.upper() in ('D:', 'E:')
-          and financial_root == Path(native['output_directory']), 'shared_account_financial_root')
+          and financial_root == approved_origin, 'shared_account_financial_root')
+    financial_root = Path(native['output_directory'])
     storage = native.get('shared_account_storage')
     if storage is not None:
         _need(type(storage) is dict and set(storage) == {'allocation_root'}
@@ -97,6 +95,20 @@ def create_runtime_attribution(native, configuration, control_directory, control
     if root != financial_root:
         # 路径切换必须先迁入原账。缺少数据库时不能用初始化材料重建已运行账户。
         _need((root / 'account-allocation.sqlite3').is_file(), 'shared_account_relocated_book_missing')
+    return value, root, financial_root
+
+
+def create_runtime_attribution(native, configuration, control_directory, control_id, *, deadline):
+    """由账户配置和各策略seed装配同一归属owner，保持原初值和来源身份。"""
+    from .account_allocation import (BookIdentity, StrategySeed, OwnedPosition, OpeningCycle,
+                                     AccountSnapshot, SellReservation, _money)
+    from .strategy_profiles import ORIGINAL_PROFILE, shared_profiles
+    from guanheng_market_client.exchange_calendar import official_calendar
+
+    _need(shared_profiles(native), 'shared_account_profile')
+    strategies = {row['id']: row['parameters']['python_strategy'] for row in native['strategies']}
+    generic = 'shared_account' in native['executer']
+    value, root, financial_root = allocation_storage(native, deadline=deadline)
     _need(Path(control_directory).is_absolute() and configuration.configuration.is_absolute(), 'shared_account_control')
     identity = BookIdentity(**value['identity'])
     account_scope = json.dumps(dict(account=native['trader']['expected_account'],

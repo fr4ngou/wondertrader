@@ -2,14 +2,65 @@
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
+import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 from guanheng_wt_runtime.trade_host_process import TradeHostProcess, TradeHostProcessConfig
 
 
 class TradePairAnalysisTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt' and Path('D:/').is_dir(), 'D 盘和 Windows 私有目录 ACL')
+    def test_trade_host_publishes_start_and_fault_receipts_on_d_drive(self):
+        from guanheng_qmt_shm import paired_control, trade_control
+
+        with tempfile.TemporaryDirectory(dir='D:/') as folder:
+            control_id = str(uuid4())
+            directory = Path(folder) / control_id
+            config = TradeHostProcessConfig('E:/example/pythonw.exe', 'a'*64, 'E:/example/pair',
+                'b'*64, 'E:/example/agent', folder, 10, 10, 8192)
+            process = TradeHostProcess(config)
+            process._control_id = control_id
+            process._directory = directory
+            self.assertEqual(process._command()[-3:], (str(directory), '--control-id', control_id))
+            runtime = SimpleNamespace(budget=SimpleNamespace(connect_seconds=1, io_seconds=1),
+                listen_host='127.0.0.1', listen_port=10001, shutdown_started=False, failure=None,
+                closed_complete=True, io_resources_closed=True, fault_snapshot={'reason': 'synthetic'},
+                missing_response_snapshot={'operation': 'account.positions'})
+            runtime.begin_shutdown = lambda deadline: deadline
+            runtime.request_close = lambda: setattr(runtime, 'shutdown_started', True)
+
+            class Server:
+                started = False
+
+                def run(self):
+                    self.started = True
+                    deadline = time.monotonic() + 2
+                    while not runtime.shutdown_started and time.monotonic() < deadline:
+                        if (directory/'ready.json').is_file():
+                            runtime.failure = 'synthetic'
+                        time.sleep(.002)
+
+                def close(self):
+                    runtime.request_close()
+
+            identity = dict(pair_manifest_sha256='b'*64, pair_config_sha256='c'*64)
+            with patch.object(trade_control, 'build_product_runtime', return_value=(runtime, {}, identity)), \
+                    patch.object(paired_control, 'create_server', return_value=Server()):
+                with self.assertRaisesRegex(paired_control.PairedControlError, 'runtime_failed'):
+                    trade_control.serve_product(config.pair_directory, installed_agent=config.installed_agent,
+                                                control_directory=directory, control_id=control_id)
+            for name, schema in [('ready', 'ready'), ('closed', 'closed'), ('failure', 'failure'),
+                                 ('missing-response', 'missing-response')]:
+                receipt = json.loads((directory/(name+'.json')).read_bytes())
+                self.assertEqual((receipt['schema'], receipt['control_id']), ('qmt.trade-host-'+schema+'.v1', control_id))
+            self.assertTrue(json.loads((directory/'closed.json').read_bytes())['runtime_closed'])
+
     def validate(self, manifest):
         raw = json.dumps(manifest).encode()
         config = TradeHostProcessConfig('E:/example/pythonw.exe', 'a'*64, 'E:/example/pair',

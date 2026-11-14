@@ -25,6 +25,38 @@ class WaitingRequest:
 
 
 class CapitalWaitQualification(unittest.TestCase):
+    def test_main_minute_retries_unavailable_only_within_original_deadline(self):
+        from guanheng_wt_runtime.execution_strategy import NativeBarReadError, register_main_minute
+        clock = [0.0]
+        code = 'SSE.ETF.510300'
+        missing = NativeBarReadError(code, 'm1', 1, True, -8)
+        broken = NativeBarReadError(code, 'm1', 1, True, -5)
+        for attempts, deadline, outcome in [((missing, ('bar',)), 1.0, ('bar',)),
+                                             ((missing,), .05, missing), ((broken,), 1.0, broken)]:
+            clock[0] = 0.0
+            context = SimpleNamespace(bars=unittest.mock.Mock(side_effect=attempts))
+            with patch('guanheng_wt_runtime.execution_strategy.time.monotonic', side_effect=lambda: clock[0]), \
+                    patch('guanheng_wt_runtime.execution_strategy.time.sleep', side_effect=lambda value: clock.__setitem__(0, clock[0]+value)):
+                if isinstance(outcome, Exception):
+                    with self.assertRaises(NativeBarReadError) as caught:
+                        register_main_minute(context, code, deadline=deadline)
+                    self.assertIs(caught.exception, outcome)
+                else:
+                    self.assertEqual(register_main_minute(context, code, deadline=deadline), outcome)
+            self.assertEqual(context.bars.call_count, len(attempts))
+
+    def test_native_bar_error_retains_input_and_original_wait_classification(self):
+        from guanheng_wt_runtime.execution_strategy import CallbackContext, NativeBarReadError
+        code = 'SSE.ETF.510300'
+        event = SimpleNamespace(thread_id=1, kind=1, epoch=2)
+        for result, reason in ((-8, 'native_read_failed'), (-5, 'native_operation_failed')):
+            owner = SimpleNamespace(_thread=lambda: 1, _api=SimpleNamespace(gh_ms_bars=lambda *args: result))
+            context = owner._active = CallbackContext(owner, SimpleNamespace(read_symbols=(code,)), event)
+            with self.assertRaisesRegex(NativeBarReadError, reason) as caught:
+                context.bars(code, 'm1', 1, main=True)
+            self.assertEqual(caught.exception.details,
+                dict(symbol=code, period='m1', count=1, main=True, native_result=result))
+
     def setUp(self):
         self.now = datetime.now(timezone.utc)
         stamp = (self.now-timedelta(seconds=30)).isoformat()
@@ -56,6 +88,7 @@ class CapitalWaitQualification(unittest.TestCase):
             SimpleNamespace(request=None, publication=None, reason='awaiting_market_window'))
             if waiting_market else None)
         strategy._state_payload = lambda *_: '{}'
+        strategy._store_state = lambda _ctx, _value: None
         reports = []
         strategy.publish = lambda _sid, value, **kw: None if kw.get('preview') else reports.append(value)
         ms = int(self.now.timestamp()*1000)
@@ -81,7 +114,7 @@ class CapitalWaitQualification(unittest.TestCase):
             raise CtaBridgeError('native_read_failed')
 
         context.bars = delayed_bars
-        context.store_quantity_state = lambda *_: self.fail('行情超时不能保存数量状态')
+        strategy._store_state = lambda *_: self.fail('行情超时不能保存数量状态')
         with patch('guanheng_wt_runtime.execution_configured.time.monotonic', side_effect=lambda: clock[0]):
             strategy.callback(context)
         self.assertEqual(diagnostics, [(strategy.id, 7, 2, strategy.seconds)])

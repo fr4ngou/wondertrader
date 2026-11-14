@@ -8,6 +8,7 @@ import ctypes
 from ctypes import wintypes as w
 import math
 from pathlib import Path
+import stat
 import time
 
 from guanheng_qmt_shm_agent.windows_security import SecurityAttributes, check, libraries, private_descriptor, SecurityResources
@@ -25,7 +26,23 @@ def create_private_directory(path):
     parent = path.parent.resolve(strict=True)
     if parent.drive.upper() != "E:" or not parent.is_dir():
         raise ValueError("private bootstrap parent must be an existing managed E: directory")
-    target = parent / path.name
+    return _create_current_user_directory(parent / path.name)
+
+
+def create_private_control_directory(path):
+    """在已配置的本地 D/E 盘控制根独占创建本代目录，拒绝重解析父路径。"""
+    path = Path(path)
+    if not path.is_absolute() or path.drive.upper() not in ('D:', 'E:') or '..' in path.parts:
+        raise ValueError('private control directory path')
+    for parent in reversed(path.parents):
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+            raise ValueError('private control directory parent')
+    return _create_current_user_directory(path)
+
+
+def _create_current_user_directory(target):
+    """两个入口复用原 Windows ACL 和独占创建。"""
     kernel, security = libraries()
     kernel.CreateDirectoryW.argtypes, kernel.CreateDirectoryW.restype = [w.LPCWSTR, ctypes.POINTER(SecurityAttributes)], w.BOOL
     resources = SecurityResources(kernel)

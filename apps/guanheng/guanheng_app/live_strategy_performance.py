@@ -473,8 +473,8 @@ class LiveStrategyPerformanceOwner:
                                 (scope,deal['id'],day,raw))
                         merged['deals']=[]
                         raw=_json(merged);_stored_day(raw)
-                        database.execute('INSERT INTO observations VALUES(?,?,?) ON CONFLICT(scope,day) DO UPDATE SET payload=excluded.payload',
-                            (scope,day,raw))
+                        database.execute('INSERT INTO observations VALUES(?,?,?) ON CONFLICT(scope,day) DO UPDATE SET '
+                            'payload=excluded.payload WHERE observations.payload IS NOT excluded.payload', (scope,day,raw))
                     _check(deadline)
             except sqlite3.OperationalError as error:
                 _check(deadline)

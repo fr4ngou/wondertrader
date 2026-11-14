@@ -4,11 +4,17 @@
 #include "Includes/ILogHandler.h"
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
 
 namespace guanheng {
 
@@ -18,19 +24,59 @@ struct NativeRuntimeLogStatus {
     std::uint64_t attempted_records; // 进入原日志转发入口的记录数，单位条。
     std::uint64_t write_failures; // 打开、追加或刷新失败次数；只存计数。
     std::uint64_t truncated_records; // 超过单条字节预算而截断的记录数，单位条。
+    std::uint64_t dropped_records; // 普通日志因队列已满丢弃的条数，关键日志走同步路径。
+    std::uint64_t flushes; // 主动请求刷新轮转文件的次数，包括关键记录和退出刷新。
 };
 
 // 复用原WTSLogger转发和spdlog轮转；原生业务日志只进入本代私有目录。
-// 业务生产者全部关闭后由原owner调用close，不新增线程、队列或交易行为。
+// 普通记录走有界内存队列；WARN及以上在原调用边界写入并刷新。
 class NativeRuntimeLog final : private wtp::ILogHandler {
-    std::shared_ptr<spdlog::logger> writer_; // 原生同步轮转写者，不注册额外全局logger。
+    struct Record {
+        spdlog::log_clock::time_point observed_at; // 生产者收到日志的时间，保持原日志时点。
+        spdlog::level::level_enum level; // 原日志映射到spdlog的级别。
+        std::string message; // 后台线程拥有的有界UTF-8正文。
+    };
+    std::shared_ptr<spdlog::logger> writer_; // 原线程安全轮转写者；业务生产者与日志线程退出后回收。
+    std::mutex queue_mutex_; // 只保护队列和关闭标志，文件读写在锁外。
+    std::condition_variable available_; // 普通记录到达或退出时通知唯一后台写者。
+    std::deque<Record> queue_; // 单进程普通记录队列，达到容量时丢弃并计数。
+    std::thread worker_; // 本代普通日志写者，正常退出先排空再回收。
+    bool stopping_{false}; // 关闭时停止接收普通记录，已有记录继续写出。
     std::atomic<std::uint64_t> attempted_{0}; // 并发原日志回调的尝试计数。
     std::atomic<std::uint64_t> failures_{0}; // 脱敏固定计数，不保留异常正文。
     std::atomic<std::uint64_t> truncated_{0}; // 有界单行的截断计数。
+    std::atomic<std::uint64_t> dropped_{0}; // 普通记录队满次数。
+    std::atomic<std::uint64_t> flushes_{0}; // 本日志器主动刷新次数，便于核实批量效果。
     bool started_{false}; // 每对象只准入一次start，保持本代文件与全局handler身份。
     bool initialized_{false}; // 原owner初始化后保持只读，供回调与状态读取。
     bool file_opened_{false}; // 已打开文件的历史事实，close后仍可验真。
     bool finished_{false}; // 原owner的幂等关闭标志。
+
+    void flush() noexcept {
+        try { writer_->flush(); } catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
+        flushes_.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void write_pending() noexcept {
+        std::deque<Record> batch;
+        for (;;) {
+            {
+                std::unique_lock<std::mutex> lock(queue_mutex_);
+                available_.wait(lock, [this]{ return stopping_ || !queue_.empty(); });
+                if (queue_.empty()) return;
+                // 收集同一时间窗的普通日志；退出通知立即结束等待。
+                available_.wait_for(lock, std::chrono::milliseconds(100),
+                    [this]{ return stopping_ || queue_.size() >= queue_capacity; });
+                batch.swap(queue_);
+            }
+            for (const auto& row : batch) {
+                try { writer_->log(row.observed_at, {}, row.level, row.message); }
+                catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
+            }
+            flush();
+            batch.clear();
+        }
+    }
 
     void handleLogAppend(wtp::WTSLogLevel level, const char* message) override {
         attempted_.fetch_add(1, std::memory_order_relaxed);
@@ -47,13 +93,26 @@ class NativeRuntimeLog final : private wtp::ILogHandler {
                 : level == wtp::LL_WARN ? spdlog::level::warn
                 : level == wtp::LL_ERROR ? spdlog::level::err
                 : level == wtp::LL_FATAL ? spdlog::level::critical : spdlog::level::info;
-            writer_->log(mapped, "{}", spdlog::string_view_t(message, size));
+            const auto observed_at = spdlog::log_clock::now();
+            if (mapped >= spdlog::level::warn) {
+                writer_->log(observed_at, {}, mapped, spdlog::string_view_t(message, size));
+                flush();
+                return;
+            }
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            if (stopping_ || queue_.size() == queue_capacity) {
+                dropped_.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            queue_.push_back({observed_at, mapped, std::string(message, size)});
+            available_.notify_one();
         } catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
     }
 public:
     static constexpr std::size_t file_bytes = 1024 * 1024; // 单文件预算，单位字节。
     static constexpr std::size_t backup_files = 3; // 数字备份数；加当前文件共4份。
     static constexpr std::size_t message_bytes = 8192; // 每条原始正文的最大UTF-8字节数。
+    static constexpr std::size_t queue_capacity = 256; // 两个有界批次合计最多约4 MiB正文。
 
     NativeRuntimeLog() = default;
     NativeRuntimeLog(const NativeRuntimeLog&) = delete;
@@ -69,12 +128,15 @@ public:
             writer_ = std::make_shared<spdlog::logger>("native-private", sink);
             writer_->set_level(spdlog::level::info);
             writer_->set_pattern("%Y-%m-%dT%H:%M:%S.%e%z [%l] %v");
-            writer_->flush_on(spdlog::level::info);
             writer_->set_error_handler([this](const std::string&) {
                 failures_.fetch_add(1, std::memory_order_relaxed);
             });
+            worker_ = std::thread([this]{ write_pending(); });
             file_opened_ = true;
-        } catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
+        } catch (...) {
+            writer_.reset();
+            failures_.fetch_add(1, std::memory_order_relaxed);
+        }
         try {
             // 原root仅用于统一等级和转发；动态执行/交易分类沿原root回退进入同一handler。
             WTSLogger::init(R"({"root":{"async":false,"level":"info","sinks":[]}})", false, this);
@@ -84,7 +146,8 @@ public:
     void request_rejection(const char* message) noexcept { handleLogAppend(wtp::LL_WARN,message); }
     NativeRuntimeLogStatus status() const noexcept {
         return {initialized_, file_opened_, attempted_.load(std::memory_order_relaxed),
-            failures_.load(std::memory_order_relaxed), truncated_.load(std::memory_order_relaxed)};
+            failures_.load(std::memory_order_relaxed), truncated_.load(std::memory_order_relaxed),
+            dropped_.load(std::memory_order_relaxed), flushes_.load(std::memory_order_relaxed)};
     }
     void close() noexcept {
         if (finished_) return;
@@ -94,7 +157,13 @@ public:
             catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
         }
         if (writer_) {
-            try { writer_->flush(); } catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
+            {
+                std::lock_guard<std::mutex> lock(queue_mutex_);
+                stopping_ = true;
+            }
+            available_.notify_one();
+            if (worker_.joinable()) worker_.join();
+            flush();
             writer_.reset();
         }
     }

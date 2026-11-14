@@ -23,6 +23,28 @@ class TargetQuoteUnavailable(CtaBridgeError):
     """原完整目标在任何 setter 或归属回调前，因缺报价未进入。"""
 
 
+class NativeBarReadError(CtaBridgeError):
+    """原生 K 线读取失败的固定诊断字段，可持久保存。"""
+
+    def __init__(self, code, period, count, main, result):
+        super().__init__('native_read_failed' if result == -8 else 'native_operation_failed')
+        self.details = dict(symbol=code, period=period, count=count, main=main, native_result=result)
+
+
+def register_main_minute(context, symbol, *, deadline):
+    """在原初始化截止内复读暂不可用的主分钟线，不重复成功的主周期登记。"""
+    while True:
+        try:
+            return context.bars(symbol, 'm1', 1, main=True)
+        except NativeBarReadError as error:
+            remaining = deadline - time.monotonic()
+            if error.details['native_result'] != -8 or remaining <= 0:
+                raise
+            time.sleep(min(.1, remaining))
+            if time.monotonic() >= deadline:
+                raise
+
+
 def _need(value, code='invalid_binding'):
     if not value:
         raise CtaBridgeError(code)
@@ -364,8 +386,10 @@ class CallbackContext:
         _need(period in ('m1', 'd1') and type(count) is int and 1 <= count <= 4096 and type(main) is bool,
               'invalid_bar_request')
         out = (Bar * count)();written = C.c_uint32()
-        self._ok(api.gh_ms_bars(self.event.epoch, self._code(code), period.encode('ascii'), count,
-                               int(main), out, count, C.byref(written)))
+        result = api.gh_ms_bars(self.event.epoch, self._code(code), period.encode('ascii'), count,
+                               int(main), out, count, C.byref(written))
+        if result != 0:
+            raise NativeBarReadError(code, period, count, main, result)
         _need(written.value <= count, 'native_capacity')
         return tuple(_bar(row) for row in out[:written.value])
 

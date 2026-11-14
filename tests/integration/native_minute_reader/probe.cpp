@@ -6,6 +6,7 @@
 #include "Includes/WTSVariant.hpp"
 #include "WTSTools/WTSBaseDataMgr.h"
 #include <cmath>
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -20,6 +21,7 @@ namespace {
 struct Sink final : IDataReaderSink, IRdmDtReaderSink {
     WTSBaseDataMgr base;
     uint32_t date = 0;
+    uint32_t minute = 1130; // 原策略读取时钟，闭市复现可显式设置。
     unsigned closed = 0;
     unsigned updates = 0;
     std::map<std::string, std::vector<WTSBarStruct>> events;
@@ -28,7 +30,7 @@ struct Sink final : IDataReaderSink, IRdmDtReaderSink {
     IBaseDataMgr* get_basedata_mgr() override { return &base; }
     IHotMgr* get_hot_mgr() override { return nullptr; }
     uint32_t get_date() override { return date; }
-    uint32_t get_min_time() override { return 1130; }
+    uint32_t get_min_time() override { return minute; }
     uint32_t get_secs() override { return 0; }
     void reader_log(WTSLogLevel, const char* text) override {
         std::cerr << text << '\n';
@@ -77,7 +79,7 @@ void rows(std::ostream& out, const std::vector<WTSBarStruct>& bars) {
 }
 int main(int argc, char** argv) {
     try {
-        if (argc != 8) throw std::runtime_error("expected dll/storage/sessions/commodities/contracts/day/output");
+        if (argc != 8 && argc != 10) throw std::runtime_error("expected dll/storage/sessions/commodities/contracts/day/output [minute timeout_ms]");
         HMODULE module = LoadLibraryA(argv[1]);
         if (!module) throw std::runtime_error("reader module unavailable");
         auto make = reinterpret_cast<FuncCreateDataReader>(GetProcAddress(module, "createDataReader"));
@@ -86,6 +88,7 @@ int main(int argc, char** argv) {
         if (!make || !destroy || !stop) throw std::runtime_error("reader exports missing");
         Sink sink;
         sink.date = static_cast<uint32_t>(std::stoul(argv[6]));
+        if (argc == 10) sink.minute = static_cast<uint32_t>(std::stoul(argv[8]));
         if (!sink.base.loadSessions(argv[3]) || !sink.base.loadCommodities(argv[4])
             || !sink.base.loadContracts(argv[5])) throw std::runtime_error("actual base data failed");
         std::unique_ptr<WTSVariant, Release<WTSVariant>> config(WTSVariant::createObject());
@@ -94,8 +97,10 @@ int main(int argc, char** argv) {
         auto native = WTSVariant::createObject(); native->append("path", argv[2]);
         config->append("minute_native", native); native->release();
         config->append("max_bars", uint32_t(120)); config->append("max_live_bars", uint32_t(480)); config->append("max_slices", uint32_t(8));
+        if (argc == 10) config->append("timeout_ms", static_cast<uint32_t>(std::stoul(argv[9])));
         auto mappings = WTSVariant::createArray();
         for (const auto& item : std::vector<std::pair<std::string,std::string>>{{"SSE.ETF.510300","510300.SH"},{"SSE.STK.600000","600000.SH"},{"SZSE.STK.000001","000001.SZ"}}) {
+            if (argc == 10 && item.first != "SSE.ETF.510300") continue;
             auto value = WTSVariant::createObject(); value->append("std_code", item.first.c_str()); value->append("symbol", item.second.c_str()); mappings->append(value); value->release();
         }
         config->append("symbols", mappings); mappings->release();
@@ -106,6 +111,20 @@ int main(int argc, char** argv) {
         strategy->init(config.get(), &sink);
         std::ofstream out(argv[7], std::ios::binary);
         if (!out) throw std::runtime_error("result file unavailable");
+        if (argc == 10) {
+            out << "[";
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                const auto start = std::chrono::steady_clock::now();
+                std::unique_ptr<WTSKlineSlice, Release<WTSKlineSlice>> result(strategy->readKlineSlice("SSE.ETF.510300", KP_Minute1, 1));
+                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count();
+                out << (attempt ? "," : "") << "{\"elapsed_ms\":" << elapsed << ",\"bars\":" << (result ? result->size() : 0)
+                    << ",\"date\":" << (result && result->size() ? result->at(0)->date : 0)
+                    << ",\"minute\":" << (result && result->size() ? result->at(0)->time % 10000 : 0) << "}";
+            }
+            out << "]";
+            if (!stop(strategy.get(), 3000)) throw std::runtime_error("reader stop failed");
+            return 0;
+        }
         out << std::setprecision(17) << "{\"schema\":\"guanheng.native-live-read.v1\",\"samples\":[";
         unsigned sample = 0;
         for (const char* code : {"SSE.ETF.510300", "SSE.STK.600000", "SZSE.STK.000001"}) {

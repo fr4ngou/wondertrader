@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from threading import get_ident
 from .kc50_atr_protection import AtrProtection
+from .strategy_state import StrategyStateRecord
 from .strategy_porter import BacktestConfig, BacktestPorter, Bar, Callbacks, Target
 from .strategy_replay_facts import SessionError, admit_native_files, _decimal
 from .retained_replay import ORIGINAL_BT_SHA256, ABI_PROBE_SHA256
@@ -46,6 +47,8 @@ from .original_native_contracts import (
 )
 
 STATE_KEY='original_native_v1'
+REPLAY_STATE_V1 = StrategyStateRecord('guanheng.original-native-state.v1')
+REPLAY_STATE_V2 = StrategyStateRecord('guanheng.original-native-state.v2')
 ZONE=timezone(timedelta(hours=8))
 
 
@@ -64,6 +67,7 @@ class OriginalNativeSession:
         self._days=tuple(_day(day) for day in self._value['calendar']);self._input_id=_digest(self._value)
         self._closed_dates={native:set() for native in self._series}  # 原bar回调确认可消费日期；不保存成交或价格账本。
         self._records=[];self._session_id=None;self._last_userdata=''
+        self._state_revision=None  # 本次回测独有的用户变量版本。
         self._buy_intents=set()  # 尚未生成合法完整目标的原BUY意图，不代表成交或现金。
         self._sell_intents=set()  # T+1冻结/原生pending下保留的原SELL责任。
         self._cash_plan=None  # 原BUY当日固定的份数目标；只保存策略意图，成交与现金由WT拥有。
@@ -92,6 +96,11 @@ class OriginalNativeSession:
             porter.get_bars(native,'d1',2,main=native==self._mapping['510300' if '510300' in self._codes else self._codes[0]])
             porter.subscribe_bars(native,'d1')
         _need(not porter.load_userdata(STATE_KEY));self._initialized=True
+
+    def _store_state(self, porter, record, values):
+        saved = record.commit(porter, self._state_revision, values, key=STATE_KEY)
+        self._state_revision = saved.revision
+        self._last_userdata = _encode(saved.value).decode('ascii')
 
     def _loader(self,symbol,period):
         _need(period=='d1' and symbol in self._series);return self._series[symbol]
@@ -171,9 +180,9 @@ class OriginalNativeSession:
                 vector=[dict(symbol=self._mapping[code],quantity=targets[code]) for code in self._codes]
                 readback=[list(x) for x in porter.submit_targets(tuple(Target(x['symbol'],x['quantity']) for x in vector),'original-WT-standard')]
         elif pending:status='pending_native_execution';reason='原生pending尚未成交，保留其责任'
-        text=_encode(dict(schema='guanheng.original-native-state.v1',session_id=self._session_id,sequence=len(self._records)+1,
-            buy_intents=sorted(self._buy_intents),sell_intents=sorted(self._sell_intents))).decode('ascii')
-        porter.store_userdata(STATE_KEY,text);self._last_userdata=text
+        self._store_state(porter, REPLAY_STATE_V1, dict(schema=REPLAY_STATE_V1.schema,
+            session_id=self._session_id,sequence=len(self._records)+1,
+            buy_intents=sorted(self._buy_intents),sell_intents=sorted(self._sell_intents)))
         self._records.append(dict(trading_date=day,minute=1500,status=status,reason=reason,capture=capture,
             signals=signals,submit_vector=vector,readback=readback,cash_deficit=cash<0,result=None,outcome=None,previous_status=None))
 
@@ -267,9 +276,9 @@ class OriginalNativeSession:
         else:status='pending_native_execution';reason='保留原生已触发未成交责任，不重复预占或下单'
         if exits:reason='ATR 退出：'+'、'.join(item['reason'] for item in exits)+'。'+reason
         if style:reason=f'风格权重：{style}。'+reason
-        text=_encode(dict(schema='guanheng.original-native-state.v2',session_id=self._session_id,sequence=len(self._records)+1,
-            buy_intents=sorted(self._buy_intents),sell_intents=sorted(self._sell_intents),cash_plan=self._cash_plan)).decode('ascii')
-        porter.store_userdata(STATE_KEY,text);self._last_userdata=text
+        self._store_state(porter, REPLAY_STATE_V2, dict(schema=REPLAY_STATE_V2.schema,
+            session_id=self._session_id,sequence=len(self._records)+1,
+            buy_intents=sorted(self._buy_intents),sell_intents=sorted(self._sell_intents),cash_plan=self._cash_plan))
         self._records.append(dict(trading_date=day,minute=1500,status=status,reason=reason,capture=capture,signals=signals,
             submit_vector=vector,readback=readback,cash_deficit=False,cash_control=control,result=None,outcome=None,previous_status=None))
 

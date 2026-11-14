@@ -10,10 +10,10 @@ from uuid import UUID, uuid4
 
 from guanheng_market_client.runtime_status import replace_status
 
-from .managed_local_process import _inspect, _json, _path, _read, _require, _sha
+from .managed_local_process import _inspect, _json, _path, _read, _require, _sha, runtime_control_path
 from .runtime import Runtime, RuntimeConfig
 from .runtime_diagnostics import FailureDiagnostic
-from .snapshot_publisher import SnapshotPublisher
+from .snapshot_publisher import BackgroundSnapshotPublisher, SnapshotPublisher
 
 
 def _publish(directory, name, value, *, replace=False):
@@ -61,7 +61,14 @@ class _InstanceLease:
             self.stream = None
 
 
-def run(config, configuration_sha256, directory, control_id):
+def _instance_lease(directory, instance_id, lease_root):
+    """迁移后的状态目录复用原实例锁，旧启动入口仍能检测同一运行者。"""
+    root = directory.parent if lease_root is None else _path(str(lease_root), e_drive=True)
+    _inspect(root, directory=True)
+    return _InstanceLease(root, instance_id)
+
+
+def run(config, configuration_sha256, directory, control_id, *, lease_root=None):
     """持续运行直到原stop收据/系统信号；不设来源配对60秒窗口。
 
     运行长期存在，各组件自己的业务请求及关闭仍有独立预算。发生故障时退出，
@@ -69,13 +76,14 @@ def run(config, configuration_sha256, directory, control_id):
     """
     _sha(configuration_sha256)
     _require(str(UUID(control_id)) == control_id)
-    directory = _path(str(directory), e_drive=True)
+    directory = runtime_control_path(str(directory))
+    _require(directory.drive.casefold() == 'e:' or lease_root is not None)
     _inspect(directory.parent, directory=True)
-    runtime = None
+    runtime = snapshots = background = None
     identity = {'control_id': control_id, 'instance_id': config.instance_id,
                 'pid': os.getpid(), 'configuration_sha256': configuration_sha256}
     previous_handlers, stopped, failed = {}, False, None
-    with _InstanceLease(directory.parent, config.instance_id):
+    with _instance_lease(directory, config.instance_id, lease_root):
         directory.mkdir()
         with FailureDiagnostic(directory, identity, _publish) as diagnostic:
             try:
@@ -90,15 +98,18 @@ def run(config, configuration_sha256, directory, control_id):
                 diagnostic.phase = 'initial_status_snapshot'
                 snapshot = runtime.status()
                 diagnostic.phase = 'initial_status_publish'
-                snapshots.publish({**snapshot, **identity})
+                initial_status = {**snapshot, **identity}
+                initial_published = snapshots.publish(initial_status)
                 diagnostic.phase = 'ready_publish'
                 _publish(directory, 'ready.json', {'schema': 'guanheng.wt-runtime-ready.v1', **identity})
+                background = BackgroundSnapshotPublisher(
+                    snapshots, initial_published=initial_status if initial_published else None)
                 diagnostic.phase = 'stop_poll'
                 while not runtime.wait_close_request(0):
                     diagnostic.phase = 'loop_status_snapshot'
                     snapshot = runtime.status()
                     diagnostic.phase = 'loop_status_publish'
-                    snapshots.publish({**snapshot, **identity})
+                    background.submit({**snapshot, **identity})
                     diagnostic.phase = 'stop_read'
                     try:
                         stop = _json(_read(directory / 'stop.json', 4096))
@@ -126,12 +137,26 @@ def run(config, configuration_sha256, directory, control_id):
                 diagnostic.capture(error)
             finally:
                 if runtime is not None:
+                    close_deadline = time.monotonic() + config.stop_seconds
                     diagnostic.phase = 'runtime_close'
                     stopped = runtime.close(config.stop_seconds)
-                    diagnostic.phase = 'final_status_snapshot'
-                    snapshot = runtime.status()
-                    diagnostic.phase = 'final_status_publish'
-                    snapshots.publish({**snapshot, **identity})
+                    if background is not None:
+                        diagnostic.phase = 'loop_status_publish'
+                        try:
+                            background.stop(max(0.0, close_deadline - time.monotonic()))
+                        except Exception as error:
+                            failed = failed or 'runtime_failure'
+                            diagnostic.capture(error)
+                            if isinstance(error, TimeoutError):
+                                snapshots = None  # 未确认后台释放，原候选仍归后台。
+                    if snapshots is not None:
+                        diagnostic.phase = 'final_status_snapshot'
+                        snapshot = runtime.status()
+                        diagnostic.phase = 'final_status_publish'
+                        final_status = {**snapshot, **identity}
+                        if not snapshots.publish(final_status):
+                            # 普通快照已经停写，给瞬时共享冲突一次最终可见机会。
+                            snapshots.publish(final_status)
                 diagnostic.phase = 'signal_restore'
                 for sig, handler in previous_handlers.items():
                     signal.signal(sig, handler)
@@ -145,16 +170,17 @@ def run(config, configuration_sha256, directory, control_id):
     return 0 if success else 2
 
 
-def record_process_loss(config, configuration_sha256, directory, control_id):
+def record_process_loss(config, configuration_sha256, directory, control_id, *, lease_root=None):
     """原整树消失后的故障核查入口；取得原实例租约，只发布故障及可读状态。"""
     import hashlib
     from datetime import datetime, timezone
     from .execution_recovery import require_process_exited, record_execution_process_loss
     _sha(configuration_sha256)
     _require(str(UUID(control_id)) == control_id)
-    directory = _path(str(directory), e_drive=True)
+    directory = runtime_control_path(str(directory))
+    _require(directory.drive.casefold() == 'e:' or lease_root is not None)
     _inspect(directory, directory=True)
-    with _InstanceLease(directory.parent, config.instance_id):
+    with _instance_lease(directory, config.instance_id, lease_root):
         ready = _json(_read(directory / 'ready.json', 4096))
         raw = _read(directory / 'status.json', 256 * 1024)
         status = _json(raw)
@@ -235,13 +261,15 @@ def main(argv=None):
     parser.add_argument('--config-sha256', required=True)
     parser.add_argument('--control-directory', required=True)
     parser.add_argument('--control-id', required=True)
+    parser.add_argument('--instance-lease-root', help='跨盘接续时沿用原实例锁所在目录')
     parser.add_argument('--record-process-loss', action='store_true', help='核原整树退出并记录故障，保留关闭未知')
     args = parser.parse_args(argv)
     try:
         config = RuntimeConfig.from_path(args.config, args.config_sha256)
         if args.record_process_loss:
-            return record_process_loss(config, args.config_sha256, args.control_directory, args.control_id)
-        return run(config, args.config_sha256, args.control_directory, args.control_id)
+            return record_process_loss(config, args.config_sha256, args.control_directory, args.control_id,
+                                       lease_root=args.instance_lease_root)
+        return run(config, args.config_sha256, args.control_directory, args.control_id, lease_root=args.instance_lease_root)
     except Exception:
         return 2
 

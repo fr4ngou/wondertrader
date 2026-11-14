@@ -1,6 +1,7 @@
 """归属账本持久行。同一个 SQLite 事务按原身份读取、修改及提交相关记录。"""
 import hashlib
 import json
+from decimal import Decimal, InvalidOperation
 
 
 KINDS = ('plans', 'groups', 'children', 'commands', 'fills')
@@ -32,6 +33,58 @@ def schema(db):
         WHERE applied=0 AND kind IN ('8','9')""")
     db.execute("""CREATE INDEX IF NOT EXISTS asa_inbox_pending_local ON asa_inbox(sequence)
         WHERE applied=0 AND kind NOT IN ('8','9')""")
+
+
+def ensure_broker_receipt_index(db):
+    # 老库保留原收件，离线归并在副本中补齐键。
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name='asa_inbox_receipt'").fetchone() is None:
+        db.execute('ALTER TABLE asa_inbox ADD COLUMN receipt_key TEXT')
+        db.execute('CREATE UNIQUE INDEX asa_inbox_receipt ON asa_inbox(receipt_key) WHERE receipt_key IS NOT NULL')
+
+
+def broker_receipt_key(kind, payload, wire):
+    """以柜台业务状态去重，保留不同来源类型、经济变化和原始证据。"""
+    identity = payload.get('trade_id' if kind == '8' else 'order_id')
+    if (kind not in ('8', '9') or type(identity) is not str or not identity
+            or type(payload.get('trading_date')) is not int
+            or payload.get('source_kind') not in ('query-result', 'derived-facts')):
+        return None
+    transport = {
+        'instance_id', 'native_generation', 'group_id', 'source_sha256', 'output_index', 'request_id',
+        'result_sha256', 'lookup_sha256', 'sequence', 'derived_page_sha256', 'derived_event_sha256',
+        'canonical_key_sha256',
+    }
+    # 实时独立来源以柜台的稳定证据键区分，查询批次身份仍不参与比较。
+    if payload['source_kind'] == 'derived-facts':
+        transport.remove('canonical_key_sha256')
+    fact = {key: value for key, value in payload.items() if key not in transport}
+    for key in ('quantity', 'filled_quantity', 'remaining_quantity'):
+        value = fact.get(key)
+        if type(value) is float and value.is_integer():
+            fact[key] = int(value)
+    if kind == '8':
+        fact.setdefault('fee_cny', None)
+    # 仅合并精确相等的十进制文本。离档价格与非法值继续进入原校验。
+    for key in ('price_cny', 'amount_cny', 'fee_cny'):
+        value = fact.get(key)
+        if type(value) is not str or not 0 < len(value) <= 128:
+            continue
+        try:
+            number = Decimal(value)
+        except InvalidOperation:
+            continue
+        if not number.is_finite():
+            continue
+        sign, digits, exponent = number.as_tuple()
+        if not number:
+            fact[key] = '0'
+            continue
+        end = len(digits)
+        while digits[end-1] == 0:
+            end -= 1
+        coefficient = ''.join(map(str, digits[:end]))
+        fact[key] = f'{"-" if sign else ""}{coefficient}e{exponent+len(digits)-end}'
+    return digest(wire([kind, fact]))
 
 
 def save_proof(db, kind, identity, proof_id, payload, wire):

@@ -17,11 +17,15 @@ from threading import Event, RLock
 from zoneinfo import ZoneInfo
 
 from .execution_process import ExecutionProcessConfig, _PYTHON_PACKAGES, _python_bytes, _python_inventory, _python_packages
-from .execution_strategy import CtaBridgeError, CtaRuntime, StrategyBinding, TargetQuoteUnavailable, _need
+from .execution_strategy import (CtaBridgeError, CtaRuntime, NativeBarReadError, StrategyBinding,
+                                 TargetQuoteUnavailable, _need, register_main_minute)
 from .managed_local_process import _inspect, _json, _read
 from .thread_owner import ThreadOwner
+from .strategy_state import StrategyStateRecord
 from .profile_facts import allocation_projection
 from .execution_market_window import MarketInputDeadline, check_market_input_deadline, native_history_matches
+
+RETAINED_STATE = StrategyStateRecord('guanheng.retained-quantity-state.v1', frozenset({'sequence'}))
 
 
 def _encode(value):
@@ -359,6 +363,10 @@ class RetainedStrategy:
         self.state, self.sequence, self.cycles, self.exits = state, seq, metadata, exits
         self.restored_state_id, self.restored_sequence = None if state is None else state.state_id, seq
 
+    def _store_state(self, context, text):
+        """保留原阶段、周期与退出记录格式，纯展示序号变化时跳过用户变量写入。"""
+        self._state_revision = RETAINED_STATE.commit(context, self._state_revision, json.loads(text)).revision
+
     def _allocation_refresh(self, context, deadline):
         """只在原Native借用内更新源账户事实，随后读取独立策略归属。"""
         if self.allocation is None:return None
@@ -396,7 +404,9 @@ class RetainedStrategy:
         _need(broker.positions_known, 'broker_unknown')
         rows = self._broker_rows(broker)
         if self.recovery in ('resume_clean','resume_reconciled'):
-            self._load_state(context.load_quantity_state())
+            saved = context.load_quantity_state()
+            self._load_state(saved)
+            self._state_revision = hashlib.sha256(saved.encode('ascii')).hexdigest()
             # 同策略恢复保留原冻结阶段；原WT活动订单参与后续pending观察。
             # 角色首次换代的旧计划由_load_state在核原配置后明确退役。
         else:
@@ -431,12 +441,15 @@ class RetainedStrategy:
         self.flat_sources={symbol:self._flat_source(symbol,broker,trades) for symbol in self.execution
                            if not rows.get(self.mapping[symbol],(0,0))[0]}
         # 原主K线触发规则保持，用户状态由原dirty保存流程落盘。
-        context.bars(self.main,'m1',1,main=True)
+        register_main_minute(context, self.main, deadline=self.start_deadline)
         if self.recovery not in ('resume_clean','resume_reconciled'):
-            context.store_quantity_state(self._state_payload(None,0,self.cycles,self.exits))
+            # 首次接管可消费已核对的旧初值标记；此后只接受当前策略状态协议。
+            initial = self._state_payload(None,0,self.cycles,self.exits)
+            context.store_quantity_state(initial)
+            self._state_revision = hashlib.sha256(initial.encode('ascii')).hexdigest()
         elif self.recovery == 'resume_reconciled':
             # 身份交接独立于资金展示和首轮调度；正常关闭后即可沿本代身份恢复。
-            context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
+            self._store_state(context,self._state_payload(self.state,self.sequence,self.cycles,self.exits))
         self.initialized = True
         if self.allocation is not None:
             self._publish(dict(status='waiting_market_input',reason='awaiting_first_strategy_calculation',sequence=self.sequence,
@@ -466,7 +479,7 @@ class RetainedStrategy:
             market_value_cny=_decimal(market_value),cash_balance_cny=_decimal(cash))
         return cash
 
-    def _publish_initial_observation(self, context, broker, response, reason, *, deadline):
+    def _publish_initial_observation(self, broker, response, reason, *, deadline):
         self.sequence += 1
         candidate = dict(status='waiting_market_input',reason=reason,sequence=self.sequence,
             broker_observation=asdict(broker),broker_position_qualified=False,recovery_mode=self.recovery,
@@ -477,7 +490,6 @@ class RetainedStrategy:
             retained_market_source=self.retained_market_source)
         if self.market_window is not None:candidate['market_window']=self.initial_market_window
         self._publish(candidate,preview=True,deadline=deadline)
-        context.store_quantity_state(self._state_payload(self.state,self.sequence,self.cycles,self.exits))
         self._publish(candidate,deadline=deadline)
 
     def _publish_initial_capital(self, context, broker):
@@ -496,7 +508,7 @@ class RetainedStrategy:
             elif not native_history_matches(window.request,self.mapping,context,
                     lambda:_need(time.monotonic()<self.start_deadline,'evaluation_deadline')):
                 reason='market_history_mismatch'
-        self._publish_initial_observation(context,broker,response,reason,deadline=self.start_deadline)
+        self._publish_initial_observation(broker,response,reason,deadline=self.start_deadline)
 
     def _snapshot_valuation(self, response, quantities):
         """原QMT快照的完整原价与时点；恢复和首次读取复用同一校验。"""
@@ -991,7 +1003,7 @@ class RetainedStrategy:
                 self._publish(candidate, deadline=deadline)
                 return
             check()
-        context.store_quantity_state(text);check()
+        self._store_state(context,text);check()
         self.state,self.cycles,self.exits = state,metadata,exits
         self._publish(candidate,deadline=deadline);check()
 
@@ -1022,6 +1034,24 @@ def _verify_python(args):
     return identities
 
 
+def _startup_diagnostic(args, stage, error):
+    """在进入原生进程前持久记录失败边界及源码位置。"""
+    from .runtime_diagnostics import _event, _runtime_exception
+
+    evidence = _runtime_exception(_event(stage, error), error)
+    evidence.update(
+        schema='guanheng.cta-python-start-failure.v1',  # 只记录诊断和本代身份。
+        stage=stage,  # 固定启动阶段。
+        control_id=args.control_id,  # 绑定当前执行控制代。
+        config_sha256=args.config_sha256,  # 绑定本代原生配置摘要。
+    )
+    try:
+        with (args.control / 'python-start-failure.json').open('xb') as stream:
+            stream.write(_encode(evidence))
+    except OSError:
+        pass  # 诊断写入失败仍抛出原异常。
+
+
 def main():
     parser = argparse.ArgumentParser(description='观衡固定业务策略原生CTA子进程')
     for name in ('config', 'control', 'installation'):
@@ -1030,11 +1060,22 @@ def main():
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--deadline', type=float, required=True)
     args = parser.parse_args()
-    _need(math.isfinite(args.deadline) and time.monotonic() < args.deadline, 'startup_deadline')
-    identities = _verify_python(args)
-    config = ExecutionProcessConfig.load(args.installation, args.config, args.control.parent)
-    _need(config.configuration_sha256 == args.config_sha256, 'configuration_identity')
-    native = _json(_read(args.config, 256 * 1024, clock=time.monotonic, deadline=args.deadline))
+    stage = 'python_binding'
+    try:
+        _need(math.isfinite(args.deadline) and time.monotonic() < args.deadline, 'startup_deadline')
+        identities = _verify_python(args)
+        stage = 'execution_configuration'
+        config = ExecutionProcessConfig.load(args.installation, args.config, args.control.parent)
+        _need(config.configuration_sha256 == args.config_sha256, 'configuration_identity')
+        native = _json(_read(args.config, 256 * 1024, clock=time.monotonic, deadline=args.deadline))
+        if config.recovery_mode == 'resume_reconciled':
+            stage = 'execution_transition'
+            from .execution_recovery import load_transition
+            binding = _json(_read(args.control/'python-binding.json',256*1024))
+            load_transition(native, identities, binding=binding, deadline=args.deadline)
+    except Exception as error:
+        _startup_diagnostic(args, stage, error)
+        raise
     reports, publication_lock = {}, RLock()
     from .strategy_capital_flow import FILE_NAME, ReturnValuations, SharedReturnValuations, owned_return_basis
     flow_path = Path(native['output_directory']) / FILE_NAME
@@ -1065,7 +1106,7 @@ def main():
                          and value.get('capital_history_anchor_sha256') is not None
                          and value['capital_history_anchor_sha256'] == previous.get('capital_history_anchor_sha256')))):
             value['capital_return'] = previous['capital_return']
-        if refresh and value == previous:
+        if value == previous:
             return
         candidate = dict(reports);candidate[strategy_id] = value
         raw = _encode({'schema': 'guanheng.configured-cta-observation.v2',
@@ -1081,10 +1122,6 @@ def main():
         reports[strategy_id] = value
 
     code_identity = _digest(identities)
-    if config.recovery_mode == 'resume_reconciled':
-        from .execution_recovery import load_transition
-        binding = _json(_read(args.control/'python-binding.json',256*1024))
-        load_transition(native,identities,binding=binding)
     from .strategy_profiles import shared_profiles, build_strategies
     from .runtime_diagnostics import ProcessEventLog
     from functools import partial
@@ -1243,6 +1280,8 @@ def main():
             if type(error) is CtaBridgeError and str(error) in (
                     'evaluation_deadline', 'native_read_failed', 'native_operation_failed', 'target_readback'):
                 value['reason'] = str(error)
+            if type(error) is NativeBarReadError:
+                value.update(reason=str(error), market_read=error.details)
             if runtime._attribution is not None and runtime._attribution.failure is error:
                 value['attribution'] = runtime._attribution.failure_diagnostic
             try:

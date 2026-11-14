@@ -400,7 +400,7 @@ class ServiceControlTests(unittest.TestCase):
 
         native_value = {"recovery": {"mode": "record_clean"}}
         if trading:
-            native_value["trader"] = {"binding_sha256": "1" * 64, "base_url": "http://127.0.0.1:12345"}
+            native_value["trader"] = {"binding_sha256": "1" * 64, "base_url": "http://127.0.0.1:12345", "writes_enabled": True}
         native = _write(self.root / "pre-native.json", native_value)
         descriptor = _write(self.root / "pre-execution.json", {
             "schema": "guanheng.execution-deployment.v1", "configuration": str(native),
@@ -451,7 +451,7 @@ class ServiceControlTests(unittest.TestCase):
             def factory(component):
                 if component.kind in {"qmt_read", "qmt_trade"}:return Source(len(entries)+1 in fail_runs and not execution_failure)
                 item = json.loads(Path(component.descriptor).read_bytes())
-                return Execution(SimpleNamespace(control_root=self.control, configuration=item["configuration"],
+                return Execution(SimpleNamespace(control_root=Path(item.get("control_root", self.control)), configuration=item["configuration"],
                     configuration_sha256=item["configuration_sha256"], stop_seconds=5, startup_seconds=5))
             runtime = Runtime(RuntimeConfig.from_path(args["--config"],args["--config-sha256"]), factory=factory)
             process = _FakeProcess(); success = runtime.start(__import__('time').monotonic()+5)
@@ -490,12 +490,20 @@ class ServiceControlTests(unittest.TestCase):
             record = json.loads((self.generations / failed_id / "generation.json").read_bytes())
             transition = Path(record["transition_file"]); raw = transition.read_bytes()
             before = json.loads(Path(record["runtime_configuration"]).read_bytes())["components"]["execution"]
-            self.assertEqual(controller.start()[0], 2)
+            with patch("guanheng_wt_runtime.service_control.require_process_exited",
+                       side_effect=ValueError("owner active")):
+                with self.assertRaisesRegex(ValueError, "owner active"):
+                    controller.start(startup_seconds=480)
+            with patch("guanheng_wt_runtime.service_control.require_process_exited") as exited:
+                self.assertEqual(controller.start(startup_seconds=480)[0], 2)
+                exited.assert_called_once_with(entries[-2][2]["pid"])
             self.assertEqual(controller.start()[0], 0)
             self.assertEqual(called.call_count, 1)
         latest = json.loads((self.generations / entries[-1][2]["control_id"] / "generation.json").read_bytes())
         self.assertEqual(latest["transition_file"], str(transition))
-        after = json.loads(Path(latest["runtime_configuration"]).read_bytes())["components"]["execution"]
+        recovered_runtime = json.loads(Path(latest["runtime_configuration"]).read_bytes())
+        self.assertEqual(recovered_runtime["startup_seconds"], 480)
+        after = recovered_runtime["components"]["execution"]
         self.assertEqual(before, after)
         self.assertEqual(json.loads(raw)["predecessor_control_directory"], str(self.control / native_calls[0]))
         self.assertEqual(transition.read_bytes(), raw); self.assertEqual(ledger.read_bytes(), ledger_raw)
@@ -705,7 +713,27 @@ class ServiceControlTests(unittest.TestCase):
                              return_value=SimpleNamespace(components=(("execution", component), ("history", history_component)))), \
                 patch.object(service_control, "_runtime_status", return_value=origin_status):
             self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
+            diagnostic = _write(child / "python-start-failure.json", dict(
+                schema="guanheng.cta-python-start-failure.v1", control_id=child_id,
+                config_sha256=_sha(native), stage="execution_transition"))
+            self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
+            _write(diagnostic, dict(schema="guanheng.cta-python-start-failure.v1", control_id=str(uuid4()),
+                                   config_sha256=_sha(native), stage="execution_transition"))
+            with self.assertRaises(ValueError):
+                controller._pre_native_execution_origin(current, status)
+            diagnostic.unlink()
+            rotated = self.root / "process-events.jsonl.1"
+            rotated.write_bytes(_raw(dict(event, event="process_started")) + b"\n")
+            (self.root / "process-events.jsonl").write_bytes(
+                _raw(dict(event, event="process_closed", code="unexpected_exit", exit_code=2)) + b"\n")
+            self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
+            rotated.unlink()
+            with self.assertRaises(ValueError):
+                controller._pre_native_execution_origin(current, status)
             marker = _write(child / "lifecycle-started.json", {})
+            (self.root / "process-events.jsonl").write_bytes(
+                _raw(dict(event, event="process_started")) + b"\n" +
+                _raw(dict(event, event="process_closed", code="unexpected_exit", exit_code=2)) + b"\n")
             with self.assertRaises(ValueError):
                 controller._pre_native_execution_origin(current, status)
             marker.unlink()
@@ -910,6 +938,209 @@ class ServiceControlTests(unittest.TestCase):
         self.assertEqual(ledger.read_bytes(), ledger_raw)
         self.assertEqual(json.loads(candidate.read_bytes()), candidate_value)
         self.assertEqual(controller.stop()[0], 0)
+
+    def test_prepare_private_successor_pins_paths_without_launching(self):
+        controller, entries, native_calls, _ = self._dependency_failure_controller(fail_runs=(), trading=True)
+        execution_role = json.loads(self.runtime.read_bytes())["components"]["execution"]
+        execution = Path(execution_role["descriptor"])
+        value = json.loads(execution.read_bytes())
+        value["python_strategies"] = True
+        _write(execution, value)
+        runtime = json.loads(self.runtime.read_bytes())
+        runtime["components"]["execution"]["sha256"] = _sha(execution)
+        _write(self.runtime, runtime)
+        service = json.loads(self.service_path.read_bytes())
+        service["bootstrap_configuration_sha256"] = _sha(self.runtime)
+        controller.config = ServiceConfig.from_path(_write(self.service_path, service))
+        self.assertEqual(controller.start()[0], 0)
+        self.assertEqual(controller.stop()[0], 0)
+        current = self.current.read_bytes()
+        predecessor = self.control / native_calls[0] / "execution.json"
+        installation = self.root / "successor-installation"
+        (installation / "app").mkdir(parents=True)
+        candidate = dict(json.loads(predecessor.read_bytes()), budget={"run_ms": 0},
+                         installation_root=str(installation / "app"))
+        template = _write(self.root / "candidate.json", candidate)
+        storage = self.root / "candidate-data"
+        storage.mkdir()
+        receipt = _write(self.root / "storage.json", {
+            "schema": "guanheng.wt-private-storage-copy.v1", "target_output": str(storage / "native"),
+            "databases": {"allocation": {"target": str(storage / "allocation/account-allocation.sqlite3")}}})
+        reference = {"file": str(receipt), "sha256": _sha(receipt)}
+        pair = self.root / "candidate-pair"
+        pair.mkdir()
+        candidate_pythonw = self.root / 'candidate-role' / 'pythonw.exe'
+        candidate_pythonw.parent.mkdir()
+        candidate_pythonw.write_bytes(b'candidate interpreter fixture')
+        manifest = _write(pair / "manifest.json", {
+            "host_python": str(candidate_pythonw), "host_python_sha256": _sha(candidate_pythonw),
+            "agent_package": str(self.root / 'candidate-agent')})
+        output = self.root / "candidate-service"
+        with patch.object(controller, "_runtime_owner_active", return_value=False), \
+                patch("guanheng_wt_runtime.service_control.require_process_exited"), \
+                patch("guanheng_wt_runtime.execution_recovery.compatible_business_configuration", return_value=True), \
+                patch.object(controller, "_require_managed_trade_handoff") as validate:
+            result = controller.prepare_private_successor(reference, pair, template, _sha(template), output,
+                                                         no_order=True, successor_pythonw=candidate_pythonw)
+        self.assertEqual(result, {"file": str(output / "service.json"), "sha256": _sha(output / "service.json"),
+                                  "writes_enabled": False})
+        native = json.loads((output / "native-template.json").read_bytes())
+        self.assertIs(native["trader"]["writes_enabled"], False)
+        self.assertEqual(native["execution_permission_origin"]["sha256"], _sha(predecessor))
+        self.assertIs(json.loads(predecessor.read_bytes())["trader"]["writes_enabled"], True)
+        self.assertEqual(native["output_directory"], str(storage / "native"))
+        self.assertEqual(native["shared_account_storage"], {"allocation_root": str(storage / "allocation")})
+        self.assertEqual(native["private_storage_origin"], reference)
+        self.assertEqual(json.loads((output / "execution.json").read_bytes())["control_root"],
+                         str(storage / "execution-control"))
+        self.assertEqual(json.loads((output / "execution.json").read_bytes())["installation"], str(installation))
+        self.assertTrue((storage / "execution-control").is_dir())
+        self.assertEqual(json.loads((output / "trade-host.json").read_bytes())["control_root"],
+                         str(storage / "trade-control"))
+        self.assertEqual(ServiceConfig.from_path(output / "service.json").private_control_root,
+                         storage / "runtime-control")
+        from guanheng_wt_runtime.group_control import GroupConfig
+        group_path = _write(self.root / "group.json", {
+            "schema": "guanheng.wt-service-group.v1",
+            "status_file": str(self.root / "group-status.json"),
+            "services": [{"name": "trade", "configuration": result["file"], "sha256": result["sha256"]}],
+        })
+        self.assertEqual(GroupConfig.from_path(group_path).members[0].service.private_control_root,
+                         storage / "runtime-control")
+        self.assertEqual(ServiceConfig.from_path(output / "service.json").pythonw, candidate_pythonw)
+        self.assertEqual(json.loads((output / "trade-host.json").read_bytes())["pythonw"], str(candidate_pythonw))
+        self.assertEqual(validate.call_args.kwargs["predecessor_sha"], _sha(predecessor))
+        self.assertEqual(json.loads((output / "trade-host.json").read_bytes())["pair_manifest_sha256"], _sha(manifest))
+        self.assertEqual(self.current.read_bytes(), current)
+        self.assertEqual(len(entries), 1)
+
+    def test_abort_recovery_will_not_launch_write_enabled_candidate(self):
+        controller, entries, native_calls, _ = self._dependency_failure_controller(fail_runs=(), trading=True)
+        runtime = json.loads(self.runtime.read_bytes())
+        role = runtime['components']['execution']
+        descriptor_path = Path(role['descriptor'])
+        descriptor = json.loads(descriptor_path.read_bytes())
+        descriptor.update(control_root=str(self.control), python_strategies=True)
+        _write(descriptor_path, descriptor)
+        role['sha256'] = _sha(descriptor_path)
+        _write(self.runtime, runtime)
+        service = json.loads(self.service_path.read_bytes())
+        service['bootstrap_configuration_sha256'] = _sha(self.runtime)
+        controller.config = ServiceConfig.from_path(_write(self.service_path, service))
+        self.assertEqual(controller.start()[0], 0)
+        directory, _, identity, _ = entries[0]
+        status = json.loads((directory / 'status.json').read_bytes())
+        status.update(state='faulted', ready=False, error_code='component_runtime_execution')
+        for row in status['components'].values():
+            row.update(state='closed', ready=False, pending=False, forced=False)
+        status['components']['execution'].update(pid=None, business_observation=None, error_code='execution_start')
+        _write(directory / 'status.json', status)
+        _write(directory / 'failure.json', dict(schema='guanheng.wt-runtime-failure.v1', **identity,
+            status='faulted', error_code='runtime_failure', components_closed=False))
+        native_control = self.control / str(uuid4())
+        native_control.mkdir()
+        (native_control / 'execution.json').write_bytes((self.control / native_calls[0] / 'execution.json').read_bytes())
+        before = self.current.read_bytes()
+        with patch.object(controller, '_admit_bootstrap'), \
+                patch.object(controller, '_require_managed_trade_handoff') as handoff, \
+                patch.object(service_control, 'prepare_transition') as prepare:
+            with self.assertRaises(ValueError):
+                controller.recover_initialization_abort(native_control)
+            handoff.assert_called_once()
+            prepare.assert_not_called()
+        self.assertEqual(self.current.read_bytes(), before)
+        self.assertEqual(len(entries), 1)
+
+    def test_private_adoption_binds_proof_before_launch_and_reuses_it_on_restart(self):
+        controller, entries, native_calls, ledger = self._dependency_failure_controller(fail_runs=(), trading=True)
+        private_control = Path(self.enterContext(tempfile.TemporaryDirectory(dir="D:/")))
+        runtime_control = private_control / "runtime"
+        runtime_control.mkdir()
+        before_ledger = ledger.read_bytes()
+        self.assertEqual(controller.start()[0], 0)
+        self.assertEqual(controller.stop()[0], 0)
+        predecessor = self.control / native_calls[0] / "execution.json"
+        storage_receipt = _write(self.root / "storage.json", {
+            "schema": "guanheng.wt-private-storage-copy.v1", "predecessor_control": str(predecessor.parent)})
+        private = {"file": str(storage_receipt), "sha256": _sha(storage_receipt)}
+        candidate = dict(json.loads(predecessor.read_bytes()), private_storage_origin=private)
+        candidate["trader"]["writes_enabled"] = False
+        native = _write(self.root / "private-native.json", candidate)
+        descriptor = _write(self.root / "private-execution.json", {
+            "schema": "guanheng.execution-deployment.v1", "python_strategies": True,
+            "control_root": str(private_control),
+            "configuration": str(native), "configuration_sha256": _sha(native)})
+        runtime = json.loads(self.runtime.read_bytes())
+        runtime["components"]["execution"].update(descriptor=str(descriptor), sha256=_sha(descriptor))
+        bootstrap = _write(self.root / "private-bootstrap.json", runtime)
+        service = json.loads(self.service_path.read_bytes())
+        service.update(bootstrap_configuration=str(bootstrap), bootstrap_configuration_sha256=_sha(bootstrap),
+                       private_control_root=str(runtime_control))
+        controller.config = ServiceConfig.from_path(_write(self.root / "private-service.json", service))
+
+        def prepare(configuration, previous, control, destination, **unused):
+            self.assertEqual(json.loads(Path(configuration).read_bytes())["private_storage_origin"], private)
+            self.assertEqual(Path(previous).parent, control)
+            origins.append(control.parent)
+            destination = _write(Path(destination), {"schema": "guanheng.execution-recovery-transition.v1"})
+            return dict(file=str(destination), sha256=_sha(destination))
+
+        origins = []
+        with patch.object(controller, "_runtime_owner_active", return_value=False), \
+                patch("guanheng_wt_runtime.service_control.require_process_exited"), \
+                patch.object(controller, "_require_managed_trade_handoff", side_effect=ValueError("invalid copy")):
+            with self.assertRaisesRegex(ValueError, "invalid copy"):
+                controller.adopt_private_storage(private)
+        self.assertEqual(len(entries), 1)
+        with patch.object(controller, "_runtime_owner_active", return_value=False), \
+                patch("guanheng_wt_runtime.service_control.require_process_exited"), \
+                patch.object(controller, "_require_managed_trade_handoff") as checked, \
+                patch("guanheng_wt_runtime.service_control.prepare_transition", side_effect=prepare), \
+                patch("guanheng_wt_runtime.execution_process.create_process"):
+            code, adopted = controller.adopt_private_storage(private)
+            self.assertEqual((code, adopted["action"], adopted["state"]), (0, "adopt-private-storage", "ready"))
+            self.assertEqual(Path(adopted['current']['wt_status_file']).parent.parent, runtime_control)
+            self.assertEqual(checked.call_args.kwargs["private_storage"], private)
+            self.assertEqual(checked.call_args.kwargs["predecessor_control"], predecessor.parent)
+            self.assertEqual(controller.stop()[0], 0)
+            self.assertEqual(controller.start()[0], 0)
+            self.assertEqual(controller.stop()[0], 0)
+            checked.assert_called_once()
+        self.assertEqual(len(native_calls), 3)
+        self.assertEqual(origins, [self.control, private_control])
+        self.assertEqual([directory.parent for directory, *_ in entries], [self.control, runtime_control, runtime_control])
+        self.assertTrue(all((private_control / child / "ready.json").is_file() for child in native_calls[1:]))
+        self.assertTrue((self.control / native_calls[0] / "ready.json").is_file())
+        self.assertEqual(ledger.read_bytes(), before_ledger)
+
+        # 用已生成的迁移代材料模拟其首次接账前失败，验证从候选配置撤回到停机前代。
+        prior_directory, _, prior_identity, _ = entries[0]
+        directory, _, identity, _ = entries[1]
+        (directory / "closed.json").unlink()
+        failed = json.loads((directory / "status.json").read_bytes())
+        failed.update(state="faulted", ready=False, error_code="component_start_history")
+        for component in failed["components"].values():
+            component.update(pending=False, ready=False)
+        failed["components"]["execution"].update(business_observation=None)
+        _write(directory / "status.json", failed)
+        _write(directory / "failure.json", dict(schema="guanheng.wt-runtime-failure.v1", **identity,
+            status="faulted", error_code="runtime_failure", components_closed=False))
+        current = json.loads(self.current.read_bytes())
+        current.update(wt_control_id=identity["control_id"], wt_status_file=str(directory / "status.json"),
+                       wt_configuration_sha256=identity["configuration_sha256"])
+        _write(self.current, current)
+        result = {"state": "abandoned", "receipt_sha256": private["sha256"]}
+        with patch.object(controller, "_runtime_owner_active", return_value=False), \
+                patch.object(service_control, "require_process_exited"), \
+                patch.object(controller, "_trade_deployment_identity", return_value=({"journal_path": str(ledger)}, None)), \
+                patch("guanheng_wt_runtime.shared_account_configuration.allocation_storage",
+                      return_value=({}, ledger.parent, ledger.parent)), \
+                patch("guanheng_wt_runtime.private_storage.abandon_private_copy", return_value=result) as abandon:
+            self.assertEqual(controller.abandon_private_storage(private), result)
+            self.assertEqual(abandon.call_args.kwargs["control"], predecessor.parent)
+        restored = json.loads(self.current.read_bytes())
+        self.assertEqual(restored["wt_control_id"], prior_identity["control_id"])
+        self.assertEqual(restored["wt_status_file"], str(prior_directory / "status.json"))
 
     def test_unpublished_launch_cleans_generated_files(self):
         controller, _, _ = self._history_successor()

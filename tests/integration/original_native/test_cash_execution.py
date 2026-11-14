@@ -19,10 +19,11 @@ def inputs(future_open=8):
 
 
 class ObservationPorter:
-    def __init__(self):self.submissions=[]
+    def __init__(self):self.submissions=[];self.userdata={}
     def submit_conditional_targets(self,vector,limits,tag):
         self.submissions.append((vector,limits,tag));return ()
-    def store_userdata(self,*args):pass
+    def load_userdata(self,key):return self.userdata.get(key,"")
+    def store_userdata(self,key,value):self.userdata[key]=value
 
 
 def session(value=None):

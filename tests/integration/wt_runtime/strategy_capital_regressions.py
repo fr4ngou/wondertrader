@@ -111,7 +111,7 @@ def main():
     strategy.seconds=5;strategy.max_age=60;strategy.capital_observation=None
     strategy.sequence=0;strategy.initialized=True;strategy.state=None;strategy.exits=()
     strategy.recovery='record_clean';strategy.restored_state_id=None;strategy.restored_sequence=None
-    strategy.state_identity='e'*64;strategy.flat_sources={};strategy.market_window=None
+    strategy.state_identity='e'*64;strategy._state_revision=None;strategy.flat_sources={};strategy.market_window=None
     strategy.execution_enabled=True
     strategy.cycles={c.symbol:dict(status='initial_inventory',cycle_id=c.cycle_id,
         baseline_at=c.baseline_at.isoformat(),source_sha256=c.source_sha256)
@@ -138,6 +138,7 @@ def main():
             return tuple(BarValue(int(r.trade_date.strftime('%Y%m%d')),0,r.open,r.high,r.low,r.close,r.volume,r.amount,0.,0.)
                 for r in loaded.request.history.observations if r.symbol==reverse[code])[-count:]
         def set_targets(self,vector): submissions.append(vector);return vector
+        def load_quantity_state(self): return stored[-1] if stored else ''
         def store_quantity_state(self,text): stored.append(text)
     context=Context();strategy.callback(context)
     assert strategy.state is not None

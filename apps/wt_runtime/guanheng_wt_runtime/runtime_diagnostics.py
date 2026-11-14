@@ -23,6 +23,7 @@ _PHASES = frozenset((
     'stop_read', 'stop_validate', 'component_check', 'close_request', 'cycle_wait',
     'runtime_close', 'final_status_snapshot', 'final_status_publish',
     'signal_restore', 'receipt_publish',
+    'python_binding', 'execution_configuration', 'execution_transition',
 ))
 _TYPES = (FileNotFoundError, PermissionError, FileExistsError, TimeoutError,
           BrokenPipeError, ConnectionError, OSError, ValueError, TypeError,
@@ -112,16 +113,33 @@ _LOG_THREAD = None  # daemon写线程仅一个；磁盘阻塞时不按运行代�
 
 
 def _write_process_events():
+    next_record = None
     while True:
-        owner, body = _LOG_QUEUE.get()
+        owner, body, critical = next_record if next_record is not None else _LOG_QUEUE.get()
+        next_record = None
+        batch = [body]
+        size = len(body)
+        if not critical:
+            # 只合并队中连续的同一普通系列。首错与退出保持单独同步，原事件顺序不变。
+            while len(batch) < 32:
+                try:
+                    item = _LOG_QUEUE.get_nowait()
+                except queue.Empty:
+                    break
+                if item[0] is not owner or item[2] or size + len(item[1]) > owner.max_bytes:
+                    next_record = item
+                    break
+                batch.append(item[1])
+                size += len(item[1])
         try:
-            owner._write(body)
+            owner._write(b''.join(batch), count=len(batch))
         finally:
             with owner._lock:
-                owner._queued -= 1
+                owner._queued -= len(batch)
                 if owner._queued == 0:
                     owner._drained.set()
-            _LOG_QUEUE.task_done()
+            for _ in batch:
+                _LOG_QUEUE.task_done()
 
 
 def _start_process_log_writer():
@@ -164,9 +182,12 @@ class ProcessEventLog:
         'cleanup_unconfirmed', 'output_limit', 'pipe_read', 'monitor_start'))
     _events = frozenset(('process_started', 'process_ready', 'process_failure',
         'process_closed', 'stream_exception', 'stream_summary'))
+    _critical_events = frozenset(('process_started', 'process_failure', 'process_closed', 'stream_exception'))
+    DEFAULT_MAX_BYTES = 1024 * 1024
+    DEFAULT_BACKUPS = 3
     _structured_stderr = (b'GH_TRADE_REPLY_INTERRUPTED ', b'GH_ACCOUNT_READ_FINISH ', b'GH_ACCOUNT_READ_IO ')
 
-    def __init__(self, root, control_id, component, *, max_bytes=1024*1024, backups=3):
+    def __init__(self, root, control_id, component, *, max_bytes=DEFAULT_MAX_BYTES, backups=DEFAULT_BACKUPS):
         if not 4096 <= max_bytes <= 16*1024*1024 or type(backups) is not int or not 1 <= backups <= 8:
             raise ValueError('process_log_budget')
         self.root = Path(root)  # 部署的稳定控制根；跨运行代复用，日志不放入金融状态目录。
@@ -226,8 +247,8 @@ class ProcessEventLog:
                 finally:
                     fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
-    def _write(self, body):
-        """唯一写线程消费完整脱敏字节；文件同步不持有内存/进程状态锁。"""
+    def _write(self, body, *, count):
+        """写入并同步一组完整的脱敏记录，结果按原记录数计数。"""
         try:
             info = self.root.lstat()
             if not stat.S_ISDIR(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
@@ -251,10 +272,10 @@ class ProcessEventLog:
                     stream.flush()
                     os.fsync(stream.fileno())
             with self._lock:
-                self._written += 1
+                self._written += count
         except Exception:
             with self._lock:
-                self._errors += 1
+                self._errors += count
 
     def _append(self, event, data):
         # 调用方持有内存锁：先登记pending，再允许写线程消费；队满立即退回。
@@ -268,7 +289,7 @@ class ProcessEventLog:
             self._queued += 1
             self._drained.clear()
             try:
-                _LOG_QUEUE.put_nowait((self, body))
+                _LOG_QUEUE.put_nowait((self, body, event in self._critical_events))
             except queue.Full:
                 self._queued -= 1
                 if self._queued == 0:

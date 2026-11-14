@@ -54,11 +54,15 @@ class HostProcessConfig:
     stop_seconds: float
     max_output_bytes: int
 
+    def _validate_control_root(self):
+        _path(self.control_root, e_drive=True)
+
     def __post_init__(self):
         _path(self.pythonw); _sha(self.pythonw_sha256)
         _require(PureWindowsPath(self.pythonw).name.lower() == 'pythonw.exe')
         _path(self.pair_directory); _sha(self.pair_manifest_sha256)
-        _path(self.installed_agent); _path(self.control_root, e_drive=True)
+        _path(self.installed_agent)
+        self._validate_control_root()
         _duration(self.startup_seconds, 120); _duration(self.stop_seconds, 60)
         _require(type(self.max_output_bytes) is int and 1024 <= self.max_output_bytes <= 1048576)
 

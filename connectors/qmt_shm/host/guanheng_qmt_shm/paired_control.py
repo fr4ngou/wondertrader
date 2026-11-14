@@ -374,7 +374,7 @@ def serve_paired(directory, *, installed_agent, control_directory=None, control_
         control_directory=control_directory, control_id=control_id)
 
 
-def _serve_factory(factory, *, control_directory=None, control_id=None, schemas=None):
+def _serve_factory(factory, *, control_directory=None, control_id=None, schemas=None, directory_factory=None):
     """同一Server/监控/资源所有权；新产品只选择严格工厂及固定控制schema。"""
     controlled = control_directory is not None or control_id is not None
     if controlled:
@@ -394,7 +394,7 @@ def _serve_factory(factory, *, control_directory=None, control_id=None, schemas=
     try:
         owner.validate_identity()
         if controlled:
-            owner.directory = create_private_directory(Path(control_directory))
+            owner.directory = (directory_factory or create_private_directory)(Path(control_directory))
             info = owner.directory.lstat()
             _ordinary(info, directory=True)
             owner.directory_identity = _file_identity(info)

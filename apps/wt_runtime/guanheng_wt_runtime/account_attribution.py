@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import ctypes as C
-from dataclasses import dataclass
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import logging
@@ -275,6 +274,7 @@ class AttributionCoordinator:
         self._execution_targets = {}  # 本轮在Local按其配置倍数取整后的标准ETF目标。
         self._account_fingerprint, self._last_mutating_fill_ms = None, 0
         self._retry_broker_projection = False  # 已收件的投影超时，原委托等待账本追平。
+        self._sell_restore_pending = {}  # 重启时待恢复的活跃卖单，每个原委托保留最新状态。
         self._broker_projection_needs_account = False  # 重放完成后先核对账户再恢复授权。
         self._reconcile_pending = True  # 首次接管先重放收件，正常热读复用已核账户版本。
         self._qualified_account = None  # 最近通过对账的P/A来源与券商委托变化版本。
@@ -523,11 +523,9 @@ class AttributionCoordinator:
             if body['terminal'] or resolved:
                 if self._order_sources.pop(tag, None) is not None:
                     self._order_revision += 1
-            elif body['side'] == 'sell' and body['remaining_quantity']:
-                previous = self._order_sources.get(tag)
-                if previous is None or (body['filled_quantity'] >= previous['filled_quantity'] and previous != body):
-                    self._order_sources[tag] = dict(body)
-                    self._order_revision += 1
+            elif self._is_new_sell_observation(body, tag):
+                self._order_sources[tag] = dict(body)
+                self._order_revision += 1
             if body['terminal']:
                 state = {48: 'filled', 50: 'cancelled', 52: 'rejected', 53: 'cancelled'}.get(body['order_state'])
                 _need(state is not None, 'attribution_order_state')
@@ -550,6 +548,15 @@ class AttributionCoordinator:
                 self.allocation.apply_terminal(TerminalFact(event_id, command.group_id, command.command_id,
                     'unknown', body.get('source_sha256') or event.sha256), deadline=deadline)
             # SDKReturned/Queued/Dispatching沿原Host责任；此通知不授券商终态。
+
+    def _is_new_sell_observation(self, body, tag, previous=None):
+        if body.get('terminal') is not False or body.get('side') != 'sell' or not body.get('remaining_quantity'):
+            return False
+        if previous is None:
+            previous = self._order_sources.get(tag)
+        return (previous is None or body['filled_quantity'] > previous['filled_quantity']
+                or (body['filled_quantity'] == previous['filled_quantity']
+                    and body['remaining_quantity'] < previous['remaining_quantity']))
 
     def _project_source(self, event, event_id, command):
         try:
@@ -586,17 +593,33 @@ class AttributionCoordinator:
         facts = tuple(self._broker_fact(event) for event in events)
         received = self.allocation.receive_broker_events(str(kind), facts, deadline=deadline)
         stored_at = self._clock()
-        pending = [(event, inbox.event_id, command)
-                   for event, (inbox, command) in zip(events, received, strict=True)
-                   if not inbox.applied and command is not None]
+        pending = {}
+        restore_sells = {}
+        for event, (inbox, command) in zip(events, received, strict=True):
+            if command is None or inbox.event_id in pending:
+                continue
+            if inbox.applied:
+                # 已入账卖单的活跃冻结在进程重启后由柜台查询重建。
+                if kind == 9 and self._is_new_sell_observation(event.body, event.body.get('user_tag')):
+                    tag = self._wt_identity(event.body)
+                    existing = restore_sells.get(tag) or self._sell_restore_pending.get(tag)
+                    if self._is_new_sell_observation(event.body, tag, existing[1].body if existing else None):
+                        restore_sells[tag] = (inbox.event_id, event, command)
+                continue
+            if event.sha256 != inbox.payload_sha256:
+                event = AttributionEvent(kind, event.thread_role, event.epoch, json.loads(inbox.raw_json),
+                                         inbox.raw_json, inbox.payload_sha256, deadline)
+            pending[inbox.event_id] = (event, command)
         outcomes = []
         error = None
-        if pending:
+        if pending or restore_sells:
             def project():
                 nonlocal error
                 try:
-                    for event, event_id, command in pending:
+                    for event_id, (event, command) in pending.items():
                         outcomes.append(self._project_source(event, event_id, command))
+                    for event_id, event, command in restore_sells.values():
+                        self._source(event, event_id, command)
                 except Exception as failure:
                     error = failure
 
@@ -611,12 +634,16 @@ class AttributionCoordinator:
                     raise error from failure
                 if failure.args != ('allocation_deadline',):
                     raise
+                self._sell_restore_pending.update(restore_sells)
                 self._retry_broker_projection = self._reconcile_pending = True
                 self._broker_projection_needs_account = True
                 logging.getLogger(__name__).warning(
                     'broker_projection_deferred kind=%s rows=%d first_event_id=%s elapsed_ms=%.1f reason=allocation_deadline',
-                    kind, len(events), pending[0][1], (self._clock() - received_at)*1000)
+                    kind, len(events), next(iter(pending)) if pending else next(iter(restore_sells.values()))[0],
+                    (self._clock() - received_at)*1000)
                 return _BROKER_PROJECTION_DEFERRED
+            for tag in restore_sells:
+                self._sell_restore_pending.pop(tag, None)
         if query:
             logging.getLogger(__name__).info(
                 'broker_query kind=%s rows=%d previously_applied=%d unbound=%d new_fills=%d duplicate_fills=%d '
@@ -689,6 +716,15 @@ class AttributionCoordinator:
                 if self._receive_source(event) is _BROKER_PROJECTION_DEFERRED:
                     return
                 self._inbox_cursor = inbox.sequence
+            if self._sell_restore_pending:
+                def restore():
+                    for event_id, event, command in self._sell_restore_pending.values():
+                        body = event.body
+                        if self._is_new_sell_observation(body, body.get('user_tag')):
+                            self._source(replace(event, deadline=deadline), event_id, command)
+
+                self.allocation.project_broker_batch(restore, deadline=deadline)
+                self._sell_restore_pending.clear()
             if self._retry_broker_projection and not self.allocation.pending_events(
                     limit=1, replayable_only=True, deadline=deadline):
                 self._retry_broker_projection = self._reconcile_pending = False

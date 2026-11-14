@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -14,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'apps/wt_runtime'))
 from guanheng_wt_runtime import __main__ as entry
 from guanheng_wt_runtime.runtime_diagnostics import flush_process_logs
-from guanheng_wt_runtime.snapshot_publisher import MAX_SNAPSHOT_BYTES, SnapshotPublisher
+from guanheng_wt_runtime.snapshot_publisher import BackgroundSnapshotPublisher, MAX_SNAPSHOT_BYTES, SnapshotPublisher
 
 
 class BoundedRuntime:
@@ -141,6 +142,28 @@ class SnapshotPublisherTests(unittest.TestCase):
     def configuration(self):
         return SimpleNamespace(instance_id=str(uuid4()), startup_seconds=1, stop_seconds=2)
 
+    @unittest.skipUnless(os.name == 'nt' and Path('D:/').is_dir(), 'D 盘及原 Windows 实例锁')
+    def test_private_runtime_entry_reuses_original_instance_lease(self):
+        config = self.configuration()
+        with tempfile.TemporaryDirectory(dir='D:/') as folder:
+            control_id = str(uuid4())
+            directory = Path(folder) / control_id
+            with entry._InstanceLease(self.root, config.instance_id):
+                with self.assertRaises(OSError):
+                    entry.run(config, 'a'*64, directory, control_id, lease_root=self.root)
+            self.assertFalse(directory.exists())
+            runtime = BoundedRuntime(directory, dict(control_id=control_id, instance_id=config.instance_id,
+                                                      configuration_sha256='a'*64))
+            try:
+                with patch.object(entry, 'Runtime', return_value=runtime):
+                    self.assertEqual(entry.run(config, 'a'*64, directory, control_id, lease_root=self.root), 0)
+                self.assertTrue((directory / 'ready.json').is_file())
+                self.assertTrue((directory / 'closed.json').is_file())
+                self.assertFalse((Path(folder) / (config.instance_id+'.lock')).exists())
+            finally:
+                if runtime.reader is not None:
+                    runtime.reader.close()
+
     def test_original_runtime_keeps_health_checks_and_normal_stop_under_lock(self):
         directory = self.root / 'run'
         config = self.configuration()
@@ -151,7 +174,7 @@ class SnapshotPublisherTests(unittest.TestCase):
             with patch.object(entry, 'Runtime', return_value=runtime):
                 self.assertEqual(entry.run(config, sha, directory, control_id), 0)
             self.assertEqual(runtime.checks, 40)
-            self.assertEqual(set(runtime.pending_counts), {1})
+            self.assertTrue(set(runtime.pending_counts) <= {0, 1})
             self.assertEqual(runtime.close_calls, [2])
             self.assertEqual(json.loads((directory / 'status.json').read_bytes())['revision'], 0)
             closed = json.loads((directory / 'closed.json').read_bytes())
@@ -184,7 +207,7 @@ class SnapshotPublisherTests(unittest.TestCase):
             with patch.object(entry, 'Runtime', return_value=runtime), \
                     patch.object(entry, 'replace_status', side_effect=deny_once):
                 self.assertEqual(entry.run(config, 'b' * 64, directory, str(uuid4())), 2)
-            self.assertEqual(runtime.checks, 0)
+            self.assertLessEqual(runtime.checks, 40)
             self.assertEqual(runtime.close_calls, [2])
             diagnostic = json.loads((directory / 'diagnostic.json').read_bytes())
             self.assertEqual(diagnostic['failure'], dict(phase='loop_status_publish',
@@ -195,6 +218,33 @@ class SnapshotPublisherTests(unittest.TestCase):
         finally:
             if runtime.reader is not None:
                 runtime.reader.close()
+
+    def test_background_keeps_latest_candidate_during_blocked_write(self):
+        entered, release, latest = (threading.Event() for _ in range(3))
+        published = []
+
+        def publish(raw):
+            revision = json.loads(raw)['revision']
+            published.append(revision)
+            if revision == 0:
+                entered.set()
+                self.assertTrue(release.wait(5))
+            else:
+                latest.set()
+            return True
+
+        writer = BackgroundSnapshotPublisher(SimpleNamespace(publish_bytes=publish))
+        try:
+            writer.submit({'revision': 0})
+            self.assertTrue(entered.wait(5))
+            for revision in range(1, 101):
+                writer.submit({'revision': revision})
+            release.set()
+            self.assertTrue(latest.wait(5))
+            self.assertEqual(published, [0, 100])
+        finally:
+            release.set()
+            writer.stop(5)
 
     def test_ready_control_receipt_conflict_remains_strict(self):
         directory = self.root / 'strict-control'

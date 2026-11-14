@@ -18,7 +18,8 @@ from threading import Event, RLock, local
 from time import monotonic
 from uuid import UUID
 
-from .allocation_records import KINDS, Records, decode, digest, save_proof, schema
+from .allocation_records import (KINDS, Records, broker_receipt_key, decode, digest,
+                                 ensure_broker_receipt_index, save_proof, schema)
 from .thread_owner import ThreadOwner
 
 
@@ -477,6 +478,7 @@ class AccountAllocation:
                 db.execute('UPDATE asa_identity SET value=? WHERE id=1', (identity,))
             else:
                 _need(tables == current_tables, 'storage_invalid')
+            ensure_broker_receipt_index(db)
             rejection = None
             try:
                 yield db
@@ -651,22 +653,24 @@ class AccountAllocation:
             self._check(deadline)
             if wt_order_id is not None:
                 _text(wt_order_id)
-            digest = self._event_payload(event_id, kind, raw_json, source_sha256)
-            rows.append((event_id, raw_json, source_sha256, wt_order_id, digest))
+            digest, body = self._event_payload(event_id, kind, raw_json, source_sha256, with_payload=True)
+            tag = body.get('user_tag')
+            receipt = broker_receipt_key(kind, body, _wire) if (tag or None) == wt_order_id else None
+            rows.append((event_id, raw_json, source_sha256, wt_order_id, digest, receipt))
         with self._transaction(deadline) as db:
             _, state = self._load(db)
             result = []
-            for event_id, raw_json, source_sha256, wt_order_id, digest in rows:
+            for event_id, raw_json, source_sha256, wt_order_id, digest, receipt in rows:
                 self._check(deadline)
                 command = None if wt_order_id is None else self._prepared(state, wt_order_id)
                 reason = None if command is not None else ('attribution_wt_identity_missing' if wt_order_id is None
                                                             else 'attribution_command_unmapped')
-                inbox = self._store_inbox(db, event_id, kind, raw_json, source_sha256, digest, reason)
+                inbox = self._store_inbox(db, event_id, kind, raw_json, source_sha256, digest, reason, receipt)
                 result.append((inbox, command))
             return tuple(result)
 
     @staticmethod
-    def _event_payload(event_id, kind, raw_json, source_sha256):
+    def _event_payload(event_id, kind, raw_json, source_sha256, *, with_payload=False):
         _text(event_id); _text(kind)
         if source_sha256 is not None: _sha(source_sha256)
         _need(type(raw_json) is bytes and 0 < len(raw_json) <= 2*1024*1024, 'event_bytes_invalid')
@@ -683,16 +687,21 @@ class AccountAllocation:
             _need(type(value) is dict, 'event_json_invalid')
         except (ValueError, UnicodeError, RecursionError):
             raise AllocationError('event_json_invalid') from None
-        return hashlib.sha256(raw_json).hexdigest()
+        digest = hashlib.sha256(raw_json).hexdigest()
+        return (digest, value) if with_payload else digest
 
-    def _store_inbox(self, db, event_id, kind, raw_json, source_sha256, digest, reason):
+    def _store_inbox(self, db, event_id, kind, raw_json, source_sha256, digest, reason, receipt=None):
         row = db.execute('SELECT * FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone()
-        if row is None:
-            db.execute('INSERT INTO asa_inbox(event_id,kind,raw_json,payload_sha256,source_sha256,applied,reason) VALUES(?,?,?,?,?,0,?)',
-                       (event_id, kind, raw_json, digest, source_sha256, reason))
-        else:
+        if row is not None:
             _need(row[2] == kind and bytes(row[3]) == raw_json and row[4] == digest and row[5] == source_sha256,
                   'event_identity_conflict')
+        elif receipt is not None:
+            row = db.execute('SELECT * FROM asa_inbox WHERE receipt_key=?', (receipt,)).fetchone()
+        if row is None:
+            db.execute('INSERT INTO asa_inbox(event_id,kind,raw_json,payload_sha256,source_sha256,applied,reason,receipt_key) '
+                       'VALUES(?,?,?,?,?,0,?,?)', (event_id, kind, raw_json, digest, source_sha256, reason, receipt))
+        else:
+            event_id = row[1]
             if reason is None or row[6] or row[7] == reason:
                 return self._inbox_row(row)
             db.execute('UPDATE asa_inbox SET reason=? WHERE event_id=?', (reason, event_id))
@@ -743,7 +752,8 @@ class AccountAllocation:
         with self._transaction(deadline) as db:
             row = db.execute('SELECT applied FROM asa_inbox WHERE event_id=?', (event_id,)).fetchone()
             _need(row is not None, 'event_unknown'); _need(not row[0], 'event_already_applied')
-            db.execute('UPDATE asa_inbox SET reason=? WHERE event_id=?', (reason, event_id))
+            db.execute('UPDATE asa_inbox SET reason=? WHERE event_id=? AND reason IS NOT ?',
+                       (reason, event_id, reason))
 
     @staticmethod
     def _positions(values):
