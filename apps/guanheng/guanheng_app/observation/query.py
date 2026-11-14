@@ -93,7 +93,9 @@ class ObservationReader:
         """以实时或显式快照时钟取得闭合交易日，只使用当前目录内的事件值。"""
         from .calendars import closed_day_cutoff
 
-        items = [item for item in manifest['datasets'].values() if item['definition'].get('event_markers')]
+        # 历史指标也保存固定日期标注；只有逐日事件规则提供触发状态。
+        items = [item for item in manifest['datasets'].values()
+                 if isinstance(item['definition'].get('event_markers'), dict)]
         if not items:
             return {}
         calendar = manifest.get('source_tables', {}).get('source.cn_official_calendar')

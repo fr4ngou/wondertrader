@@ -8,7 +8,7 @@ export interface Definition {
   how_to_read?: { purpose: string; signals: string[]; example?: string; boundary: string };
   term_notes?: { term: string; note: string }[]; limitations: string[]; reading: string; formula: string;
   reference_levels?: { value: number; name: string; color: string }[]; reference_review?: unknown;
-  event_markers?: { field: string; anchor: string; values: {code: number; label: string; color: string}[] };
+  event_markers?: { field: string; anchor: string; values: {code: number; label: string; color: string}[] } | {date: string; key: string; name: string; position: string; value: number}[];
   axis_type?: string; metric_right?: boolean; price_above?: boolean; overlay?: boolean;
   primary_coverage?: {start:string|null;end:string|null;observations:number};
   panel_groups?: {id:string;title:string;min?:number;max?:number}[];

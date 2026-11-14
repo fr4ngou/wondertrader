@@ -324,7 +324,10 @@ def test_recent_events_use_closed_dates_and_keep_unknown_state(gap):
     }.__getitem__
     manifest = dict(published_at=NOW.isoformat(), source_tables={'source.cn_official_calendar': 'calendar'},
                     datasets={'event': dict(partition='data', definition=dict(board='a',
-                        event_markers=dict(field='event', values=[dict(code=1, label='触发')])))})
+                        event_markers=dict(field='event', values=[dict(code=1, label='触发')]))),
+                        'legacy': dict(partition='fixed-notes', definition=dict(board='legacy',
+                            event_markers=[dict(date=DAY, key='close', name='历史坐标标注',
+                                                position='top', value=100)]))})
     assert reader.recent_events(manifest) == {
         'a': dict(state='incomplete' if gap else 'complete', events=[dict(date='2026-11-10', label='触发')])}
 

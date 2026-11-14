@@ -84,7 +84,7 @@ export function chartOptions(definition: Definition, input: Row[], hidden: strin
       const right = second && (panels ? line.axis==='right' : (metricRight && line.panel !== 'context') || (!metricRight && line.panel === 'context'))
       const levels = line.reference_levels || (line.key === definition.primary_field && definition.reference_levels?.length ? definition.reference_levels : [])
       const markers = definition.event_markers
-      const events = markers?.anchor === line.key ? plotted.flatMap(row => {
+      const events = markers && !Array.isArray(markers) && markers.anchor === line.key ? plotted.flatMap(row => {
         const event = markers.values.find(item => item.code === row[markers.field])
         return event ? [{ xAxis: Date.parse(String(row.date)), name: event.label,
           lineStyle: { color: event.color, type: 'dashed' }, label: { show: false } }] : []

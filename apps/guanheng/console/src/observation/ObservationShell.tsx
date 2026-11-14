@@ -261,6 +261,7 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
     window.addEventListener('keydown',keydown)
     return()=>window.removeEventListener('keydown',keydown)
   },[boardId,d?.axis_type,dateDomain.start,dateDomain.end,range.start,range.end,search])
+  const eventRules = Array.isArray(d?.event_markers) ? undefined : d?.event_markers
   const Dock = boardId ? InlineBoard : WorkspaceDock
   return <>
     {!boardId && <div className="observation-board-nav">{catalog.boards.filter(board => selectableBoard(board.id) && available.some(item => item.board === board.id)).map((board, index) => <button key={board.id} className={dataset.board === board.id ? 'active' : ''} onClick={() => select(defaultMetric(catalog,board.id)!)}><small>{String(index + 1).padStart(2, '0')}</small>{board.label}<EventBadge catalog={catalog} board={board.id} /></button>)}</div>}
@@ -273,7 +274,7 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
     </section>
     <Dock layoutId="observation" primaryTitle="指标图" secondaryTitle="原始数据与原图" side="below"
       primary={<section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{shareholder ? '最新日可计价净减持' : primaryLine?.name}</span><strong title={last&&d?exactObservationValue(primary,primaryUnit):undefined}>{last && d ? observationNumber(primary,primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
-      {d?.event_markers && series.data?.rows.length ? <p className="observation-note">
+      {eventRules && series.data?.rows.length ? <p className="observation-note">
         {!last ? '所选日期暂无合成线。计算需要连续 252 个交易日的有效输入。' :
           last.date !== series.data.rows.at(-1)?.date ? `合成线截至 ${last.date}。后续日期的输入或预热尚未齐全。` : null}
       </p> : null}
@@ -288,7 +289,7 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
       <ReadNotice label="指标数据" query={series} /><ReadNotice label="历史导航" query={history} /><ReadNotice label="指标说明" query={definition} />
       {weeklyExecutive ? (series.data ? <><ExecutiveWeeklyChart catalog={catalog} data={series.data} range={range} navigationCoverage={dateDomain} onRange={updateRange} /><ChartHistoryTrack coverage={coverage} range={range} /></> : series.isPending ? <Message>正在读取周度净减持…</Message> : null) : groupedBoard(dataset.board) ? <MarketObservationGroup catalog={catalog} metric={dataset.id} board={dataset.board} range={range} parameters={parameters} onRange={updateRange}/> : dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && futuresMatrix ? <div className="observation-matrix">{['if', 'ih', 'ic', 'im'].map(product => <FuturesCard key={product} product={product} version={catalog.snapshot_id} range={range} onRange={updateRange} />)}</div> : !series.data || !d ? series.isPending ? <Message>正在读取所选窗口…</Message> : null : !series.data.rows.length ? <><Message>所选日期没有已发布观察。休市和未披露日期保持空值。</Message><ChartHistoryTrack coverage={coverage} range={range} /></> : <>
         {<ObservationChart definition={d} rows={series.data.rows} history={history.data} range={range} hidden={hidden} focus={focus} mode={mode} activity={activity} onRange={updateRange} onHidden={keys=>parameter('hidden',keys.join(','))} />}
-        {d.event_markers && <div className="observation-line-toggles" aria-label="事件标记">{d.event_markers.values.map(event => <span key={event.code}><i style={{ background: event.color }} />{event.label}</span>)}</div>}
+        {eventRules && <div className="observation-line-toggles" aria-label="事件标记">{eventRules.values.map(event => <span key={event.code}><i style={{ background: event.color }} />{event.label}</span>)}</div>}
         {dataset.board === 'crossmarket' && <p className="observation-note">本窗口国企涨幅 {change(series.data.rows, 'hscei_close')}，上证涨幅 {change(series.data.rows, 'a_close')}。</p>}
         <div className="observation-line-toggles">{shownLines.map(line => <label key={line.key}><input type="checkbox" checked={!hidden.includes(line.key)} onChange={() => parameter('hidden', hidden.includes(line.key) ? hidden.filter(key => key !== line.key).join(',') : [...hidden, line.key].join(','))} /><i style={{ background: line.color }} />{line.name} · {d && displayedUnit(line,d,mode)}</label>)}</div>
       </>}
