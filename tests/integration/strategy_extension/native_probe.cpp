@@ -37,6 +37,24 @@ int main(int argc,char** argv){
         else if(mode=="source-origin")source_origin(member(request,"source_extension"),text(request,"binding_sha256",64));
         else if(mode=="source-plan")source_plan(member(request,"plan"));
         else if(mode=="state")transition_state_identity(absolute(text(request,"output")),member(request,"current"),member(request,"previous"));
+        else if(mode=="observation-write"){
+            const auto output=absolute(text(request,"output"));
+            std::string committed;
+            auto first=parse(R"({"quotes":0})");auto second=parse(R"({"quotes":1})");
+            publish_observation(output,first,committed);
+            const auto pending=fs::path(output.wstring()+L".pending");
+            publish(pending,first);
+            publish_observation(output,first,committed); // 同值跳过，不尝试打开已存在的临时文件。
+            bool failed=false;
+            try{publish_observation(output,second,committed);}catch(const std::exception&){failed=true;}
+            need(failed&&committed==encode(first)&&read(output,4096)==committed);
+            need(fs::remove(pending));
+            publish_observation(output,second,committed);
+            need(committed==encode(second)&&read(output,4096)==committed);
+            need(fs::remove(output));
+            publish_observation(output,second,committed);
+            need(read(output,4096)==committed);
+        }
         else if(mode=="retire-context"){
             const auto code=text(request,"symbol");
             RetirementProbe retired({code}), active(std::vector<std::string>{});

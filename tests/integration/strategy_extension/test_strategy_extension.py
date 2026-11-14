@@ -50,6 +50,12 @@ def test_explicit_extension_main_and_native_state(tmp_path):
     native(dict(mode='state',previous=before,current=after,output=before['output_directory']),tmp_path)
     assert files=={str(p):p.read_bytes()for p in Path(before['output_directory']).rglob('*.json')}
 
+
+def test_native_observation_only_writes_changes_and_recovers_missing_file(tmp_path):
+    output = tmp_path / 'cta-observation.json'
+    native(dict(mode='observation-write', output=str(output)), tmp_path)
+    assert json.loads(output.read_bytes()) == {'quotes': 1}
+
 @pytest.mark.parametrize(('strategy_id', 'capital', 'accepted'), [
     ('another-cta', '250000.05', True),
     ('RESONANCE-REGIME-V1', '250000.05', False),

@@ -211,12 +211,21 @@ fs::path installed(const fs::path& root,const std::string& value){
     fs::path path=fs::u8path(value);need(!path.empty()&&!path.is_absolute()&&!path.has_root_name());for(const auto& item:path)need(item!=".."&&item!=".");
     auto result=root/path;need(fs::is_regular_file(result));return result;
 }
-void publish(const fs::path& target,const rj::Value& value,bool replace=false){
-    const auto temporary=fs::path(target.wstring()+L".pending");const auto bytes=encode(value);
+void publish_bytes(const fs::path& target,const std::string& bytes,bool replace){
+    const auto temporary=fs::path(target.wstring()+L".pending");
     Handle file;file.value=CreateFileW(temporary.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
     need(file.value!=INVALID_HANDLE_VALUE);DWORD written=0;need(WriteFile(file.value,bytes.data(),static_cast<DWORD>(bytes.size()),&written,nullptr)&&written==bytes.size());
     need(FlushFileBuffers(file.value));need(CloseHandle(file.value));file.value=INVALID_HANDLE_VALUE;
     need(MoveFileExW(temporary.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH|(replace?MOVEFILE_REPLACE_EXISTING:0))!=0);
+}
+void publish(const fs::path& target,const rj::Value& value,bool replace=false){
+    publish_bytes(target,encode(value),replace);
+}
+void publish_observation(const fs::path& target,const rj::Value& value,std::string& last_committed){
+    auto bytes=encode(value);
+    if(bytes==last_committed&&fs::exists(target))return;
+    publish_bytes(target,bytes,true);
+    last_committed=std::move(bytes); // 写入失败仍保留上次已提交的正文，下轮继续尝试。
 }
 rj::Document receipt(const char* schema,const std::string& id,const std::string& config_sha,bool closed){
     rj::Document value(rj::kObjectType);auto& a=value.GetAllocator();
@@ -1683,6 +1692,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         int last_read_waiting=-1;unsigned read_transitions=0;
         auto next_read_publish=Clock::time_point::min();
         auto next_cta_publish=Clock::time_point::min(); // 诊断最多每秒一次，独立于交易及读取状态准入。
+        std::string cta_observation_committed,log_observation_committed;
         while(Clock::now()<run_until){
             if(fs::exists(control/"stop.json")){
                 if(!stop_seen){
@@ -1712,7 +1722,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                 value.AddMember("sessions",observed.sessions,a);value.AddMember("parser_quotes",observed.parser_quotes,a);
                 value.AddMember("parser_connects",observed.parser_connects,a);value.AddMember("parser_closes",observed.parser_closes,a);
                 value.AddMember("parser_logs",observed.parser_logs,a);
-                publish(control/"cta-observation.json",value,true);
+                publish_observation(control/"cta-observation.json",value,cta_observation_committed);
                 const auto logging=native_log.status();
                 auto log_state=receipt("guanheng.execution.native-log.v1",id,expected_sha,false);
                 auto& l=log_state.GetAllocator();
@@ -1724,7 +1734,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                 log_state.AddMember("flushes",logging.flushes,l); // 主动请求刷新日志文件次数。
                 log_state.AddMember("max_file_bytes",guanheng::NativeRuntimeLog::file_bytes,l);
                 log_state.AddMember("max_files",guanheng::NativeRuntimeLog::backup_files+1,l);
-                publish(control/"native-log-status.json",log_state,true);
+                publish_observation(control/"native-log-status.json",log_state,log_observation_committed);
               }catch(...){
                 // 可重建旁证沿原发布方式；失败不改变策略、金融状态或关闭时序。
                 std::error_code error;fs::remove(control/"cta-observation.json.pending",error);
