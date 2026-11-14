@@ -143,6 +143,59 @@ def test_completed_buyback_prefers_full_period_amount_excluding_fees(monkeypatch
     assert not row['first_execution']
 
 
+@pytest.mark.parametrize(('execution', 'amount'), [
+    ('公司尚未开始实施本次股份回购', '0'),
+    ('公司暂未回购股份', '0'),
+    ('公司累计回购股份42,402,100股,成交总金额4.0亿元(不含交易费用)', '400000000'),
+    ('公司累计回购公司股份数量为2,174,200股,成交金额合计10,593,095元(不含交易费用)', '10593095'),
+    ('公司累计回购股份421.01万股,已回购金额为2,600.03万元(不含交易费用)', '26000300'),
+])
+def test_dated_progress_handles_explicit_zero_and_execution_units(monkeypatch, execution, amount):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    text = ('证券代码:002129证券简称:样本公告编号:2026-066关于股份回购进展情况的公告'
+            '《关于回购公司股份方案的公告暨回购报告书》(公告编号2026-059)。'
+            '计划回购总金额不超过5.0亿元。'
+            '截至2026年10月31日,' + execution + '。')
+    monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
+    row = parse_execution(b'issuer', 'SZSE.002129', '2026-11-04')
+    assert (row['plan_id'], row['cumulative_cny']) == ('2026-059', Decimal(amount))
+
+
+def test_execution_directory_excludes_sales_of_treasury_shares():
+    day = '2026-11-04'
+    titles = ['关于回购股份集中竞价出售进展的公告', '关于回购股份减持进展的公告',
+              '关于集中竞价减持已回购股份的进展公告', '关于股份回购进展的公告']
+
+    def post(_url, _form, _referer):
+        items = [dict(announcementId=str(i), secCode='603019', orgId='example',
+                      announcementTitle=title, adjunctUrl=f'finalpage/{day}/{i}.PDF')
+                 for i, title in enumerate(titles, 12000)]
+        return dict(body=json.dumps(dict(announcements=items, totalAnnouncement=len(items), hasMore=False)),
+                    sha256='digest', received_at=day)
+
+    rows, _ = execution_directory(day, day, post)
+    assert [item['title'] for item in rows] == [titles[-1]]
+
+
+@pytest.mark.parametrize('fees', ['不含交易费用', '含交易费用'])
+def test_first_execution_uses_current_deal_after_explicit_month_end_zero(monkeypatch, fees):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    text = ('证券代码:002024证券简称:样本公告编号:2026-093关于首次回购公司股份暨回购进展的公告'
+            '《关于回购公司股份方案的公告》(公告编号:2026-090)。'
+            '截至2026年10月31日,公司尚未开始实施股份回购。'
+            '公司于2026年11月2日通过集中竞价首次回购公司股份,支付的总金额为3,370,823.19元('
+            + fees + ')。')
+    monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
+    if fees == '含交易费用':
+        with pytest.raises(SourceUnavailable, match='buyback_execution_net_amount_missing'):
+            parse_execution(b'issuer', 'SZSE.002024', '2026-11-04')
+    else:
+        row = parse_execution(b'issuer', 'SZSE.002024', '2026-11-04')
+        assert disclosure_increments([row])[0]['increment_cny'] == Decimal('3370823.19')
+
+
 def test_including_fees_only_reports_missing_net_execution_amount(monkeypatch):
     from integrations.guanheng import market_buyback_disclosures as buybacks
 

@@ -16,9 +16,10 @@ REFERER = 'https://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/l
 ATTACHMENTS = 'https://static.cninfo.com.cn/'
 EXECUTION_TITLE = re.compile(r'首次回购|回购.{0,20}(?:进展|实施结果|完成|期限届满)')
 NON_MARKET_TITLE = re.compile(
-    r'限制性股票|股票期权|专项贷款|债权人|前十[大名]|回购(?:A股|公司|的)?(?:股份)?注销|出售(?:已)?回购股份|合作方回购[^。]{0,60}权益')
+    r'限制性股票|股票期权|专项贷款|债权人|前十[大名]|回购(?:A股|公司|的)?(?:股份)?注销'
+    r'|(?:出售|减持)(?:已)?回购股份|(?:已)?回购股份(?:集中竞价)?(?:出售|减持)|合作方回购[^。]{0,60}权益')
 NOTICE_NUMBER = r'\d{4}-?\d{2,4}'
-PLAN_REFERENCE = re.compile(rf'《([^《》]{{0,140}}?回购[^《》]{{0,90}})》\((?:公告编号:)?(?:临)?({NOTICE_NUMBER})\)')
+PLAN_REFERENCE = re.compile(rf'《([^《》]{{0,140}}?回购[^《》]{{0,90}})》\((?:公告编号:?)?(?:临)?({NOTICE_NUMBER})\)')
 PLAN_TITLE = re.compile(r'回购.{0,30}(?:方案|预案)(?:的公告)?(?:暨回购(?:股份)?报告书)?$')
 REPORT_TITLE = re.compile(r'(?:关于)?(回购(?:股份)?报告书)(?:的?公告)?$')
 NUMBERED_REFERENCES = re.compile(
@@ -31,17 +32,18 @@ BOARD_APPROVAL = re.compile(
     r'(20\d{2})年(\d{1,2})月(\d{1,2})日[^。;；]{0,100}?召开[^。;；]{0,60}?董事会'
     r'[^。;；]{0,60}?审议(?:并)?通过(?:了)?《(关于[^《》]{0,50}?回购[^《》]{0,40}?方案)的议案》')
 EXECUTION_SECTION = re.compile(r'一、(?:股份回购|回购股份|回购)(?:的)?(?:实施情况|进展情况|进展)')
-MONEY = r'(?:为|:)?(?:人民币)?([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(\.[0-9]{1,6})?(万)?元'
+MONEY = r'(?:为|:)?(?:人民币)?([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(\.[0-9]{1,6})?([万亿])?元'
 ACTUAL_AMOUNT = re.compile(r'(?:支付(?:的)?(?:资金总额|总金额)|(?:累计)?成交总?金额|使用资金总额)' + MONEY)
 DATED_EXECUTION_AMOUNT = re.compile(
-    r'(?<!拟)(?<!计划)(?<!预计)(?:回购总金额|资金发生总额)' + MONEY)
+    r'(?<!拟)(?<!计划)(?<!预计)(?:回购总金额|资金发生总额|成交金额合计|已回购金额|支付的金额)' + MONEY)
 RESULT_SUMMARY_AMOUNT = re.compile(r'实际回购金额' + MONEY)
 INCLUDING_FEES = re.compile(r'\(含(?:交易|相关交易)?费用')
 DATED_REPURCHASE = re.compile(
     r'(?:截至?|本次首次回购至|实际回购期间为20\d{2}年\d{1,2}月\d{1,2}日至)'
     r'(20\d{2})[年/](\d{1,2})[月/](\d{1,2})日?[,，:]([^。]{1,360})')
 COMBINED_PLANS = re.compile(r'本次(?:和|及|与)前次[^。]{0,80}?回购')
-ZERO_EXECUTION = re.compile(r'尚未(?:实施(?:股份)?回购|股份回购|回购(?:公司)?股份)|未发生股份回购行为')
+ZERO_EXECUTION = re.compile(
+    r'(?:尚未|暂未)(?:开始)?(?:实施(?:本次)?(?:股份)?回购|股份回购|回购(?:公司)?股份)|未发生股份回购行为')
 BEFORE_EXECUTION = re.compile(r'尚未进入回购实施期,未发生股份回购行为')
 HEADER_BOILERPLATE = re.compile(
     r'本公司及董事会全体成员保证信息披露的内容真实、准确、完整,没有虚假记载、误导性陈述或重大遗漏。')
@@ -230,7 +232,7 @@ def _proposal_references(text):
     return list(dict.fromkeys(result))
 
 
-def _execution_amounts(text, notice_date):
+def _execution_amounts(text, notice_date, *, first_execution=False):
     """优先使用按明确截止日披露的执行金额，保留同一截止日的冲突。"""
     text = HEADER_BOILERPLATE.sub('', text)
     # 同一截止日可同时报告本方案和多方案合计，合计不进入单方案差分。
@@ -242,8 +244,8 @@ def _execution_amounts(text, notice_date):
         for match in pattern.finditer(section):
             if INCLUDING_FEES.match(section, match.end()):
                 continue  # 按未含费用的实付额差分，避免把同笔含费总额当成另一笔成交。
-            integral, fraction, ten_thousand = match.groups()
-            value = Decimal(integral.replace(',', '')+(fraction or ''))*(10_000 if ten_thousand else 1)
+            integral, fraction, multiplier = match.groups()
+            value = Decimal(integral.replace(',', '')+(fraction or '')) * {None: 1, '万': 10_000, '亿': 100_000_000}[multiplier]
             if value*100 == (value*100).to_integral_value():
                 values.add(value)
         return values
@@ -273,7 +275,10 @@ def _execution_amounts(text, notice_date):
                 raise SourceUnavailable('buyback_execution_value_invalid')
             dated.setdefault(cutoff, set()).update(values)
     if dated:
-        return dated[max(dated)]
+        latest = dated[max(dated)]
+        if not first_execution or latest != {Decimal(0)}:
+            return latest
+        # 首次执行暨月报可同时披露上月底零回购和本月首笔成交。
     # 公告结果表可能四舍五入，正文无实付额时才采用表内实际金额。
     paid = amounts(text) or amounts(text, RESULT_SUMMARY_AMOUNT)
     if not paid and BEFORE_EXECUTION.search(text):
@@ -301,7 +306,8 @@ def parse_execution(raw, symbol, notice_date, *, resolve_plan=None):
     plans = {number for title, number in references if _proposal_kind(title) == 'proposal'}
     if not plans:
         plans = {number for title, number in references if _proposal_kind(title) == 'report'}
-    amounts = _execution_amounts(text, notice_date)
+    first_execution = '首次回购' in front
+    amounts = _execution_amounts(text, notice_date, first_execution=first_execution)
     if len(amounts) != 1 or len(plans) > 1:
         raise SourceUnavailable('buyback_execution_ambiguous')
     if not plans and resolve_plan is not None:
@@ -310,7 +316,7 @@ def parse_execution(raw, symbol, notice_date, *, resolve_plan=None):
         raise SourceUnavailable('buyback_plan_reference_missing' if not plans else 'buyback_execution_ambiguous')
     amount = amounts.pop()
     if (len(amount.as_tuple().digits) > 24 or header[2] in plans
-            or amount == 0 and '首次回购' in front):
+            or amount == 0 and first_execution):
         raise SourceUnavailable('buyback_execution_value_invalid')
     plan_id = plans.pop()
     return dict(
@@ -320,7 +326,7 @@ def parse_execution(raw, symbol, notice_date, *, resolve_plan=None):
                                   if plan == plan_id and report != header[2])),  # 原件中与本方案并列的报告书编号。
         notice_id=header[2],  # 当前执行进展公告编号。
         notice_date=notice_date,  # 公告索引的原披露日期。
-        first_execution='首次回购' in front,  # 标题明确为首次执行，不从最早样本猜测。
+        first_execution=first_execution,  # 标题明确为首次执行，不从最早样本猜测。
         cumulative_cny=amount,  # 本次披露的累计实际支付金额，元。
         source_sha256=sha256(raw).hexdigest(),  # 发行人原 PDF 摘要。
     )
