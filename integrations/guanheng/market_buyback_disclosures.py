@@ -28,6 +28,8 @@ DISCLOSURE_DATE = re.compile(r'详见公司(?:于)?(20\d{2}年\d{1,2}月\d{1,2}�
 SOURCE_CLAUSE = re.compile(r'详见公司(?:分别)?于([^。;；]{1,420})$')
 MONEY = r'(?:为|:)?(?:人民币)?([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(\.[0-9]{1,6})?(万)?元'
 ACTUAL_AMOUNT = re.compile(r'(?:支付(?:的)?(?:资金总额|总金额)|(?:累计)?成交总?金额|使用资金总额)' + MONEY)
+DATED_EXECUTION_AMOUNT = re.compile(
+    r'(?<!拟)(?<!计划)(?<!预计)(?:回购总金额|资金发生总额)' + MONEY)
 RESULT_SUMMARY_AMOUNT = re.compile(r'实际回购金额' + MONEY)
 INCLUDING_FEES = re.compile(r'\(含(?:交易|相关交易)?费用')
 DATED_REPURCHASE = re.compile(
@@ -227,11 +229,19 @@ def _execution_amounts(text, notice_date):
         return values
 
     dated = {}
+    dated_gross = False
     for match in DATED_REPURCHASE.finditer(text):
         section = match[4]
         if '回购' not in section:
             continue
         values = amounts(section)
+        # 两种金额表述同时用于执行期间和计划说明，只在定日执行段核算。
+        committed = re.search(r'回购(?:公司)?股份(?:数量)?(?:为)?[0-9,]+(?:\.[0-9]+)?万?股', section)
+        if committed:
+            actual = section[committed.end():]
+            dated_gross |= any(INCLUDING_FEES.match(actual, item.end())
+                               for item in DATED_EXECUTION_AMOUNT.finditer(actual))
+            values.update(amounts(actual, DATED_EXECUTION_AMOUNT))
         if ZERO_EXECUTION.search(section):
             values.add(Decimal(0))
         if values:
@@ -248,7 +258,8 @@ def _execution_amounts(text, notice_date):
     paid = amounts(text) or amounts(text, RESULT_SUMMARY_AMOUNT)
     if not paid and BEFORE_EXECUTION.search(text):
         return {Decimal(0)}
-    if not paid and any(INCLUDING_FEES.match(text, item.end()) for item in ACTUAL_AMOUNT.finditer(text)):
+    if not paid and (dated_gross or any(INCLUDING_FEES.match(text, item.end())
+                                       for item in ACTUAL_AMOUNT.finditer(text))):
         raise SourceUnavailable('buyback_execution_net_amount_missing')
     return paid
 

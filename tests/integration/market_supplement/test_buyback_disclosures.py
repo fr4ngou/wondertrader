@@ -118,6 +118,30 @@ def test_including_fees_only_reports_missing_net_execution_amount(monkeypatch):
         parse_execution(b'issuer', 'SZSE.301656', '2026-11-11')
 
 
+@pytest.mark.parametrize(('phrase', 'amount', 'expected'), [
+    ('回购总金额', '33,869.65万元', Decimal('338696500')),
+    ('资金发生总额', '13,406,996.00元', Decimal('13406996')),
+])
+def test_dated_execution_total_variants_exclude_budgets_and_fees(monkeypatch, phrase, amount, expected):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    prefix = ('证券代码:002468证券简称:样本公告编号:2026-097关于回购公司股份的进展公告'
+              '《关于回购公司股份方案的公告》(公告编号:2026-057)。'
+              '计划回购总金额为45,000万元。')
+    dated = '截至2026年10月31日,公司通过集中竞价交易回购股份2,423.13万股,' + phrase + '为' + amount
+    texts = {
+        b'net': prefix + dated + '(不含交易费用)。',
+        b'gross': prefix + dated + '(含交易费用)。',
+        b'budget_only': prefix,
+    }
+    monkeypatch.setattr(buybacks, '_pdf_text', texts.__getitem__)
+    assert parse_execution(b'net', 'SZSE.002468', '2026-11-05')['cumulative_cny'] == expected
+    with pytest.raises(SourceUnavailable, match='buyback_execution_net_amount_missing'):
+        parse_execution(b'gross', 'SZSE.002468', '2026-11-05')
+    with pytest.raises(SourceUnavailable, match='buyback_execution_ambiguous'):
+        parse_execution(b'budget_only', 'SZSE.002468', '2026-11-05')
+
+
 def test_issuer_citation_dates_survive_newspaper_titles(monkeypatch):
     from integrations.guanheng import market_buyback_disclosures as buybacks
 
