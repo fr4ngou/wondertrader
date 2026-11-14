@@ -3,6 +3,8 @@
 所有返回收据只证明 Host 持久接收/源确认，不计算交易业务状态。源 ACK
 不删除原事件；相同身份重放逐字节核对。网络和 WT 消费由调用 owner 处理。
 """
+from contextlib import contextmanager
+
 from guanheng_qmt_shm_agent.protocol import canonical, decode
 from guanheng_qmt_shm_agent.read_capabilities import validate_read_profile
 from guanheng_qmt_shm_agent.trade_capabilities import validate_trade_profile_binding
@@ -103,6 +105,7 @@ class TradeEventRecords:
         self._continuity = connection_continuity is not None
         private = owner.trade_binding
         self._owner, self._identity_bytes = owner, identity
+        self._retained_usage = None  # 同一写入者锁内维护已提交的流数、事件数和逻辑字节。
         self._storage, self._limits = storage, dict(limits)
         self._profile_sha = profile_sha
         self._previous_identity = self._previous_profile_sha = None
@@ -232,8 +235,9 @@ class TradeEventRecords:
         row = (session, self._binding_id, previous + 1, origin, actual, previous,
             state['durable_through'], state['ack_intended_through'],
             state['source_ack_through'], state['observed_published_through'])
-        db.execute('INSERT INTO trade_event_auth_connections VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-                   row + (self._auth_reservation(row),))
+        reserved = self._auth_reservation(row)
+        db.execute('INSERT INTO trade_event_auth_connections VALUES(?,?,?,?,?,?,?,?,?,?,?)', row + (reserved,))
+        return reserved
 
     def _authenticate_current(self, db, session, actual, origin=None):
         if origin is None:
@@ -277,7 +281,7 @@ class TradeEventRecords:
         if not self._continuity:
             _reject()
         session, actual = self._source(source)
-        with self._owner._trade_transaction(deadline) as db:
+        with self._event_transaction(deadline) as db:
             stream = db.execute('SELECT ' + ','.join(_STREAM_COLUMNS) +
                 ' FROM trade_event_streams WHERE session_id=? AND binding_id=?',
                 (session, self._binding_id)).fetchone()
@@ -295,8 +299,8 @@ class TradeEventRecords:
                         'WHERE session_id=? AND binding_id=? AND host_binding=?',
                         (session, self._binding_id, actual)).fetchone():
                     _reject()
-                self._append_auth(db, session, stream[2], actual, latest[0], state)
-                self._usage(db)
+                added = self._append_auth(db, session, stream[2], actual, latest[0], state)
+                self._reserve_usage(reserved_bytes=added)
         return state
 
     def authenticated(self, source, *, deadline):
@@ -387,10 +391,34 @@ class TradeEventRecords:
             'SELECT COUNT(*),COALESCE(SUM(reserved_bytes),0) FROM trade_events').fetchone()
         auth_bytes = (db.execute('SELECT COALESCE(SUM(reserved_bytes),0) '
             'FROM trade_event_auth_connections').fetchone()[0] if self._continuity else 0)
+        return self._checked_usage(streams, events, stream_bytes + event_bytes + auth_bytes)
+
+    def _checked_usage(self, streams, events, reserved_bytes):
         if (streams > self._storage['max_streams'] or events > self._storage['max_events']
-                or len(self._identity_bytes) + stream_bytes + event_bytes + auth_bytes > self._storage['max_bytes']):
+                or len(self._identity_bytes) + reserved_bytes > self._storage['max_bytes']):
             raise JournalFull('trade event retention capacity exhausted')
-        return streams, events
+        return streams, events, reserved_bytes
+
+    @contextmanager
+    def _event_transaction(self, deadline):
+        # 外层复用同一把锁，提交失败或结果未知时先使缓存失效，再允许下一调用。
+        with self._owner._trade_lock(deadline):
+            before = self._retained_usage
+            try:
+                with self._owner._trade_transaction(deadline) as db:
+                    if self._retained_usage is None:
+                        self._retained_usage = self._usage(db)
+                    before = self._retained_usage
+                    yield db
+            except BaseException:
+                if self._retained_usage != before:
+                    self._retained_usage = None
+                raise
+
+    def _reserve_usage(self, *, streams=0, events=0, reserved_bytes=0):
+        previous_streams, previous_events, previous_bytes = self._retained_usage
+        self._retained_usage = self._checked_usage(
+            previous_streams + streams, previous_events + events, previous_bytes + reserved_bytes)
 
     def initialize(self, db):
         """在 Journal 初始化原事务、命令恢复前调用；逐行验证，不启动连接/线程。"""
@@ -449,7 +477,8 @@ class TradeEventRecords:
             if identity != (1, self._identity_bytes) or cursor.fetchone() is not None:
                 _reject()
         self._initialize_auth(db, continuity_existed)
-        stream_count, event_count = self._usage(db)
+        usage = self._usage(db)
+        stream_count, event_count, _ = usage
         cursor = db.execute('SELECT ' + ','.join(_STREAM_COLUMNS) + ' FROM trade_event_streams')
         checked_streams = checked_events = 0
         while True:
@@ -479,6 +508,7 @@ class TradeEventRecords:
                 _reject()
         if checked_events != event_count or checked_streams != stream_count:
             _reject()
+        self._retained_usage = usage  # 初始化事务成功后，Journal 才对外提供事件接口。
 
     def _page_arguments(self, after_seq, limit, max_bytes):
         _integer(after_seq)
@@ -507,16 +537,18 @@ class TradeEventRecords:
             if value['sequence'] != number or number > published:
                 _reject()
             raw_events.append((number, raw))
-        with self._owner._trade_transaction(deadline) as db:
+        with self._event_transaction(deadline) as db:
             state = self._find(db, session, source_raw)
             new_stream = state is None
+            added_bytes = 0
             if new_stream:
                 if after_seq != 0 or acknowledged != 0:
                     _reject()
                 db.execute('INSERT INTO trade_event_streams VALUES(?,?,?,?,?,?,?,?,?)',
                     (session, self._binding_id, source_raw, 0, 0, 0, 0, canonical(None), _STREAM_BYTES))
+                added_bytes = _STREAM_BYTES
                 if self._continuity:
-                    self._append_auth(db, session, source_raw, source_raw, 0,
+                    added_bytes += self._append_auth(db, session, source_raw, source_raw, 0,
                         dict(durable_through=0, ack_intended_through=0,
                              source_ack_through=0, observed_published_through=0))
                 state = self._find(db, session, source_raw)
@@ -538,15 +570,17 @@ class TradeEventRecords:
                 else:
                     if sequence != durable + 1:
                         _reject()
+                    reserved = len(raw) + 512
                     db.execute('INSERT INTO trade_events VALUES(?,?,?,?,?,?)',
-                        (session, self._binding_id, sequence, raw, digest(raw), len(raw) + 512))
+                        (session, self._binding_id, sequence, raw, digest(raw), reserved))
+                    added_bytes += reserved
                     self._owner._order_links.ingest_event(db, decode(raw), source)
                     durable = sequence
             saved_gap = state['gap'] if state['gap'] is not None else gap
             new_events = durable != state['durable_through']
-            # 前沿和 gap 已包含在固定流预留中。只有新增流或事件才增加占额。
             if new_stream or new_events:
-                self._usage(db)
+                self._reserve_usage(streams=int(new_stream), events=durable - state['durable_through'],
+                                    reserved_bytes=added_bytes)
             observed = max(published, state['observed_published_through'])
             if new_events or observed != state['observed_published_through'] or saved_gap != state['gap']:
                 db.execute('''UPDATE trade_event_streams SET durable_through=?,ack_intended_through=?,

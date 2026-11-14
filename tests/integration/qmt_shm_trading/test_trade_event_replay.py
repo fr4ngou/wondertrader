@@ -1,4 +1,5 @@
 import time
+from contextlib import contextmanager
 from hashlib import sha256
 
 import pytest
@@ -74,9 +75,69 @@ def test_repeated_event_page_and_ack_skip_unchanged_writes_after_restart(tmp_pat
         assert not counts
         with pytest.raises(JournalFull):
             ingest(owner, dict(page, gap=gap, published_through=2, events=[event, dict(event, sequence=2)]))
-        assert counts == [True]
+        # 超额事务回滚，旧占额不变，重复页仍能返回原收据。
+        assert ingest(owner, page) == advanced_observation
+        assert not counts
         assert owner.events.state(session, deadline=end()) == advanced_observation
         retained = decode(owner.events.read(session, after_seq=0, limit=16, max_bytes=4096, deadline=end()))
         assert retained['events'] == [event]
+    finally:
+        owner.close()
+
+
+def test_event_capacity_recovers_after_ambiguous_commit(tmp_path, monkeypatch):
+    from guanheng_qmt_shm.trade_event_records import TradeEventRecords
+
+    config = agent_config()
+    config['operation_profiles']['account.trade_detail']['policy_version'] = '2.0'
+    admitted = validate_trade_configuration(config)
+    route = config['route']
+    binding = admitted.trade_binding['binding_id']
+    owner = HostTradingJournal(
+        tmp_path / 'late.sqlite', route, max_records=32, max_result_bytes=16384,
+        max_request_bytes=8192, max_journal_bytes=32*(8192+16384+16384),
+        trade_binding=admitted.trade_binding, max_trade_commands=admitted.trade_binding['max_commands'],
+        max_trade_bytes=160000, max_trade_result_bytes=admitted.profile['trade_profile']['limits']['max_call_result_bytes'],
+        read_profile=admitted.profile, event_storage=dict(max_streams=4, max_events=1, max_bytes=12000, max_page_bytes=4096))
+    session = 'ambiguous-commit'
+    source = dict(session_id=session, host_binding=host_binding(
+        route=route, generation='a'*32, host_instance_id='b'*32, journal_generation=None,
+        observation_identity=None, capability_sha256=sha256(canonical(admitted.profile)).hexdigest(), schema_version='2.0'))
+
+    def ingest(sequence):
+        event = dict(schema_version='qmt.trade-event.v1', session_id=session, binding_id=binding,
+                     sequence=sequence, kind='error', payload=dict(order_args={'accountID': 'SYNTHETIC'}, err_msg='original'))
+        page = dict(schema_version='qmt.trade-event-page.v1', session_id=session, binding_id=binding,
+                    acknowledged_through=0, published_through=sequence, gap=None, events=[event])
+        return owner.events.ingest(source, canonical(page), after_seq=sequence-1, limit=16, max_bytes=4096, deadline=end())
+
+    try:
+        transaction = owner._trade_transaction
+
+        @contextmanager
+        def committed_but_late(deadline):
+            with transaction(deadline) as db:
+                yield db
+            raise TimeoutError('simulated late commit')
+
+        with monkeypatch.context() as patch:
+            patch.setattr(owner, '_trade_transaction', committed_but_late)
+            with pytest.raises(TimeoutError, match='simulated late commit'):
+                ingest(1)
+        assert owner.events.state(source, deadline=end())['durable_through'] == 1
+        full_scan = TradeEventRecords._usage
+        rebuilt = []
+
+        def track_rebuild(records, db):
+            value = full_scan(records, db)
+            rebuilt.append(value[1])
+            return value
+
+        monkeypatch.setattr(TradeEventRecords, '_usage', track_rebuild)
+        assert ingest(1)['durable_through'] == 1
+        assert rebuilt == [1]
+        with pytest.raises(JournalFull):
+            ingest(2)
+        assert owner.events.state(source, deadline=end())['durable_through'] == 1
     finally:
         owner.close()
