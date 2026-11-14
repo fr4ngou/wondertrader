@@ -251,7 +251,7 @@ class AttributionCoordinator:
     def __init__(self, allocation, *, control_id, account_scope_sha256, strategy_ids,
                  fee_bound, settlement_day, clock=monotonic, utcnow=lambda: datetime.now(timezone.utc),
                  trading_day_qualified=None, account_observation_day=None, execution_scale=1.0,
-                 configured_universes=None):
+                 configured_universes=None, broker_query_observation=None):
         _need(type(control_id) is str and str(UUID(control_id)) == control_id, 'attribution_control')
         _need(type(account_scope_sha256) is str and len(account_scope_sha256) == 64
               and all(c in '0123456789abcdef' for c in account_scope_sha256), 'attribution_account_scope')
@@ -267,6 +267,7 @@ class AttributionCoordinator:
         self._control, self._scope = control_id, account_scope_sha256
         self._fee_bound, self._settlement = fee_bound, settlement_day
         self._clock, self._utcnow = clock, utcnow
+        self._broker_query_observation = broker_query_observation  # 生产使用现有后台日志队列。
         self._lock, self._metadata, self._plan = RLock(), {}, None
         self._seen_strategies, self._merged, self._armed = set(), {}, False
         self._native_targets = {}  # 原Local保留的每证券原目标。全量提交中省略的证券不授新准入。
@@ -598,6 +599,18 @@ class AttributionCoordinator:
         if not inbox.applied:
             self._project_source(event, event_id, None)
 
+    def _observe_broker_query(self, kind, received, outcomes, started, stored, *, deferred):
+        if self._broker_query_observation is None:
+            return
+        self._broker_query_observation(
+            kind=kind, rows=len(received),
+            previously_applied=sum(inbox.applied for inbox, _ in received),
+            unbound=sum(command is None for _, command in received),
+            new_fills=outcomes.count('new_fill'), duplicate_fills=outcomes.count('duplicate_fill'),
+            applied_orders=outcomes.count('applied'), pending=outcomes.count('pending'),
+            receive_ms=round((stored - started)*1000, 3),
+            projection_ms=round((self._clock() - stored)*1000, 3), deferred=deferred)
+
     def _receive_broker_events(self, kind, events, deadline, *, query=False):
         received_at = self._clock()
         facts = tuple(self._broker_fact(event) for event in events)
@@ -651,17 +664,13 @@ class AttributionCoordinator:
                     'broker_projection_deferred kind=%s rows=%d first_event_id=%s elapsed_ms=%.1f reason=allocation_deadline',
                     kind, len(events), next(iter(pending)) if pending else next(iter(restore_sells.values()))[0],
                     (self._clock() - received_at)*1000)
+                if query:
+                    self._observe_broker_query(kind, received, outcomes, received_at, stored_at, deferred=True)
                 return _BROKER_PROJECTION_DEFERRED
             for tag in restore_sells:
                 self._sell_restore_pending.pop(tag, None)
         if query:
-            logging.getLogger(__name__).info(
-                'broker_query kind=%s rows=%d previously_applied=%d unbound=%d new_fills=%d duplicate_fills=%d '
-                'applied_orders=%d pending=%d receive_ms=%.1f projection_ms=%.1f',
-                kind, len(events), sum(inbox.applied for inbox, _ in received),
-                sum(command is None for _, command in received), outcomes.count('new_fill'),
-                outcomes.count('duplicate_fill'), outcomes.count('applied'), outcomes.count('pending'),
-                (stored_at - received_at)*1000, (self._clock() - stored_at)*1000)
+            self._observe_broker_query(kind, received, outcomes, received_at, stored_at, deferred=False)
 
     def _receive_query_batch(self, event):
         body = event.body

@@ -318,6 +318,23 @@ class ProcessEventLog:
         with self._lock:
             self._append('runtime_exception', dict(details, pid=_process_number(pid)))
 
+    def broker_query(self, *, kind, rows, previously_applied, unbound, new_fills,
+                     duplicate_fills, applied_orders, pending, receive_ms, projection_ms, deferred):
+        """记录一次原生查询回报批次的分账计数与本地阶段耗时，复用后台发布。"""
+        with self._lock:
+            self._append('broker_query_batch', dict(
+                kind=kind,  # 8 表示成交，9 表示委托。
+                rows=rows,  # 原批次传入的行数，可含重复行。
+                previously_applied=previously_applied,  # 收件时已有完成投影的行数。
+                unbound=unbound,  # 收件时未查到原委托归属的行数。
+                new_fills=new_fills,  # 此批次投影新增成交数。
+                duplicate_fills=duplicate_fills,  # 投影时再次识别的重复成交数。
+                applied_orders=applied_orders,  # 此批次完成的委托投影数。
+                pending=pending,  # 投影后保留待核查的事实数。
+                receive_ms=receive_ms,  # 收件键、去重及收件提交耗时，毫秒。
+                projection_ms=projection_ms,  # 后续分账投影阶段耗时，毫秒。
+                deferred=deferred))  # 投影截止后留原身份续查，阶段计数记录已观察结果。
+
     def market_input_timeout(self, strategy_id, epoch, sequence, seconds):
         """记录本轮读超时及重试动作；只使用已准入策略和原CTA调度身份。"""
         with self._lock:

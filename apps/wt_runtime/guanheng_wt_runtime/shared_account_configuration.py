@@ -194,11 +194,13 @@ def create_runtime_attribution(native, configuration, control_directory, control
             return (fixed+unit*quantity).quantize(Decimal('.01'), rounding=ROUND_CEILING)
     allocation = _BorrowedAllocation(root, identity, tuple(seeds), unallocated, snapshot,
                                      require_existing=root != financial_root)
+    from .runtime_diagnostics import ProcessEventLog
+    diagnostics = ProcessEventLog(Path(control_directory).parent, control_id, 'cta-broker-query')
     coordinator = AttributionCoordinator(allocation, control_id=control_id,
         account_scope_sha256=identity.account_scope_sha256, strategy_ids=tuple(strategies),
         fee_bound=fee_bound, settlement_day=settlement, trading_day_qualified=lambda day: day in days,
         account_observation_day=observation_day, execution_scale=native['executer']['scale'],
-        configured_universes=universes)
+        configured_universes=universes, broker_query_observation=diagnostics.broker_query)
     bridge = AttributionBridge(coordinator, callback_seconds=value['callback_seconds'])
     allocation.bind(bridge)
     return coordinator, bridge

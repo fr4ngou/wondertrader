@@ -218,7 +218,10 @@ def test_broker_timeout_before_durable_receipt_preserves_failure(tmp_path, monke
 
 def test_broker_query_persists_original_rows_with_one_commit_and_keeps_replay_identity(tmp_path, monkeypatch):
     from contextlib import contextmanager
+    from guanheng_wt_runtime.runtime_diagnostics import ProcessEventLog
     book, coordinator, bridge = setup(tmp_path)
+    diagnostics = ProcessEventLog(tmp_path, str(uuid4()), 'cta-broker-query')
+    monkeypatch.setattr(coordinator, '_broker_query_observation', diagnostics.broker_query)
     transactions = []
     transaction = book._transaction
 
@@ -233,6 +236,11 @@ def test_broker_query_persists_original_rows_with_one_commit_and_keeps_replay_id
                             user_tag=f'otp.history.{i}')) for i in range(44)]
     assert send(bridge, 12, dict(kind=9, rows=rows))[0] == 0, bridge.failure
     assert len(transactions) == 1
+    assert diagnostics.drain()
+    [sample] = map(json.loads, (tmp_path / 'process-events.jsonl').read_bytes().splitlines())
+    assert (sample['event'], sample['kind'], sample['rows'], sample['unbound']) == ('broker_query_batch', 9, 44, 44)
+    assert sample['receive_ms'] >= 0 and sample['projection_ms'] >= 0 and sample['deferred'] is False
+    assert 'otp.history' not in json.dumps(sample)
     inbox = book.pending_events(deadline=end())
     assert [row.raw_json for row in inbox] == [row.encode() for row in rows]
     assert all(row.reason == 'attribution_command_unmapped' and not row.applied for row in inbox)
