@@ -55,6 +55,7 @@
 | AI 开发知识与任务续接方案 | [AKN 方案](specs/agent-project-knowledge.md)、[研究依据](research/2026-11-07-documentation-standards-lifecycle.md) | 按采用切片登记；任务选择及行为实验仍待实施 |
 | 功能设计、职责或状态变化 | [方案规范](development/design.md)、[规格索引](specs/README.md) | 要求与验收映射；原规格及适用 ADR |
 | 测试、审查与运行资格 | [验证规范](development/verification.md)、[测试手册](runbooks/testing.md) | 输入有效的测试及[证据](evidence/README.md) |
+| 时延、写盘与数据增长 | [性能与增长验证](development/verification.md#性能与增长验证)、[WT 私有持久化](specs/wt-private-persistence.md) | 查关键链路，按历史增长、重复输入与部署卷做对照 |
 | 策略编写与验证 | [策略编写入口](modules/strategy-runtime.md#策略编写入口)、[策略开发与回测交付](development/workflow.md#策略开发与回测交付)、[因子研究流程](research/2026-11-11-factor-research-workflow.md) | 核对原生接口、策略版本、冻结输入和交付范围 |
 | 因子素材、研究与演进 | [因子素材目录](research/factor-materials.md)、[因子研究全链路方案](specs/factor-research-lifecycle.md) | 核对公式、时点、证据与版本，沿 WT 正式回测验收 |
 | WT 回测与报告 | [回测手册](runbooks/native-backtest.md)、[NBC规格](specs/native-backtest-cli.md) | 研究结果用 WT 查看；指定报告核对正式完成凭证及观衡读回 |
