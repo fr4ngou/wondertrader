@@ -114,6 +114,7 @@ public:
     std::shared_ptr<ParserObservation> parser_observation=std::make_shared<ParserObservation>(); // Session及SPI共享的诊断owner。
     CtaExecutionPhase phase=CtaExecutionPhase::New;CtaExecutionFault fault=CtaExecutionFault::None;
     bool busy=false,engine_initialized=false,data_attempted=false,engine_stopped=false;
+    const char* initialization_step=nullptr; // 原生初始化当前步骤；失败后保留供私有收据读取。
     HANDLE output_lease=INVALID_HANDLE_VALUE;
     CtaExecutionRecovery* recovery=nullptr;
     Impl(wtp::IBaseDataMgr& b,wtp::IHotMgr* h,StandardExecutionHost& e,std::vector<CtaExecutionStrategy> bindings)
@@ -160,6 +161,7 @@ bool CtaExecutionSession::initialize(wtp::WTSVariant* env,wtp::WTSVariant* data,
 bool CtaExecutionSession::initialize(wtp::WTSVariant* env,wtp::WTSVariant* data,wtp::WTSVariant* parsers,const char* output,CtaExecutionRecovery* recovery){
     auto& x=*impl_;if(!x.on_owner()||x.busy||x.phase!=CtaExecutionPhase::New||x.requested.load())return false;Busy guard(x.busy);
     try {
+        x.initialization_step="configuration";
         if(!configuration_valid(env,data,parsers)||!x.base.getSession(env->get("product")->getCString("session"))
             ||!output||!*output||!x.execution.command()
             ||x.execution.status().phase!=ExecutionHostPhase::Ready||x.execution.status().stop_requested){x.fail(CtaExecutionFault::Configuration);return false;}
@@ -168,6 +170,7 @@ bool CtaExecutionSession::initialize(wtp::WTSVariant* env,wtp::WTSVariant* data,
         if(!directory.is_absolute()||!std::filesystem::is_directory(directory)
             ||!std::filesystem::equivalent(directory,std::filesystem::path(WtHelper::getBaseDir()))){x.fail(CtaExecutionFault::Configuration);return false;}
         // 同进程占用无法保护跨进程的检查/创建窗口；OS句柄覆盖整个原生输出生命周期。
+        x.initialization_step="output_lease";
         x.output_lease=CreateFileW((directory/".cta-session.lock").c_str(),GENERIC_READ|GENERIC_WRITE,0,
             nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
         if(x.output_lease==INVALID_HANDLE_VALUE){
@@ -177,12 +180,17 @@ bool CtaExecutionSession::initialize(wtp::WTSVariant* env,wtp::WTSVariant* data,
         if((!recovery||!recovery->restore)&&(std::filesystem::exists(directory/"stradata")||std::filesystem::exists(directory/"userdata")
             ||std::filesystem::exists(directory/"portfolio")||std::filesystem::exists(directory/"outputs"))){x.fail(CtaExecutionFault::Configuration);return false;}
         if(recovery){
+            x.initialization_step="recovery_admission";
             if(!recovery->admit||!recovery->closed||!recovery->admit()){x.fail(CtaExecutionFault::Configuration);return false;}
             x.recovery=recovery;
+            x.initialization_step="recovery_prepare";
             if(!recovery->restore&&recovery->prepare&&!recovery->prepare()){x.fail(CtaExecutionFault::Configuration);return false;}
         }
+        x.initialization_step="engine_init";
         x.engine.init(env,&x.base,&x.data,x.hot,nullptr);x.engine_initialized=true;x.engine.set_adapter_mgr(&x.engine_traders);x.engine.regEventListener(&x);
+        x.initialization_step="reader_init";
         x.data_attempted=true;if(!x.data.init(data,&x.engine,false,true)||!x.data.supports_stop()){x.fail(CtaExecutionFault::Initialize);return false;}
+        x.initialization_step="parser_init";
         std::uint32_t count=0;
         for(std::uint32_t i=0;i<parsers->size();++i){
             auto* cfg=parsers->get(i);
@@ -194,10 +202,12 @@ bool CtaExecutionSession::initialize(wtp::WTSVariant* env,wtp::WTSVariant* data,
             if(!x.parsers.addAdapter(id.c_str(),adapter)||!adapter->init(id.c_str(),cfg,&x.engine,&x.base,x.hot,true)||!adapter->supports_stop()){x.fail(CtaExecutionFault::Initialize);return false;}++count;
         }
         if(!count){x.fail(CtaExecutionFault::Initialize);return false;}
+        x.initialization_step="strategy_init";
         for(auto& value:x.strategies){
             auto& binding=value.binding;
             if(!binding.strategy->init(binding.parameters)){x.fail(CtaExecutionFault::Initialize);return false;}
         }
+        x.initialization_step="strategy_identity";
         // 工厂策略可在init中改写_id；全部init返回后核冻结身份，避免共享原JSON文件。
         for(auto& value:x.strategies){
             const char* current=value.binding.strategy->id();
@@ -205,12 +215,13 @@ bool CtaExecutionSession::initialize(wtp::WTSVariant* env,wtp::WTSVariant* data,
         }
         for(auto& value:x.strategies){
             auto& binding=value.binding;
+            x.initialization_step="strategy_context";
             std::shared_ptr<CtaStraContext> context;
             if(binding.retired_targets.empty())context=std::make_shared<CtaStraContext>(&x.engine,value.id.c_str(),0);
             else context=std::make_shared<RetiredTargetContext>(&x.engine,value.id.c_str(),binding.retired_targets);
             context->set_strategy(binding.strategy);x.engine.addContext(context);
         }
-        x.engine.addExecuter(x.execution.command());x.phase=CtaExecutionPhase::Configured;return true;
+        x.engine.addExecuter(x.execution.command());x.phase=CtaExecutionPhase::Configured;x.initialization_step=nullptr;return true;
     }catch(...){x.fail(CtaExecutionFault::Initialize);return false;}
 }
 bool CtaExecutionSession::start(){
@@ -235,7 +246,7 @@ CtaExecutionStatus CtaExecutionSession::status()const {
     auto& x=*impl_;if(!x.on_owner())throw std::runtime_error("cta_session_wrong_owner");
     const auto& p=*x.parser_observation;
     return {x.phase,x.fault,x.requested.load(),x.initializes.load(),x.schedules.load(),x.sessions.load(),
-        p.quotes.load(),p.connects.load(),p.closes.load(),p.logs.load()};
+        p.quotes.load(),p.connects.load(),p.closes.load(),p.logs.load(),x.initialization_step};
 }
 void CtaExecutionSession::request_stop()noexcept{impl_->requested.store(true);impl_->execution.request_stop();}
 int CtaExecutionSession::quiesce(std::uint32_t timeout)noexcept{

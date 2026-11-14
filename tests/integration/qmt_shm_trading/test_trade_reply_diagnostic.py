@@ -4,6 +4,7 @@ from concurrent.futures import Future
 import base64
 from hashlib import sha256
 from io import StringIO
+import sqlite3
 import threading
 from types import SimpleNamespace
 import unittest
@@ -87,6 +88,40 @@ class TradeReplyDiagnostic(unittest.TestCase):
                                   else 'original_request_interrupted', output.getvalue())
                 finally:
                     owner._domain.close(2)
+
+    def test_account_read_reconciliation_timeout_retains_original_until_next_attempt(self):
+        locked = sqlite3.OperationalError('database locked')
+        locked.sqlite_errorcode = sqlite3.SQLITE_BUSY
+        for error in (TimeoutError('reconciliation'), locked):
+            with self.subTest(error=type(error).__name__):
+                owner = HostControlLoop.__new__(HostControlLoop)
+                request = canonical({'operation_id': 'account.trade_detail'})
+                original = {'request_id': str(uuid4()), 'result': {}, 'deadline': 10}
+                owner.active = (original['request_id'], request, 10, 'unused')
+                owner._read_scan = owner._read_rejection = None
+                owner._read_timeout_reported = False
+                owner._read_commit = Future()
+                owner._read_commit.set_exception(TimeoutError('original persistence'))
+                owner._read_commit_payload = original
+                owner._read_reconcile = Future()
+                owner._read_reconcile.set_exception(error)
+                owner.runtime = SimpleNamespace(_stop=threading.Event(), budget=SimpleNamespace(io_seconds=2))
+                owner._domain = Mock()
+                owner.read_future = Mock()
+                successor = Future()
+                owner._domain.submit.return_value = successor
+                with redirect_stderr(StringIO()) as output:
+                    owner._progress_domain()
+                    self.assertIs(owner._read_commit_payload, original)
+                    owner.read_future.ack.assert_not_called()
+                    owner._progress_domain()
+                    successor.set_result('original_result_already_terminal')
+                    owner._progress_domain()
+                self.assertIsNone(owner.active)
+                self.assertIs(owner._domain.submit.call_args.args[1]['finish'], original)
+                owner.read_future.ack.assert_called_once_with()
+                self.assertIn('reconcile_timeout', output.getvalue())
+                self.assertIn('original_result_already_terminal', output.getvalue())
 
     def test_close_checks_interrupt_committed_before_reconciliation_timeout(self):
         owner = HostControlLoop.__new__(HostControlLoop)

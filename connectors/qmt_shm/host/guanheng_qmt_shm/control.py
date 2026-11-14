@@ -2,6 +2,7 @@
 from __future__ import annotations
 import base64
 import hashlib
+import sqlite3
 from datetime import datetime, timezone
 import sys
 import threading
@@ -10,6 +11,7 @@ from guanheng_qmt_shm_agent.control_peer import ControlPeer
 from guanheng_qmt_shm_agent.builtin_shm import PendingIO
 from guanheng_qmt_shm_agent.protocol import ProtocolError, canonical, decode
 from .domain import HostDomainWorker
+from .journal import read_io_retryable, trace_account_read
 
 
 class _ReadClaim(tuple):
@@ -76,10 +78,14 @@ class HostControlLoop:
                 return _ReadClaim(active,queue_deadline,upper,error)
             return _ReadClaim(active,queue_deadline,upper)
         if operation=='read.finish':
-            self._persist_read_outcome(payload,payload['deadline'])
+            if 'account_request_sha256' in payload:
+                with trace_account_read('finish', payload['account_request_sha256'], payload['captured_at'], payload['deadline']):
+                    return self._persist_read_outcome(payload,payload['deadline'])
+            return self._persist_read_outcome(payload,payload['deadline'])
         elif operation=='read.reconcile_account_finish':
-            return self._reconcile_read_record(payload['finish'], payload['operation_id'],
-                payload['request_sha256'], payload['deadline'])
+            with trace_account_read('reconcile', payload['request_sha256'], payload['queued_at'], payload['deadline']):
+                return self._reconcile_read_record(payload['finish'], payload['operation_id'],
+                    payload['request_sha256'], payload['deadline'])
         elif operation=='read.interrupt':
             self.runtime.journal.interrupt_bound(payload['request_id'],payload['operation_id'])
         else:
@@ -103,7 +109,7 @@ class HostControlLoop:
                 self.domain_failed=True
                 raise claimed.wait_error
         if self._read_commit is not None and self._read_commit.done():
-            if (not self._read_commit.cancelled() and isinstance(self._read_commit.exception(), TimeoutError)
+            if (not self._read_commit.cancelled() and read_io_retryable(self._read_commit.exception())
                     and self._is_account_finish(self._read_commit_payload) and not self.runtime._stop.is_set()):
                 if not self._continue_account_finish():
                     return
@@ -141,13 +147,18 @@ class HostControlLoop:
                 self._log_account_finish('commit_timeout', request_sha256)
                 self._read_timeout_reported=True
             try:
+                queued_at=time.monotonic()
                 self._read_reconcile=self._domain.submit('read.reconcile_account_finish', dict(
                     finish=self._read_commit_payload, operation_id='account.trade_detail',
-                    request_sha256=request_sha256, deadline=time.monotonic()+self.runtime.budget.io_seconds))
+                    request_sha256=request_sha256, queued_at=queued_at, deadline=queued_at+self.runtime.budget.io_seconds))
             except BufferError:
                 pass  # 同一原任务及结果仍在，等原队列腾出名额。
             return False
         if not self._read_reconcile.done():
+            return False
+        if not self._read_reconcile.cancelled() and read_io_retryable(self._read_reconcile.exception()):
+            self._log_account_finish('reconcile_timeout', request_sha256)
+            self._read_reconcile=None
             return False
         outcome=self._domain_result(self._read_reconcile)
         if outcome is None:
@@ -203,9 +214,10 @@ class HostControlLoop:
 
     def _new_read_finish(self):
         # take尚无结果时此预留槽直接丢弃，不改变原未取出/中断路径。
+        captured_at=time.monotonic()
         return {'reply':None,'ready':False,'payload':{
             'request_id':self.active[0] if self.active is not None else None,
-            'result':None,'deadline':time.monotonic()+self.runtime.budget.io_seconds}}
+            'result':None,'captured_at':captured_at,'deadline':captured_at+self.runtime.budget.io_seconds}}
 
     def _read_finish_payload(self):
         slot=self._read_finish
@@ -276,7 +288,9 @@ class HostControlLoop:
         if self._read_finish is None or self._read_commit is not None:
             return
         payload=self._read_finish_payload()
-        if time.monotonic() >= payload['deadline'] and not self._is_account_finish(payload):
+        if self._is_account_finish(payload):
+            payload['account_request_sha256']=hashlib.sha256(self.active[1]).hexdigest()
+        elif time.monotonic() >= payload['deadline']:
             raise TimeoutError('original read result persistence deadline elapsed')
         # 账户查询即使在入队前超期，域仍按原D先拒绝写入，再进入同身份核账。
         try:
@@ -378,7 +392,7 @@ class HostControlLoop:
         """
         future,payload,active=self._read_commit,self._read_commit_payload,self.active
         if (future is None or not future.done() or future.cancelled()
-                or not isinstance(future.exception(),TimeoutError) or payload is None or active is None
+                or not read_io_retryable(future.exception()) or payload is None or active is None
                 or payload['request_id']!=active[0]
                 or self.read_future is not None and not self.read_future.retired):
             return False
@@ -387,7 +401,8 @@ class HostControlLoop:
         if self._read_reconcile is not None:
             try:
                 outcome=self._read_reconcile.result()
-            except TimeoutError:
+            except (TimeoutError, sqlite3.OperationalError) as error:
+                if not read_io_retryable(error):raise
                 # 同一域已join；在原关闭D核晚回COMMIT，不沿新预算重做finish。
                 pass
         if outcome is None:
@@ -456,8 +471,8 @@ class HostControlLoop:
             self._read_finish=None;self.active=None
         if self._read_commit is not None:
             try:self._domain_result(self._read_commit)
-            except TimeoutError:
-                if not self._reconcile_timed_out_read_finish(deadline):raise
+            except (TimeoutError, sqlite3.OperationalError) as error:
+                if not read_io_retryable(error) or not self._reconcile_timed_out_read_finish(deadline):raise
             self.active=None
         elif self.active is not None:
             records.append(self.active)

@@ -394,6 +394,22 @@ class ServiceController:
         )
         return result.returncode == 0 and _terminal(current, "failure.json") is not None
 
+    def _record_missing_execution_exit(self, current):
+        """核已就绪的原执行进程退出后才生成恢复材料，保留原故障收据。"""
+        failure = _terminal(current, "failure.json")
+        if failure is None or failure.get("components_closed") is not False:
+            return
+        status = _runtime_status(current, allow_pending=False)
+        reference = (status or {}).get("components", {}).get("execution", {}).get("business_observation")
+        if reference is None:
+            return
+        _require(reference.get("schema") == "guanheng.execution-observation-reference.v1")
+        child = _path(reference["path"], e_drive=True).parent
+        _require(_path(reference["ready_path"], e_drive=True) == child / "ready.json")
+        if not any(os.path.lexists(child / name) for name in ("closed.json", "close-prepared.json", "failure.json", "owner-loss.json")):
+            if not self._record_process_loss(current):
+                raise ValueError("execution_predecessor_exit_unconfirmed")
+
     def _generation_record(self, control_id: str) -> dict | None:
         path = self.config.generation_root / control_id / "generation.json"
         try:
@@ -632,7 +648,7 @@ class ServiceController:
         _, closed = _json_file(child / "close-prepared.json", 4096)
         pid = failure.get("pid")
         stage = failure.get("stage")
-        _require(type(pid) is int and pid > 0 and stage in ("trader", "reconcile_orders")
+        _require(type(pid) is int and pid > 0 and stage in ("trader", "reconcile_orders", "cta")
                  and failure.get("schema") == "guanheng.execution.failure.v1" and failure.get("closed") is False
                  and all(row.get("control_id") == child_id and row.get("config_sha256") == digest
                          and row.get("pid") == pid for row in (failure, closed))
@@ -936,12 +952,16 @@ class ServiceController:
                 if previous_status is not None:
                     execution_origin = self._pre_native_execution_origin(previous, previous_status)
                 self._admit_bootstrap(previous, previous_status, pre_native=execution_origin is not None)
+                if execution_origin is not None:
+                    self._record_missing_execution_exit(execution_origin)
             elif previous is not None:
                 closed = _terminal(previous, "closed.json")
                 if closed is None:
                     failed = _terminal(previous, "failure.json")
                     if failed is not None:
-                        pass
+                        if previous_status is not None:
+                            execution_origin = self._pre_native_execution_origin(previous, previous_status)
+                        self._record_missing_execution_exit(execution_origin or previous)
                     elif previous_status is None or self._runtime_owner_active(previous) is True:
                         state = "ready" if previous_status and previous_status.get("ready") else "starting"
                         return 0, _safe_projection(action, previous, previous_status, state, changed=False)

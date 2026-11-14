@@ -48,6 +48,18 @@ class ProcessLogTests(unittest.TestCase):
             self.assertEqual(log.finish(1), len(rejected) + len(padded) + len(line) - 1)
             self.assertTrue(log.drain(5))
 
+    def test_account_io_timeout_persists_stage_and_timings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = ProcessEventLog(directory, 'run', 'trade-host-process')
+            request = 'c' * 64
+            line = f'GH_ACCOUNT_READ_IO reconcile {request} timeout lock 2000 70 2 0 1928 0 0 0 0\n'
+            self.assertEqual(log.feed(1, line.encode()), 0)
+            self.assertTrue(log.drain(5))
+            entry = json.loads((Path(directory)/'process-events.jsonl').read_text())
+            self.assertEqual((entry['event'], entry['operation'], entry['request_sha256'],
+                              entry['phase'], entry['queue_ms'], entry['lock_ms']),
+                             ('account_read_io_failure', 'reconcile', request, 'lock', 70, 1928))
+
     def test_real_child_error_remains_after_original_buffers_cleared(self):
         with tempfile.TemporaryDirectory() as directory:
             owner = ManagedLocalProcess(SimpleNamespace(control_root=directory,

@@ -33,6 +33,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <map>
@@ -134,17 +135,21 @@ void publish_broker(guanheng::StandardExecutionHost& execution,guanheng::Executi
     std::atomic_store(&broker_current,std::shared_ptr<const PublishedBroker>(std::move(value)));
 }
 struct Handle {HANDLE value=INVALID_HANDLE_VALUE;~Handle(){if(value&&value!=INVALID_HANDLE_VALUE)CloseHandle(value);}};
-struct ReadError:std::runtime_error {DWORD code;explicit ReadError(DWORD value):std::runtime_error("execution_file_read"),code(value){}};
+struct ReadError:std::runtime_error {
+    DWORD code; // 原Win32错误码，读取句柄失败时保留。
+    std::string filename; // 文件基名；私有诊断定位收据，不记录绝对路径或文件内容。
+    ReadError(DWORD value,const fs::path& path):std::runtime_error("execution_file_read"),code(value),filename(path.filename().u8string()){}
+};
 std::string read(const fs::path& path,std::size_t maximum){
     // 直接保留Win32共享冲突码；CRT ifstream会将32/33压成普通访问失败。
     Handle file;file.value=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_DELETE,nullptr,
         OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
-    if(file.value==INVALID_HANDLE_VALUE)throw ReadError(GetLastError());
+    if(file.value==INVALID_HANDLE_VALUE)throw ReadError(GetLastError(),path);
     BY_HANDLE_FILE_INFORMATION before{},after{};need(GetFileInformationByHandle(file.value,&before));
     const auto size=(static_cast<std::uint64_t>(before.nFileSizeHigh)<<32)|before.nFileSizeLow;
     need(!(before.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))&&before.nNumberOfLinks==1&&size>0&&size<=maximum);
     std::string body(static_cast<std::size_t>(size),'\0');DWORD received=0;
-    if(!ReadFile(file.value,body.data(),static_cast<DWORD>(body.size()),&received,nullptr))throw ReadError(GetLastError());
+    if(!ReadFile(file.value,body.data(),static_cast<DWORD>(body.size()),&received,nullptr))throw ReadError(GetLastError(),path);
     need(received==body.size()&&GetFileInformationByHandle(file.value,&after)
         &&before.dwVolumeSerialNumber==after.dwVolumeSerialNumber&&before.nFileIndexHigh==after.nFileIndexHigh
         &&before.nFileIndexLow==after.nFileIndexLow&&before.nFileSizeHigh==after.nFileSizeHigh&&before.nFileSizeLow==after.nFileSizeLow
@@ -1257,6 +1262,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
     std::vector<guanheng::CtaExecutionStrategy> unowned;
     Variant trader,executer,env,data,parser_config;Handle account_lease;
     guanheng::CtaExecutionRecovery recovery_hooks;
+    std::exception_ptr recovery_admission_error;
     fs::path recovery_output;std::string recovery_config,recovery_installation;
     rj::Document recovery_strategies;
     rj::Document takeover_input;std::string takeover_sha;
@@ -1332,7 +1338,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             publish(control/"installation-identity.json",installation_receipt);
             rj::Document identity;identity.CopyFrom(cfg,identity.GetAllocator());identity.RemoveMember("recovery");
             recovery_config=sha(encode(identity));recovery_strategies.CopyFrom(member(cfg,"strategies"),recovery_strategies.GetAllocator());
-            recovery_hooks.admit=[&,mode]{
+            auto admit=[&,mode]{
                 physical(recovery_output);
                 const auto marker=recovery_output/".cta-clean.json";
                 need(!fs::exists(recovery_output/".cta-clean.json.pending"));
@@ -1355,6 +1361,10 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                 // 原子消费后才允许原init写状态；异常退出留下consumed，下一代不能重用clean。
                 need(MoveFileExW(marker.c_str(),(recovery_output/".cta-clean.consumed.json").c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0);
                 return true;
+            };
+            recovery_hooks.admit=[&,admit]{
+                try{return admit();}
+                catch(...){recovery_admission_error=std::current_exception();throw;}
             };
             recovery_hooks.closed=[&]{
                 if(!recovery_armed)return true;
@@ -1525,7 +1535,10 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         stage="cta";session.reset(new guanheng::CtaExecutionSession(base,hot,*execution,unowned));unowned.clear();
         const auto& parsers=member(cfg,"parsers");need(parsers.IsArray());rj::Document parser_root(rj::kObjectType);
         parser_root.AddMember("parsers",rj::Value(parsers,parser_root.GetAllocator()),parser_root.GetAllocator());parser_config=load_variant(parser_root);
-        need(session->initialize(env.get(),data.get(),parser_config->get("parsers"),output.string().c_str(),recovery_enabled?&recovery_hooks:nullptr));check_start();
+        const bool initialized=session->initialize(env.get(),data.get(),parser_config->get("parsers"),
+            output.string().c_str(),recovery_enabled?&recovery_hooks:nullptr);
+        if(recovery_admission_error)std::rethrow_exception(recovery_admission_error);
+        need(initialized);check_start();
         need(session->start());check_start();
         lifecycle_started=true;
         publish_lifecycle(control,"lifecycle-started.json","guanheng.execution.started.v1",id,expected_sha,false);
@@ -1628,7 +1641,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         }
         success=true;
     }catch(...){
-        try{throw;}catch(const ReadError& error){native_error=error.code;}catch(...){}
+        std::string failed_file;
+        try{throw;}catch(const ReadError& error){native_error=error.code;failed_file=error.filename;}catch(...){}
         {guanheng::ExecutionHostStatus observed;if(execution)observed=execution->status();
             // 固定阶段/枚举及原因摘要供私有诊断；不向输出复制来源正文或账户字段。
             const auto reason=sha(observed.plugin.reason);
@@ -1640,6 +1654,11 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                     diagnostic.AddMember("host_fault",static_cast<unsigned>(observed.fault),a);
                     diagnostic.AddMember("session_fault",session?static_cast<unsigned>(session->status().fault):0,a);
                     diagnostic.AddMember("native_error",native_error,a);
+                    if(session){
+                        if(const auto* step=session->status().initialization_step)
+                            diagnostic.AddMember("initialization_step",rj::Value(step,a),a);
+                    }
+                    if(!failed_file.empty())diagnostic.AddMember("failed_file",rj::Value(failed_file.c_str(),a),a);
                     diagnostic.AddMember("reason_sha256",rj::Value(reason.c_str(),a),a);
                     // 原插件的有界错误原因只保留在受控Native收据，供定位真实读取失败；不进入公开状态。
                     diagnostic.AddMember("private_reason",rj::Value(observed.plugin.reason,a),a);

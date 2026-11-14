@@ -1232,6 +1232,25 @@ def main():
         result = runtime.run(args.control, args.control_id)
     finally:
         refresh_stop.set()
+        if runtime._last_error is not None:
+            # 私有有限诊断只记类型/调用位置；账户、变量内容和异常正文保持在原owner内。
+            import traceback
+            error = runtime._last_error
+            value = {'schema': 'guanheng.configured-callback-failure.v1',
+                     'exception_type': type(error).__name__,
+                     'frames': [{'file': Path(row.filename).name, 'function': row.name, 'line': row.lineno}
+                                for row in traceback.extract_tb(error.__traceback__)[-16:]]}
+            if type(error) is CtaBridgeError and str(error) in (
+                    'evaluation_deadline', 'native_read_failed', 'native_operation_failed', 'target_readback'):
+                value['reason'] = str(error)
+            if runtime._attribution is not None and runtime._attribution.failure is error:
+                value['attribution'] = runtime._attribution.failure_diagnostic
+            try:
+                with (args.control / 'callback-failure.json').open('xb') as stream:
+                    stream.write(_encode(value))
+            except OSError as diagnostic_error:
+                # 首错诊断落盘异常不能跳过后续资源收尾。
+                print('CTA callback diagnostic failed: ' + type(diagnostic_error).__name__, file=sys.stderr, flush=True)
         for worker in workers:worker.request_close()
         worker_deadline=time.monotonic()+3
         workers_joined=all([worker.close(worker_deadline) for worker in workers])
@@ -1251,21 +1270,6 @@ def main():
         _need(refresher is None or joined,'capital_refresh_close_unconfirmed')
         _need(workers_joined,'signal_worker_close_unconfirmed')
         _need(allocation_closed,'allocation_checkpoint_close_unconfirmed')
-    if runtime._last_error is not None:
-        # 私有有限诊断只记类型/调用位置；账户、变量内容和异常正文保持在原owner内。
-        import traceback
-        error = runtime._last_error
-        value = {'schema': 'guanheng.configured-callback-failure.v1',
-                 'exception_type': type(error).__name__,
-                 'frames': [{'file': Path(row.filename).name, 'function': row.name, 'line': row.lineno}
-                            for row in traceback.extract_tb(error.__traceback__)[-16:]]}
-        if type(error) is CtaBridgeError and str(error) in (
-                'evaluation_deadline', 'native_read_failed', 'native_operation_failed', 'target_readback'):
-            value['reason'] = str(error)
-        if runtime._attribution is not None and runtime._attribution.failure is error:
-            value['attribution'] = runtime._attribution.failure_diagnostic
-        with (args.control / 'callback-failure.json').open('xb') as stream:
-            stream.write(_encode(value))
     return result
 
 

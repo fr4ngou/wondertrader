@@ -21,6 +21,7 @@ struct CtaExecutionStatus {
     std::uint64_t parser_connects=0; // 插件已报告连接事件次数，连接命令受理不计入。
     std::uint64_t parser_closes=0; // 插件已报告关闭事件次数；正常停止也会增加。
     std::uint64_t parser_logs=0; // 插件日志事件次数；不复制日志正文或源凭据。
+    const char* initialization_step=nullptr; // 会话owner记录的固定步骤名，进程期字符串；成功后为空。
 };
 struct CtaExecutionStrategy {
     CtaStrategy* strategy=nullptr;

@@ -6,17 +6,66 @@ dispatch interrupted by process exit is never automatically sent a second time.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import math
 import os
 from pathlib import Path
 import sqlite3
+import sys
 import threading
 import time
 
 from guanheng_qmt_shm_agent.protocol import canonical, decode, identity
 from guanheng_qmt_shm_agent.results import finalize_result
 from .contracts import GatewayOperationRequest, GatewayOperationResult
+
+
+# 仅账户结果的域任务启用。无追踪的事务不取时、不累计日志。
+_read_io_trace = ContextVar('account_read_io_trace', default=None)
+
+
+def read_io_retryable(error):
+    """同一只读请求可核查的暂时性超时或 SQLite 锁冲突。"""
+    return (isinstance(error, TimeoutError)
+            or isinstance(error, sqlite3.OperationalError)
+            and getattr(error, 'sqlite_errorcode', 0) & 0xff in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED))
+
+
+def read_io_stage(stage):
+    trace = _read_io_trace.get()
+    if trace is not None:
+        now = time.monotonic()
+        previous, started, elapsed = trace
+        elapsed[previous] = elapsed.get(previous, 0) + now - started
+        trace[:2] = stage, now
+
+
+@contextmanager
+def trace_account_read(operation, request_sha256, queued_at, deadline):
+    """同一域任务内只记录阶段和耗时；在异常传播到清理前输出一次。"""
+    started = time.monotonic()
+    trace = ['decode', started, {}]
+    token = _read_io_trace.set(trace)
+    try:
+        yield
+    except Exception as error:
+        phase = trace[0]
+        read_io_stage('done')
+        elapsed = trace[2]
+        stages = ('decode', 'validate', 'lock', 'begin', 'transaction', 'commit', 'after_commit')
+        milliseconds = ' '.join(str(min(86400000, max(0, round(elapsed.get(name, 0) * 1000)))) for name in stages)
+        queue_ms = min(86400000, max(0, round((started - queued_at) * 1000)))
+        budget_ms = min(86400000, max(0, round((deadline - queued_at) * 1000)))
+        kind = 'timeout' if isinstance(error, TimeoutError) else 'sqlite' if isinstance(error, sqlite3.Error) else 'failed'
+        try:
+            print(f'GH_ACCOUNT_READ_IO {operation} {request_sha256} {kind} {phase} {budget_ms} {queue_ms} {milliseconds}',
+                  file=sys.stderr, flush=True)
+        except (OSError, ValueError, AttributeError):
+            pass
+        raise
+    finally:
+        _read_io_trace.reset(token)
 
 
 class JournalConflict(ValueError):
@@ -147,6 +196,7 @@ class HostReadJournal:
 
     @contextmanager
     def _transaction(self, deadline=None):
+        read_io_stage('lock')
         remaining = None if deadline is None else max(0, deadline-time.monotonic())
         acquired = self._lock.acquire() if remaining is None else self._lock.acquire(timeout=remaining)
         if not acquired:
@@ -161,10 +211,14 @@ class HostReadJournal:
             # 只有 SQLite 锁等待预算变化；原首次 D 不续期，原 SQL/提交边界保持。
             database.execute('PRAGMA busy_timeout='+str(int(timeout*1000)))
             self._finish_deadline(deadline)
+            read_io_stage('begin')
             database.execute('BEGIN IMMEDIATE')
+            read_io_stage('transaction')
             yield database
             self._finish_deadline(deadline)
+            read_io_stage('commit')
             database.commit()
+            read_io_stage('after_commit')
             # COMMIT 已返回但超期仍保留其实际落盘事实，原调用者不发送源 ACK。
             self._finish_deadline(deadline)
         except BaseException:

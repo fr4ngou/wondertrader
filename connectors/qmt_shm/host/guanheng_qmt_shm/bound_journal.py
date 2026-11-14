@@ -9,7 +9,7 @@ import time
 from guanheng_qmt_shm_agent.protocol import canonical, decode, identity
 from .bound import binding, digest, b64, validate_response, SCHEMA, MAX_METADATA_BYTES
 from .contracts import BoundGatewayOperationRequest, GatewayOperationResult
-from .journal import HostReadJournal, JournalConflict, JournalFull
+from .journal import HostReadJournal, JournalConflict, JournalFull, read_io_stage
 from guanheng_qmt_shm_agent.read_capabilities import (validate_read_request, validate_read_profile,
     validate_read_result_projection)
 
@@ -186,6 +186,7 @@ class BoundReadJournal(HostReadJournal):
 
     def finish_bound(self, rid, result, received_binding, *, deadline=None):
         """原结果持久I/O截止从入队前冻结；None保留已有直接调用接口。"""
+        read_io_stage('validate')
         self._finish_deadline(deadline)
         actual=canonical(self._validated_binding(received_binding))
         raw=canonical(result)

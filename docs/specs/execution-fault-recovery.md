@@ -50,6 +50,8 @@ EFR-13：账户资金约束线程每轮沿原有限预算读取权威NAP，即�
 
 EFR-14：整树退出且原owner来不及发布关闭收据时，独立WT入口以显式record-process-loss核原ready、status、配置摘要、实例身份、原父/组件PID实际退出并取得原实例OS租约，记录owner-loss故障及当前faulted状态；components_closed=false表示原Job/线程join凭据缺失。原ready、原金融文件和通信Journal保留。执行恢复owner独立核原Native ready和配置摘要、原PID实际退出，独占发布guanheng.execution.owner-loss.v1，包含control_id/config_sha256/pid、原ready摘要、固定reason=process_lost、核查UTC时间及核查者PID；该记录仅证明进程已退出，关闭结果及退出码保持未知。
 
+普通启动与显式采用共用退出核查。原 WT 已有故障收据、但执行进程因强制终止而缺关闭收据时，先核实实际进程退出，再发布原生退出证明。后继启动在原生接账期间失败时，只有控制记录确认执行队列从未开放、未认领原交接、未发布启动收据且金融文件未变，才沿最后有效执行进程继续核查。启动错误保留初始化步骤、涉及的受控收据名及系统错误码。
+
 持续分析窗口发布线程归 WT。其固定状态类型可省略 PID，退出核查使用已验证的 WT PID。显式 PID 须与 WT 相同。刷新工作进程由 WT 持有的终止型 Job 回收，其他独立组件仍须提供原 PID 并逐项核退出。
 
 显式resume_reconciled可沿该owner-loss作为第三类故障依据。Native在原输出租约内重核原ready字节摘要、完整身份、进程退出、两代安装/Python、原金融文件集合和当前券商O/P/A及原自有委托/未知责任。仅缺原正常closed/close-prepared/failure时接受该依据；现有正常/故障关闭语义保持。认领收据admission_kind=process_lost_reconciled，后继正常停止仍生成原clean。活进程、缺原件、身份/状态变化或当前责任未收束继续拒绝。过程不删除锁、重建基准、重发交易或生成正常关闭证明。

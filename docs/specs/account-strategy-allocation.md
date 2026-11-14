@@ -86,6 +86,8 @@ BUY首次prepared在该最终事务再次核资金与全部原预留，覆盖原
 
 真实手续费None保持unknown，保留费用上界占款，实际cash/NAV资格不冒充已知；`apply_fee(FeeFact)`随后沿原fill补入确定费用、恰好一次扣款。零费用必须显式Decimal('0.00')。手续费/实际成交超原资格上界时拒绝并保持原绑定与占款，调用方继续持有原Source事实进入核查，不可丢弃或认定未发生。
 
+下一次自然发生的实盘成交为手续费接入验收窗口。用当前启用的 QMT 内置成交查询读取该笔费用及成交编号、柜台委托号，与最终结算逐项核对字段含义、金额单位、小数精度、确认时点和逐笔/整单粒度。逐笔结算按该笔实际成交份额归属分摊，整单结算按各策略实际成交金额分摊，分摊合计精确到分，最低费用按券商实际收费计一次。覆盖重复回报、部分成交、合单及明确零费用。确认前保持待确认；验收使用自然成交，不为验证发单。
+
 `apply_terminal(TerminalFact)`沿原事实记原command的filled/cancelled/rejected/not_called/unknown。unknown只记录来源并保持占款；取消受理不当终态。确定child终态必须给原累计filled_quantity并与已入账D完全一致，O先到时返回`terminal_missing_fills`，原inbox保留pending，D到后重放原事件；filled还须全量。该正常事实异序不应直接让Native整体失败。跨query重到的同原command/确定状态/累计filled只追加原proof，组已closed也接受经济幂等；后来较弱unknown只留证明，不回退已知终态。两个确定状态或确定累计量冲突时持久留证并返回`terminal_economic_conflict`。
 
 `record_group_end(group_id,accepted_children,proof_sha)`仅记原delegate退出及原接受数量；commands为空不足以收口。`record_child_not_called`只能沿正面的本地NotSent/dispatch_not_entered或原确认未调用证明结束尚无prepared的WT child。统一`_close_if_resolved`在group_end、child not_called及原command终态后组合证明：delegate已结束、`prepared子数<=accepted_children<=全部已记原WT child数`、所有已记child均已prepared确定终态或明确not_called。每个accepted在enqueue前已持久WT child的原因果保证排除未记accepted；accepted原计数不改写、不猜具体名单。该条件完整成立才自动收口，显式TerminalFact group_closed仍沿同一严格逻辑核验。

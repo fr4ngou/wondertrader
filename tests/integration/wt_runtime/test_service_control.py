@@ -618,6 +618,46 @@ class ServiceControlTests(unittest.TestCase):
     def test_trading_adoption_preserves_runtime_fault_and_records_missing_native_exit(self):
         self._check_trading_adoption(faulted=True)
 
+    def test_normal_start_records_missing_native_exit_after_runtime_fault(self):
+        from guanheng_wt_runtime import __main__ as runtime_cli
+
+        controller, entries, native_calls, ledger = self._dependency_failure_controller(fail_runs=(), trading=True)
+        self.assertEqual(controller.start()[0], 0)
+        directory, _, identity, _ = entries[0]
+        status_path = directory / "status.json"
+        status = json.loads(status_path.read_bytes())
+        status.update(state="faulted", error_code="component_runtime_trade_host", ready=False)
+        for row in status["components"].values():
+            if row["pid"] is None:
+                row["pid"] = os.getpid()
+        status["components"]["execution"].update(forced=True, error_code="stop_timeout")
+        _write(status_path, status)
+        failure = _write(directory / "failure.json", dict(
+            schema="guanheng.wt-runtime-failure.v1", **identity,
+            status="faulted", error_code="component_runtime", components_closed=False))
+        failure_raw, ledger_raw = failure.read_bytes(), ledger.read_bytes()
+        native_root = self.control / native_calls[0]
+
+        def record(current):
+            path, digest = controller._configuration_for(current)
+            return runtime_cli.record_process_loss(service_control.RuntimeConfig.from_path(str(path), digest),
+                                                   digest, str(directory), identity["control_id"]) == 0
+
+        def prepare(configuration, previous, control, destination, **unused):
+            self.assertEqual(Path(control), native_root)
+            proof = json.loads((native_root / "owner-loss.json").read_bytes())
+            self.assertEqual(proof["reason"], "process_lost")
+            _write(Path(destination), {"schema": "guanheng.execution-recovery-transition.v1"})
+            return dict(file=str(destination), sha256=_sha(Path(destination)))
+
+        with patch.object(controller, "_record_process_loss", side_effect=record), \
+                patch("guanheng_wt_runtime.execution_recovery.require_process_exited"), \
+                patch("guanheng_wt_runtime.service_control.prepare_transition", side_effect=prepare):
+            self.assertEqual(controller.start()[0], 0)
+        self.assertEqual(failure.read_bytes(), failure_raw)
+        self.assertEqual(ledger.read_bytes(), ledger_raw)
+        self.assertEqual(len(native_calls), 2)
+
     def test_pre_native_exit_requires_child_terminal_and_unchanged_financial_state(self):
         from guanheng_wt_runtime.execution_process import ManagedExecutionProcess
 
@@ -686,6 +726,11 @@ class ServiceControlTests(unittest.TestCase):
                 (self.root / "process-events.jsonl").write_bytes(
                     _raw(dict(event, event="process_started")) + b"\n" +
                     _raw(dict(event, event="process_closed", code="unexpected_exit", exit_code=2)) + b"\n")
+                self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
+                failure["stage"] = "cta"
+                _write(child / "failure.json", failure)
+                _write(child / "close-prepared.json", dict(identity, schema="guanheng.execution.close-prepared.v1",
+                       closed=True, ok=False, recovery_ready=False, error_code="cta"))
                 self.assertEqual(controller._pre_native_execution_origin(current, status)["wt_control_id"], origin_id)
                 exited.reset_mock()
                 status["components"]["history"] = dict(state="faulted", ready=False, pending=False, forced=False, pid=321)

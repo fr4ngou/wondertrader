@@ -164,7 +164,7 @@ class ProcessEventLog:
         'cleanup_unconfirmed', 'output_limit', 'pipe_read', 'monitor_start'))
     _events = frozenset(('process_started', 'process_ready', 'process_failure',
         'process_closed', 'stream_exception', 'stream_summary'))
-    _structured_stderr = (b'GH_TRADE_REPLY_INTERRUPTED ', b'GH_ACCOUNT_READ_FINISH ')
+    _structured_stderr = (b'GH_TRADE_REPLY_INTERRUPTED ', b'GH_ACCOUNT_READ_FINISH ', b'GH_ACCOUNT_READ_IO ')
 
     def __init__(self, root, control_id, component, *, max_bytes=1024*1024, backups=3):
         if not 4096 <= max_bytes <= 16*1024*1024 or type(backups) is not int or not 1 <= backups <= 8:
@@ -317,11 +317,22 @@ class ProcessEventLog:
                     rpc_error=reply[1], delivery=reply[2], command_sha256=reply[3], action='reconcile_original'))
                 self._structured_bytes += len(raw)
                 return
+            timing = re.fullmatch(r'GH_ACCOUNT_READ_IO (finish|reconcile) ([a-f0-9]{64}) '
+                r'(timeout|sqlite|failed) (decode|validate|lock|begin|transaction|commit|after_commit)'
+                + r' ([0-9]{1,8})' * 9, wire)
+            if timing:
+                fields = ('budget_ms', 'queue_ms', 'decode_ms', 'validate_ms', 'lock_ms',
+                          'begin_ms', 'transaction_ms', 'commit_ms', 'after_commit_ms')
+                self._append('account_read_io_failure', dict(level='ERROR', operation=timing[1],
+                    request_sha256=timing[2], error_kind=timing[3], phase=timing[4],
+                    **dict(zip(fields, map(int, timing.groups()[4:])))))
+                self._structured_bytes += len(raw)
+                return
             finish = re.fullmatch(r'GH_ACCOUNT_READ_FINISH '
-                r'(commit_timeout|identity_unconfirmed|original_rejection_already_terminal|'
+                r'(commit_timeout|reconcile_timeout|identity_unconfirmed|original_rejection_already_terminal|'
                 r'original_result_already_terminal|original_request_interrupted) ([a-f0-9]{64})', wire)
             if finish:
-                level = 'ERROR' if finish[1] in ('commit_timeout', 'identity_unconfirmed') else 'INFO'
+                level = 'ERROR' if finish[1] in ('commit_timeout', 'reconcile_timeout', 'identity_unconfirmed') else 'INFO'
                 self._append('account_read_finish_recovery', dict(level=level, phase='persist_original_read',
                     outcome=finish[1], request_sha256=finish[2]))
                 self._structured_bytes += len(raw)
