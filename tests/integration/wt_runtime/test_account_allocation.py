@@ -1,9 +1,11 @@
 """ASA实际主调用链人工oracle；纯归属事实，不创建Host/Native或金融请求。"""
+from contextlib import closing, nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal as D, ROUND_HALF_UP, localcontext
 import sqlite3
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from time import monotonic
 from uuid import uuid4
@@ -104,6 +106,10 @@ def test_wal_strategy_read_does_not_wait_for_writer_and_advances_after_commit(tm
             writer = pool.submit(write)
             try:
                 assert changed.wait(5)
+                # SQLite 的独立维护连接与未提交成交并发，沿生产的 PASSIVE 模式读取。
+                with closing(sqlite3.connect(store.path, timeout=0)) as checkpoint:
+                    busy, frames, copied = checkpoint.execute('PRAGMA wal_checkpoint(PASSIVE)').fetchone()
+                    assert busy == 0 and frames >= copied >= 0
                 observed = store.strategy_state('old', deadline=monotonic()+0.1)
                 assert observed.strategy == before
                 observed.opening_cycles.clear()
@@ -901,9 +907,8 @@ def test_migrate_v2_and_reopen_with_concurrent_same_fill(tmp_path):
     assert successor.lookup_prepared(command.wt_order_id, deadline=deadline()) == command
 
 
-@pytest.mark.parametrize('committed', [False, True])
-def test_process_exit_while_projecting_or_after_commit_replays_original_once(tmp_path, committed):
-    import os
+@pytest.mark.parametrize('phase', ['before_commit', 'after_commit', 'after_checkpoint'])
+def test_process_exit_while_projecting_or_after_commit_replays_original_once(tmp_path, phase):
     from pathlib import Path
     import subprocess
     import sys
@@ -915,33 +920,49 @@ def test_process_exit_while_projecting_or_after_commit_replays_original_once(tmp
     raw = json.dumps({'user_tag': command.wt_order_id}).encode()
     store.receive_broker_event(event_id, '8', raw, SHA, command.wt_order_id, deadline=deadline())
     before = view(store, 'old')
-    # 子进程共享磁盘账本，分别在提交前和提交后立即退出。
+    from guanheng_wt_runtime.private_storage import native_output_lease
+
+    # 子进程持原生输出租约，分别在提交前、提交后和已合并 WAL 后直接退出。
     script = """
-import os, sys
+import os, sqlite3, sys
+from contextlib import closing, nullcontext
 from decimal import Decimal
+from pathlib import Path
 from time import monotonic
 from guanheng_wt_runtime.account_allocation import AccountAllocation, BookIdentity, FillFact
-root, scope, book_id, baseline, fill_id, cmd, quantity, price, amount, fee, day, settlement, sha, symbol, side, event_id, committed = sys.argv[1:]
-book = AccountAllocation(root, BookIdentity(scope, book_id, baseline), owner_check=lambda: None, wal=True)
+from guanheng_wt_runtime.private_storage import native_output_lease
+root, scope, book_id, baseline, fill_id, cmd, quantity, price, amount, fee, day, settlement, sha, symbol, side, event_id, phase = sys.argv[1:]
 fact = FillFact(fill_id, cmd, int(quantity), Decimal(price), Decimal(amount), Decimal(fee), day, settlement, sha, symbol, side)
 d = monotonic() + 10
 def project():
     book.apply_fill(fact, deadline=d)
     book.mark_event_applied(event_id, deadline=d)
-    if committed == 'False':
+    if phase == 'before_commit':
         os._exit(23)
-book.project_broker_batch(project, deadline=d)
-os._exit(23)
+with (native_output_lease(Path(root)) if os.name == 'nt' else nullcontext()):
+    book = AccountAllocation(root, BookIdentity(scope, book_id, baseline), owner_check=lambda: None, wal=True)
+    book.project_broker_batch(project, deadline=d)
+    if phase == 'after_checkpoint':
+        with closing(sqlite3.connect(book.path, timeout=0)) as checkpoint:
+            busy, frames, copied = checkpoint.execute('PRAGMA wal_checkpoint(PASSIVE)').fetchone()
+            assert busy == 0 and frames == copied and frames > 0
+    os._exit(23)
 """
     values = (tmp_path, identity.account_scope_sha256, identity.financial_book_id, identity.baseline_sha256,
               actual.fill_id, actual.command_id, actual.quantity, actual.price_cny, actual.amount_cny,
               actual.fee_cny, actual.trading_day, actual.settlement_day, actual.source_sha256, actual.symbol,
-              actual.side, event_id, committed)
+              actual.side, event_id, phase)
     env = dict(os.environ)
     path = Path(allocation_module.__file__).resolve().parents[1]
     env['PYTHONPATH'] = os.pathsep.join(filter(None, (str(path), env.get('PYTHONPATH'))))
     result = subprocess.run([sys.executable, '-B', '-c', script, *map(str, values)], env=env, timeout=30)
     assert result.returncode == 23
+    with (native_output_lease(tmp_path) if os.name == 'nt' else nullcontext()):
+        _assert_broker_crash_replay(tmp_path, identity, event_id, raw, before, command, actual,
+                                    committed=phase != 'before_commit')
+
+
+def _assert_broker_crash_replay(tmp_path, identity, event_id, raw, before, command, actual, *, committed):
     successor = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
     pending = successor.pending_events(replayable_only=True, deadline=deadline())
     assert [(event.event_id, event.raw_json) for event in pending] == ([] if committed else [(event_id, raw)])
