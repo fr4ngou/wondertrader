@@ -509,7 +509,8 @@ class TradeEventRecords:
             raw_events.append((number, raw))
         with self._owner._trade_transaction(deadline) as db:
             state = self._find(db, session, source_raw)
-            if state is None:
+            new_stream = state is None
+            if new_stream:
                 if after_seq != 0 or acknowledged != 0:
                     _reject()
                 db.execute('INSERT INTO trade_event_streams VALUES(?,?,?,?,?,?,?,?,?)',
@@ -542,12 +543,17 @@ class TradeEventRecords:
                     self._owner._order_links.ingest_event(db, decode(raw), source)
                     durable = sequence
             saved_gap = state['gap'] if state['gap'] is not None else gap
-            db.execute('''UPDATE trade_event_streams SET durable_through=?,ack_intended_through=?,
-                observed_published_through=?,gap=? WHERE session_id=? AND binding_id=?''',
-                (durable, durable, max(published, state['observed_published_through']),
-                 canonical(saved_gap), session, self._binding_id))
-            self._usage(db)
-            receipt = self._find(db, session, source_raw)
+            new_events = durable != state['durable_through']
+            # 前沿和 gap 已包含在固定流预留中。只有新增流或事件才增加占额。
+            if new_stream or new_events:
+                self._usage(db)
+            observed = max(published, state['observed_published_through'])
+            if new_events or observed != state['observed_published_through'] or saved_gap != state['gap']:
+                db.execute('''UPDATE trade_event_streams SET durable_through=?,ack_intended_through=?,
+                    observed_published_through=?,gap=? WHERE session_id=? AND binding_id=?''',
+                    (durable, durable, observed, canonical(saved_gap), session, self._binding_id))
+                state = self._find(db, session, source_raw)
+            receipt = state
         return receipt
 
     def state(self, source, *, deadline):
@@ -571,9 +577,11 @@ class TradeEventRecords:
             state = self._find(db, session, source_raw)
             if state is None or not state['source_ack_through'] <= through_seq <= state['ack_intended_through']:
                 _reject()
-            db.execute('UPDATE trade_event_streams SET source_ack_through=? WHERE session_id=? AND binding_id=?',
-                (through_seq, session, self._binding_id))
-            receipt = self._find(db, session, source_raw)
+            if through_seq != state['source_ack_through']:
+                db.execute('UPDATE trade_event_streams SET source_ack_through=? WHERE session_id=? AND binding_id=?',
+                    (through_seq, session, self._binding_id))
+                state = self._find(db, session, source_raw)
+            receipt = state
         return receipt
 
     def read(self, source, *, after_seq, limit, max_bytes, deadline):

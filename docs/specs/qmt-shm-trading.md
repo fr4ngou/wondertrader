@@ -270,7 +270,7 @@ ingest 接受原规范页 bytes，限制实际 bytes<=max_bytes<=event_storage.m
 
 单事务保存所有新事件、连续 durable_through、ack_intended_through 与首个 gap。重叠事件逐条比较原 bytes 与摘要；同身份异文、Host 缺前缀、错来源、超额整页拒绝，既有记录不变。首次流必须从 after_seq=0 且源 acknowledged_through=0 开始；源 ACK 超过 Host durable_through 拒绝。旧页较低水位不回退已保存事实，gap 不能被后续 null 清除，同流冲突 gap 拒绝。保留 gap 前的连续有效事件仍可保存并确认。
 
-state 返回 None 或无别名 qmt.trade-event-receipt.v1：session_id、binding_id、host_binding_sha256、durable_through、ack_intended_through、source_ack_through、observed_published_through、gap。各前沿精确整数，0<=source_ack<=ack_intended<=durable<=observed_published；本实现 ingest 把 ack_intended 推进到实际 durable。receipt 不包含账户原文、金融状态或 WT 应用字段。ingest/acknowledge 返回同形 receipt。read 返回规范 bytes，精确字段 schema_version=qmt.persisted-trade-events.v1、receipt、events；after_seq 不超过 durable，limit 和总编码 max_bytes 有界，输出原完整事件，无截断。尚无流时 state/read 返回 None，read 不创建流。
+state 返回 None 或无别名 qmt.trade-event-receipt.v1：session_id、binding_id、host_binding_sha256、durable_through、ack_intended_through、source_ack_through、observed_published_through、gap。各前沿精确整数，0<=source_ack<=ack_intended<=durable<=observed_published；本实现 ingest 把 ack_intended 推进到实际 durable。receipt 不包含账户原文、金融状态或 WT 应用字段。ingest/acknowledge 返回同形 receipt。重复页仍复核原来源及重叠事件，前沿或 gap 变化时才更新流记录，新增流或事件时才在事务内复核全库占额。同一有效 ACK 重放直接返回已提交确认前沿。read 返回规范 bytes，精确字段 schema_version=qmt.persisted-trade-events.v1、receipt、events；after_seq 不超过 durable，limit 和总编码 max_bytes 有界，输出原完整事件，无截断。尚无流时 state/read 返回 None，read 不创建流。
 
 只有收到原 agent.trade.ack 回复后调用 acknowledge：ack_bytes 精确为 qmt.trade-event-ack.v1/session_id/through_seq，须匹配原请求 target、source 与已持久意图，source_ack<=target<=ack_intended；相同 target 幂等，旧 target 不回退，未来/错源/错值拒绝。发送成功、RPC ACK 或 Future retired 均不独立推进 source_ack。本切片不从 page 的 ACK 水位推断源确认事实。
 
