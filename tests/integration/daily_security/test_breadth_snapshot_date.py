@@ -55,7 +55,7 @@ class SnapshotDateTests(unittest.TestCase):
         fetch = SimpleNamespace(budget=CollectionBudget(time.monotonic() + 5), timeout=1, objects=Objects(), records=[])
         with patch.object(source, 'observation_day', return_value=day), patch.object(
                 source, 'official_calendar', return_value=([dict(date=day, is_open=1)], None)):
-            result = source.history(fetch, {}, day, day, lambda seconds: Client(), calendar={}, snapshot_date='2026-11-03')
+            result = source.history(fetch, {}, day, day, lambda seconds: Client(), calendar={}, snapshot_dates=['2026-11-03'])
         return result, calls
 
     def test_historical_window_uses_current_snapshot_and_its_own_members(self):

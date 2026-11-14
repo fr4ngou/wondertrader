@@ -8,15 +8,30 @@ from . import MarketProtocolError, _object, _list, _integer
 from .market_snapshot import _day as _snapshot_day, _hash, _clock
 
 
-METRICS = ('etf_total_shares', 'margin_balance', 'market_turnover', 'market_turnover_proxy')
+INDEX_TURNOVER = 'index_turnover'
+SMALL_CAP_INDEX = 'SSE.932000'
+INDEX_FREE_FLOAT_CAP = 'index_free_float_market_cap'
+CSI300_INDEX = 'SSE.000300'
+MARGIN_PURCHASE = 'margin_purchase'
+MARGIN_REPORT = 'CN.MARGIN_REPORT'
+IPO_PROCEEDS = 'ipo_gross_proceeds'
+SHAREHOLDER_REDUCTION = 'shareholder_reduction_gross'
+BUYBACK_EXECUTION = 'buyback_execution_disclosed'
+SH_SZ_SCOPE = 'CN.SH_SZ'
+LEGACY_METRICS = ('etf_total_shares', 'margin_balance', 'market_turnover', 'market_turnover_proxy')
+INDEX_SCOPES = {
+    INDEX_TURNOVER: (SMALL_CAP_INDEX, 'BigQuant'),
+    INDEX_FREE_FLOAT_CAP: (CSI300_INDEX, 'CSI'),
+}
+METRICS = LEGACY_METRICS + tuple(INDEX_SCOPES) + (MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, BUYBACK_EXECUTION)
 MAX_CELLS = 60000
 MAX_CATALOG_BYTES = 32 * 1024 * 1024
-SOURCES = ('QMT', 'SSE', 'SZSE', 'SSE+SZSE', 'Eastmoney')
+SOURCES = ('QMT', 'SSE', 'SZSE', 'SSE+SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO')
 # 以下字段是MSF03的公开模型，原单位和来源时间逐项保留。
 ROW_FIELDS = (
     'date',  # 原事实交易日期，ISO日历日，不表示该日开盘已知。
-    'symbol',  # ETF的WT标识、CN.MARGIN_REPORT原报表或CN.SH_SZ成交额范围。
-    'metric',  # 四类有限事实；官方成交额与双指数代理各有身份。
+    'symbol',  # ETF或指数的WT标识、CN.MARGIN_REPORT报表或CN.SH_SZ成交额范围。
+    'metric',  # 补充事实类别；官方、指数及双指数代理各有身份。
     'value',  # 有限非负十进制字符串，保留原精度；零表示已知零。
     'unit',  # share/CNY/unknown，unknown不能获得单位资格。
     'source',  # 实际来源标识；SSE+SZSE显式保留两市合并归属。
@@ -62,8 +77,10 @@ def _scope(metric, symbol):
     if metric == 'etf_total_shares':
         _need(type(symbol) is str and re.fullmatch(r'(SSE|SZSE)\.[0-9]{6}', symbol) is not None,
               'supplement ETF identity invalid')
+    elif metric in INDEX_SCOPES:
+        _need(symbol == INDEX_SCOPES[metric][0], 'supplement index identity invalid')
     else:
-        expected = 'CN.MARGIN_REPORT' if metric == 'margin_balance' else 'CN.SH_SZ'
+        expected = MARGIN_REPORT if metric in ('margin_balance',MARGIN_PURCHASE) else SH_SZ_SCOPE
         _need(symbol == expected, 'supplement market scope invalid')
 
 
@@ -98,6 +115,16 @@ def _value_fields(row):
     expected_unit = 'share' if row['metric'] == 'etf_total_shares' else 'CNY'
     _need(row['unit'] in (expected_unit, 'unknown'), 'supplement unit invalid')
     _need(type(row['source']) is str and row['source'] in SOURCES, 'supplement source invalid')
+    if row['metric'] in INDEX_SCOPES:
+        allowed_sources = (INDEX_SCOPES[row['metric']][1], 'CSI') if row['metric'] == INDEX_TURNOVER else ('CSI',)
+        _need(row['source'] in allowed_sources and row['unit'] == 'CNY' and number > 0,
+              'supplement index value invalid')
+    elif row['metric'] in (MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION):
+        _need(row['source']=='Eastmoney' and row['unit']=='CNY','supplement public report value invalid')
+    elif row['metric'] == BUYBACK_EXECUTION:
+        _need(row['source']=='CNINFO' and row['unit']=='CNY','supplement public report value invalid')
+    else:
+        _need(row['source'] not in ('BigQuant', 'CSI', 'CNINFO'), 'supplement source invalid for metric')
 
 
 def validate_source_proof(value, row=None):

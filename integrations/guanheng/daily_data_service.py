@@ -40,12 +40,16 @@ def target_date(calendar, now):
 def validate_configuration(value):
     """有限预算及固定时区先准入；各原源配置沿所属工厂再次完整校验。"""
     required = {'schema', 'directory', 'raw_store', 'template', 'inputs', 'schedule', 'cycle_seconds', 'retry_seconds'}
-    if (type(value) is not dict or not required<=set(value)or set(value)-required-{'price_scope'}
+    if (type(value) is not dict or not required<=set(value)or set(value)-required-{'price_scope','observation_repair_root'}
             or value['schema'] != 'guanheng.daily-data-service.v1'):
         raise ValueError('daily service configuration invalid')
     for key in ('directory', 'raw_store'):
         if type(value[key]) is not str or not Path(value[key]).is_absolute():
             raise ValueError('daily service directory invalid')
+    if 'observation_repair_root' in value:
+        root = value['observation_repair_root']
+        if type(root) is not str or not Path(root).is_absolute() or root.startswith(('\\\\','//')):
+            raise ValueError('daily service observation repair root invalid')
     schedule = value['schedule']
     if (type(schedule) is not dict or set(schedule) != {'timezone', 'at', 'poll_seconds'}
             or schedule['timezone'] != 'Asia/Shanghai' or schedule['at'] != '09:00'
@@ -57,7 +61,7 @@ def validate_configuration(value):
             raise ValueError('daily service budget invalid')
     inputs = value['inputs']
     fields = {'connections', 'public_facts', 'cache_from', 'max_rows', 'source_kind'}
-    if (type(inputs) is not dict or not fields <= set(inputs) or set(inputs) - fields - {'cache_seed','price_cache_seed','previous_requests','previous_inputs','supplement_facts'}
+    if (type(inputs) is not dict or not fields <= set(inputs) or set(inputs) - fields - {'cache_seed','price_cache_seed','previous_requests','previous_inputs','supplement_facts','stock_cross_section'}
             or set(inputs['connections']) != {'batch', 'hpr'}
             or type(inputs['max_rows']) is not int or not 40 <= inputs['max_rows'] <= 2000
             or inputs['source_kind'] not in ('actual-qmt', 'sdk-synthetic')):
@@ -65,6 +69,9 @@ def validate_configuration(value):
     if 'supplement_facts' in inputs:
         from integrations.guanheng.market_supplement_capture import validate_plan
         validate_plan(inputs['supplement_facts'])
+    if 'stock_cross_section' in inputs:
+        from integrations.guanheng.stock_cross_section import validate_policy
+        validate_policy(inputs['stock_cross_section'])
     previous=inputs.get('previous_requests',[])
     if (type(previous)is not list or len(previous)>366 or len(set(previous))!=len(previous)
             or any(type(path)is not str or not Path(path).is_absolute()for path in previous)):
@@ -112,6 +119,54 @@ def validate_configuration(value):
     return value
 
 
+def pending_observation_repair(repository, index, day, now):
+    """只接当前活动任务和日更覆盖范围。从 INDEX 重发同一发布回执。"""
+    from guanheng_app.observation.contracts import ObservationError
+    try:
+        job = repository.data_repair()
+        if not job or job.get('state') != 'running' or not job.get('wt_request'):
+            return None
+        job_id = job['id']
+        if str(UUID(job_id)) != job_id:
+            return None
+        if job.get('wt_receipt', {}).get('state') in ('published', 'failed'):
+            return None
+        requested = job['wt_request']
+        age = (now - datetime.fromisoformat(requested['requested_at'])).total_seconds()
+        if not 0 <= age < 86400:
+            return None
+        for target, entry in index.items():
+            repair = entry.get('observation_repair', {})
+            if repair.get('id') == job_id and repair.get('state') in ('published', 'failed'):
+                repository.record_wt_repair_receipt(job_id, repair['state'], observation_date=target,
+                                                    current_sha256=repair.get('current_sha256'))
+                return None
+            if repair.get('id') == job_id and repair.get('state') == 'running':
+                return job_id, target
+        if (type(requested.get('dates')) is not list or not 1 <= len(requested['dates']) <= 35
+                or any(type(value) is not str or datetime.fromisoformat(value).date().isoformat() != value
+                       or value > day for value in requested['dates'])):
+            return None
+        return job_id, day
+    except ObservationError as error:
+        if error.code not in ('catalog_unavailable', 'write_outcome_unknown'):
+            raise
+        return None
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def report_observation_repair(repository, repair, day):
+    """观察目录暂不可写时由下次轮询沿 INDEX 原回执继续。"""
+    from guanheng_app.observation.contracts import ObservationError
+    try:
+        repository.record_wt_repair_receipt(repair['id'], repair['state'], observation_date=day,
+                                            current_sha256=repair.get('current_sha256'))
+    except ObservationError as error:
+        if error.code not in ('catalog_unavailable', 'write_outcome_unknown'):
+            raise
+
+
 def serve(configuration, directory, control_id, *, once=False, as_of=None, clock=None):
     """本进程唯一线程拥有输入、更新和所有Reader；stop.json只请求本控制代关闭。
 
@@ -124,6 +179,10 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
     if directory.name != control_id:
         raise ValueError('daily service control directory differs')
     config = validate_configuration(_load(configuration))
+    observation_repository = None
+    if config.get('observation_repair_root'):
+        from guanheng_app.observation.storage import SnapshotRepository
+        observation_repository = SnapshotRepository(config['observation_repair_root'])
     # 本代单请求传输截止只控制重试耗时，原数据源、输入槽与输出身份沿既有配置固定。
     daily_timeout = config['inputs']['public_facts'].pop('baostock_daily_timeout_seconds', None)
     public_request_options = {} if daily_timeout is None else {'baostock_daily_timeout_seconds': daily_timeout}
@@ -181,6 +240,27 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                 now = datetime.now(timezone.utc) if clock is None else clock()
                 calendar = _load(config['template']['calendar'])
                 day = as_of if as_of is not None else target_date(calendar, now)
+                observation_id = None
+                if observation_repository is not None:
+                    pending = pending_observation_repair(observation_repository, index, day, now)
+                    if pending:
+                        observation_id, requested_day = pending
+                        # 先续接已绑定日期。当前版本若已越过，禁止旧日任务使 CURRENT 倒退。
+                        current = read_generation(publisher.current_file)[0] if requested_day < day and publisher.current_file.exists() else None
+                        if current and current['observation_date'] > requested_day:
+                            previous = index[requested_day]
+                            receipt = previous['observation_repair']
+                            journal = Path(previous['request']).parent / 'work' / 'STATE.json'
+                            saved = strict_json(read_fixed(journal, maximum=16777216)) if journal.exists() else {}
+                            if saved.get('status') == 'published' and type(saved.get('current_sha256')) is str:
+                                receipt.update(state='published', current_sha256=saved['current_sha256'])
+                            else:
+                                receipt['state'] = 'failed'
+                            _save(index_path, index)
+                            report_observation_repair(observation_repository, receipt, requested_day)
+                            observation_id = None
+                        else:
+                            day = requested_day
                 observed_inputs = False
                 try:
                     registered = registered_requests(index)  # 创建输入和已有REQUEST恢复共用同一原件损坏准入。
@@ -216,7 +296,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                     _save(directory/'status.json', status)
                 entry = index.get(day, {})
                 # 09:00约束新日期首次建任务；已登记任务跨零点或重启后沿原身份立即续接。
-                scheduled = once or bool(entry) or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
+                scheduled = once or bool(entry) or observation_id or (now.astimezone(ZONE).hour, now.astimezone(ZONE).minute) >= (9, 0)
                 continuation=entry.get('continuation_required',False)
                 price_continuation=entry.get('price_continuation_required',False)
                 local_now=now.astimezone(ZONE)
@@ -224,9 +304,13 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                     and entry.get('state')=='published' and entry.get('supplement_complete') is False
                     and (local_now.hour,local_now.minute)>=(9,0)
                     and entry.get('supplement_attempt_date')!=local_now.date().isoformat())
+                section_refresh=('stock_cross_section' in config['inputs']
+                    and entry.get('state')=='published' and entry.get('stock_cross_section_complete') is not True
+                    and (local_now.hour,local_now.minute)>=(9,0)
+                    and entry.get('stock_cross_section_attempt_date')!=local_now.date().isoformat())
                 if type(continuation)is not bool or type(price_continuation)is not bool:
                     raise ValueError('daily service continuation flag invalid')
-                continuation=continuation or price_continuation or supplement_refresh
+                continuation=continuation or price_continuation or supplement_refresh or section_refresh or observation_id
                 if scheduled and not input_recovery_failed and (entry.get('state') != 'published'or continuation) and time.monotonic() >= retry_at:
                     if day not in index and len(index) >= 366:
                         raise ValueError('daily service retained task capacity')
@@ -235,7 +319,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         if revision>366:raise ValueError('daily service continuation capacity')
                         history=[*entry.get('history_requests',[]),entry['request']]
                         entry=dict(
-                            **{key:value for key,value in entry.items()if key.startswith('price_')},  # 完整日任务换代保留独立价格修订及原槽责任。
+                            **{key:value for key,value in entry.items()if key.startswith('price_') or key=='observation_repair'},
                             request=str(root/day/('r%03d' % revision)/'REQUEST.json'),  # 单owner按日递增修订根；缩短Windows路径，原槽/内容摘要保持。
                             state='preparing',  # 先登记路径；崩溃后沿同路径和原输入槽恢复。
                             history_requests=history,  # 原同日修订引用，未丢弃旧请求或原HPR责任。
@@ -250,7 +334,16 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         # 09:00前只续原任务，不提前消耗本自然日一次partial刷新资格。
                         entry['supplement_attempt_date']=(local_now.date() if (local_now.hour,local_now.minute)>=(9,0)
                             else local_now.date()-timedelta(days=1)).isoformat()  # 原INDEX持久来源刷新自然日，上海时区。
+                    if 'stock_cross_section' in config['inputs']:
+                        entry['stock_cross_section_attempt_date'] = local_now.date().isoformat()
+                    if observation_id:
+                        entry['observation_repair'] = dict(
+                            id=observation_id,  # 观衡本轮补齐任务身份。
+                            state='running',  # 本轮日更已持久登记，尚未发布。
+                        )
                     index[day]=entry;_save(index_path,index)
+                    if observation_id:
+                        report_observation_repair(observation_repository, entry['observation_repair'], day)
                     deadline = time.monotonic() + config['cycle_seconds']
                     status.update(state='updating', active_date=day)
                     _save(directory / 'status.json', status)
@@ -296,7 +389,16 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             _save(request_file, request)
                         index[day].update(state='updating')  # 保留原修订链，未声称原生或发布完成。
                         _save(index_path, index)
-                        result = run_update(strict_json(read_fixed(request_file, maximum=16777216)), work / 'work',
+                        request = strict_json(read_fixed(request_file, maximum=16777216))
+                        section = None
+                        if 'stock_cross_section' in config['inputs']:
+                            from integrations.guanheng.day_facts import DayFactsStore
+                            day_facts = DayFactsStore(request['daily_facts'])
+                            try:
+                                section = (day_facts.query(day, '0'*64) or {}).get('stock_cross_section', {})
+                            finally:
+                                day_facts.close()
+                        result = run_update(request, work / 'work',
                             deadline=deadline, cancelled=stopped, publisher=publisher)
                         index[day].update(
                             state='published',  # 已确认指针成功采用，而非仅接收任务。
@@ -304,6 +406,11 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             continuation_required=result.get('continuation_required',False)or index[day].get('price_continuation_required',False))  # 股票/独立价格原责任共同决定接续。
                         if 'supplement_facts' in config['inputs']:
                             index[day]['supplement_complete']=result['supplement_complete']  # partial成功仍允许次自然日再补，不在同日空转。
+                        if section is not None:
+                            index[day]['stock_cross_section_complete'] = 'provider' in section
+                            status['stock_cross_section'] = section.get('provider', section.get('reason', 'not_archived'))
+                        if observation_id:
+                            entry['observation_repair'].update(state='published', current_sha256=result['current_sha256'])
                         if index[day]['continuation_required']:retry_at=time.monotonic()+config['retry_seconds']
                         status.update(state='waiting', active_date=None, last_success=day)
                     except InterruptedError:
@@ -315,6 +422,8 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             error_type=type(failure).__name__)  # 固定异常类型，不持久化来源原文或秘密。
                         retry_at = time.monotonic() + config['retry_seconds']
                     _save(index_path, index)
+                    if observation_id:
+                        report_observation_repair(observation_repository, entry['observation_repair'], day)
                     _save(directory / 'status.json', status)
                     if once:
                         if status['state'] == 'update_failed':

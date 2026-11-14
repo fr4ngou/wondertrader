@@ -1,6 +1,9 @@
 import presentation from '../../config/market-observation-presentation.json'
 import type { Catalog } from './types'
 
+const hiddenBoards = new Set(['crossmarket', 'liquidity', 'swap', 'cffex', 'a50', 'northbound', 'institutions'])
+export const selectableBoard = (board: string) => board !== 'pending' && !hiddenBoards.has(board)
+
 export function defaultMetric(catalog:Catalog,board:string) {
   const defaults=presentation.default_datasets
   const constrained=(presentation.main_board_datasets as Record<string,string[]>)[board]

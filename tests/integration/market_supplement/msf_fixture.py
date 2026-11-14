@@ -110,7 +110,7 @@ class FrozenFetch:
         elif params.get('reportName')=='RPTA_WEB_MARGIN_DAILYTRADE':
             day=params['filter'].split("'")[1]
             value=dict(success=True,result=dict(count=1,pages=1,data=[
-                dict(STATISTICS_DATE=day+' 00:00:00',FIN_BALANCE='123.456789',RZYE='999999999')]))
+                dict(STATISTICS_DATE=day+' 00:00:00',FIN_BALANCE='123.456789',FIN_BUY_AMT='1.25',RZYE='999999999')]))
         else:raise AssertionError('unexpected public source request')
         body=encode(value);self.budget.consume(len(body));return body
     def close(self):self.closed=True

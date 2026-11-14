@@ -19,6 +19,20 @@
 
 数据配置使用`guanheng.daily-data-service.v1`，详细字段以UDI表为准：directory拥有持久INDEX/任务；raw_store拥有原件和回执；template固定原基准、资料、事实、Native、受保护slot和publication_directory；inputs复用原HPR/批读声明，凭据来自原环境引用。cache_seed和prepared_native只复用日期/股票池/原件身份匹配的完成结果。
 
+接通观衡上游补齐时，WT 候选配置的 `observation_repair_root` 指向与观衡采集器相同的本机观察数据根，观衡候选配置启用 `schedule.wt_repair_enabled=true`。先验证两个进程都能访问该目录，再验证手动请求、WT 发布回执和观衡覆盖复核。WT 只以自身配置的证券、来源与历史范围执行原日更，观察请求无法扩大范围。两项缺省沿原运行路径。
+
+市场结构股票横截面启用项为 `inputs.stock_cross_section`。其中 `bigquant_python` 指向经验证且已安装 BigQuant SDK 的隔离解释器，`timeout_seconds` 是单次查询预算，建议首次隔离验证使用 30 秒。`minimum_sample_count` 沿市场结构全市场口径使用 4500 只，防止不完整样本进入信号。可成对配置 ISO 日期 `history_from` 和每轮历史交易日数 `history_days_per_cycle`，在现有 WT 定日股票池范围内增量回填，优先处理从未尝试的日期。运行环境提供 `GUANHENG_BIGQUANT_CREDENTIAL`，值为受控的 AK.SK，不写数据配置或日志。该项作用于 WT 每日定日事实，失败以显式缺口随原发布保留。观衡以 `wt_market_structure_stock` 替换原股票横截面直连来源，保留已有归档历史。上述字段是候选配置用法，实际启用需按相同 WT/观衡快照和配置组合验收。
+
+中证2000成交额备用方案在 `inputs.supplement_facts` 添加目标 `metric=index_turnover`、`symbol=SSE.932000` 和所需历史起日 `from`。候选起日为中证2000发布日 2023-08-11。在 `external_fallback` 追加 `BigQuant`，并设置 `bigquant.bigquant_python` 为隔离解释器、`bigquant.timeout_seconds` 为 30 秒。沿用同一环境凭据、既有补充任务和发布策略。历史请求使用原补充事实阶段剩余预算，已发布的可用数据在重试时复用。观衡仅用这项事实补充同日 WT 日线的缺额或未核单位，用原始价格继续核算价格指标。启用范围由实际配置决定。
+
+券商回撤看板的候选补充事实为 `metric=margin_purchase`、`symbol=CN.MARGIN_REPORT`、`from=2025-10-13`，使用既有 `Eastmoney` 备用来源。观衡接入 `wt_broker_heat` 可从 2026-10-26 起验证显示，计算会自动读取之前的预热窗口。隔离读回 265 行，历史已覆盖 2025-10-13 至 2026-11-12 的官方交易日；2026-11-13 原报表缺行，继续标注待补。生效范围由实际配置决定。
+
+IPO 供给回购比看板使用三项 `CN.SH_SZ` 补充事实 `ipo_gross_proceeds`、`shareholder_reduction_gross`、`buyback_execution_disclosed`。候选配置追加 `Eastmoney` 和 `CNINFO`，并把 `www.cninfo.com.cn` 与 `static.cninfo.com.cn` 纳入 WT 公共数据来源主机清单。`wt_ipo_supply` 的 `history_from` 是看板显示起点，三项补充事实需覆盖该日起始窗口之前的 19 个开市日。隔离检查已读回 2026-11-11 至 2026-11-13 的科创50真实收盘。该区间回购仍有歧义缺口，因此比例留空。生产配置需单独启用验收。
+
+沪深300 ETF 市值占比候选配置在 `inputs.supplement_facts` 登记 `index_free_float_market_cap/SSE.000300` 及 510300、510310、510330、159919 的定日 `etf_total_shares`。分母来源启用 `external_fallback` 中的 `CSI`，在原 `inputs.public_facts.allowed_hosts` 加入 `oss-ch.csindex.com.cn`。建议隔离验收先使用已核的 2026-11-12 起日，历史扩展按实际日报覆盖与可用预算确定。观衡候选来源为 `wt_csi300_etf_cap`，日期策略为 `cn-prior-day`，指标为 `csi300_etf_cap.ratio`，证券列表为 `SSE.510300/SSE.510310/SSE.510330/SZSE.159919`。该来源从 WT 同一快照读取四只基金与指数的价格、份额和自由流通市值。
+
+2026-11-14 隔离验收使用已归档的真实 QMT 批次与既有单位证明生成四只基金的八行原生日线，另经实际 QMT 能力绑定检查及沪深交易所、中证指数日报取得十行补充事实。独立 WT 回环 HTTP 同一快照返回全部字段，观衡发布后从看板目录及序列端点核对读回，两个交易日缺口为零。11 月 12 日和 13 日的占比分别为 1.812731% 和 1.803908%。实现基线为 `45b8ba4f`，受控工作树材料位于 `build/observation-csi-cap-joint-qa/observation-api-result.json`，SHA256 为 `462adc302ae74aeb42924effdb6e7c5f9b365a5d3652be6d9be6752affccb8ed`。本次验收覆盖冻结数据的发布和读取，实际日更、长期历史覆盖及正式切换另验。
+
 来源连接、Native路径及其他配置身份在持久根中固定。普通程序重装沿用同一数据配置及数据根；配置引用的旧Native程序/固定资产仍是有效依赖，回收任务须计入引用。改变来源或归档政策时按原槽/配置身份做显式迁移，保留原根和保护引用。新程序先通过真实读取、更新和关闭验收，再由Root统一采用。
 
 首次切换保留已成功数据。先用固定的已完成版本初始化新CURRENT，再用独立入口按实际目标日接续；单轮成功要求原始缓存、事实、Native及快照身份一致，调用返回和完整覆盖分别登记。命令形状如下，日期为示例：

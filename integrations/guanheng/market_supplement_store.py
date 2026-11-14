@@ -56,6 +56,11 @@ class MarketSupplementStore:
         start, limit, total = request['offset'], request['limit'], len(selected)
         page = selected[start:start + limit]
         self._verify_sources(page)
+        evidence = deepcopy(self._catalog['qmt_evidence'])
+        # 兼容旧SDK对既有指标能力枚举的严格验证。
+        from ..guanheng_market_client.supplement_facts import LEGACY_METRICS
+        known = (*LEGACY_METRICS, request['metric'])
+        evidence['decisions'] = [row for row in evidence['decisions'] if row['metric'] in known]
         result = dict(
             schema='guanheng.market-supplement-query.v1',  # 固定补充事实分页协议。
             source_snapshot_id=request['snapshot_id'],  # 外层已核对的同一WT快照身份。
@@ -67,7 +72,7 @@ class MarketSupplementStore:
                 limit=limit,  # 当前页最大单元数。
                 total=total,  # 全部匹配单元数，含事实及缺口。
                 next_offset=start + len(page) if start + len(page) < total else None),  # 末页为空。
-            qmt_evidence=deepcopy(self._catalog['qmt_evidence']))  # 本轮无凭据QMT能力原件身份。
+            qmt_evidence=evidence)  # 本轮无凭据QMT能力原件身份。
         return validate_supplement_data(result, request)
 
     def verify_sources(self, check=lambda: None):
@@ -81,6 +86,8 @@ class MarketSupplementStore:
     def _verify_sources(self, page, *, check=lambda: None):
         """复核QMT证据、行proof和一层父原件；同批去重，每行/原件前核原owner截止。"""
         from guanheng_app.observation.contracts import ObservationError
+        from ..guanheng_market_client.supplement_facts import BUYBACK_EXECUTION
+        import re
         seen = set()
         proofs = {}
 
@@ -98,6 +105,7 @@ class MarketSupplementStore:
             proofs[evidence] = validate_source_proof(strict_json(evidence_body))
         del evidence_body
         parents = set()
+        disclosure_indexes = {}
         for gap, row in page:
             check()
             if gap:
@@ -108,6 +116,21 @@ class MarketSupplementStore:
                 seen.add(identity)
             proof = validate_source_proof(proofs[identity], row)
             parents.update(proof['parents'])
+            if row['metric'] == BUYBACK_EXECUTION:
+                if len(proof['parents']) != 1:
+                    raise ValueError('buyback disclosure proof parent invalid')
+                disclosure_indexes[proof['parents'][0]] = row['date']
+        for parent, day in disclosure_indexes.items():
+            index = strict_json(read(parent))
+            if (type(index) is not dict or set(index) != {'schema','date','parents'}
+                    or index['schema'] != 'guanheng.buyback-disclosure-proof.v1'
+                    or index['date'] != day or type(index['parents']) is not list
+                    or not index['parents'] or any(type(sha) is not str or re.fullmatch('[a-f0-9]{64}',sha) is None
+                                                   for sha in index['parents'])
+                    or index['parents'] != sorted(set(index['parents']))):
+                raise ValueError('buyback disclosure proof index invalid')
+            parents.update(index['parents'])
+            seen.add(parent)
         for parent in sorted(parents - seen):
             read(parent)
 

@@ -70,6 +70,12 @@ class DayFactsStore:
         result.update(source_snapshot_id=snapshot_id,source_sha256=entry['sha256'])
         return result
 
+    def days(self):
+        """当前冻结目录内全部定日事实日期，按交易日顺序返回。"""
+        if self._closed:
+            raise ValueError('daily facts store closed')
+        return sorted(self._entries)
+
     def security_state(self,day,symbol):
         """仅返回原同日交易状态和成交量；原资格不足保持原字符串，不推断停牌。"""
         value=self._load(day)

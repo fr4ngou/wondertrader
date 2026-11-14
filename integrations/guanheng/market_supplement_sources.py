@@ -1,6 +1,7 @@
 """公开市场补充事实适配；请求、预算、缓存及原件存储由注入的 get 拥有。"""
 from __future__ import annotations
 
+from bisect import bisect_left
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
 import hashlib
@@ -11,6 +12,9 @@ import xml.etree.ElementTree as ET
 import zipfile
 import zlib
 
+from ..guanheng_market_client.supplement_facts import (
+    CSI300_INDEX, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS, MARGIN_PURCHASE, MARGIN_REPORT, SH_SZ_SCOPE, SMALL_CAP_INDEX,
+)
 
 class SourceUnavailable(RuntimeError):
     """固定原因的缺事实结果；调用者保留缺口，原供应商正文不进入异常。"""
@@ -29,6 +33,9 @@ _MAX_PAGES = 100
 _MAX_ROWS = 20000
 _SZSE_EXPORT = 'http://www.szse.cn/api/report/ShowReport'
 _XLSX_XML_BYTES = 16 * 1024 * 1024
+_CSI_DAILY_REPORT = ('https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/'
+                     'researches/files/zh_CN/csiindexdailyreport{}.pdf')
+_CSI_PERFORMANCE = 'https://www.csindex.com.cn/csindex-home/perf/index-perf'
 
 
 def _fail(code):
@@ -311,11 +318,13 @@ def _turnover(day, get):
     return _fact(value, 'CNY', 'SSE+SZSE', [(sh_parent, sh_time), (sz_parent, sz_time)])
 
 
-def _margin(day, get):
+def _margin_rows(first, last, get, field):
     # 原报表统计覆盖未知，以 CN.MARGIN_REPORT 标识；不拼接另一报表 RZYE。
-    params = dict(reportName='RPTA_WEB_MARGIN_DAILYTRADE', columns='STATISTICS_DATE,FIN_BALANCE',
-                  pageNumber='1', pageSize='10', sortColumns='STATISTICS_DATE', sortTypes='-1',
-                  filter="(STATISTICS_DATE='" + day + "')")
+    date_filter = (f"(STATISTICS_DATE='{first}')" if first == last else
+                   f"(STATISTICS_DATE>='{first}')(STATISTICS_DATE<='{last}')")
+    params = dict(reportName='RPTA_WEB_MARGIN_DAILYTRADE', columns='STATISTICS_DATE,'+field,
+                  pageNumber='1', pageSize='10' if first==last else '500',
+                  sortColumns='STATISTICS_DATE', sortTypes='-1',filter=date_filter)
     data, parent, received = _read(get, _EM, params, 'https://data.eastmoney.com/rzrq/zhtjday.html')
     # 原报表按目标日尚无数据时返回9201/null；缺事实与协议损坏保持独立。
     if (type(data) is dict and data.get('success') is False
@@ -330,14 +339,192 @@ def _margin(day, get):
         _fail('source_schema_invalid')
     if _integer(result.get('count')) != len(rows) or _integer(result.get('pages'), _MAX_PAGES) != 1:
         _fail('source_pagination_incomplete')
-    if any(type(row) is not dict or row.get('STATISTICS_DATE') not in (day, day + ' 00:00:00') for row in rows):
+    if len(rows) > 500:
+        _fail('source_pagination_invalid')
+    selected = {}
+    for row in rows:
+        day = _report_day(row, 'STATISTICS_DATE', first, last)
+        if day in selected:
+            _fail('source_duplicate_record')
+        with localcontext() as context:
+            context.prec = 300
+            amount = _number(row.get(field)) * 100_000_000
+        selected[day]=_fact(amount,'CNY','Eastmoney',[(parent,received)])
+    return selected
+
+
+def margin_purchase_history(first, last, get):
+    """有界历史回填，源缺日保持为空。"""
+    return _margin_rows(first,last,get,'FIN_BUY_AMT')
+
+
+def _report_day(row, field, first, last):
+    value = row.get(field) if type(row) is dict else None
+    match = re.fullmatch(r'(\d{4}-\d{2}-\d{2})(?: 00:00:00)?', value) if type(value) is str else None
+    if match is None or not first <= match[1] <= last:
         _fail('source_date_mismatch')
-    if len(rows) != 1:
-        _fail('source_record_missing' if not rows else 'source_duplicate_record')
-    with localcontext() as context:
-        context.prec = 300
-        value = _number(rows[0].get('FIN_BALANCE')) * 100000000  # 发布方表头为亿，原值直接展示。
-    return _fact(value, 'CNY', 'Eastmoney', [(parent, received)])
+    try:
+        return date.fromisoformat(match[1]).isoformat()
+    except ValueError:
+        _fail('source_date_mismatch')
+
+
+def ipo_proceeds_history(days, get):
+    """沿完整区间报表按上市日汇总沪深新股的实际募资。"""
+    first, last = days[0], days[-1]
+    params = dict(reportName='RPTA_APP_IPOAPPLY', columns='SECUCODE,LISTING_DATE,TOTAL_RAISE_FUNDS,SECURITY_TYPE_CODE',
+                  pageNumber='1', pageSize='500', sortColumns='LISTING_DATE,SECUCODE', sortTypes='-1,1',
+                  filter=f"(LISTING_DATE>='{first}')(LISTING_DATE<='{last}')")
+    data, parent, received = _read(get, _EM, params, 'https://data.eastmoney.com/xg/xg/')
+    if (type(data) is dict and data.get('success') is False
+            and type(data.get('code')) is int and data['code'] == 9201
+            and 'result' in data and data['result'] is None):
+        rows = []
+    else:
+        result = data.get('result') if type(data) is dict and data.get('success') is True else None
+        if type(result) is not dict or type(result.get('data')) is not list:
+            _fail('source_schema_invalid')
+        rows = result['data']
+        if (not 1 <= len(rows) <= 500 or _integer(result.get('count')) != len(rows)
+                or _integer(result.get('pages'), _MAX_PAGES) != 1):
+            _fail('source_pagination_incomplete')
+
+    amounts = dict.fromkeys(days, Decimal(0))
+    incomplete, securities = set(), set()
+    for row in rows:
+        day = _report_day(row, 'LISTING_DATE', first, last)
+        symbol = row.get('SECUCODE')
+        if (type(symbol) is not str or re.fullmatch(r'[0-9]{6}\.(SH|SZ|BJ)', symbol) is None
+                or row.get('SECURITY_TYPE_CODE') != '058001001'):
+            _fail('source_symbol_mismatch')
+        if symbol in securities:
+            _fail('source_duplicate_record')
+        securities.add(symbol)
+        if symbol.endswith('.BJ') or day not in amounts:
+            continue
+        amount = row.get('TOTAL_RAISE_FUNDS')
+        amount = _number(amount) if amount is not None else Decimal(0)
+        if amount == 0:
+            incomplete.add(day)
+            continue
+        with localcontext() as context:
+            context.prec = 300
+            amounts[day] += amount * 100_000_000
+    return {day: _fact(value, 'CNY', 'Eastmoney', [(parent, received)])
+            for day, value in amounts.items() if day not in incomplete}
+
+
+def _shareholder_report(first, last, get):
+    from guanheng_app.observation.provider_reports import SHAREHOLDER_REPORT_KEY, SHAREHOLDER_REPORT_MARKETS
+
+    markets = ','.join(f'"{market}"' for market in sorted(SHAREHOLDER_REPORT_MARKETS))
+    params = dict(reportName='RPT_SHARE_HOLDER_INCREASE', columns='ALL', pageSize='500',
+                  sortColumns=','.join(SHAREHOLDER_REPORT_KEY), sortTypes=','.join('1' for _ in SHAREHOLDER_REPORT_KEY),
+                  filter=f"(NOTICE_DATE>='{first}')(NOTICE_DATE<='{last}')(MARKET in ({markets}))")
+    rows, receipts = [], []
+    expected = None
+    for page in range(1, 5):
+        data, parent, received = _read(get, _EM, dict(params,pageNumber=str(page)),
+                                       'https://data.eastmoney.com/executive/gdzjc.html')
+        receipts.append((parent,received))
+        if (page == 1 and type(data) is dict and data.get('success') is False and data.get('code') == 9201
+                and 'result' in data and data['result'] is None and data.get('message') == '返回数据为空'):
+            return [], receipts
+        result = data.get('result') if type(data) is dict and data.get('success') is True else None
+        if type(result) is not dict or type(result.get('data')) is not list:
+            _fail('source_schema_invalid')
+        count, pages = _integer(result.get('count'),2000), _integer(result.get('pages'),4)
+        if page == 1 and count == pages == 0 and result['data'] == []:
+            return [], receipts
+        if (pages != (count+499)//500 or not 1 <= page <= pages
+                or len(result['data']) != min(500,count-(page-1)*500)
+                or (expected is not None and count != expected)):
+            _fail('source_pagination_incomplete')
+        expected = count
+        rows.extend(result['data'])
+        if page == pages:
+            return rows, receipts
+    _fail('source_pagination_incomplete')
+
+
+def shareholder_reduction_history(days, calendar, get):
+    """按完整披露区间计算减持毛额，周末和节假日披露归至下一交易日。"""
+    from guanheng_app.observation.provider_reports import SHAREHOLDER_REPORT_KEY, SHAREHOLDER_REPORT_MARKETS
+
+    first_index = bisect_left(calendar, days[0])
+    if first_index == 0:
+        _fail('source_notice_calendar_unavailable')
+    first = (date.fromisoformat(calendar[first_index-1])+timedelta(days=1)).isoformat()
+    last = days[-1]
+    rows, receipts = _shareholder_report(first,last,get)
+    amounts = dict.fromkeys(days,Decimal(0))
+    incomplete, seen = set(), set()
+    for row in rows:
+        notice = _report_day(row,'NOTICE_DATE',first,last)
+        day = calendar[bisect_left(calendar,notice)]
+        code = row.get('SECURITY_CODE')
+        if (type(code) is not str or re.fullmatch(r'(?:00|30|60|68|83|92)\d{4}',code) is None
+                or row.get('MARKET') not in SHAREHOLDER_REPORT_MARKETS):
+            _fail('source_symbol_mismatch')
+        identity = tuple(row.get(field) for field in SHAREHOLDER_REPORT_KEY)
+        if (all(field in row for field in SHAREHOLDER_REPORT_KEY)
+                and all(value is None or type(value) in (str,int,Decimal) for value in identity)
+                and identity not in seen):
+            seen.add(identity)
+        else:
+            _fail('source_duplicate_record')
+        if code.startswith(('83','92')) or day not in amounts:
+            continue
+        quantity = _number(row.get('CHANGE_NUM'))
+        signed = str(row.get('CHANGE_NUM_SYMBOL'))
+        direction = row.get('DIRECTION')
+        if (direction not in ('增持','减持') or quantity <= 0 or signed.startswith('-') != (direction=='减持')
+                or _number(signed.removeprefix('-')) != quantity):
+            _fail('source_value_invalid')
+        if direction == '增持':
+            continue
+        trade = _report_day(row,'TRADE_DATE','1990-01-01','9999-12-31')
+        price = _number(row.get('TRADE_AVERAGE_PRICE') or 0) or _number(row.get('CLOSE_PRICE') or 0)
+        if trade > notice or price == 0:
+            incomplete.add(day)
+            continue
+        with localcontext() as context:
+            context.prec = 300
+            amounts[day] += quantity * price * 10_000
+    return {day:_fact(value,'CNY','Eastmoney',receipts) for day,value in amounts.items() if day not in incomplete}
+
+
+def _csi300_market_cap(raw, day):
+    """核日、列表语义和同份报告双收盘点位，返回自由流通市值（亿元）。"""
+    from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
+    if not raw.startswith(b'%PDF-') or len(raw) > 2 * 1024 * 1024:
+        _fail('source_csi_report_invalid')
+    try:
+        report = PdfReader(io.BytesIO(raw), strict=True)
+        if not 2 <= len(report.pages) <= 20:
+            _fail('source_csi_report_invalid')
+        summary, matrix = (report.pages[i].extract_text(extraction_mode='layout') for i in (0, 1))
+    except (PdfReadError, ValueError, OSError, RecursionError):
+        _fail('source_csi_report_invalid')
+    date_label = date.fromisoformat(day)
+    title = f'沪深300指数({date_label.year}年{date_label.month}月{date_label.day}日)'
+    if title not in re.sub(r'\s+', '', summary).replace('（', '(').replace('）', ')'):
+        _fail('source_date_mismatch')
+    header = r'指数代码指数简称基日发布日期基点总市值(?:[（(]亿元[）)])?自由流通市值(?:[（(]亿元[）)])?收盘点位'
+    if '规模及行业指数市场数据' not in matrix or not re.search(header,re.sub(r'\s+', '', matrix)):
+        _fail('source_schema_invalid')
+    rows = [line.split() for line in matrix.splitlines() if re.match(r'^\s*000300\s+', line)]
+    if len(rows) != 1 or len(rows[0]) < 9 or rows[0][:5] != ['000300','沪深300','20041231','20050408','1000']:
+        _fail('source_symbol_mismatch')
+    _, _, _, _, _, total, floating, close, *_ = rows[0]
+    summary_close = re.search(r'收盘点位\s+([0-9,.]+)\s+指数涨幅', summary)
+    if summary_close is None or _number(summary_close[1]) != _number(close):
+        _fail('source_value_invalid')
+    floating = _number(floating)
+    if not 0 < floating <= _number(total):
+        _fail('source_value_invalid')
+    return floating
 
 
 def collect_external(metric, symbol, day, get):
@@ -359,6 +546,34 @@ def collect_external(metric, symbol, day, get):
         return (_sse_shares if exchange == 'SSE' else _szse_shares)(code, day, get)
     if metric == 'market_turnover' and symbol == 'CN.SH_SZ':
         return _turnover(day, get)
-    if metric == 'margin_balance' and symbol == 'CN.MARGIN_REPORT':
-        return _margin(day, get)
+    if metric in ('margin_balance',MARGIN_PURCHASE) and symbol == MARGIN_REPORT:
+        rows=_margin_rows(day,day,get,'FIN_BUY_AMT' if metric==MARGIN_PURCHASE else 'FIN_BALANCE')
+        if day not in rows:
+            _fail('source_record_missing')
+        return rows[day]
+    if metric == IPO_PROCEEDS and symbol == SH_SZ_SCOPE:
+        rows = ipo_proceeds_history([day], get)
+        if day not in rows:
+            _fail('source_record_missing')
+        return rows[day]
+    if metric == INDEX_FREE_FLOAT_CAP and symbol == CSI300_INDEX:
+        raw, parent, received = _receipt(get, _CSI_DAILY_REPORT.format(day.replace('-', '')), {}, None)
+        return _fact(_csi300_market_cap(raw, day) * 100_000_000, 'CNY', 'CSI', [(parent, received)])
+    if metric == INDEX_TURNOVER and symbol == SMALL_CAP_INDEX:
+        stamp = day.replace('-', '')
+        data,parent,received = _read(get,_CSI_PERFORMANCE,
+            dict(indexCode='932000',startDate=stamp,endDate=stamp),'https://www.csindex.com.cn/')
+        if type(data) is not dict or data.get('success') is not True or str(data.get('code')) != '200' or type(data.get('data')) is not list:
+            _fail('source_schema_invalid')
+        rows = data['data']
+        if not rows:
+            _fail('source_record_missing')
+        row = rows[0]
+        if (len(rows)!=1 or type(row) is not dict or row.get('indexCode')!='932000' or row.get('tradeDate')!=stamp
+                or _number(row.get('close'))<=0):
+            _fail('source_symbol_mismatch')
+        amount = _number(row.get('tradingValue'))
+        if amount<=0:
+            _fail('source_value_invalid')
+        return _fact(amount*100_000_000,'CNY','CSI',[(parent,received)])
     _fail('source_metric_unavailable')

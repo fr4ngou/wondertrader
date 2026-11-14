@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { createDockview, type DockviewApi, type SerializedDockview } from 'dockview'
 import { Maximize2, PanelsTopLeft, RotateCcw } from 'lucide-react'
-import 'dockview/dist/styles/dockview.css'
+import './dock-theme.css'
 import './workspace-dock.css'
 
 type DockProps = {

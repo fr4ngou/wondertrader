@@ -1,0 +1,22 @@
+@import 'dockview/dist/styles/dockview.css';
+
+.observer-dock-surface {
+  color-scheme: inherit;
+  --dv-background-color: var(--panel-solid);
+  --dv-group-view-background-color: var(--panel-solid);
+  --dv-tabs-and-actions-container-background-color: var(--panel-soft);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--accent-soft);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--panel-soft);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--panel-soft);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--panel-soft);
+  --dv-activegroup-visiblepanel-tab-color: var(--accent);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--ink);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-separator-border: var(--line);
+  --dv-active-sash-color: var(--accent);
+  --dv-paneview-active-outline-color: var(--accent);
+  --dv-drag-over-background-color: var(--accent-soft);
+  --dv-drag-over-border-color: var(--accent);
+  --dv-tabs-and-actions-container-height: 32px;
+}

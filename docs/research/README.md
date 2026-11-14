@@ -2,6 +2,7 @@
 
 # 研究资料
 
+- [IPO、股东减持与股份回购来源核查](2026-11-14-observation-ipo-supply-sources.md)：募资单位、减持估算、回购公告和同计划累计额。
 - [因子研究流程与开源工具选型](2026-11-11-factor-research-workflow.md)：Alpha144 范例、样本外验证、WT 正式回测边界及候选库比较。
 - [因子素材目录](factor-materials.md)：py-alpha-lib、Alpha144 的固定来源、许可及复现入口。
 

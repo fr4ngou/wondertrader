@@ -55,6 +55,7 @@ def calculate(metric, days, price, benchmark, *, amounts=None, stocks=None, chec
     result = []
     prior_state = None
     relative, activity, concentration, breadth = [], [], [], []
+    section_provider = []
     small = metric == SMALL
     for i, day in enumerate(days):
         check()
@@ -78,8 +79,11 @@ def calculate(metric, days, price, benchmark, *, amounts=None, stocks=None, chec
             stock = stocks.get(day, {})
             concentration.append(stock.get('top5_pct'))
             breadth.append(stock.get('median_return_pct'))
-            z_concentration = _zscore(concentration, i)
-            z_breadth = _zscore(breadth, i)
+            provider = stock.get('provider') or 'Tushare'
+            section_provider.append(provider if stock else None)
+            same_provider = i >= PERIOD - 1 and all(value == provider for value in section_provider[-PERIOD:])
+            z_concentration = _zscore(concentration, i) if same_provider else None
+            z_breadth = _zscore(breadth, i) if same_provider else None
             components = (z_concentration, z_breadth, z_relative)
             if None not in components:
                 state = 0
@@ -90,7 +94,9 @@ def calculate(metric, days, price, benchmark, *, amounts=None, stocks=None, chec
                 elif min(components) > 0:
                     state = 1
             row.update(top5_pct=concentration[-1], median_return_pct=breadth[-1],
-                       sample_count=stock.get('sample_count'), concentration_z=z_concentration, breadth_z=z_breadth)
+                       sample_count=stock.get('sample_count'), concentration_z=z_concentration, breadth_z=z_breadth,
+                       stock_provider=provider if stock.get('sample_count') is not None else None,
+                       stock_source_sha256=stock.get('source_sha256'))
         row['score'] = fmean(components) if None not in components else None
         # 未知之后的首个状态不能确认是新触发，连续确认后才画事件。
         row['event_code'] = None if state is None else 0
@@ -137,9 +143,11 @@ def definition(metric):
         signals = ['橙色竖线：中证2000近5日上涨，领先沪深300至少2个百分点，且成交接力倍数不高于1。']
         boundary = '成交额表示交易活跃度，历史日线无法识别短线资金身份。'
     else:
+        limits.append('成交集中度与市场宽度的252日窗口按同一供应方计算，切换来源后重新积累。')
         fields.update(top5_pct=('前5%个股成交额占比', '%'), median_return_pct=('个股日涨跌幅中位数', '%'),
                       sample_count=('当日有成交样本数', '只'), concentration_z=('成交集中度标准分', '无量纲'),
-                      breadth_z=('市场宽度标准分', '无量纲'))
+                      breadth_z=('市场宽度标准分', '无量纲'), stock_provider=('股票横截面供应方', '文本'),
+                      stock_source_sha256=('WT股票横截面原件摘要', '文本'))
         lines.extend([line('concentration_z', '成交集中度标准分', '无量纲', '#c17c23',
                            '按成交额排序取前5%的普通A股，计算成交额占比和252日Z分数。', shown=False),
                       line('breadth_z', '市场宽度标准分', '无量纲', '#5b8da5',
@@ -152,7 +160,7 @@ def definition(metric):
     schema['event_state'].update(description='0=未满足。' + event_values)
     return dict(id=metric, board=metric, label=LABELS[metric], definition_version=metric + '/1',
                 frequency='交易日日终', unit='无量纲', parameters=False, primary_field='score', overlay=True,
-                default_preset='all', source='中证指数官方日线' if small else '中证指数官方日线与Tushare股票日线',
+                default_preset='all', source='中证指数官方日线' if small else '中证指数官方日线与股票横截面',
                 source_url='https://www.csindex.com.cn/', formula=formula, reading=boundary, limitations=limits,
                 field_schema=schema,
                 lines=lines, how_to_read=dict(purpose=LABELS[metric] + ' · 观衡研究口径', signals=signals, boundary=boundary),

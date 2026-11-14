@@ -111,6 +111,144 @@ def test_source_date_at_1530_is_shared_with_daily_owner(monkeypatch):
     assert service.target_date(calendar,datetime.fromisoformat(DAYS[1]+'T15:30:00+08:00'))==DAYS[1]
 
 
+def test_observation_request_wakes_published_daily_service_and_reuses_index(tmp_path, monkeypatch):
+    from guanheng_app.observation.storage import SnapshotRepository
+    config, *_ = owner_fixture(tmp_path)
+    config['inputs'].pop('supplement_facts')
+    repository = SnapshotRepository(tmp_path/'observation')
+    repository.initialize()
+    config['observation_repair_root'] = str(repository.root)
+    descriptor = write(tmp_path/'daily.json', config)
+    now = datetime.fromisoformat(DAYS[-1]+'T16:00:00+08:00')
+    monkeypatch.setattr(service, 'observe_input_reads', lambda *args, **kwargs: {})
+    calls = []
+    fail_once = False
+    def prepare(_config, day, directory, **kwargs):
+        calls.append(day)
+        return write(Path(directory)/'UPDATE.json', dict(day=day))
+    def publish(*args, **kwargs):
+        nonlocal fail_once
+        if fail_once:
+            fail_once = False
+            raise OSError('transient source error')
+        return dict(current_sha256='e'*64)
+    monkeypatch.setattr(service, 'prepare_update', prepare)
+    monkeypatch.setattr(service, 'run_update', publish)
+    controls = tmp_path/'controls'
+    controls.mkdir()
+    def run():
+        identity = str(uuid4())
+        service.serve(descriptor, controls/identity, identity, once=True, as_of=DAYS[-1], clock=lambda: now)
+    run()
+    with repository.scheduler_lease() as lease:
+        job = repository.request_data_repair('manual')
+        job.update(state='running', wt_request=dict(dates=[DAYS[-1]], requested_at=now.isoformat()))
+        repository.record_data_repair(job, lease=lease)
+    fail_once = True
+    with pytest.raises(RuntimeError, match='one cycle failed'):
+        run()
+    assert repository.data_repair()['wt_receipt']['state'] == 'running'
+    run()
+    assert calls == [DAYS[-1], DAYS[-1]]
+    assert repository.data_repair()['wt_receipt']['state'] == 'published'
+    index = json.loads((Path(config['directory'])/'INDEX.json').read_bytes())
+    assert index[DAYS[-1]]['revision'] == 1
+    assert index[DAYS[-1]]['observation_repair']['id'] == job['id']
+    run()
+    assert len(calls) == 2
+
+
+def test_manual_observation_request_revises_partial_wt_snapshot_and_fills_gap(tmp_path,monkeypatch):
+    from fastapi.testclient import TestClient
+    from guanheng_app.app import create_app
+    from guanheng_app.observation import data_repair, etf_flow
+    from guanheng_app.observation.runtime import build_reader
+    from guanheng_app.settings import ConsoleSettings
+    from integrations.guanheng.market_generation import read_generation
+    from integrations.guanheng_market_client.exchange_calendar import digest, encode
+    from test_daily_owner import patch_owner_dependencies
+
+    config,pool,facts,original = owner_fixture(tmp_path)
+    config['inputs']['supplement_facts']['required'] = False
+    reader = build_reader(tmp_path/'observation')
+    repository = reader.repository
+    repository.initialize()
+    config['observation_repair_root'] = str(repository.root)
+    config_file = write(tmp_path/'daily.json',config)
+    fetches,_,healthy = patch_owner_dependencies(monkeypatch,config,pool,facts,original)
+    monkeypatch.setattr(service,'observe_input_reads',lambda *args,**kwargs:{})
+    day = DAYS[-1]
+    now = datetime.fromisoformat(day+'T16:00:00+08:00')
+    source = dict(id='wt.etf_flow',kind=etf_flow.KIND,history_from=day,datasets=['etf_flow.510300'])
+    observation_config = dict(sources=[source],schedule=dict(wt_repair_enabled=True),models={
+        'calendars':{'cn':dict(kind='official-exchange-calendar/v1',coverage_start=DAYS[0],coverage_end=day,
+                               verified_through=day,closed_dates=[],verified_open_dates_sha256=digest(encode(DAYS)))}})
+    repository.publish(dict(datasets={},source_tables={'source.cn_official_calendar':'fixture-calendar'}),None)
+    monkeypatch.setattr(reader,'rows',lambda _: [dict(date=d,is_open=1) for d in DAYS])
+    controls = tmp_path/'controls'
+    controls.mkdir()
+
+    def run():
+        identity = str(uuid4())
+        service.serve(config_file,controls/identity,identity,once=True,as_of=day,clock=lambda:now)
+
+    def current_catalog():
+        current,sha = read_generation(Path(config['template']['publication_directory'])/'CURRENT.json')
+        data = _load(current['configuration'])
+        return sha,_load(data['supplement_facts'])
+
+    run()
+    first_sha,first = current_catalog()
+    assert not first['complete'] and [gap['date'] for gap in first['gaps']]==[day]
+    with repository.scheduler_lease() as lease:
+        repository.record_scheduler(dict(enabled=True,state='running',phase='waiting',
+            last_heartbeat=datetime.now(now.tzinfo).isoformat(),heartbeat_max_age_seconds=60,
+            schedule=dict(timezone='Asia/Shanghai',times=['09:00']),error_code=None),lease=lease)
+        startup = repository.request_data_repair('startup')
+        startup.update(state='complete')
+        repository.record_data_repair(startup,lease=lease)
+        app = create_app(settings=ConsoleSettings(observation_root=str(repository.root)))
+        with TestClient(app,client=('127.0.0.1',1234),base_url='http://127.0.0.1') as client:
+            response = client.post('/v1/ui/market-observation/data-repair',
+                                   headers={'origin':'http://127.0.0.1','sec-fetch-site':'same-origin'})
+        assert response.status_code==202,response.json()
+        job = repository.data_repair()
+        assert job['trigger']=='manual' and job['id']==response.json()['id']
+        data_repair.repair(reader,observation_config,job,now,lease=lease,deadline=time.monotonic()+10,
+            cancelled=lambda:False,market_client_factory=None,
+            refresh=lambda *args,**kwargs:dict(sources=[dict(requested_end=day,status='partial')]))
+        waiting = repository.data_repair()
+        assert waiting['items'][0]['state']=='waiting_for_wt_repair'
+        assert waiting['wt_request']['dates']==[day]
+
+    healthy['value'] = True
+    run()
+    second_sha,second = current_catalog()
+    assert first_sha!=second_sha and second['complete'] and second['rows'][0]==first['rows'][0]
+    assert [row['date'] for row in second['rows']]==DAYS
+    assert len(fetches[-1].calls)==1 and fetches[-1].calls[0][1]['STAT_DATE']==day
+    published = repository.data_repair()
+    assert published['wt_receipt']['current_sha256']==second_sha
+
+    def reread(*args,**kwargs):
+        assert kwargs['repair_history_start']==day
+        assert kwargs['source_ids']==[source['id']]
+        assert current_catalog()[0]==second_sha
+        row = next(row for row in second['rows'] if row['date']==day)
+        manifest = reader.snapshot()[1]
+        manifest['datasets'][source['datasets'][0]] = dict(partition='reloaded')
+        reader.rows = lambda asset: ([dict(date=day,flow=int(row['value']))] if asset=='reloaded'
+                                     else [dict(date=d,is_open=1) for d in DAYS])
+        repository.publish(manifest,repository.current())
+        return dict(sources=[dict(requested_end=day,status='success')])
+
+    with repository.scheduler_lease() as lease:
+        data_repair.repair(reader,observation_config,published,now,lease=lease,deadline=time.monotonic()+10,
+            cancelled=lambda:False,market_client_factory=None,refresh=reread)
+    final = repository.data_repair()
+    assert final['id']==job['id'] and final['state']=='complete' and final['items'][0]['missing_count']==0
+
+
 def test_prior_success_proof_damage_blocks_reuse_before_new_source(tmp_path):
     objects=ContentStore(tmp_path/'raw');fetch=FrozenFetch(bad_day=DAYS[0]);transport=QmtTransport()
     targets=plan(('etf_total_shares','SSE.510300'),('margin_balance','CN.MARGIN_REPORT'))

@@ -46,7 +46,7 @@ Data侧 `analysis_price_units.load_unit_evidence(descriptor,deadline,cancelled)`
 
 `capture_profile/capture_metadata` 新增可选keyword-only `symbol`、`unit_evidence`，后者必须为与当前capture SHA绑定的资格结果。默认及无symbol的混合证券profile保持原输出。适用新元数据的dataset_version携profile和证据SHA，其他来源、复权参考、授权及日期语义保持原合同。
 
-固定证券域为人民币ETF 510050.SH、510300.SH、510500.SH、512100.SH、515080.SH、588000.SH、159780.SZ、589680.SH、159352.SZ，以及指数000300.SH。ETF公开price_unit=CNY、volume_unit=lot；指数公开price_unit=unknown、volume_unit=lot，纯解析结果的semantic_price_unit=index-point供明确的指数消费者采用；amount_unit继续unknown。SDK20原价格单位枚举保持兼容。ETF每手100份；指数聚合成交量不解释为ETF份额。复权价格单位不会授实际下单价格资格。
+固定证券域为人民币ETF 510050.SH、510300.SH、510310.SH、510330.SH、510500.SH、512100.SH、512890.SH、515080.SH、588000.SH、589680.SH、159352.SZ、159780.SZ、159781.SZ、159919.SZ、159949.SZ，以及指数000300.SH。ETF公开price_unit=CNY、volume_unit=lot。指数公开price_unit=unknown、volume_unit=lot，纯解析结果的semantic_price_unit=index-point供明确的指数消费者采用。amount_unit继续unknown。SDK20原价格单位枚举保持兼容。ETF每手100份。新增证券仅在原QMT采集已核业务绑定下取得单位，后续归档可通过同值单位升级保留价格原值。复权价格单位的资格限于分析价格。
 
 官方依据：[迅投K线字段](https://knowledge.thinktrader.net/docs/cloud/data_structure.html)、[ContextInfo接口](https://knowledge.thinktrader.net/docs/python/data_function.html)、[上交所ETF单位](https://www.sse.com.cn/assortment/fund/etf/question/c/c_20240118_5734754.shtml)、[深交所2026规则3.3.10—11](https://docs.static.szse.cn/www/lawrules/rule/trade/W020260424690713155663.pdf)、[中证沪深300编制方案第4/12.1节](https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/000300_Index_Methodology_cn.pdf)。profile固定这些官方原件及已核安装包装函数的内容摘要；可变网页后继版本经重新审查形成新profile。
 

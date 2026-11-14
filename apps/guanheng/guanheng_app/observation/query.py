@@ -5,7 +5,7 @@ import io
 import json
 import math
 from collections import OrderedDict
-from datetime import date
+from datetime import date, datetime, timezone
 from threading import RLock
 from concurrent.futures import Future,TimeoutError as FutureTimeout
 from time import monotonic
@@ -76,9 +76,11 @@ class ObservationReader:
         return version,manifest
 
     def catalog(self, version=None):
+        pinned = version is not None
         version, manifest = self.snapshot(version)
         return dict(schema_version=manifest['schema_version'], snapshot_id=version,
                     published_at=manifest['published_at'], boards=manifest['boards'],
+                    recent_events=self.recent_events(manifest, as_of=None if pinned else datetime.now(timezone.utc)),
                     preferences=manifest['preferences'], datasets=[dict(id=d['id'], board=d['board'],
                     label=d['label'], source=d.get('source',''), frequency=d['frequency'], coverage=d['coverage'],
                     dataset_version=v['partition'], quality=d.get('quality', {}),
@@ -86,6 +88,39 @@ class ObservationReader:
                     for v in manifest['datasets'].values() for d in [definition_view(copy.deepcopy(v['definition']))]],
                     contract_schemas=dict(asset=ObservationAsset.model_json_schema(),field=ObservationField.model_json_schema()),
                     usage=USAGE, execution_enabled=False)
+
+    def recent_events(self, manifest, *, as_of=None):
+        """以实时或显式快照时钟取得闭合交易日，只使用当前目录内的事件值。"""
+        from .calendars import closed_day_cutoff
+
+        items = [item for item in manifest['datasets'].values() if item['definition'].get('event_markers')]
+        if not items:
+            return {}
+        calendar = manifest.get('source_tables', {}).get('source.cn_official_calendar')
+        cutoff = closed_day_cutoff(as_of or datetime.fromisoformat(manifest['published_at'].replace('Z', '+00:00')))
+        calendar_rows = self.rows(calendar) if calendar else []
+        days = set(sorted(row['date'] for row in calendar_rows
+                          if row.get('is_open') == 1 and row['date'] <= cutoff)[-5:])
+        calendar_complete = bool(calendar_rows) and max(row['date'] for row in calendar_rows) >= cutoff
+        result = {}
+        for item in items:
+            definition = item['definition']
+            config = definition['event_markers']
+            labels = {event['code']: event['label'] for event in config['values']}
+            status = result.setdefault(definition['board'], dict(state='complete', events=[]))
+            known = set()
+            for row in self.rows(item['partition']):
+                if row['date'] not in days or row.get(config['field']) is None:
+                    continue
+                known.add(row['date'])
+                label = labels.get(row[config['field']])
+                if label is not None:
+                    status['events'].append(dict(date=row['date'], label=label))
+            if not calendar_complete or len(days) != 5 or known != days:
+                status['state'] = 'incomplete'
+        for status in result.values():
+            status['events'].sort(key=lambda event: (event['date'], event['label']), reverse=True)
+        return result
 
     def definition(self, metric, version=None):
         version, manifest = self.snapshot(version)

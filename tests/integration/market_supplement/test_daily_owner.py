@@ -102,6 +102,18 @@ def patch_owner_dependencies(monkeypatch,config,pool,facts,original_request):
 
 def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypatch):
     config,pool,facts,original_request=owner_fixture(tmp_path)
+    from integrations.guanheng.day_facts_prepare import prepare_facts_catalog
+    older = deepcopy(facts)
+    older['date'] = DAYS[0]
+    older['rows'][0][0] = DAYS[0]
+    config['template']['daily_facts'] = prepare_facts_catalog([older, facts], tmp_path/'history-facts')
+    config['inputs']['stock_cross_section'] = dict(bigquant_python=sys.executable, timeout_seconds=5,
+        minimum_sample_count=1, history_from=DAYS[0], history_days_per_cycle=1)
+    section_calls = []
+    def query_stock(*args, **kwargs):
+        section_calls.append(args)
+        return [dict(date=args[1], instrument='600000.SH', close=1, pre_close=1, amount=100)]
+    monkeypatch.setattr('integrations.guanheng.stock_cross_section.acquire_bigquant', query_stock)
     config['inputs']['supplement_facts']=plan(('etf_total_shares','SSE.510300'),
         ('etf_total_shares','SZSE.159780'),('margin_balance','CN.MARGIN_REPORT'),
         ('market_turnover','CN.SH_SZ'),('market_turnover_proxy','CN.SH_SZ'))
@@ -114,11 +126,21 @@ def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypa
     assert fetches[-1].closed and transports[-1].closed
     assert len(json.loads((work/'supplement/STATE.json').read_bytes())['rows'])==8
     healthy['value']=True
+    original_save = inputs._save
+    def interrupted(path, value):
+        if path.name == 'UPDATE.json':
+            raise InterruptedError('after facts phase committed')
+        original_save(path, value)
+    with monkeypatch.context() as crash:
+        crash.setattr(inputs, '_save', interrupted)
+        with pytest.raises(InterruptedError, match='facts phase'):
+            inputs.prepare_update(config,DAYS[-1],work,deadline=time.monotonic()+20)
     descriptor=inputs.prepare_update(config,DAYS[-1],work,deadline=time.monotonic()+20)
+    assert [args[1] for args in section_calls] == [DAYS[-1], DAYS[0]]
     request=json.loads(Path(descriptor['path']).read_bytes())
     assert request['supplement_facts']['path'].endswith('catalog.json')
     assert fetches[-1].closed and transports[-1].closed
-    assert len(fetches[-1].calls)==2
+    assert len(fetches[-2].calls)==2 and not fetches[-1].calls
     # 已固定输入再次读取不构造任何新来源对象。
     before=len(fetches)
     assert inputs.prepare_update(config,DAYS[-1],work,deadline=time.monotonic()+20)==descriptor
@@ -146,6 +168,26 @@ def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypa
     try:
         port=ready.get(timeout=5);assert port is not None,errors
         client=MarketClient(f'http://127.0.0.1:{port}','synthetic-msf-http-token')
+        legacy=client.source_day_facts_query(DAYS[-1],snapshot['snapshot_id'])
+        assert legacy['status']['code']=='Ok' and 'stock_cross_section' not in legacy['data']
+        section=client.source_day_facts_query(DAYS[-1],snapshot['snapshot_id'],
+                                               include_stock_cross_section=True)['data']['stock_cross_section']
+        assert section['provider']=='BigQuant' and section['sample_count']==1 and section['top5_pct']==100
+        from guanheng_app.observation.market_structure_source import STOCK_TABLE, wt_stock_history
+        from guanheng_app.observation.source_fetch import CollectionBudget
+        from guanheng_app.observation.runtime import build_reader
+        from types import SimpleNamespace
+        monkeypatch.setattr('guanheng_app.observation.market_structure_source.official_calendar',
+                            lambda *_args, **_kwargs: ([dict(date=day, is_open=1) for day in DAYS], None))
+        observer = build_reader(tmp_path/'observation')
+        observer.repository.initialize()
+        fetch = SimpleNamespace(objects=observer.objects, budget=CollectionBudget(time.monotonic()+5),
+                                records=[], timeout=2)
+        rows = wt_stock_history(fetch, DAYS[0], DAYS[-1],
+            dict(coverage_start=DAYS[0],coverage_end=DAYS[-1]), lambda _: client, snapshot_dates=[DAYS[-1]])
+        assert [row['date'] for row in rows[STOCK_TABLE]] == [DAYS[0], DAYS[-1]]
+        assert rows[STOCK_TABLE][-1] == dict(date=DAYS[-1], **section)
+        assert len(fetch.records) == 3
         reply=client.source_supplement_query(query(snapshot['snapshot_id']))
         assert reply['status']['code']=='Ok'
         assert [r['value'] for r in reply['data']['rows']]==['1750001250','1750001250']

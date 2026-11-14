@@ -1,10 +1,11 @@
 import { WorkspaceDock } from '../workspace/WorkspaceDock'
+import { ObservationDock } from './ObservationDock'
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, useLocation, useSearchParams } from 'react-router-dom'
 import brand from '../../config/project-branding.json'
-import { getCatalog, getDefinition, getHistory, getSeries, read } from './api'
+import { getCatalog, getDefinition, getHistory, getSeries, read, requestDataRepair } from './api'
 import { ObservationChart } from './ObservationChart'
 import { DataAssets } from './DataAssets'
 import { ObservationExports } from './ObservationExports'
@@ -15,9 +16,9 @@ import { FieldCoverage } from './FieldCoverage'
 import { keyboardRange, latestRange, presetRange, presets } from './dates'
 import { sourceChartDate } from '../sourceChartPresentation'
 import { ChartHistoryTrack } from '../components/ChartHistoryTrack'
-import { boardDatasets, defaultMetric } from './presets'
-import {statusLabel,sourceLabel,failureLabel,displayedUnit,displayedPrimary,automaticUpdateLabel,localSchedulerLabel,frequencyLabel} from './presentation'
-import type { Catalog, Definition, Range, Row, Series } from './types'
+import { boardDatasets, defaultMetric, selectableBoard } from './presets'
+import {statusLabel,sourceLabel,failureLabel,displayedUnit,displayedPrimary,automaticUpdateLabel,localSchedulerLabel,frequencyLabel,repairInputLabel} from './presentation'
+import type { Catalog, DataRepair, Definition, Range, Row, Series } from './types'
 import './observation.css'
 import { exactObservationValue, observationNumber, observationDisplayUnit } from './numbers'
 import { MarketObservationGroup, groupedBoard, groupDateDomain } from './MarketObservationGroup'
@@ -28,10 +29,87 @@ function Message({ children, retry }: { children: ReactNode; retry?: () => void 
   return <div className="observation-message" role="status"><p>{children}</p>{retry && <button onClick={retry}>重新读取</button>}</div>
 }
 
+type UpdateStatus = {
+  scheduler: { enabled: boolean; state?: string; last_heartbeat?: string | null }
+  process?: { state: string; label: string; error?: string | null }
+  schedule?: { timezone: string; times: string[] } | null
+  runs?: { status: string; completed_at: string; execution_mode?: string }[]
+  data_repair?: DataRepair | null
+  data_repair_available?: boolean
+}
+
+const repairActive = (job?: DataRepair | null) => job?.state === 'queued' || job?.state === 'running'
+const repairStates = { queued: '等待补齐', running: '正在补齐', complete: '补齐完成', partial: '仍有缺口', failed: '检查失败' }
+const repairItemStates = { pending: '等待检查', checking: '检查覆盖', repairing: '正在补齐',
+  complete: '覆盖通过', missing: '仍有缺口', waiting_for_wt: '待接入 WT', waiting_for_wt_repair: '等待 WT 数据' }
+const updateKey = ['observation', 'updates'] as const
+
+function DataRepairControl({ status, pinned }: { status?: UpdateStatus; pinned?: string }) {
+  const client = useQueryClient()
+  const [hovered, setHovered] = useState(false)
+  const [opened, setOpened] = useState(false)
+  const repair = useMutation({
+    mutationFn: () => requestDataRepair(),
+    onSuccess: job => client.setQueryData<UpdateStatus>(updateKey, previous => previous && { ...previous, data_repair: job }),
+    onSettled: () => client.invalidateQueries({ queryKey: updateKey }),
+  })
+  const job = status?.data_repair
+  const jobActive = repairActive(job)
+  const jobId = job?.id
+  const jobState = job?.state
+  useEffect(() => {
+    if (!pinned && jobId && (jobState === 'complete' || jobState === 'partial')) {
+      void client.invalidateQueries({ queryKey: ['observation', 'catalog', undefined], exact: true })
+    }
+  }, [client, jobId, jobState, pinned])
+  if (!job && !status?.data_repair_available) return null
+  const checked = job?.items.filter(item => !['pending', 'checking', 'repairing', 'waiting_for_wt_repair'].includes(item.state)).length ?? 0
+  const upstream = job?.wt_receipt?.state
+  return <div className="observation-repair">
+    <button type="button" onClick={() => repair.mutate()} disabled={!!pinned || !status?.data_repair_available || jobActive || repair.isPending}>检查并补齐</button>
+    <div className="observation-repair-popover" onPointerEnter={event => {
+      if (event.pointerType === 'mouse') setHovered(true)
+    }} onPointerLeave={() => setHovered(false)} onKeyDown={event => {
+      if (event.key === 'Escape') { setOpened(false); setHovered(false) }
+    }}>
+      <button type="button" aria-expanded={hovered || opened} aria-controls="observation-repair-list"
+        onClick={() => setOpened(!opened)}>{job ? repairStates[job.state] : '补齐进度'}</button>
+      <div id="observation-repair-list" className="observation-repair-list" hidden={!hovered && !opened}>
+        {job && <><strong>{repairStates[job.state]} · {checked}/{job.items.length} 项</strong>
+          {job.items.length > 0 && <progress value={checked} max={job.items.length} aria-label="已检查来源" />}
+          {job.wt_request && <p>{upstream === 'running' && jobActive ? 'WT 正在补采' : upstream === 'published' ? (jobActive ? 'WT 已发布，正在核对覆盖' : '已核对 WT 本轮发布') :
+            upstream === 'failed' ? 'WT 补采失败，保留已发布数据' : jobActive ? '等待 WT 接收' : 'WT 回执已超时'}</p>}
+          {job.reason && <p>{failureLabel(job.reason)}</p>}
+          <ul>{job.items.map(item => <li key={item.source_id}>
+            <div className="observation-repair-row">
+              <span>{sourceLabel(item.source_id, item.source_id)}</span><span title={item.reason ? failureLabel(item.reason) : undefined}>
+                {repairItemStates[item.state]}{item.missing_count ? ` · 缺 ${item.missing_count} 日` : ''}
+              </span>
+            </div>
+            {!!item.inputs?.length && <ul className="observation-repair-inputs">{item.inputs.map(input =>
+              <li key={input.id} className="observation-repair-row">
+                <div>
+                  <span>{repairInputLabel(input.id)}</span>
+                  <small className="observation-repair-dates">
+                    {input.first_missing === input.last_missing ? input.first_missing : `${input.first_missing} 至 ${input.last_missing}`}
+                  </small>
+                </div>
+                <span>缺 {input.missing_count} 日</span>
+              </li>)}</ul>}
+          </li>)}</ul>
+        </>}
+        {!status?.data_repair_available && <p>补齐服务暂不可用。</p>}
+      </div>
+    </div>
+    {repair.isError && <small role="alert">{repair.error.message}</small>}
+  </div>
+}
+
 export default function ObservationShell({ appearance, embedded = false }: { appearance?: ReactNode; embedded?: boolean }) {
   const [search] = useSearchParams(); const pinned = search.get('snapshot_id') || undefined
   const catalog = useQuery({ retry: false, queryKey: ['observation', 'catalog', pinned], queryFn: ({ signal }) => getCatalog(signal, pinned), refetchInterval: pinned ? false : 60000 })
-  const runtime = useQuery({ retry: false, queryKey: ['observation', 'updates'], queryFn: ({ signal }) => read<{ scheduler: { enabled: boolean;state?:string;last_heartbeat?:string|null };process?:{state:string;label:string;error?:string|null};schedule?:{timezone:string;times:string[]}|null;runs?:{status:string;completed_at:string;execution_mode?:string}[] }>('updates', {}, signal), refetchInterval: 60000 })
+  const runtime = useQuery({ retry: false, queryKey: updateKey, queryFn: ({ signal }) => read<UpdateStatus>('updates', {}, signal),
+    refetchInterval: query => repairActive(query.state.data?.data_repair) ? 2000 : 60000 })
   const runtimeData=runtime.data
   const latestRun=runtimeData?.runs?.find(run=>run.execution_mode==='scheduled')
   const location = useLocation(); const remote = import.meta.env.VITE_OBSERVATION_ONLY === 'true'
@@ -46,6 +124,7 @@ export default function ObservationShell({ appearance, embedded = false }: { app
     <main className="observation-workspace">{appearance ? <div className="observation-appearance">{appearance}</div> : null}<header className="observation-page-heading"><div>{embedded ? <h1>市场观察</h1> : <><span className="observation-eyebrow">市场观察</span><h1>衡量市场的位置与变化</h1></>}</div><details className="observation-auto"><summary>{runtime.isError ? '自动更新状态暂不可用' : runtime.isPending ? '正在检查更新状态…' : automaticUpdateLabel(runtimeData?.scheduler,latestRun?.status)}</summary><small>{runtimeData && <>{localSchedulerLabel(runtimeData.process)}<br /></>}{runtimeData?.schedule ? `${runtimeData.schedule.times.join(' / ')} · ${runtimeData.schedule.timezone==='Asia/Shanghai'?'北京时间':runtimeData.schedule.timezone}` : '更新时刻配置暂不可用'}{runtimeData?.scheduler?.last_heartbeat && <><br />最近心跳：{new Date(runtimeData.scheduler.last_heartbeat).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}{catalog.data && <><br />数据发布：{new Date(catalog.data.published_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</>}</small></details></header>
       <nav className="observation-tabs" aria-label="市场观察页面">{[['boards', '', '看板'], ['data', '/data', '指标说明'], ['quality', '/quality', '更新与缺口'], ['api', '/api', '导出']].map(([id, suffix, label]) => <NavLink key={id} className={tab === id ? 'active' : ''} to={'/observation' + suffix + location.search}>{label}</NavLink>)}</nav>
       <ReadNotice label="更新状态" query={runtime} />
+      {!remote && <DataRepairControl status={runtimeData} pinned={pinned} />}
       <ReadNotice label="观察目录" query={catalog} />
       {!catalog.data ? catalog.isPending ? <Message>正在读取观察数据目录…</Message> : null : <>
         {tab !== 'boards' && <p className="observation-note">数据发布于 {new Date(catalog.data.published_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</p>}
@@ -60,31 +139,91 @@ export default function ObservationShell({ appearance, embedded = false }: { app
 
 function Boards({ catalog }: { catalog: Catalog }) {
   const [search, setSearch] = useSearchParams()
-  const requested = search.get('metric') || defaultMetric(catalog,catalog.preferences.default_board)
+  const available = boardDatasets(catalog)
+  const multi = search.has('boards')
+  const boards = catalog.boards.filter(board => selectableBoard(board.id) && available.some(item => item.board === board.id))
+  const opened = [...new Set((search.get('boards') || '').split(','))].filter(id => boards.some(board => board.id === id))
+  const linked = search.get('link_dates') !== '0'
+  const [ranges, setRanges] = useState<Record<string, Range>>({})
+  const change = (fn: (next: URLSearchParams) => void) => {
+    const next = new URLSearchParams(search)
+    fn(next)
+    setSearch(next, { replace: true })
+  }
+  const toggle = (id: string) => change(next => next.set('boards',
+    (opened.includes(id) ? opened.filter(board => board !== id) : [...opened, id]).join(',')))
+  const currentBoard = available.find(item => item.id === search.get('metric'))?.board || catalog.preferences.default_board
+  const initial = selectableBoard(currentBoard) ? currentBoard : boards[0]?.id
+  const anchor = available.find(item => item.id === search.get('metric')) || available.find(item => item.board === (opened[0] || initial))
+  const shared = search.get('start') && search.get('end') ? { start: search.get('start')!, end: search.get('end')! }
+    : anchor && presetRange(search.get('preset') || anchor.default_preset || 'd30', anchor.coverage.end, anchor.coverage)
+  const panels = opened.map(id => ({
+    id, title: boards.find(board => board.id === id)!.label,
+    content: <BoardPanel key={id} catalog={catalog} boardId={id} linkedRange={linked ? shared : ranges[id] || shared}
+      onPanelRange={(range, preset) => linked ? change(next => {
+        next.set('start', range.start); next.set('end', range.end); next.set('preset', preset)
+      }) : setRanges(previous => ({ ...previous, [id]: range }))} />,
+  }))
+  return <>
+    <div className="observation-multi-tools">
+      <button type="button" aria-pressed={multi} onClick={() => change(next => {
+        if (multi) { next.delete('boards'); next.delete('link_dates') }
+        else next.set('boards', initial || '')
+      })}>{multi ? '多看板 · 已开启' : '多看板'}</button>
+      {multi && <button type="button" aria-pressed={linked} onClick={() => change(next => next.set('link_dates', linked ? '0' : '1'))}>日期联动</button>}
+    </div>
+    {multi ? <>
+      <div className="observation-board-nav" aria-label="选择看板">{boards.map(board =>
+        <button key={board.id} type="button" aria-pressed={opened.includes(board.id)} onClick={() => toggle(board.id)}>
+          {board.label}<EventBadge catalog={catalog} board={board.id} />
+        </button>)}</div>
+      {panels.length ? <ObservationDock panels={panels} onClose={toggle} /> : <Message>点选上方看板开始观察。</Message>}
+    </> : <BoardPanel catalog={catalog} />}
+  </>
+}
+
+function EventBadge({ catalog, board }: { catalog: Catalog; board: string }) {
+  const status = catalog.recent_events?.[board]
+  if (!status) return null
+  const title = status.events.map(event => event.date + ' ' + event.label).join('；')
+  return status.events.length ? <span className="observation-event-badge" title={title} aria-label={'近五个交易日事件：' + title}>●</span>
+    : status.state === 'incomplete' ? <span className="observation-event-pending" title="最近五个交易日的事件数据待更新">待更新</span> : null
+}
+
+function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
+  catalog: Catalog; boardId?: string; linkedRange?: Range; onPanelRange?: (range: Range, preset: string) => void
+}) {
+  const [search, setSearch] = useSearchParams()
+  const [panelMetric, setPanelMetric] = useState<string>()
+  const [panelParams, setPanelParams] = useState<Record<string, string>>({})
+  const settings = boardId ? new URLSearchParams(panelParams) : search
+  const requested = boardId ? panelMetric || defaultMetric(catalog, boardId) : search.get('metric') || defaultMetric(catalog,catalog.preferences.default_board)
   const available = boardDatasets(catalog)
   const requestedBoard = catalog.datasets.find(d => d.id === requested)?.board
   const dataset = available.find(d => d.id === requested) || available.find(d=>d.id===defaultMetric(catalog,requestedBoard || catalog.preferences.default_board)) || available[0]
   const [detail, setDetail] = useState('rows')
-  const focus = search.get('focus') || 'both'; const mode = search.get('mode') || 'fixed_base'; const activity = search.get('activity') || 'all'
+  const focus = settings.get('focus') || 'both'; const mode = settings.get('mode') || 'fixed_base'; const activity = settings.get('activity') || 'all'
   const [futuresMatrix, setFuturesMatrix] = useState(true)
   const weeklyExecutive = isExecutiveNet(dataset.id)
   const defaultPreset = weeklyExecutive ? 'all' : dataset.default_preset || 'd30'
   const coverage = !weeklyExecutive && groupedBoard(dataset.board) ? groupDateDomain(catalog, dataset.board, dataset.coverage) : dataset.coverage
   const today = sourceChartDate(new Date().toISOString())
   const dateDomain = { start: coverage.start, end: today }
-  const selectedPreset = search.get('preset') || (search.get('start') ? '' : defaultPreset)
-  const range = isShareholderNet(dataset.id) && selectedPreset === 'all' ? presetRange('all', coverage.end, coverage)
-    : search.get('start') && search.get('end') ? { start: search.get('start')!, end: search.get('end')! }
-    : presetRange(selectedPreset || defaultPreset, coverage.end, coverage)
-  const parameters = { window: search.get('window') || (dataset.board === 'spread' ? '756' : '20'), k: search.get('k') || '2', method: search.get('method') || 'sma', pcr_type: search.get('pcr_type') || 'oi' }
+  const selectedPreset = settings.get('preset') || (linkedRange || settings.get('start') ? '' : defaultPreset)
+  const range = linkedRange || (isShareholderNet(dataset.id) && selectedPreset === 'all' ? presetRange('all', coverage.end, coverage)
+    : settings.get('start') && settings.get('end') ? { start: settings.get('start')!, end: settings.get('end')! }
+    : presetRange(selectedPreset || defaultPreset, coverage.end, coverage))
+  const parameters = { window: settings.get('window') || (dataset.board === 'spread' ? '756' : '20'), k: settings.get('k') || '2', method: settings.get('method') || 'sma', pcr_type: settings.get('pcr_type') || 'oi' }
   const definition = useQuery({ retry: false, queryKey: ['observation', 'definition', dataset.id, catalog.snapshot_id], queryFn: ({ signal }) => getDefinition(dataset.id, catalog.snapshot_id, signal) })
   const history = useQuery({ retry: false, queryKey: ['observation', 'history', dataset.id, catalog.snapshot_id], queryFn: ({ signal }) => getHistory(dataset.id, catalog.snapshot_id, signal) })
   const series = useQuery({ retry: false, queryKey: ['observation', 'series', dataset.id, catalog.snapshot_id, range, parameters], queryFn: ({ signal }) => getSeries(dataset.id, catalog.snapshot_id, { ...range, ...parameters }, signal) })
   const updateRange = (next: Range, preset = '') => {
+    if (onPanelRange) { onPanelRange(next, preset); return }
     const nextSearch = new URLSearchParams(search); nextSearch.set('metric', dataset.id); nextSearch.set('start', next.start); nextSearch.set('end', next.end); nextSearch.set('preset', preset)
     setSearch(nextSearch, { replace: true })
   }
   const select = (id: string) => {
+    if (boardId) { setPanelMetric(id); setPanelParams({}); setDetail('rows'); return }
     const next=available.find(item=>item.id===id)!
     const outside=range.end<next.coverage.start || range.start>next.coverage.end
     const openWeekly = isExecutiveNet(next.id) && (!weeklyExecutive || next.id !== dataset.id && isShareholderNet(next.id))
@@ -93,12 +232,15 @@ function Boards({ catalog }: { catalog: Catalog }) {
     setSearch({ metric:id,start:nextRange.start,end:nextRange.end,preset,...(search.get('snapshot_id') ? {snapshot_id:search.get('snapshot_id')!} : {}) })
     setDetail('rows')
   }
-  const parameter = (key: string, input: string) => { const next = new URLSearchParams(search); next.set('metric', dataset.id); next.set(key, input); setSearch(next, { replace: true }) }
+  const parameter = (key: string, input: string) => {
+    if (boardId) { setPanelParams(previous => ({ ...previous, [key]: input })); return }
+    const next = new URLSearchParams(search); next.set('metric', dataset.id); next.set(key, input); setSearch(next, { replace: true })
+  }
   const originalDefinition = series.data?.definition || definition.data?.definition
   const d = useMemo(()=> originalDefinition?.board==='systemc' ? {...originalDefinition,label:dataset.label,
     lines:originalDefinition.lines.map(line=>line.key===originalDefinition.primary_field?{...line,name:dataset.label}:line)} : originalDefinition,
     [originalDefinition,dataset.label])
-  const hidden = search.has('hidden') ? (search.get('hidden') || '').split(',').filter(Boolean) : d?.lines.filter(line => line.shown === false).map(line => line.key) || []
+  const hidden = settings.has('hidden') ? (settings.get('hidden') || '').split(',').filter(Boolean) : d?.lines.filter(line => line.shown === false).map(line => line.key) || []
   const shownLines = d?.lines.filter(line=>dataset.board!=='crossmarket' || mode!=='raw_panels' || ['hscei_rebased','a_rebased'].includes(line.key)) || []
   const primaryRows=d ? series.data?.rows.filter(row=>typeof row[d.primary_field]==='number') : undefined
   const last = primaryRows?.at(-1)
@@ -108,7 +250,7 @@ function Boards({ catalog }: { catalog: Catalog }) {
   const primary = shareholder && typeof last?.net_amount_cny === 'number' ? -last.net_amount_cny
     : d && primaryRows ? displayedPrimary(d, primaryRows, mode) : undefined
   useEffect(()=>{
-    if(d?.axis_type==='tenor')return
+    if(boardId || d?.axis_type==='tenor')return
     const keydown=(event:KeyboardEvent)=>{
       const target=event.target
       if(event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
@@ -118,22 +260,24 @@ function Boards({ catalog }: { catalog: Catalog }) {
     }
     window.addEventListener('keydown',keydown)
     return()=>window.removeEventListener('keydown',keydown)
-  },[d?.axis_type,dateDomain.start,dateDomain.end,range.start,range.end,search])
+  },[boardId,d?.axis_type,dateDomain.start,dateDomain.end,range.start,range.end,search])
+  const Dock = boardId ? InlineBoard : WorkspaceDock
   return <>
-    <div className="observation-board-nav">{catalog.boards.filter(board => board.id !== 'pending').map((board, index) => <button key={board.id} className={dataset.board === board.id ? 'active' : ''} disabled={!defaultMetric(catalog,board.id)} onClick={() => select(defaultMetric(catalog,board.id)!)}><small>{String(index + 1).padStart(2, '0')}</small>{board.label}</button>)}</div>
-    <section className="observation-panel observation-controls"><label>查看指标<select aria-label="观察口径" value={dataset.id} onChange={e => select(e.target.value)}>{available.filter(v => v.board === dataset.board).map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>
+    {!boardId && <div className="observation-board-nav">{catalog.boards.filter(board => selectableBoard(board.id) && available.some(item => item.board === board.id)).map((board, index) => <button key={board.id} className={dataset.board === board.id ? 'active' : ''} onClick={() => select(defaultMetric(catalog,board.id)!)}><small>{String(index + 1).padStart(2, '0')}</small>{board.label}<EventBadge catalog={catalog} board={board.id} /></button>)}</div>}
+    <section className="observation-panel observation-controls"><label>{dataset.board === 'etf_flow' ? '选择 ETF' : '查看指标'}<select aria-label={dataset.board === 'etf_flow' ? '选择 ETF' : '观察口径'} value={dataset.id} onChange={e => select(e.target.value)}>{available.filter(v => v.board === dataset.board).map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>
       {d?.axis_type !== 'tenor' ? <div className="observation-presets" role="group" aria-label="快捷日期">{presets.map(([key, label]) =>
         <button key={key} aria-pressed={selectedPreset === key} className={selectedPreset === key ? 'active' : ''}
           onClick={() => updateRange(presetRange(key, today, key==='all'?coverage:undefined), key)}>{label}</button>)}</div> : null}
       <span className="observation-note" aria-label="当前日期范围">{range.start} 至 {range.end}</span>
       <p className="observation-note">资料截至 {dataset.coverage.end}{dataset.board==='executive' && ' · 已披露资料，非盘中实时'}{d?.primary_coverage?.end && d.primary_coverage.end!==dataset.coverage.end && ` · 主指标截至 ${d.primary_coverage.end}`} {range.end<dataset.coverage.end && <button onClick={()=>updateRange(latestRange(range,selectedPreset,dataset.coverage,dateDomain),selectedPreset)}>查看最新数据</button>}</p>
     </section>
-    <WorkspaceDock layoutId="observation" primaryTitle="指标图" secondaryTitle="原始数据与原图" side="below"
+    <Dock layoutId="observation" primaryTitle="指标图" secondaryTitle="原始数据与原图" side="below"
       primary={<section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{shareholder ? '最新日可计价净减持' : primaryLine?.name}</span><strong title={last&&d?exactObservationValue(primary,primaryUnit):undefined}>{last && d ? observationNumber(primary,primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
       {d?.event_markers && series.data?.rows.length ? <p className="observation-note">
         {!last ? '所选日期暂无合成线。计算需要连续 252 个交易日的有效输入。' :
           last.date !== series.data.rows.at(-1)?.date ? `合成线截至 ${last.date}。后续日期的输入或预热尚未齐全。` : null}
       </p> : null}
+      {dataset.board === 'etf_flow' && series.data && !last && <p className="observation-note">所选日期暂无可计算的净申赎额，等待 WT 补齐已核单位的价格及相邻交易日总份额。</p>}
       {d?.id==='t2108.ashare' && <T2108Coverage row={last} definitionVersion={d.definition_version} mixedMethods={new Set(series.data?.rows.map(row=>row.method_version || d.definition_version || 'unregistered')).size>1} />}
       <FieldCoverage metric={dataset.id} row={series.data?.rows.at(-1)} />
       {d?.parameters && <div className="observation-inline"><label>窗口<input aria-label="计算窗口" type="number" min="2" max="2000" value={parameters.window} onChange={e => parameter('window', e.target.value)} /></label><label>倍数<input aria-label="通道倍数" type="number" min="0" max="10" step="0.5" value={parameters.k} onChange={e => parameter('k', e.target.value)} /></label><select aria-label="通道算法" value={parameters.method} onChange={e => parameter('method', e.target.value)}><option value="sma">算术均值</option><option value="ema">EMA中心</option><option value="ema_moments">EMA矩通道</option></select>{dataset.board === 'pcr' && <select aria-label="PCR口径" value={parameters.pcr_type} onChange={e => parameter('pcr_type', e.target.value)}><option value="oi">持仓</option><option value="volume">成交</option></select>}</div>}
@@ -156,6 +300,10 @@ function Boards({ catalog }: { catalog: Catalog }) {
       {detail === 'reference' && <Reference definition={d} version={catalog.snapshot_id} range={range} />}
     </section>} />
   </>
+}
+
+function InlineBoard({ primary, secondary }: { primary: ReactNode; secondary: ReactNode }) {
+  return <>{primary}<details className="observation-panel"><summary>原始数据与原图</summary>{secondary}</details></>
 }
 
 function change(rows: Row[], key: string) { const a = rows.find(r => typeof r[key] === 'number')?.[key]; const b = [...rows].reverse().find(r => typeof r[key] === 'number')?.[key]; return typeof a === 'number' && typeof b === 'number' ? value((b / a - 1) * 100) + '%' : '不可用' }

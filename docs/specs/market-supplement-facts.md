@@ -14,9 +14,29 @@
 
 原daily-data-service.v1的inputs增加可选supplement_facts；省略保持原流程。配置为schema=`guanheng.market-supplement-plan.v1`，targets为最多64项`{metric,symbol,from}`，同metric/symbol唯一；from是显式要求覆盖起点YYYY-MM-DD，实际截止为本轮闭合日。每个ETF可用已核上市资料设置自身起点，未知上市时间不自动推断为无缺失。
 
-metrics固定：`etf_total_shares`（symbol为SSE./SZSE.六位ETF）、`margin_balance`（CN.MARGIN_REPORT，供应商原融资报告范围，不能默认为沪深合计）、`market_turnover`（CN.SH_SZ，官方股票成交金额）、`market_turnover_proxy`（CN.SH_SZ，双指数amount代理）。official与proxy分别采集和查询。ETF份额标准单位share，市场金额CNY；源单位未知时保持unknown且不赋单位资格。
+`index_turnover` 的目标范围为 `SSE.932000`。WT 日线的已核元成交额在读取时优先；启用 `external_fallback` 中的 `BigQuant` 后，由原补充事实任务批量查询 `cn_stock_index_bar1d` 的 `932000.CSI`，只归档日历选中、标的匹配且金额为正的交易日。补充目录保存原查询结果及逐行谱系，现有目录复用和缺口重试适用。观察通过同一快照的补充事实补足单位未核或缺量的日线。其余补充指标查询继续返回原有指标的能力字段。
 
-policy固定qmt_preferred；external_fallback为`SSE/SZSE/Eastmoney`的显式子集；required为bool。required=true时缺事实在UPDATE固定前保持pending并保留原件/缺口，同任务恢复只补缺。required=false允许发布带gaps的不完整目录；已发布partial在下一个北京时间自然日09:00后最多创建一次同市场日修订，仍沿原INDEX/REQUEST及失败重试节拍；当日partial再次成功不因gaps循环修订。新的闭合交易日继续补既往要求窗口的缺项。
+启用 `CSI` 时，`index_turnover` 仍缺失的日期允许用中证指数定日行情原件补齐。验证指数代码、交易日及唯一记录，`tradingValue` 从亿元换算为元，保存中证指数来源及原件。已归档同日 BigQuant 成交额继续复用。
+
+`index_free_float_market_cap` 的目标为 `SSE.000300`，外部来源为 `CSI`。采集中证指数沪深300日报，核首页日期、规模指数表头、唯一 000300 行及两处收盘点位。日报市值列表只列字段名，换算采用同发布方[沪深300指数单张](https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/000300factsheet.pdf)公开的市值亿元口径。日报实测 2026-10-29、2026-11-12、2026-11-13 的自由流通市值分别为 230026、230145、228573 亿元。原 PDF 进入原件库，缺报、表结构或显式单位不符保留缺口。该事实可作为四只沪深300 ETF 市值占比的分母。
+
+`margin_purchase` 沿 `CN.MARGIN_REPORT` 的原供应商覆盖，从东方财富综合统计 `RPTA_WEB_MARGIN_DAILYTRADE` 读取 `FIN_BUY_AMT`，原亿单位转人民币元。余额继续使用 `margin_balance`。2026-11-12 实取 173379043429 元，2026-11-13 当次查询为待披露。旧指标查询继续返回原支持范围内的能力字段。
+
+融资买入额历史缺口按最多 366 个自然日发起区间查询。WT 校验报表日期、分页和重复记录，仅接纳官方交易日历目标日，并归档区间原响应。尚未披露的行留缺口，可在后续任务重试。任务优先采集最新交易日。
+
+`ipo_gross_proceeds` 的范围为 `CN.SH_SZ`。东方财富新股报表 `RPTA_APP_IPOAPPLY` 以实际上市日归集 `TOTAL_RAISE_FUNDS`，从亿元换算到人民币元。只接纳沪深 A 股。接口查询在已闭合交易日范围内，完整查询无沪深上市记录的交易日为已观察零。已有沪深上市记录但实际募资字段缺失时，该日留缺口。按区间归档原响应，历史首次可知时间保持未知。北交所另行核对来源覆盖和募资口径。
+
+`shareholder_reduction_gross` 为 `CN.SH_SZ` 范围内的 Choice 已披露重要股东减持估算额。沿 `RPT_SHARE_HOLDER_INCREASE` 的二级市场和大宗交易范围，只累计减持方向的数量，按披露日归入当日或其后首个交易日。数量单位万股，优先使用报表成交均价，缺失时使用报表历史参考收盘价。所有原始分页经数量和复合身份核验后才接纳。交易日期晚于披露日或两类价格均缺失时，归属交易日保留缺口。完整报表无沪深减持的交易日记录零。历史当日收盘可得性未知，研究读回使用事后完整披露历史。
+
+`buyback_execution_disclosed` 为 `CN.SH_SZ` 范围内的股份回购披露增量，来源 `CNINFO`。核准公告索引分页、发行人证券及相同方案引用。较晚进展接续前序已核累计金额，首笔须有明确首次实施披露。累计金额回落、同日无法排序、前序不明及执行候选无法核准时，对应交易日保留缺口。仅披露明确含交易费用的已付金额且缺少可核累计成交金额时，原因记为 `buyback_execution_net_amount_missing`。休市日披露计入下一交易日。完整候选索引未出现沪深执行公告的日期值为零，语义限于披露增量。成功行的直接父对象为定日公告证据索引，引用全部相关索引页与 PDF 原件，WT 读回核对两层对象。
+
+执行公告引用方案标题和披露日期但省略编号时，按原证券与巨潮机构组合查询候选日，核标题与原方案 PDF 证券和公告编号，仅接纳唯一方案。证据索引包含补查的页面和方案 PDF。历次累计金额继续按同一方案计算，缺前序时留出独立原因。
+
+回购历史补齐优先查询本轮首次出现的最新交易日，随后优先覆盖尚未尝试的旧日，再复核已报缺口。同一任务恢复沿本地持久进度，跨任务沿上一版已发布覆盖及可核验的未完成任务进度。最新日仍按原日更节拍建立；历史缺口与未尝试日期共享原请求预算，缺口保留供应商原因。
+
+ETF份额标准单位为share，市场金额为CNY。官方成交额、双指数代理、指数成交额、指数自由流通市值、融资余额和融资买入额各有独立事实身份。源单位未知时保持unknown。
+
+policy固定qmt_preferred。external_fallback为`SSE/SZSE/Eastmoney/BigQuant/CSI/CNINFO`的显式子集。启用BigQuant时，`bigquant.bigquant_python`指定隔离解释器的绝对路径，`bigquant.timeout_seconds`指定1至60秒的单次查询截止。required为bool。required=true时缺事实在UPDATE固定前保持pending并保留原件/缺口，同任务恢复只补缺。required=false允许发布带gaps的不完整目录。已发布partial在下一个北京时间自然日09:00后最多创建一次同市场日修订，仍沿原INDEX/REQUEST及失败重试节拍。新的闭合交易日继续补既往要求窗口的缺项。
 
 plan可选`max_requests`为1..512的整数，省略沿原公共总额度。该值分配本阶段单轮HTTP＋SDK份额，所有实际重试/请求仍从同一CollectionBudget扣账；进入阶段临时收紧max_requests，退出恢复原总上限，字节、总D、单请求D及取消保持。额度用尽登记gaps，required=false仍可发布已取得部分；它不取消后继轮次。原定日股票事实先取得，补充最新日优先，再用余量补较早缺口。正式有限日更可显式配置24次，历史补齐与来源资格分别登记。
 
@@ -52,7 +72,7 @@ QMT双指数代理按实际缺失日期及现行profile的行数/自然日上限
 | gaps | 未取得的目标单元及固定reason，不能补0/前填 |
 | complete | 精确表示请求目标单元全部有值，不等于单位/PIT合格 |
 
-每row包含`date/symbol/metric/value/unit/source/source_sha256/received_at/available_at`。value为有限非负十进制字符串，原精度与缩放明确；unit为share、CNY或unknown，source为固定来源标识（QMT/SSE/SZSE/SSE+SZSE/Eastmoney）。source_sha256绑定`guanheng.supplement-source-proof.v1`派生清单，包含该行date/symbol/metric/value/unit/source及1..4个parents原件SHA。官方两市合计保留两个原件；QMT双指数代理同样保留两份原回执。发布前验证整个目录的能力证据、逐行清单及浅层原件闭包，查询时再核当前页。received_at是本次实际取得UTC带时区时刻，available_at历史首次可知未知为null。每gap是`{date,symbol,metric,reason}`。目录文件最多32MiB，固定SHA，读取不触发采集。
+每row包含`date/symbol/metric/value/unit/source/source_sha256/received_at/available_at`。value为有限非负十进制字符串，原精度与缩放明确；unit为share、CNY或unknown，source为固定来源标识（QMT/SSE/SZSE/SSE+SZSE/Eastmoney/BigQuant）。source_sha256绑定`guanheng.supplement-source-proof.v1`派生清单，包含该行date/symbol/metric/value/unit/source及1..4个parents原件SHA。官方两市合计保留两个原件；QMT双指数代理同样保留两份原回执。发布前验证整个目录的能力证据、逐行清单及浅层原件闭包，查询时再核当前页。received_at是本次实际取得UTC带时区时刻，available_at历史首次可知未知为null。每gap是`{date,symbol,metric,reason}`。目录文件最多32MiB，固定SHA，读取不触发采集。
 
 东方财富原融资表的精确日期查询若返回已核空结果协议 `success=false, code=9201, result=null`，登记 `source_record_missing`；这表示该次查询没有目标日记录，不作为表结构损坏或零融资余额。未知错误码、缺字段和其它异常结构继续登记 `source_schema_invalid`。最新可见日期、当日未取得和网络失败分别保留；不根据请求日期前填发布值。
 

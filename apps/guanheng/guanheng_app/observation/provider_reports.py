@@ -5,6 +5,9 @@ import re
 
 from .source_fetch import SourceFailure
 
+SHAREHOLDER_REPORT_MARKETS = frozenset(('二级市场', '大宗交易', '二级市场以及大宗交易'))
+SHAREHOLDER_REPORT_KEY = ('NOTICE_DATE', 'SECURITY_CODE', 'HOLDER_NAME', 'END_DATE', 'START_DATE', 'CHANGE_NUM_SYMBOL', 'MARKET', 'EITIME')
+
 
 def report_pages(fetch, url, *, report, columns, filters, sort, max_pages,
                  allow_empty=False, empty_error=None, decimal_numbers=False, error_prefix='financial_report'):

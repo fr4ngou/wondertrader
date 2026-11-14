@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from .contracts import ObservationError,ObservationField,ObservationAsset,USAGE,SCHEMA_VERSION,SeriesQuery
 from .storage import digest
 
-NUMERIC_UNITS={'%','0/1','万亿元','亿元','倍','元','只','基准100','对数偏离','年','张','手','指数点','无量纲','条','条，未认证为去重组合数','标准化压力','源数值，异常时单位待核','百分点','笔','绝对单位待核','股','页'}
+NUMERIC_UNITS={'%','0/1','万亿元','亿元','倍','元','只','基准100','对数偏离','年','张','手','指数点','无量纲','条','条，未认证为去重组合数','标准化压力','源数值，异常时单位待核','百分点','笔','绝对单位待核','股','份','页'}
 
 
 def computation_identity():

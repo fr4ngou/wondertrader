@@ -68,6 +68,8 @@ UDI-R1：同一WT入口提供`market.source-day-facts-query`（`date`、`snapsho
 
 UDI-R2：`source-market-snapshot`可声明`daily_facts`目录path/sha256；其摘要同时进入snapshot.provenance.daily_facts_sha256，冻结资料、价格目录与补充事实。目录及单日对象分别绑定SHA；目录最多366日，单日最多20000证券、8MiB，内存按LRU保留最多8日/16MiB。读取不触发外部补数；数据任务拥有采集、补齐、采用和停止恢复。旧配置省略此字段时维持原价格读取。
 
+WT定日股票事实可包含股票横截面。以`include_stock_cross_section=true`显式读取，旧请求使用原投影。待核或暂缺返回固定原因，成功值含供应方、实际样本数、成交前5%占比、涨跌幅中位数及源对象摘要。输入由数据更新阶段持久保存，重启核原事实和原件并继续，日线发布允许横截面部分缺失。
+
 UDI-R3：价格读取错误中止本次计算，保留上一成功结果；未登记或真实缺日按证券记录缺口。资料/换手缺项不阻断可读日线。观察侧通过固定同一snapshot_id取得RAW价格及补充事实，核同日close参考后沿原stock_day与趋势公式计算，不访问QMT或公开股票日线来源。独立披露来源沿原owner。
 
 UDI-R4：历史补充事实可复用已审官方日K、既有沪深日表、定日上市区间及供应商当前修订的逐日非限售股本；资格保留membership_method/as_of、turnover_method、point_in_time=false与未知首次可见时间。历史特殊参考/停牌且成交辅助数量缺证据时为null。目录准备按日期流式编码，最大366日、总JSON 256MiB和200万行；单日8MiB。成功后写最终目录；失败的独占根保留且不作为活动目录采用。历史范围由已有官方日历及真实事实目录决定，MSI/广度推力沿原EMA预热、断日和累计规则；缺值保留。

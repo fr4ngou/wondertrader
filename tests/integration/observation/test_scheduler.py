@@ -17,6 +17,46 @@ KEY='2026-10-29T09:00:00+08:00'
 NOW=datetime.fromisoformat(KEY)
 
 
+def test_scheduler_startup_and_next_daily_window_run_repair(tmp_path,monkeypatch):
+    reader = build_reader(tmp_path)
+    reader.repository.initialize()
+    reader.repository.publish({'datasets':{}},None)
+    config = dict(schedule=SCHEDULE,budget=dict(seconds=10),sources=[],
+                  models={'calendars':{'cn':{'kind':'official-exchange-calendar/v1'}}})
+    now = NOW
+    stopped = False
+    jobs, refresh_windows = [], []
+
+    class Stop:
+        def is_set(self):
+            return stopped
+
+        def wait(self,seconds):
+            nonlocal now, stopped
+            if len(jobs)==1:
+                now += timedelta(days=1)
+            else:
+                stopped = True
+
+    def refresh(_reader,_config,**kwargs):
+        refresh_windows.append(kwargs['window_key'])
+        return {'status':'success'}
+
+    def repair(_reader,_config,job,observed,*,lease,window,**kwargs):
+        assert job['state']=='queued' and observed==now
+        jobs.append((job['id'],job['trigger'],window))
+        job.update(state='complete',window=window)
+        reader.repository.record_data_repair(job,lease=lease)
+
+    monkeypatch.setattr(scheduler,'refresh',refresh)
+    monkeypatch.setattr(scheduler,'repair',repair)
+    scheduler.run(reader,config,Stop(),now=lambda:now)
+    assert [(trigger,window) for _,trigger,window in jobs]==[
+        ('startup',KEY),('scheduled','2026-10-30T09:00:00+08:00')]
+    assert jobs[0][0]!=jobs[1][0] and jobs[1][2] in refresh_windows
+    assert reader.repository.scheduler_status()['state']=='stopped'
+
+
 def test_due_windows_use_shanghai_midnight_and_bounded_commissioning():
     before=datetime.fromisoformat('2026-10-29T00:59:59+00:00')
     assert [key for key,_ in due_windows(before,SCHEDULE)]==['2026-10-28T09:00:00+08:00']

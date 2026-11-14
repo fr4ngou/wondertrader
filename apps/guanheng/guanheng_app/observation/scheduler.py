@@ -6,6 +6,7 @@ from .schedule_policy import due_windows,window_as_of
 from .source_fetch import SourceFailure
 from .contracts import ObservationError
 from .ashare_public import capture_due
+from .data_repair import repair
 
 CONTROL_BUDGET_ERRORS={'collection_stopped','collection_timeout','observation_stopped','observation_timeout'}
 
@@ -48,10 +49,30 @@ def _run(reader,config,stop,lease,now,clock,fetcher_factory,market_client_factor
     observe('waiting')
     try:
         if on_ready is not None:on_ready()
+        startup = True
         while not stop.is_set():
             observed=now();observe('collecting')
             tick(reader,config,observed,deadline=clock()+config['budget']['seconds'],cancelled=stop.is_set,
                 fetcher_factory=fetcher_factory,market_client_factory=market_client_factory)
+            if stop.is_set():break
+            # 兼容无权威日历的历史配置。补齐入口以正式配置的官方日历为准。
+            if config.get('models', {}).get('calendars', {}).get('cn', {}).get('kind') == 'official-exchange-calendar/v1':
+                observed=now();observe('collecting')
+                try:
+                    windows = due_windows(observed, config['schedule'])
+                    window = windows[-1][0] if windows else None
+                    job = reader.repository.data_repair()
+                    if startup:
+                        job = reader.repository.request_data_repair('startup')
+                    elif window and (not job or not job.get('window') or job['window'] < window):
+                        job = reader.repository.request_data_repair('scheduled')
+                    startup = False
+                    if job and job['state'] in ('queued', 'running'):
+                        repair(reader, config, job, observed, lease=lease, deadline=clock()+config['budget']['seconds'],
+                               cancelled=stop.is_set, refresh=refresh, market_client_factory=market_client_factory, window=window)
+                except ObservationError as error:
+                    if error.code not in ('catalog_unavailable', 'write_outcome_unknown'):
+                        raise
             if stop.is_set():break
             if any(source['kind']=='ashare_public' for source in config['sources']):
                 observe('archiving')

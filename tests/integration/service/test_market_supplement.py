@@ -125,6 +125,17 @@ class SupplementTests(unittest.TestCase):
             return SnapshotSourceMarket(config, max_response_bytes=8 * 1024 * 1024)
 
     def test_http_sdk_pages_facts_and_gaps_in_single_sequence(self):
+        catalog_value = catalog(self.root / 'raw')
+        catalog_value['targets'].append(dict(metric='index_turnover',symbol='SSE.932000',**{'from':'2020-01-03'}))
+        catalog_value['qmt_evidence']['decisions'].append(dict(metric='index_turnover',reason='not_exposed_by_bound_profile'))
+        index_fact = fact('2020-01-03','SSE.932000','342201380000',metric='index_turnover',unit='CNY')
+        catalog_value['rows'].append(dict(index_fact,source='BigQuant'))
+        cap_metric='index_free_float_market_cap'
+        catalog_value['targets'].append(dict(metric=cap_metric,symbol='SSE.000300',**{'from':'2020-01-03'}))
+        catalog_value['qmt_evidence']['decisions'].append(dict(metric=cap_metric,reason='not_exposed_by_bound_profile'))
+        cap_fact=fact('2020-01-03','SSE.000300','22857300000000',metric=cap_metric,unit='CNY')
+        catalog_value['rows'].insert(-1,dict(cap_fact,source='CSI'))
+        self.descriptor = write(self.root/'catalog-index.json', bind_sources(catalog_value))
         value, config = self.config()
         ready = queue.Queue()
         stopped = threading.Event()
@@ -159,6 +170,16 @@ class SupplementTests(unittest.TestCase):
             self.assertEqual(first['data']['selection'], dict(offset=0, limit=2, total=4, next_offset=2))
             self.assertEqual([r['symbol'] for r in second['data']['rows']], ['SSE.510050', 'SSE.510300'])
             self.assertIsNone(second['data']['selection']['next_offset'])
+            self.assertEqual([d['metric'] for d in first['data']['qmt_evidence']['decisions']], ['etf_total_shares'])
+            index = client.source_supplement_query(request(value['snapshot_id'],metric='index_turnover',symbols=['SSE.932000']))
+            self.assertEqual(index['data']['source_sha256'], value['provenance']['supplement_facts_sha256'])
+            self.assertEqual([(r['source'],r['value'],r['unit']) for r in index['data']['rows']],
+                             [('BigQuant','342201380000','CNY')])
+            self.assertNotIn(cap_metric,[d['metric'] for d in index['data']['qmt_evidence']['decisions']])
+            cap=client.source_supplement_query(request(value['snapshot_id'],metric=cap_metric,symbols=['SSE.000300']))
+            self.assertEqual(cap['data']['source_sha256'],value['provenance']['supplement_facts_sha256'])
+            self.assertEqual([(r['source'],r['value'],r['unit']) for r in cap['data']['rows']],
+                             [('CSI','22857300000000','CNY')])
             conflict = client.source_supplement_query(request('9' * 64))
             self.assertEqual(conflict['status']['code'], 'Conflict')
         finally:

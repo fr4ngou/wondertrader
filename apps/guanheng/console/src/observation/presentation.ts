@@ -45,6 +45,8 @@ const sources: Record<string,string> = {
   'ashare-public-day':'沪深北日终广度与换手',
   'wondertrader.indices':'统一行情指数',
   'qmt.t2108':'40期均线股票覆盖',
+  'wt.etf_flow':'主要 ETF 总份额与价格',
+  'wt.csi300_etf_cap':'沪深300 ETF 市值占比',
   'tencent.indices':'指数行情','baostock.pb':'沪深逐股PB','shenwan.801003':'申万A指估值与成交',
   'chinabond.gov10y':'国债10年收益率','cffex.daily':'中金所期指与期权','sse.options':'上交所ETF期权',
   'szse.options':'深交所ETF期权','sgx.a50':'新交所A50','eastmoney.margin':'两融汇总','eastmoney.shibor':'Shibor利率',
@@ -57,11 +59,39 @@ const sources: Record<string,string> = {
   'csindex.000985':'中证全指价格',
 }
 export const statusLabel = (code:string) => statuses[code] || '结果待核实'
-export const sourceLabel = (id:string) => sources[id] || '其他数据来源'
+export const sourceLabel = (id:string, fallback = '其他数据来源') => sources[id] || fallback
+const repairInputs: Record<string,string> = {
+  'csi300_etf_cap.ratio': '四只沪深300 ETF 市值与指数自由流通市值',
+  'structure.ipo_supply': 'IPO 减持供给回购比',
+  'structure.ipo_supply.close': '科创50收盘',
+  'structure.ipo_supply.ipo': 'IPO 募资额 · 20 日窗口',
+  'structure.ipo_supply.reduction': '重要股东减持毛额 · 20 日窗口',
+  'structure.ipo_supply.buyback': '披露回购执行增量 · 20 日窗口',
+  'structure.broker_heat': '券商交易生态过热',
+  'structure.broker_heat.purchase': '融资买入额 · 252 日窗口',
+  'structure.broker_heat.relative': '东方财富与证券 ETF 价格 · 20 日收益',
+  'structure.broker_heat.support': '沪深300价格 · 20 日收益',
+  'etf_flow.512890': '红利低波 ETF（512890）',
+  'etf_flow.510050': '上证50 ETF（510050）',
+  'etf_flow.510300': '沪深300 ETF（510300）',
+  'etf_flow.588000': '科创50 ETF（588000）',
+  'etf_flow.159949': '创业板50 ETF（159949）',
+  'etf_flow.159781': '双创50 ETF（159781）',
+  'source.market_structure.000688': '科创50收盘',
+  'source.market_structure.000300': '沪深300收盘',
+  'source.market_structure.932000': '中证2000收盘与成交额',
+  'source.market_structure.stock': '全市场股票横截面',
+}
+export const repairInputLabel = (id:string) => repairInputs[id] || id
 const frequencies: Record<string, string> = { daily: '日度', weekly: '周度', monthly: '月度', quarterly: '季度', yearly: '年度', intraday: '日内', event: '按披露更新', irregular: '不定期' }
 export const frequencyLabel = (frequency: string) => frequencies[frequency] || frequency
 export function failureLabel(code?:string) {
   if (!code) return '检查记录已保存；实际末期见来源覆盖'
+  if (code === 'wt_source_not_registered') return '这一来源仍待接入 WT 数据模块'
+  if (code === 'wt_history_incomplete') return 'WT 发布范围仍有缺失交易日'
+  if (code === 'wt_t2108_historical_universe_missing') return 'WT 尚缺该日的历史股票池'
+  if (code === 'wt_t2108_historical_universe_unqualified') return '该历史股票池的当日来源待核实'
+  if (code === 'wt_repair_failed') return 'WT 本轮补采未成功，保留已发布数据'
   if (code === 'ashare_current_feed_has_different_date') return '公开行情已切换交易日，所需日期原件尚缺；继续提供原版本'
   if (code === 'ashare_capture_retry_pending') return '日终原件等待下一次计划重试；当前继续提供原版本'
   if (code === 'ashare_capture_retries_exhausted') return '今日原件捕获已达重试上限，下一自然日继续核验；当前提供原版本'

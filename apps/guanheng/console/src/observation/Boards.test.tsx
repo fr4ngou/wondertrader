@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import ObservationShell from './ObservationShell'
-import type { Catalog, Definition } from './types'
+import type { Catalog, DataRepair, Definition } from './types'
 
 const charts=vi.hoisted(()=>({last:undefined as {rows:unknown[]}|undefined}))
 vi.mock('./ObservationChart', () => ({ ObservationChart: (props:{rows:unknown[]}) => {charts.last=props;return <div>图表已读取</div>} }))
@@ -43,6 +43,43 @@ async function open(initial='/observation?metric=pcr_510050&preset=d30') {
   return {query,...result}
 }
 const dates=()=>screen.getByLabelText('当前日期范围').textContent!.split(' 至 ')
+
+it('补齐进度展开后按 ETF 显示缺日范围', async () => {
+  const {query}=await open()
+  act(()=>query.setQueryData<{data_repair_available?: boolean; data_repair?: DataRepair}>(['observation','updates'], previous=>previous && ({
+    ...previous,data_repair_available:true,data_repair:{
+      id:'job',state:'running',items:[{
+        source_id:'wt.etf_flow',state:'repairing',missing_count:2,reason:null,
+        inputs:[{id:'etf_flow.159949',missing_count:2,first_missing:'2026-10-15',last_missing:'2026-10-16'}],
+      },{
+        source_id:'wt.ipo_supply',state:'repairing',missing_count:1,reason:null,
+        inputs:[{id:'structure.ipo_supply.buyback',missing_count:1,first_missing:'2026-10-16',last_missing:'2026-10-16'}],
+      }],
+    },
+  })))
+  fireEvent.click(await screen.findByRole('button',{name:'正在补齐'}))
+  expect(screen.getByText('创业板50 ETF（159949）')).toBeVisible()
+  expect(screen.getByText('2026-10-15 至 2026-10-16')).toBeVisible()
+  expect(screen.getByText('缺 2 日')).toBeVisible()
+  expect(screen.getByText('披露回购执行增量 · 20 日窗口')).toBeVisible()
+})
+
+it('多看板保持各自图表，日期可联动，事件标记在关闭看板后仍可见', async () => {
+  const {query}=await open()
+  act(()=>query.setQueryData(['observation','catalog',undefined], {
+    ...catalog, recent_events: {systemc:{state:'complete',events:[{date:'2026-10-16',label:'观察事件'}]}},
+  }))
+  fireEvent.click(screen.getByRole('button',{name:'多看板'}))
+  fireEvent.click(screen.getByRole('button',{name:/系统 C/}))
+  await screen.findByRole('heading',{name:'恒科价量压力'})
+  expect(screen.getAllByLabelText('当前日期范围')).toHaveLength(2)
+  expect(screen.getAllByLabelText('当前日期范围').map(node=>node.textContent)).toEqual([
+    '2026-09-17 至 2026-10-16','2026-09-17 至 2026-10-16',
+  ])
+  fireEvent.click(screen.getByRole('button',{name:/系统 C/}))
+  expect(screen.queryByRole('heading',{name:'恒科价量压力'})).toBeNull()
+  expect(screen.getByLabelText('近五个交易日事件：2026-10-16 观察事件')).toBeInTheDocument()
+})
 
 it('定时失败记录保留，顶部数据时间取当前实际已发布目录',async()=>{
   const {query,container}=await open()

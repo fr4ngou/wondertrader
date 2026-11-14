@@ -105,13 +105,15 @@ def test_admitted_etf_and_index_share_one_interpretation(material):
     assert units.resolve_price_units(evidence, "SSE.510300") == units.resolve_price_units(evidence, "510300.SH")
 
 
-@pytest.mark.parametrize("symbol", ["159352.SZ", "589680.SH", "159780.SZ"])
+@pytest.mark.parametrize("symbol", ["159352.SZ", "589680.SH", "159780.SZ", "512890.SH", "159949.SZ",
+                                   "159781.SZ", "510330.SH", "159919.SZ", "510310.SH"])
 def test_fixed_new_etf_domain_is_supported_by_same_resolver(material, symbol):
     evidence, _ = admitted(material)
     assert units.resolve_price_units(evidence, symbol) == units.PriceUnits("CNY", "lot", "unknown", "CNY")
 
 
-@pytest.mark.parametrize("symbol", [None, "510300", "600000.SH", "000300.SZ", "SSE.159352"])
+@pytest.mark.parametrize("symbol", [None, "510300", "600000.SH", "000300.SZ", "SSE.159352",
+                                   "SZSE.512890", "SSE.159949"])
 def test_unknown_or_wrong_security_identity_remains_unknown(material, symbol):
     evidence, qualified = admitted(material)
     assert units.resolve_price_units(evidence, symbol) == units.UNKNOWN_UNITS

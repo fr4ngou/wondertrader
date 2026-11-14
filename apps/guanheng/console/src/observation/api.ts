@@ -1,4 +1,4 @@
-import type { Catalog, Definition, History, Series } from './types'
+import type { Catalog, DataRepair, Definition, History, Series } from './types'
 import { observationBase } from './deploymentBase'
 
 const prefix = observationBase(import.meta.env.VITE_OBSERVATION_BASE) + '/v1/ui/market-observation'
@@ -100,6 +100,12 @@ export function downloadObservation(params: Record<string, string | number | und
   })
 }
 export const getCatalog = (signal?: AbortSignal, snapshot?: string) => read<Catalog>('catalog', {snapshot_id:snapshot}, signal)
+export async function requestDataRepair(): Promise<DataRepair> {
+  const response = await fetch(apiURL('data-repair'), { method: 'POST', credentials: 'same-origin',
+    signal: AbortSignal.timeout(requestMilliseconds), cache: 'no-store' })
+  if (!response.ok) throw new Error('暂未确认补齐请求，请查看当前进度后重试。')
+  return response.json()
+}
 export const getDefinition = (id: string, version: string, signal?: AbortSignal) => read<{ definition: Definition }>('definitions/' + id, { snapshot_id: version }, signal)
 export const getHistory = (id: string, version: string, signal?: AbortSignal) => read<History>('history/' + id, { snapshot_id: version }, signal)
 export async function getSeries(id: string, version: string, params: Record<string, string | number>, signal?: AbortSignal): Promise<Series> {

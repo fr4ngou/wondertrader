@@ -89,7 +89,10 @@ class SnapshotSourceMarket:
             elif self._facts is not None and query['date']<=self._snapshot['observation_date']:
                 try:
                     data=self._facts.query(query['date'],query['snapshot_id'])
-                    if data is not None:code='Ok';reason=''
+                    if data is not None:
+                        if not query.get('include_stock_cross_section', False):
+                            data.pop('stock_cross_section', None)
+                        code='Ok';reason=''
                     else:data={}
                 except (OSError,ValueError,KeyError,TypeError):
                     code='IoError';reason='daily facts read failed';data={}

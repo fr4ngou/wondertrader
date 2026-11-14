@@ -207,6 +207,7 @@ class SnapshotRepository:
                 CREATE TABLE IF NOT EXISTS completed_windows(window_key TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS window_attempts(window_key TEXT PRIMARY KEY, attempts INTEGER NOT NULL, attempted_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS scheduler_state(id INTEGER PRIMARY KEY CHECK(id=1), body BLOB NOT NULL);
+                CREATE TABLE IF NOT EXISTS data_repair(id INTEGER PRIMARY KEY CHECK(id=1), body BLOB NOT NULL);
             ''')
             database.commit()
         finally:
@@ -391,6 +392,64 @@ class SnapshotRepository:
             raise ObservationError('invalid_scheduler_status','观察调度状态无效',503) from None
         except OSError:
             raise ObservationError('scheduler_status_unavailable','观察调度状态暂不可用，请重新读取',503) from None
+
+    def data_repair(self):
+        """读取当前补齐任务，旧目录由调度器启动时创建任务表。"""
+        with self.connect() as db:
+            exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='data_repair'").fetchone()
+            row = db.execute('SELECT body FROM data_repair WHERE id=1').fetchone() if exists else None
+        return json.loads(row[0]) if row else None
+
+    def request_data_repair(self, trigger, *, deadline=None):
+        """事务内合并并发请求，已排队或执行中的任务保留原身份。"""
+        from uuid import uuid4
+        with self.connect(writing=True, deadline=deadline) as db:
+            row = db.execute('SELECT body FROM data_repair WHERE id=1').fetchone()
+            previous = json.loads(row[0]) if row else None
+            if previous and previous['state'] in ('queued', 'running'):
+                return previous
+            job = dict(
+                id=str(uuid4()),  # 当前补齐任务的持久身份。
+                trigger=trigger,  # startup、scheduled 或 manual，用于区分请求入口。
+                state='queued',  # 排队、运行、完成、部分完成或失败。
+                requested_at=datetime.now(timezone.utc).isoformat(),  # 请求创建时间。
+                items=[],  # 按配置来源记录覆盖核对和发布进度。
+            )
+            db.execute('INSERT OR REPLACE INTO data_repair VALUES(1,?)', (encode(job),))
+            return job
+
+    def record_data_repair(self, job, *, lease):
+        """仅持有当前调度租约的执行者能推进任务状态。"""
+        lease.require(self)
+        with self.connect(writing=True) as db:
+            row = db.execute('SELECT body FROM data_repair WHERE id=1').fetchone()
+            current = json.loads(row[0]) if row else {}
+            if current.get('id') == job['id']:
+                if (job['state'] in ('complete', 'partial', 'failed') and job.get('wt_request')
+                        and current.get('wt_receipt') != job.get('wt_receipt')):
+                    return  # WT 回执先到，下一次以新版本重算后再结束。
+                saved = dict(job)
+                if 'wt_receipt' in current:
+                    saved['wt_receipt'] = current['wt_receipt']
+                db.execute('UPDATE data_repair SET body=? WHERE id=1', (encode(saved),))
+
+    def record_wt_repair_receipt(self, job_id, state, *, observation_date, current_sha256=None):
+        """WT 只更新同一活动任务的回执字段。观察调度器独占其余状态。"""
+        if state not in ('running', 'published', 'failed'):
+            raise ValueError('WT observation repair receipt state invalid')
+        receipt = dict(
+            state=state,  # WT 日更实际运行、发布或失败。
+            observation_date=observation_date,  # 固定日更交易日。
+            current_sha256=current_sha256,  # 已发布的 WT CURRENT 字节摘要，其他状态为空。
+        )
+        with self.connect(writing=True) as db:
+            db.execute("""UPDATE data_repair
+                SET body=CAST(json_set(CAST(body AS TEXT), '$.wt_receipt', json(?)) AS BLOB)
+                WHERE id=1 AND json_extract(CAST(body AS TEXT), '$.id')=?
+                AND json_extract(CAST(body AS TEXT), '$.state')='running'
+                AND json_type(CAST(body AS TEXT), '$.wt_request')='object'
+                AND COALESCE(json_extract(CAST(body AS TEXT), '$.wt_receipt.state'),'') NOT IN ('published','failed')""",
+                (encode(receipt).decode('utf8'), job_id))
 
     def record_scheduler(self,status,*,lease=None):
         if not isinstance(lease,SchedulerLease):

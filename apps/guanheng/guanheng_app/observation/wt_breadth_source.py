@@ -7,23 +7,28 @@ from .t2108_feed import observation_day
 from .calendars import official_calendar
 from .market_breadth import stock_day
 from .breadth_models import ASHARE_METRICS,rows_for_metrics,universe_row
+from .market_structure_source import wt_snapshot
 
 
-def history(fetch,source,start,end,client_factory,*,calendar,snapshot_date):
+def history(fetch,source,start,end,client_factory,*,calendar,snapshot_dates):
     """日期窗口内的RAW价格一次分片读取，逐日事实经原对象库暂存，复用原stock_day。
 
     价格缓存仅保留date/close、总条数100万，函数返回后释放；HTTP响应与单日事实
     每次只持有一份。来源原件沿原对象库保留；读取失败保旧，未登记保持真实缺项。
-    snapshot_date为本来源的有效截止日，绑定当前WT版本；start/end只限定本批历史窗口。
+    snapshot_dates为可覆盖截止日的WT版本候选；start/end限定本批历史窗口。
     """
     last=observation_day(calendar,start,end,check=fetch.budget.remaining)
     calendar_rows,_=official_calendar(calendar,check=fetch.budget.remaining)
     days=[r['date']for r in calendar_rows if r['is_open']==1 and start<=r['date']<=last]
     if not 1<=len(days)<=366:raise SourceFailure('wt_market_daily_range_capacity')
     def request(kind,call,*,allow_missing=False):
-        from guanheng_market_client import MarketUnavailable
+        from guanheng_market_client import MarketHTTPError, MarketUnavailable
         fetch.budget.request();client=client_factory(min(fetch.timeout,fetch.budget.remaining()))
         try:response=call(client)
+        except MarketHTTPError as error:
+            response=error.response
+            if not allow_missing or response['status']['code']!='Unavailable':
+                raise SourceFailure('wt_market_daily_facts_unavailable') from None
         except MarketUnavailable:raise SourceFailure('wt_market_transport_unavailable')from None
         body=encode(response);fetch.budget.consume(len(body));identity=fetch.objects.put(body)
         fetch.records.append(dict(kind=kind,sha256=identity,source_host='wondertrader',status=200,
@@ -31,8 +36,9 @@ def history(fetch,source,start,end,client_factory,*,calendar,snapshot_date):
         if allow_missing and response['status']['code']=='Unavailable':return None,identity
         if response['status']['code']!='Ok':raise SourceFailure('wt_market_daily_facts_unavailable')
         return response['data'],identity
-    snapshot,_=request('wt_market_snapshot',lambda c:c.source_market_snapshot_query(snapshot_date))
-    if snapshot['observation_date']!=snapshot_date or last>snapshot_date:
+    snapshot=wt_snapshot(lambda day:request('wt_market_snapshot',
+        lambda c:c.source_market_snapshot_query(day),allow_missing=True)[0], snapshot_dates)
+    if last>snapshot['observation_date']:
         raise SourceFailure('wt_market_snapshot_date_differs')
     references={};members=set()
     for day in days:

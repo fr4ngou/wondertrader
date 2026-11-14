@@ -10,6 +10,8 @@ from msf_fixture import ContentStore,DAYS,FrozenFetch,QmtTransport,plan,query
 import pytest
 
 from integrations.guanheng import market_supplement_capture as capture
+from integrations.guanheng import stock_cross_section
+from integrations.guanheng import market_supplement_sources as public_sources
 from integrations.guanheng.market_supplement_store import MarketSupplementStore
 from integrations.guanheng_market_client import MarketProtocolError
 from guanheng_qmt_shm.read_retention_client import RetainedReadPending
@@ -56,6 +58,243 @@ def test_binding_unknown_never_enters_external_fallback(tmp_path):
     assert fetch.calls==[]
     assert not (tmp_path/'work/catalog.json').exists()
     assert transport.sdk_calls==[]
+
+
+def test_margin_purchase_keeps_provider_scope_and_distinct_value(tmp_path):
+    targets=plan(('margin_purchase','CN.MARGIN_REPORT'),('margin_balance','CN.MARGIN_REPORT'))
+    descriptor=collect(tmp_path,targets,FrozenFetch(),QmtTransport())
+    store=MarketSupplementStore(descriptor)
+    try:
+        purchase=store.query(query(metric='margin_purchase',symbols=['CN.MARGIN_REPORT']))
+        balance=store.query(query(metric='margin_balance',symbols=['CN.MARGIN_REPORT']))
+        assert {(r['value'],r['unit'],r['source']) for r in purchase['rows']}=={('125000000','CNY','Eastmoney')}
+        assert {r['value'] for r in balance['rows']}=={'12345678900'}
+        assert [row['metric'] for row in balance['qmt_evidence']['decisions']]==['margin_balance']
+    finally:store.close()
+
+
+def test_margin_purchase_recovers_omitted_day_from_range(tmp_path):
+    days=['2026-11-02','2026-11-03',*DAYS]
+    targets=plan(('margin_purchase','CN.MARGIN_REPORT'),required=False)
+    targets['targets'][0]['from']=days[0]
+
+    class HistoryFetch(FrozenFetch):
+        def get(self,url,params=None,referer=None):
+            if '>=' not in params['filter']:
+                return super().get(url,params,referer)
+            self.budget.request()
+            self.calls.append((url,params.copy()))
+            selected=days[:3:2]
+            body=json.dumps(dict(success=True,result=dict(count=len(selected),pages=1,data=[
+                dict(STATISTICS_DATE=day+' 00:00:00',FIN_BUY_AMT='1.25') for day in selected]))).encode()
+            self.budget.consume(len(body))
+            return body
+
+    fetch=HistoryFetch()
+    def run(directory,previous=None):
+        return capture.collect_supplement(targets,days[-1],days,tmp_path/directory,objects=ContentStore(tmp_path/'raw'),
+            fetch=fetch,qmt_transport=QmtTransport(),calendar_coverage=(days[0],days[-1]),deadline=time.monotonic()+20,
+            previous=previous)
+
+    previous=run('first')
+    before=json.loads(Path(previous['path']).read_bytes())
+    assert [row['date'] for row in before['rows']]==[days[0],days[2],days[-1]]
+    assert [(gap['date'],gap['reason']) for gap in before['gaps']]==[(days[1],'source_record_missing')]
+    assert len(fetch.calls)==2 and fetch.calls[1][1]['pageSize']=='500'
+    store=ContentStore(tmp_path/'raw')
+    assert len({json.loads(store.get(row['source_sha256']))['parents'][0] for row in before['rows'][:2]})==1
+    after=json.loads(Path(run('retry',previous)['path']).read_bytes())
+    assert after['complete'] and [row for row in after['rows'] if row['date']!=days[1]]==before['rows']
+    assert len(fetch.calls)==3
+
+
+def test_ipo_proceeds_listing_scope_and_missing_amount(tmp_path):
+    days=['2026-11-02','2026-11-03',*DAYS]
+    targets=plan(('ipo_gross_proceeds','CN.SH_SZ'),required=False)
+    targets['targets'][0]['from']=days[0]
+
+    class IPOFetch(FrozenFetch):
+        def get(self,url,params=None,referer=None):
+            assert params['reportName']=='RPTA_APP_IPOAPPLY'
+            self.budget.request()
+            self.calls.append((url,params))
+            if days[-1] in params['filter']:
+                return b'{"success":false,"code":9201,"result":null}'
+            rows=[dict(LISTING_DATE=day+' 00:00:00',SECUCODE=symbol,SECURITY_TYPE_CODE='058001001',TOTAL_RAISE_FUNDS=amount)
+                  for day,symbol,amount in ((days[0],'688827.SH','7.771246'),(days[0],'001381.SZ','1.228754'),
+                                            (days[1],'920085.BJ',None),(days[2],'001382.SZ',None))]
+            return json.dumps(dict(success=True,result=dict(count=len(rows),pages=1,data=rows))).encode()
+
+    descriptor=capture.collect_supplement(targets,days[-1],days,tmp_path/'work',objects=ContentStore(tmp_path/'raw'),
+        fetch=IPOFetch(),qmt_transport=QmtTransport(),calendar_coverage=(days[0],days[-1]),deadline=time.monotonic()+20)
+    store=MarketSupplementStore(descriptor)
+    try:
+        page=store.query(query(metric='ipo_gross_proceeds',symbols=['CN.SH_SZ'],**{'from':days[0],'to':days[-1]}))
+        assert [(row['date'],row['value']) for row in page['rows']]==[(days[0],'900000000'),(days[1],'0'),(days[-1],'0')]
+        assert [(row['date'],row['reason']) for row in page['gaps']]==[(days[2],'source_record_missing')]
+        store.verify_sources()
+    finally:store.close()
+
+
+def test_shareholder_reduction_maps_weekend_and_keeps_unpriced_day_missing(tmp_path):
+    calendar=['2026-11-06','2026-11-09','2026-11-10','2026-11-11']
+    targets=plan(('shareholder_reduction_gross','CN.SH_SZ'),required=False)
+    targets['targets'][0]['from']=calendar[1]
+
+    def event(code,notice,quantity,price=None,reference=None):
+        return dict(SECURITY_CODE=code,NOTICE_DATE=notice,TRADE_DATE='2026-11-06',HOLDER_NAME='股东',
+                    CHANGE_NUM=abs(quantity),CHANGE_NUM_SYMBOL=quantity,TRADE_AVERAGE_PRICE=price,
+                    CLOSE_PRICE=reference,START_DATE='2026-11-04',END_DATE='2026-11-06',EITIME=notice,
+                    DIRECTION='减持' if quantity<0 else '增持',MARKET='二级市场')
+
+    class ReductionFetch(FrozenFetch):
+        def get(self,url,params=None,referer=None):
+            self.budget.request()
+            self.calls.append((url,params))
+            assert params['reportName']=='RPT_SHARE_HOLDER_INCREASE'
+            if calendar[-1] in params['filter']:
+                return json.dumps(dict(success=False,code=9201,result=None,message='返回数据为空')).encode()
+            assert "NOTICE_DATE>='2026-11-07'" in params['filter']
+            rows=[event('688485','2026-11-07',-5,price=6),event('600003','2026-11-08',20,price=100),
+                  event('000001','2026-11-09',-2,reference=10),event('920086','2026-11-09',-40),
+                  event('300100','2026-11-10',-1)]
+            return json.dumps(dict(success=True,result=dict(count=len(rows),pages=1,data=rows))).encode()
+
+    descriptor=capture.collect_supplement(targets,calendar[-1],calendar,tmp_path/'work',objects=ContentStore(tmp_path/'raw'),
+        fetch=ReductionFetch(),qmt_transport=QmtTransport(),calendar_coverage=(calendar[0],calendar[-1]),deadline=time.monotonic()+20)
+    store=MarketSupplementStore(descriptor)
+    try:
+        page=store.query(query(metric='shareholder_reduction_gross',symbols=['CN.SH_SZ'],**{'from':calendar[1],'to':calendar[-1]}))
+        assert [(row['date'],row['value']) for row in page['rows']]==[(calendar[1],'500000'),(calendar[-1],'0')]
+        assert [(gap['date'],gap['reason']) for gap in page['gaps']]==[(calendar[2],'source_record_missing')]
+        store.verify_sources()
+    finally:store.close()
+
+
+def test_csi_pdf_parser_rejects_wrong_date_and_ambiguous_market_cap(monkeypatch):
+    from types import SimpleNamespace
+    import pypdf
+    summary='沪深300指数(2026年11月5日)\n收盘点位 4016.29 指数涨幅 -0.68%'
+    row='000300 沪深300 20041231 20050408 1000 508215 228573 4016.29 -0.68%'
+    matrix='规模及行业指数市场数据\n指数代码 指数简称 基日 发布日期 基点 总市值 自由流通市值 收盘点位\n'
+    pages=[SimpleNamespace(extract_text=lambda **kwargs: summary),
+           SimpleNamespace(extract_text=lambda **kwargs: matrix+row)]
+    monkeypatch.setattr(pypdf,'PdfReader',lambda *args,**kwargs:SimpleNamespace(pages=pages))
+    assert public_sources._csi300_market_cap(b'%PDF-fixture',DAYS[-1])==228573
+    with pytest.raises(public_sources.SourceUnavailable,match='source_date_mismatch'):
+        public_sources._csi300_market_cap(b'%PDF-fixture',DAYS[0])
+    correct=matrix
+    matrix=matrix.replace('自由流通市值','自由流通市值（万元）')
+    with pytest.raises(public_sources.SourceUnavailable,match='source_schema_invalid'):
+        public_sources._csi300_market_cap(b'%PDF-fixture',DAYS[-1])
+    matrix=correct
+    matrix+=row+'\n'
+    with pytest.raises(public_sources.SourceUnavailable,match='source_symbol_mismatch'):
+        public_sources._csi300_market_cap(b'%PDF-fixture',DAYS[-1])
+
+
+def test_bigquant_index_partial_publish_and_retry_preserve_proof(tmp_path, monkeypatch):
+    targets=plan(('index_turnover','SSE.932000'), required=False)
+    targets['external_fallback'].append('BigQuant')
+    targets['bigquant']=dict(bigquant_python=str(tmp_path/'python'),timeout_seconds=30)
+    ready={DAYS[1]:342_201_380_000.0}
+    calls=[]
+
+    def query_index(policy, dataset, first, last, **kwargs):
+        calls.append((dataset,first,last))
+        return [dict(date=d,instrument='932000.CSI',amount=ready.get(d))
+                for d in DAYS if first<=d<=last]
+
+    monkeypatch.setattr(stock_cross_section,'query_bigquant',query_index)
+    fetch,transport=FrozenFetch(),QmtTransport()
+    descriptor=collect(tmp_path,targets,fetch,transport)
+    selection=query(metric='index_turnover',symbols=['SSE.932000'])
+    store=MarketSupplementStore(descriptor)
+    try:
+        data=store.query(selection)
+        old=data['rows'][0]
+        assert (old['source'],old['value'],old['unit'],old['available_at'])==('BigQuant','342201380000.0','CNY',None)
+        assert data['gaps'][0]['reason']=='bigquant_index_amount_missing'
+        store.verify_sources()
+    finally:store.close()
+    ready[DAYS[0]]=300_000_000_000
+    descriptor=capture.collect_supplement(targets,DAYS[-1],DAYS,tmp_path/'retry',objects=ContentStore(tmp_path/'raw'),
+        fetch=fetch,qmt_transport=transport,previous=descriptor,calendar_coverage=(DAYS[0],DAYS[-1]),deadline=time.monotonic()+20)
+    store=MarketSupplementStore(descriptor)
+    try:
+        data=store.query(selection)
+        assert [r['date'] for r in data['rows']]==DAYS and data['rows'][1]==old and not data['gaps']
+        assert not store.query(query())['qmt_evidence']['decisions']
+    finally:store.close()
+    assert calls==[('small_cap_turnover',*DAYS),('small_cap_turnover',DAYS[0],DAYS[0])]
+    assert fetch.calls==[] and transport.sdk_calls==[]
+
+
+def test_index_history_uses_budget_after_existing_etf(tmp_path, monkeypatch):
+    targets=plan(('index_turnover','SSE.932000'),('etf_total_shares','SSE.510300'),required=False)
+    targets['external_fallback'].append('BigQuant')
+    targets['bigquant']=dict(bigquant_python=str(tmp_path/'python'),timeout_seconds=30)
+    targets['max_requests']=2  # QMT只读能力检查和最新ETF；历史按剩余预算继续。
+    def unexpectedly_called(*args,**kwargs):
+        pytest.fail('BigQuant should not exceed the common request budget')
+    monkeypatch.setattr(stock_cross_section,'query_bigquant',unexpectedly_called)
+    descriptor=collect(tmp_path,targets,FrozenFetch(),QmtTransport())
+    store=MarketSupplementStore(descriptor)
+    try:
+        assert [row['date'] for row in store.query(query())['rows']]==[DAYS[-1]]
+        assert len(store.query(query(metric='index_turnover',symbols=['SSE.932000']))['gaps'])==2
+    finally:store.close()
+
+
+def test_csi_turnover_fills_only_missing_bigquant_date(tmp_path,monkeypatch):
+    targets=plan(('index_turnover','SSE.932000'))
+    targets['external_fallback']=['BigQuant','CSI']
+    targets['bigquant']=dict(bigquant_python=str(tmp_path/'python'),timeout_seconds=30)
+    monkeypatch.setattr(stock_cross_section,'query_bigquant',lambda *args,**kwargs:[
+        dict(date=DAYS[0],instrument='932000.CSI',amount=300_000_000_000)])
+
+    class CSIFetch(FrozenFetch):
+        def get(self,url,params=None,referer=None):
+            assert url=='https://www.csindex.com.cn/csindex-home/perf/index-perf'
+            stamp=DAYS[-1].replace('-','')
+            assert params==dict(indexCode='932000',startDate=stamp,endDate=stamp)
+            self.calls.append((url,params))
+            return json.dumps(dict(code='200',success=True,data=[dict(indexCode='932000',tradeDate=stamp,
+                                                                      close=3458.92,tradingValue=5560.77)])).encode()
+
+    fetch=CSIFetch()
+    store=MarketSupplementStore(collect(tmp_path,targets,fetch,QmtTransport()))
+    try:
+        actual=store.query(query(metric='index_turnover',symbols=['SSE.932000']))
+        assert [(row['source'],Decimal(row['value'])) for row in actual['rows']]==[
+            ('BigQuant',Decimal('300000000000')),('CSI',Decimal('556077000000'))]
+        assert not actual['gaps'] and len(fetch.calls)==1
+        store.verify_sources()
+    finally:store.close()
+
+
+def test_bigquant_batch_is_persisted_once_with_per_row_proofs(tmp_path,monkeypatch):
+    targets=plan(('index_turnover','SSE.932000'))
+    targets['external_fallback'].append('BigQuant')
+    targets['bigquant']=dict(bigquant_python=str(tmp_path/'python'),timeout_seconds=30)
+    monkeypatch.setattr(stock_cross_section,'query_bigquant',lambda *args,**kwargs:[
+        dict(date=d,instrument='932000.CSI',amount=300_000_000_000) for d in DAYS])
+    committed=[]
+    save=capture._save
+
+    def record(path,value):
+        if path.name=='STATE.json' and value['status']=='collecting' and value['rows']:
+            committed.append(len(value['rows']))
+        return save(path,value)
+
+    monkeypatch.setattr(capture,'_save',record)
+    result=collect(tmp_path,targets,FrozenFetch(),QmtTransport())
+    assert committed==[2]
+    store=MarketSupplementStore(result)
+    try:
+        assert len(store.query(query(metric='index_turnover',symbols=['SSE.932000']))['rows'])==2
+        store.verify_sources()
+    finally:store.close()
 
 
 def test_proxy_unknown_looks_up_original_slot_and_keeps_unit_unknown(tmp_path):

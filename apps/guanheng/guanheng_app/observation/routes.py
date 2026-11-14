@@ -5,6 +5,7 @@ import base64
 import csv
 import io
 import re
+from ipaddress import ip_address
 from time import monotonic
 
 from fastapi import APIRouter, Request
@@ -12,12 +13,25 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
 from ..reading import ReadCapacityError
+from ..ui_origin import require_ui_origin
 from .contracts import API_PREFIX, UI_PREFIX, ExportQuery, ObservationError, SeriesQuery, USAGE
 from .publication import check_deadline
 from .storage import encode, valid_sha
 
 RESPONSE_BYTES = 16 * 1024 * 1024
 REQUEST_SECONDS = 15.0
+
+
+def _local_repair_request(request):
+    """写入口限本机直连。远程观察继续通过原只读前缀提供。"""
+    try:
+        loopback = request.client is not None and ip_address(request.client.host).is_loopback
+    except ValueError:
+        loopback = False
+    return (loopback and request.url.hostname in ('127.0.0.1', '::1', 'localhost')
+            and not any(key in request.headers for key in ('forwarded', 'x-forwarded-for', 'x-forwarded-host'))
+            and request.headers.get('sec-fetch-site') == 'same-origin'
+            and request.headers.get('origin') is not None)
 
 
 def observation_error(_request, exc):
@@ -51,7 +65,9 @@ def _dispatch(owner, path, query, deadline, *, ui):
         return owner.catalog(fixed)
     if path == 'updates':
         status=owner.repository.scheduler_status()
-        return dict(runs=owner.repository.runs(),scheduler=status,schedule=status.get('schedule'))
+        job = owner.repository.data_repair()
+        return dict(runs=owner.repository.runs(),scheduler=status,schedule=status.get('schedule'),
+                    data_repair=job, data_repair_available=job is not None and status['state']=='running')
     if path in ('series', 'exports'):
         if path == 'series':
             return owner.series(query, deadline)
@@ -158,6 +174,20 @@ def _dispatch(owner, path, query, deadline, *, ui):
 
 def make_router():
     router = APIRouter()
+
+    @router.post(UI_PREFIX + '/data-repair', status_code=202)
+    def request_repair(request: Request):
+        require_ui_origin(request, '补齐命令只接收观衡同源请求')
+        if not _local_repair_request(request):
+            raise ObservationError('data_repair_local_only', '补齐命令只供本机观衡使用', 403)
+        if request.url.query or request.headers.get('content-length', '0') != '0' or request.headers.get('transfer-encoding'):
+            raise ObservationError('invalid_data_repair_request', '补齐命令无需提供参数或正文', 422)
+        owner = getattr(request.app.state, 'observation_owner', None)
+        if (owner is None or owner.repository.data_repair() is None
+                or owner.repository.scheduler_status()['state'] != 'running'):
+            raise ObservationError('data_repair_unavailable', '观察补齐服务当前不可用', 503)
+        job = owner.repository.request_data_repair('manual', deadline=monotonic()+1)
+        return JSONResponse(job, status_code=202, headers={'Cache-Control': 'no-store'})
 
     async def read_only():
         return JSONResponse(dict(code='read_only', detail='市场观察仅提供只读查询'), status_code=405,

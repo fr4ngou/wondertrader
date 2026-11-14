@@ -11,13 +11,12 @@ import re
 from .admission import admit_dataset, register_standard_asset, register_standard_assets
 from .contracts import ObservationError
 from .metadata import computation_identity
+from .provider_reports import SHAREHOLDER_REPORT_KEY as REPORT_KEY, SHAREHOLDER_REPORT_MARKETS as MARKETS
 from .publication import adopt_snapshot, check_deadline
 from .storage import ContentStore, digest, encode
 
 METRIC = 'shareholder.net.ashare'
 INDEXES = {'000985.SH': 'csi_close', '000001.SH': 'sse_close', '399006.SZ': 'chinext_close', '000688.SH': 'star_close'}
-MARKETS = {'二级市场', '大宗交易', '二级市场以及大宗交易'}
-REPORT_KEY = ('NOTICE_DATE', 'SECURITY_CODE', 'HOLDER_NAME', 'END_DATE', 'START_DATE', 'CHANGE_NUM_SYMBOL', 'MARKET', 'EITIME')
 DAY = timedelta(days=1)
 FIRST = date(2018, 1, 1)
 

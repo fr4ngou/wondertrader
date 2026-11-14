@@ -3,19 +3,24 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import hashlib
+import os
 from pathlib import Path
 import re
 import time
 
 from .daily_data_update import _save, _descriptor, _load
 from .market_generation import encode
+from ..guanheng_market_client.supplement_facts import (
+    BUYBACK_EXECUTION, INDEX_SCOPES, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS,
+    MARGIN_PURCHASE, MARGIN_REPORT, SHAREHOLDER_REDUCTION, SH_SZ_SCOPE, SMALL_CAP_INDEX,
+)
 
 
 PLAN_FIELDS = (
     'schema',  # 固定QMT优先补充采集配置版本。
     'targets',  # 最多64个唯一metric/symbol，逐项from声明历史要求。
     'policy',  # qmt_preferred，未知请求继续核原身份。
-    'external_fallback',  # 显式准入的SSE/SZSE/Eastmoney子集。
+    'external_fallback',  # 显式准入的SSE/SZSE/Eastmoney/BigQuant/CSI/CNINFO子集。
     'required',  # 缺事实时等待，false允许带缺口发布且不自动同日重入。
 )
 TARGET_FIELDS = (
@@ -23,7 +28,8 @@ TARGET_FIELDS = (
     'symbol',  # ETF的WT标识或明确市场报告范围。
     'from',  # 要求覆盖起日ISO日期，实际截止为本轮闭合交易日。
 )
-OPTIONAL_PLAN_FIELDS = ('max_requests',)  # 本阶段每轮HTTP＋SDK请求份额，仍从原总预算扣账。
+OPTIONAL_PLAN_FIELDS = ('max_requests', 'bigquant')  # 本阶段请求份额和备用的隔离解释器/单次截止。
+BUYBACK_BUDGET_GAPS = ('request_budget_exceeded', 'capture_budget_exceeded', 'collection_timeout')
 
 
 class SupplementPending(RuntimeError):
@@ -41,9 +47,17 @@ def validate_plan(value):
     if 'max_requests' in value and (type(value['max_requests']) is not int or not 1 <= value['max_requests'] <= 512):
         raise ValueError('supplement request share invalid')
     fallback = value['external_fallback']
-    if (type(fallback) is not list or any(type(s) is not str or s not in ('SSE', 'SZSE', 'Eastmoney') for s in fallback)
+    if (type(fallback) is not list or any(type(s) is not str or s not in ('SSE', 'SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO') for s in fallback)
             or len(fallback) != len(set(fallback))):
         raise ValueError('supplement external source policy invalid')
+    if 'BigQuant' in fallback:
+        policy = value.get('bigquant')
+        if (type(policy) is not dict or set(policy) != {'bigquant_python', 'timeout_seconds'}
+                or type(policy['bigquant_python']) is not str or not Path(policy['bigquant_python']).is_absolute()
+                or type(policy['timeout_seconds']) is not int or not 1 <= policy['timeout_seconds'] <= 60):
+            raise ValueError('supplement BigQuant policy invalid')
+    elif 'bigquant' in value:
+        raise ValueError('supplement BigQuant policy requires fallback')
     targets = value['targets']
     if type(targets) is not list or not 1 <= len(targets) <= 64:
         raise ValueError('supplement targets invalid')
@@ -57,7 +71,8 @@ def validate_plan(value):
         if date.fromisoformat(start).isoformat() != start:
             raise ValueError('supplement target date invalid')
         valid_symbol = (re.fullmatch(r'(SSE|SZSE)\.[0-9]{6}', symbol) is not None if metric == 'etf_total_shares'
-                        else symbol == ('CN.MARGIN_REPORT' if metric == 'margin_balance' else 'CN.SH_SZ'))
+                        else symbol == INDEX_SCOPES.get(metric, (MARGIN_REPORT if metric in ('margin_balance', MARGIN_PURCHASE)
+                                                                 else SH_SZ_SCOPE,))[0])
         if not valid_symbol or (metric, symbol) in seen:
             raise ValueError('supplement target identity invalid')
         seen.add((metric, symbol))
@@ -69,13 +84,73 @@ def _key(day, metric, symbol):
 
 
 def _fallback_sources(metric, symbol):
+    if metric == BUYBACK_EXECUTION:
+        return {'CNINFO'}
+    if metric == INDEX_FREE_FLOAT_CAP:
+        return {'CSI'}
     if metric == 'etf_total_shares':
         return {'SSE' if symbol.startswith('SSE.') else 'SZSE'}
-    if metric == 'margin_balance':
+    if metric in ('margin_balance', MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION):
         return {'Eastmoney'}
     if metric == 'market_turnover':
         return {'SSE', 'SZSE'}
     return set()
+
+
+def _index_amounts(records, first, last):
+    """整批核对标的及唯一日期；缺值按交易日保留缺口。"""
+    if type(records) is not list or len(records) > 366:
+        raise ValueError('bigquant_index_rows_invalid')
+    amounts = {}
+    for row in records:
+        if type(row) is not dict or set(row) != {'date', 'instrument', 'amount'} or row['instrument'] != '932000.CSI':
+            raise ValueError('bigquant_index_identity_invalid')
+        day = row['date']
+        if type(day) is not str or date.fromisoformat(day).isoformat() != day or not first <= day <= last or day in amounts:
+            raise ValueError('bigquant_index_date_invalid')
+        value = row['amount']
+        amount = Decimal(str(value)) if type(value) in (int, float) else Decimal(0)
+        amounts[day] = format(amount, 'f') if amount.is_finite() and amount > 0 else None
+    return amounts
+
+
+def _collect_index_turnover(days, policy, fetch, objects, record_batch, *, deadline, cancelled, environ):
+    """当前交易日和历史共用此原件批次，按年度上限分片。"""
+    from .stock_cross_section import query_bigquant
+    from guanheng_app.observation.source_fetch import SourceFailure
+
+    reasons = {}
+    for part in reversed(_proxy_partitions(days, dict(max_rows=366, max_calendar_days=366))):
+        first, last = part[0], part[-1]
+        try:
+            fetch.budget.request('sdk')
+            records = query_bigquant(policy, 'small_cap_turnover', first, last,
+                deadline=min(deadline, fetch.budget.deadline), cancelled=cancelled, environ=environ)
+            body = encode(dict(dataset='cn_stock_index_bar1d', first=first, last=last, rows=records))
+            fetch.budget.consume(len(body))
+        except SourceFailure as error:
+            reasons.update({day: error.code for day in part})
+            break
+        except (ValueError, OSError, TimeoutError):
+            reasons.update({day: 'bigquant_index_unavailable' for day in part})
+            break
+        parent = objects.put(body)
+        try:
+            amounts = _index_amounts(records, first, last)
+        except ValueError:
+            reasons.update({day: 'bigquant_index_rows_invalid' for day in part})
+            continue
+        now = datetime.now(timezone.utc).isoformat()
+        admitted = []
+        for day in part:
+            amount = amounts.get(day)
+            if amount is None:
+                reasons[day] = 'bigquant_index_amount_missing'
+            else:
+                admitted.append((day, INDEX_TURNOVER, SMALL_CAP_INDEX,
+                    dict(value=amount, unit='CNY', source='BigQuant', parents=[parent], received_at=now)))
+        record_batch(admitted)
+    return reasons
 
 
 def prior_supplement_catalogs(previous, task_directory, input_directory, day, *, objects, check):
@@ -121,7 +196,7 @@ def prior_supplement_catalogs(previous, task_directory, input_directory, day, *,
                 state = _load(_descriptor(state_path, maximum=33554432), 33554432)
                 if state['request_sha256'] != hashlib.sha256(encode(intent)).hexdigest():
                     raise ValueError('supplement prior state identity differs')
-                if not state['rows']:
+                if not state['rows'] and not state.get('buyback_attempts'):
                     continue
                 if intent['day'] != previous_day or any(d > day for d in intent['dates']):
                     raise ValueError('supplement prior state date differs')
@@ -137,7 +212,7 @@ def prior_supplement_catalogs(previous, task_directory, input_directory, day, *,
                     targets=intent['plan']['targets'], dates=intent['dates'], policy='qmt_preferred',
                     qmt_evidence=_load(_descriptor(work / 'QMT-EVIDENCE.json')),
                     rows=rows,
-                    gaps=[dict(date=d, metric=m, symbol=s, reason='prior_task_pending')
+                    gaps=[dict(date=d, metric=m, symbol=s, reason=state.get('buyback_attempts',{}).get(_key(d,m,s),'prior_task_pending'))
                           for d, m, s in cells if _key(d, m, s) not in state['rows']],
                     complete=len(rows) == len(cells))
                 validate_supplement_catalog(catalog)
@@ -207,7 +282,7 @@ def _validate_proxy_plan(parts, dates):
 
 
 def collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, qmt_transport,
-                       calendar_coverage, previous=None, deadline, cancelled=lambda: False):
+                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ=None):
     """原总预算内分配本阶段请求份额；串行调用结束后恢复原预算上限。
 
     max_requests省略时沿原预算。实际HTTP重试和SDK调用仍由同一个CollectionBudget
@@ -220,13 +295,13 @@ def collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, 
     try:
         return _collect_supplement(plan, day, calendar_dates, directory, objects=objects, fetch=fetch,
             qmt_transport=qmt_transport, calendar_coverage=calendar_coverage, previous=previous,
-            deadline=deadline, cancelled=cancelled)
+            deadline=deadline, cancelled=cancelled, environ=os.environ if environ is None else environ)
     finally:
         fetch.budget.max_requests = original
 
 
 def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, qmt_transport,
-                       calendar_coverage, previous=None, deadline, cancelled=lambda: False):
+                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ):
     """原data owner持发布租约调用；目录可恢复，不创建线程/调度/数据库。
 
     objects为原ContentStore，fetch为沿总预算创建的原Fetcher，qmt_transport复用原
@@ -238,7 +313,9 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
     from guanheng_qmt_shm.read_retention_client import RetainedReadClient
     from guanheng_app.observation.source_fetch import SourceFailure
     from ..guanheng_market_client.supplement_facts import validate_supplement_catalog, validate_source_proof
-    from .market_supplement_sources import collect_external, SourceUnavailable
+    from .market_supplement_sources import (
+        collect_external, ipo_proceeds_history, margin_purchase_history, shareholder_reduction_history, SourceUnavailable,
+    )
 
     validate_plan(plan)
     if type(day) is not str or date.fromisoformat(day).isoformat() != day:
@@ -308,9 +385,11 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
         status='created')  # 当前采集状态，pending不代表已发布。
     if state.get('request_sha256') != hashlib.sha256(encode(intent)).hexdigest():
         raise ValueError('supplement progress identity changed')
-    if previous is not None and not state['rows']:
+    wants_buybacks = any(metric==BUYBACK_EXECUTION for _,metric,_ in cells)
+    if previous is not None and not (state.get('prior_catalogs_loaded') if wants_buybacks else state['rows']):
         from .market_supplement_store import MarketSupplementStore
         wanted = {_key(*c) for c in cells}
+        attempts = state.setdefault('buyback_attempts',{}) if wants_buybacks else None
         for descriptor in previous if isinstance(previous, list) else [previous]:
             verified = MarketSupplementStore(descriptor, observation_date=day)
             try:
@@ -320,6 +399,11 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
             old = validate_supplement_catalog(_load(descriptor, 33554432))
             if Path(old['raw_store']).resolve() != Path(objects.root).resolve():
                 raise ValueError('supplement original object store changed')
+            for gap in old['gaps']:
+                key = _key(gap['date'],gap['metric'],gap['symbol'])
+                if (attempts is not None and key in wanted and gap['metric']==BUYBACK_EXECUTION
+                        and (gap['reason'].startswith('buyback_') or gap['reason'] in BUYBACK_BUDGET_GAPS)):
+                    attempts.setdefault(key,gap['reason'])
             for row in old['rows']:
                 check()
                 key = _key(row['date'], row['metric'], row['symbol'])
@@ -330,6 +414,8 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                         continue
                     objects.get(row['source_sha256'])
                     state['rows'][key] = row
+        if wants_buybacks:
+            state['prior_catalogs_loaded'] = True  # 固定复用目录已读，恢复本轮不会重读原件。
     check()
     client = RetainedReadClient(qmt_transport, lifetime_ms=30000)
     # 本轮先取得实际绑定；失败/未知直接保持任务，不能解释为没有该QMT能力。
@@ -356,19 +442,29 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
     requested_keys = set()  # 当前单元调用用到的原件，解析不合格时只清请求引用，原字节仍保留。
 
     def get(url, params, referer):
+        return public_request(url, params, referer, 'GET')
+
+    def post(url, params, referer):
+        return public_request(url, params, referer, 'POST')
+
+    def public_request(url, params, referer, method):
         check()
-        key = hashlib.sha256(encode(dict(url=url, params=params, referer=referer))).hexdigest()
+        identity = dict(url=url, params=params, referer=referer)
+        if method == 'POST':
+            identity['method'] = method
+        key = hashlib.sha256(encode(identity)).hexdigest()
         requested_keys.add(key)
         if key in state['requests']:
             record = state['requests'][key]
             return dict(body=objects.get(record['sha256']), **record)
-        body = fetch.get(url, params=params, referer=referer)
+        body = (fetch.post_readonly(url, params, referer=referer) if method == 'POST'
+                else fetch.get(url, params=params, referer=referer))
         record = dict(sha256=objects.put(body), received_at=datetime.now(timezone.utc).isoformat())
         state['requests'][key] = record
         _save(state_path, state)
         return dict(body=body, **record)
 
-    def record_row(d, metric, symbol, result):
+    def certified_row(d, metric, symbol, result):
         check()
         proof = dict(schema='guanheng.supplement-source-proof.v1',  # 单/双原件的可追溯派生清单。
                      date=d, metric=metric, symbol=symbol, value=result['value'], unit=result['unit'],
@@ -377,10 +473,19 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
         for sha in proof['parents']:
             objects.get(sha)
         proof_sha = objects.put(encode(proof))
-        state['rows'][_key(d, metric, symbol)] = dict(
+        return dict(
             date=d, symbol=symbol, metric=metric, value=result['value'], unit=result['unit'],
             source=result['source'], source_sha256=proof_sha, received_at=result['received_at'], available_at=None)
+
+    def record_row(d, metric, symbol, result):
+        state['rows'][_key(d, metric, symbol)] = certified_row(d, metric, symbol, result)
         _save(state_path, state)
+
+    def record_batch(rows):
+        if rows:
+            admitted = {_key(d,m,s):certified_row(d,m,s,result) for d,m,s,result in rows}
+            state['rows'].update(admitted)
+            _save(state_path,state)
 
     reasons = {}  # 逐单元固定缺口原因，不把来源未知提升为没有厂商能力。
     # QMT当前唯一可用的市场事实是双指数amount代理，原持久请求和事实名保持。
@@ -447,22 +552,129 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                         value=format(amount, 'f'), unit='unknown', source='QMT', parents=[x[1] for x in captured],
                         received_at=max(x[2] for x in captured)))
 
-    # 最新事实先取，旧官方缺口只消费剩余原预算，避免历史断连饿死每日新增份额/融资。
+    def fill_index(days):
+        if not days or 'BigQuant' not in plan['external_fallback']:
+            return
+        index_deadline = min(deadline, fetch.budget.deadline) - 1  # 为同一任务保留写目录时间。
+        if time.monotonic() < index_deadline:
+            index_reasons = _collect_index_turnover(days, plan['bigquant'], fetch, objects, record_batch,
+                deadline=index_deadline, cancelled=cancelled, environ=environ)
+            reasons.update({_key(d, INDEX_TURNOVER, SMALL_CAP_INDEX): reason for d, reason in index_reasons.items()})
+
+    index_days = [d for d, m, s in cells if m == INDEX_TURNOVER and _key(d, m, s) not in state['rows']]
+    current = [day] if day in index_days else []
+    report_readers = {
+        MARGIN_PURCHASE: lambda days: margin_purchase_history(days[0], days[-1], get),
+        IPO_PROCEEDS: lambda days: ipo_proceeds_history(days, get),
+        SHAREHOLDER_REDUCTION: lambda days: shareholder_reduction_history(days, calendar_dates, get),
+    } if 'Eastmoney' in plan['external_fallback'] else {}
+    report_days = {metric: [(d,s) for d,m,s in cells if m==metric and d<day and _key(d,m,s) not in state['rows']]
+                   for metric in report_readers}
+
+    def fill_buybacks():
+        from .market_buyback_disclosures import disclosure_window
+        from .market_supplement_sources import _fact
+
+        attempts = state.setdefault('buyback_attempts',{})
+        pending = [cell for cell in reversed(cells) if cell[1]==BUYBACK_EXECUTION and _key(*cell) not in state['rows']]
+        pending.sort(key=lambda cell:(0 if _key(*cell) not in attempts else
+                                      1 if attempts[_key(*cell)] in BUYBACK_BUDGET_GAPS else 2))
+        for date_, metric, scope in pending:
+            key = _key(date_, metric, scope)
+            requested_keys.clear()
+            requests_before = fetch.budget.requests
+            try:
+                result, receipts = disclosure_window([date_], calendar_dates, get, post)
+                entry = result[date_]
+                if entry['gap']:
+                    raise SourceUnavailable(entry['gap'])
+                index = objects.put(encode(dict(schema='guanheng.buyback-disclosure-proof.v1',
+                    date=date_, parents=sorted({sha for sha,_ in receipts}))))
+                record_row(date_,metric,scope,_fact(entry['amount'],'CNY','CNINFO',
+                    [(index,max(clock for _,clock in receipts))]))
+                attempts.pop(key,None)
+            except SourceUnavailable as error:
+                reasons[key] = error.code
+                attempts[key] = error.code
+                for cached in requested_keys:
+                    state['requests'].pop(cached,None)
+                _save(state_path,state)
+            except SourceFailure as error:
+                reasons[key] = attempts.get(key,error.code)
+                if error.code in BUYBACK_BUDGET_GAPS and fetch.budget.requests > requests_before:
+                    # 已开始的大日期保留请求检查点，下一轮先覆盖还未尝试的日期。
+                    attempts.setdefault(key,error.code)
+                    _save(state_path,state)
+                if error.code == 'collection_stopped' or error.code in BUYBACK_BUDGET_GAPS:
+                    break
+
+    def fill_report_history(metric, pending):
+        scopes = dict(pending)
+        # 源报表密度决定单区间长短，减持保留最多四份直接原件引用。
+        window = 42 if metric == SHAREHOLDER_REDUCTION else 366
+        for part in reversed(_proxy_partitions(list(scopes),dict(max_rows=window,max_calendar_days=window))):
+            requested_keys.clear()
+            try:
+                reported=report_readers[metric](part)
+                missing='source_record_missing'
+            except SourceUnavailable as error:
+                reported={}
+                missing=error.code
+            except SourceFailure as error:
+                reasons.update({_key(d,metric,scopes[d]):error.code for d in part})
+                break
+            for d in part:
+                if d in reported:
+                    record_row(d,metric,scopes[d],reported[d])
+                else:
+                    reasons[_key(d,metric,scopes[d])]=missing
+            if any(d not in reported for d in part):
+                for cached in requested_keys:
+                    state['requests'].pop(cached,None)
+                _save(state_path,state)
+
+    historical=False
+    # 本轮最新份额、融资与市场成交先走原路径，旧日缺口只占剩余窗口。
     for d, metric, symbol in sorted(cells, key=lambda item: (-date.fromisoformat(item[0]).toordinal(), item[1], item[2])):
         key = _key(d, metric, symbol)
+        if d < day and not historical and any(report_days.values()):
+            historical=True
+            if current:
+                fill_index(current)
+                current=[]
+            for report_metric, pending in report_days.items():
+                if pending:
+                    fill_report_history(report_metric, pending)
         if key in state['rows']:
             continue
         check()
         if metric == 'market_turnover_proxy':
             reasons.setdefault(key, 'qmt_proxy_source_gap' if 'market.market_data' in operations else 'not_exposed_by_bound_profile')
             continue
+        if metric == INDEX_TURNOVER:
+            reasons[key] = ('index_turnover_pending' if {'BigQuant','CSI'} & set(plan['external_fallback'])
+                            else 'qmt_fact_not_exposed_external_not_allowed')
+            continue
+        if metric == BUYBACK_EXECUTION and 'CNINFO' in plan['external_fallback']:
+            continue
+        if metric in report_readers and d < day:
+            continue
         sources = _fallback_sources(metric, symbol)
         if not sources or not sources <= set(plan['external_fallback']):
             reasons[key] = 'qmt_fact_not_exposed_external_not_allowed'
             continue
+        if d < day and current:
+            fill_index(current)
+            current = []
         requested_keys.clear()
         try:
-            result = collect_external(metric, symbol, d, get)
+            if metric in report_readers:
+                report = report_readers[metric]([d])
+                if d not in report:
+                    raise SourceUnavailable('source_record_missing')
+                result = report[d]
+            else:
+                result = collect_external(metric, symbol, d, get)
             record_row(d, metric, symbol, result)
         except SourceUnavailable as error:
             # 错日/不全等不合格响应保留原字节，下一轮允许重新读取，避免坏缓存永久封死补齐。
@@ -474,12 +686,34 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
             reasons[key] = error.code
             if error.code in ('collection_stopped', 'collection_timeout', 'request_budget_exceeded', 'capture_budget_exceeded'):
                 break
+    fill_index([d for d in index_days if d < day] + current)
+    if 'CSI' in plan['external_fallback']:
+        for missing_day in reversed(index_days):
+            key = _key(missing_day,INDEX_TURNOVER,SMALL_CAP_INDEX)
+            if key in state['rows']:
+                continue
+            requested_keys.clear()
+            try:
+                value = collect_external(INDEX_TURNOVER,SMALL_CAP_INDEX,missing_day,get)
+                record_row(missing_day,INDEX_TURNOVER,SMALL_CAP_INDEX,value)
+            except SourceUnavailable as error:
+                reasons[key] = error.code
+                for cached in requested_keys:
+                    state['requests'].pop(cached,None)
+                _save(state_path,state)
+            except SourceFailure as error:
+                reasons[key] = error.code
+                if error.code in ('collection_stopped','collection_timeout','request_budget_exceeded','capture_budget_exceeded'):
+                    break
+    if BUYBACK_EXECUTION in metrics and 'CNINFO' in plan['external_fallback']:
+        fill_buybacks()
     catalog = dict(
         schema='guanheng.market-supplement-catalog.v1',  # 独立于股票八字段事实。
         raw_store=str(Path(objects.root).absolute()),  # 原对象库位置，不另建第二套数据库。
         targets=plan['targets'], dates=dates, policy=plan['policy'], qmt_evidence=evidence,
         rows=[state['rows'][_key(*c)] for c in cells if _key(*c) in state['rows']],
-        gaps=[dict(date=d, metric=m, symbol=s, reason=reasons.get(_key(d, m, s), 'cycle_budget_or_source_gap'))
+        gaps=[dict(date=d, metric=m, symbol=s, reason=reasons.get(_key(d, m, s),
+                   state.get('buyback_attempts',{}).get(_key(d,m,s),'cycle_budget_or_source_gap')))
               for d, m, s in cells if _key(d, m, s) not in state['rows']],
         complete=all(_key(*c) in state['rows'] for c in cells))
     validate_supplement_catalog(catalog)

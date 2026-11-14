@@ -241,7 +241,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                 [row['date'] for row in calendar_rows if row['is_open'] == 1], root / 'supplement',
                 objects=reader.objects, fetch=fetch, qmt_transport=supplement_transport,
                 calendar_coverage=(calendar['coverage_start'], calendar['coverage_end']),
-                previous=supplement_previous, deadline=deadline, cancelled=cancelled)
+                previous=supplement_previous, deadline=deadline, cancelled=cancelled, environ=environ)
     finally:
         try:
             if supplement_transport is not None:
@@ -259,26 +259,6 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     pool = strict_json(body)
     if pool['date'] != day:
         raise ValueError('daily input universe date differs')
-    def restore_catalog(output):
-        from .day_facts import DayFactsStore
-        descriptor = _descriptor(output / 'catalog.json')
-        value = _load(descriptor)
-        catalog = DayFactsStore(descriptor)
-        try:
-            for entry in value['days']:
-                check()
-                result = catalog.query(entry['date'], '0' * 64)
-                if entry['date'] == day:
-                    for key, expected in facts.items():
-                        if result[key] != expected:
-                            raise ValueError('daily input restored current facts differ')
-            if day not in {entry['date'] for entry in value['days']}:
-                raise ValueError('daily input restored facts day missing')
-        finally:
-            catalog.close()
-        return descriptor
-    catalog = prepare_directory(root, 'facts', 'catalog.json',
-        lambda output: extend_facts_catalog(template['daily_facts'], [facts], output, deadline=deadline), restore_catalog)
     seed = inputs.get('cache_seed')
     adopted = None
     if seed is not None:
@@ -335,6 +315,80 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         if _load(selected_universe) != pool:
             raise ValueError('daily input adopted universe differs')
     check()
+    section_policy = inputs.get('stock_cross_section')
+
+    def build_catalog(output):
+        if section_policy is None:
+            return extend_facts_catalog(template['daily_facts'], [facts], output, deadline=deadline)
+        from .day_facts import DayFactsStore
+        from .stock_cross_section import prepare_section
+        previous_facts = DayFactsStore(template['daily_facts'])
+        try:
+            previous = previous_facts.query(day, '0' * 64)
+            section = previous.get('stock_cross_section', {}) if previous else {}
+            if ('provider' not in section or previous['provenance']['universe_sha256'] != facts['provenance']['universe_sha256']
+                    or previous['rows'] != facts['rows']):
+                section = prepare_section(facts, cache, (configuration.get('price_scope') or {}).get('unit_evidence'),
+                                          section_policy, reader.objects, deadline=deadline, cancelled=cancelled,
+                                          environ=environ)
+            revisions = [dict(facts, stock_cross_section=section)]
+            if 'history_from' in section_policy:
+                remaining = section_policy['history_days_per_cycle']
+                # 先覆盖未处理日；当次不可用结果等自然日重试，保留精确档案日期。
+                candidates = []
+                for candidate in previous_facts.days():
+                    if section_policy['history_from'] <= candidate < day:
+                        check()
+                        original = previous_facts.query(candidate, '0'*64)
+                        status = original.get('stock_cross_section', {})
+                        if 'provider' not in status:
+                            candidates.append((bool(status), candidate))
+                for _, candidate in sorted(candidates):
+                    if remaining == 0 or deadline - time.monotonic() <= 2 * section_policy['timeout_seconds']:
+                        break
+                    check()
+                    original = previous_facts.query(candidate, '0'*64)
+                    original.pop('source_snapshot_id')
+                    original.pop('source_sha256')
+                    section = prepare_section(original, cache, None, section_policy, reader.objects,
+                                              deadline=deadline, cancelled=cancelled, environ=environ)
+                    revisions.append(dict(original, stock_cross_section=section))
+                    remaining -= 1
+            return extend_facts_catalog(template['daily_facts'], revisions, output, deadline=deadline)
+        finally:
+            previous_facts.close()
+
+    def restore_catalog(output):
+        from .day_facts import DayFactsStore
+        descriptor = _descriptor(output / 'catalog.json')
+        value = _load(descriptor)
+        catalog = DayFactsStore(descriptor)
+        try:
+            for entry in value['days']:
+                check()
+                result = catalog.query(entry['date'], '0' * 64)
+                if entry['date'] == day:
+                    if section_policy is not None:
+                        section = result['stock_cross_section']
+                        if 'provider' in section:
+                            body = reader.objects.get(section['source_sha256'])
+                            original = strict_json(body)
+                            from .stock_cross_section import project
+                            projection = project(facts, original['records'])
+                            if (original['date'] != day or original['provider'] != section['provider']
+                                    or original['universe_sha256'] != facts['provenance']['universe_sha256']
+                                    or any(projection[key] != section[key] for key in projection if key != 'date')):
+                                raise ValueError('daily input restored stock section differs')
+                    for key, expected in facts.items():
+                        if result[key] != expected:
+                            raise ValueError('daily input restored current facts differ')
+            if day not in {entry['date'] for entry in value['days']}:
+                raise ValueError('daily input restored facts day missing')
+        finally:
+            catalog.close()
+        return descriptor
+    catalog = prepare_directory(root, 'facts', 'catalog.json',
+        build_catalog, restore_catalog)
     template.update(cache=cache,
         universe=selected_universe, daily_facts=catalog, protected_slots=sorted(protected),
         authorized_from=inputs['cache_from'], authorized_to=day.replace('-', ''), connections=inputs['connections'])

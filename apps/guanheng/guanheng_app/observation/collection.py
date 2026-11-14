@@ -11,7 +11,7 @@ from .disclosures import gov10y,repo_fixing
 from .supplemental import northbound,marketcap_gdp,rebase_gdp_dependencies,fund_allocation,pbc_bank
 from .refresh_models import merge,market_models,spread_and_bond,attach_sse_reference,source_window,source_observation_dates
 from .daily_context import attach_daily_context
-from .calendars import admit_calendars
+from .calendars import admit_calendars, closed_day_cutoff, last_open_day, official_calendar
 from .metadata import asset_contract,computation_identity
 from .publication import validate_manifest,VALIDATION_CONTRACT
 from .asset_index import compact_assets
@@ -34,6 +34,9 @@ from .nfra_source import history as nfra_history
 from . import legulegu_gdp
 from . import institution_reports, bond_mtm, shareholder_source
 from . import market_structure, market_structure_source
+from . import etf_flow
+from .collection_config import WT_DERIVED
+from .data_repair import WT_SOURCES
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,
@@ -43,7 +46,8 @@ PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbo
 
 
 def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=None,cancelled=None,
-            fetcher_factory=Fetcher,market_client_factory=None,structure_history_start=None):
+            fetcher_factory=Fetcher,market_client_factory=None,structure_history_start=None,repair_history_start=None,
+            repair_history_end=None):
     """采集lease持有整个批次；CAS、窗口及成功回执由原目录一次提交。
 
     调用者提供原绝对D与已准入配置。外部SDK在独立受管进程内运行；
@@ -56,6 +60,15 @@ def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=N
                 or not market_structure_source.FIRST_DAY<=structure_history_start<=as_of
                 or date.fromisoformat(structure_history_start).isoformat()!=structure_history_start):
             raise ObservationError('invalid_structure_backfill','市场结构补历史需要显式来源与有效起始日',422)
+    if repair_history_start is not None:
+        eligible={source['id'] for source in config['sources'] if source['kind'] in WT_SOURCES}
+        if (window_key or not source_ids or set(source_ids)-eligible or structure_history_start is not None
+                or repair_history_start>as_of or date.fromisoformat(repair_history_start).isoformat()!=repair_history_start):
+            raise ObservationError('invalid_data_repair_range','补齐历史需要已登记的 WT 来源和有效日期',422)
+    if repair_history_end is not None and (repair_history_start is None
+            or not repair_history_start<=repair_history_end<=as_of
+            or date.fromisoformat(repair_history_end).isoformat()!=repair_history_end):
+        raise ObservationError('invalid_data_repair_range','补齐历史窗口结束日期无效',422)
     CollectionBudget(deadline,cancelled=cancelled).remaining()
     deadline=min(deadline,monotonic()+config.get('budget',{}).get('seconds',600))
     with reader.repository.collection_lease() as acquired:
@@ -77,11 +90,12 @@ def refresh(reader,config,*,as_of,deadline,source_ids=None,window_key=None,now=N
         return _refresh(reader,config,as_of=as_of,deadline=deadline,source_ids=source_ids,
             window_key=window_key,attempt=attempt,cancelled=cancelled,now=now,
             fetcher_factory=fetcher_factory,market_client_factory=market_client_factory,
-            structure_history_start=structure_history_start)
+            structure_history_start=structure_history_start,repair_history_start=repair_history_start,
+            repair_history_end=repair_history_end)
 
 
 def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancelled,fetcher_factory,market_client_factory,
-             now=None,structure_history_start=None):
+             now=None,structure_history_start=None,repair_history_start=None,repair_history_end=None):
     from .schedule_policy import source_as_of,local_now
     # 计划补跑使用原窗口时点；手动历史刷新保留显式日期，当日刷新使用真实时钟。
     observed_now=local_now(now if now is not None else datetime.now(timezone.utc))
@@ -133,20 +147,52 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             effective=source_as_of(source,as_of,config,policy_clock,check=budget.remaining)
             last=max(observed+existing) if observed or existing else effective
             start,end=source_window(last,effective,source,config)
+            if repair_history_start is not None:
+                start=min(start,repair_history_start)
+                if source['kind']=='wt_breadth':
+                    start=repair_history_start
+                    end=min(effective,(date.fromisoformat(start)+timedelta(days=config['max_days_per_batch']-1)).isoformat())
+                if source['kind']=='wt_t2108':
+                    # 每批只检查一个缺日，避免把尚未读取的股池日期标成已查。
+                    start=end=repair_history_start
+            if source['kind'] in (*etf_flow.ETF_KINDS,*WT_DERIVED):
+                calendar=config['models']['calendars']['cn']
+                latest=(date.fromisoformat(effective)-timedelta(days=source['overlap_days'])).isoformat()
+                start=max(repair_history_start or latest,source['history_from'],calendar['coverage_start'])
+                end=min(effective,(date.fromisoformat(start)+timedelta(days=config['max_days_per_batch']-1)).isoformat())
             if source['kind']=='wondertrader':
                 # 完整重取原表覆盖范围；所有量窗口改用同一A来源，不混用旧供应商量。
-                start=min(existing) if existing else start;end=effective
-            if source['kind'] in (market_structure_source.CSI_KIND,market_structure_source.STOCK_KIND):
+                start=min(existing+[start]) if repair_history_start is not None else min(existing) if existing else start
+                end=effective
+            if source['kind'] in (market_structure_source.CSI_KIND,market_structure_source.STOCK_KIND,
+                                  market_structure_source.WT_STOCK_KIND):
                 calendar=config['models']['calendars']['cn']
-                start=structure_history_start or max(start if existing else source['history_from'],
+                start=structure_history_start or max(repair_history_start or (start if existing else source['history_from']),
                     calendar['coverage_start'],source['history_from'])
                 if structure_history_start is not None:
                     effective=min(effective,as_of)
                 end=min(effective,(date.fromisoformat(start)+timedelta(days=config['max_days_per_batch']-1)).isoformat())
+            if source['kind']==market_structure_source.WT_INDEX_KIND:
+                calendar=config['models']['calendars']['cn']
+                floor=max(calendar['coverage_start'],source['history_from'])
+                sessions,_=official_calendar(calendar,check=budget.remaining)
+                index_days=[row['date'] for row in sessions if row['is_open'] and floor<=row['date']<=effective]
+                # 日更从有效日回查。历史缺口由补齐任务的窗口游标推进。
+                start=max(floor,repair_history_start or
+                          (date.fromisoformat(effective)-timedelta(days=source['overlap_days'])).isoformat())
+                end=min(effective,(date.fromisoformat(start)+timedelta(days=config['max_days_per_batch']-1)).isoformat())
+            if repair_history_end is not None:
+                end=min(end,repair_history_end)
             # effective_as_of是本来源截止日；requested_end仍可受既有分批上限约束。
             receipt.update(requested_start=start,requested_end=end,
                 effective_as_of=effective,  # YYYY-MM-DD：本来源按窗口时点及所选日历得到的有效查询截止。
                 date_policy=source.get('date_policy','legacy'))  # 本来源日期口径；legacy表示沿调用者原as_of。
+            if source['kind'] in (market_structure_source.WT_INDEX_KIND,market_structure_source.WT_STOCK_KIND,
+                                  *etf_flow.ETF_KINDS,*WT_DERIVED,'wt_breadth','wt_t2108'):
+                calendar=config['models']['calendars']['cn']
+                producer_day=last_open_day(calendar,closed_day_cutoff(observed_now),check=budget.remaining)
+                prior_day=last_open_day(calendar,(observed_now.date()-timedelta(days=1)).isoformat(),check=budget.remaining)
+                versions=sorted({producer_day,prior_day,effective},reverse=True)
             if source['kind']=='wondertrader':
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=market_history(fetch,source,start,end,market_client_factory)
@@ -154,6 +200,14 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 stock_rows=tables.get(market_structure_source.STOCK_TABLE,[])
                 updates=market_structure_source.history(fetch,source,start,end,calendar,
                     existing={r['date'] for r in stock_rows if r['sample_count'] is not None})
+            elif source['kind']==market_structure_source.WT_STOCK_KIND:
+                if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                updates=market_structure_source.wt_stock_history(fetch,start,end,calendar,market_client_factory,
+                                                                  snapshot_dates=versions)
+            elif source['kind']==market_structure_source.WT_INDEX_KIND:
+                if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                updates=market_structure_source.wt_index_history(fetch,start,end,calendar,market_client_factory,
+                                                                  snapshot_dates=versions)
             elif source['kind']=='ashare_public':
                 # 同批成功Baostock的原字符串表已归档；公开全A组合沿同一原件继续，减少重复网络取数。
                 admitted=[]
@@ -168,11 +222,19 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             elif source['kind']=='wt_breadth':
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=wt_breadth_history(fetch,source,start,end,market_client_factory,
-                    calendar=config['models'].get('calendars',{}).get('cn'),snapshot_date=effective)
+                    calendar=calendar,snapshot_dates=versions)
+            elif source['kind'] in etf_flow.ETF_KINDS:
+                if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                updates=etf_flow.history(fetch,source,start,end,market_client_factory,
+                                         calendar=calendar,snapshot_dates=versions)
+            elif source['kind'] in WT_DERIVED:
+                if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                updates=WT_DERIVED[source['kind']].history(fetch,start,end,market_client_factory,
+                                                           calendar=calendar,snapshot_dates=versions)
             elif source['kind']=='wt_t2108':
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=wt_t2108_history(fetch,source,start,end,market_client_factory,
-                    calendar=config['models'].get('calendars',{}).get('cn'))
+                    calendar=calendar,snapshot_dates=versions)
             elif source['kind']=='shareholder_changes':
                 key=shareholder_source.METRIC
                 if key not in datasets:raise SourceFailure('shareholder_archive_required')
@@ -193,6 +255,22 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                     old=t2108_models.versioned_history(old,definitions[key]['definition_version'])
                 if key in BREADTH_METRICS:
                     prepared_definitions[key]=admit_definition(key,definitions.get(key),old,rows)
+                if source['kind'] in WT_DERIVED:
+                    derived=WT_DERIVED[source['kind']]
+                    prepared_definitions[key]=derived.definition()
+                    prior={row['date']:row for row in old if derived.row_complete(row)}
+                    rows=[row if derived.row_complete(row) else prior.get(row['date'],row) for row in rows]
+                if source['kind'] in etf_flow.ETF_KINDS:
+                    if source['kind']==etf_flow.CAP_KIND:
+                        prepared_definitions[key]=etf_flow.cap_definition()
+                    else:
+                        symbol=next(symbol for symbol in source['symbols'] if etf_flow.metric(symbol)==key)
+                        prepared_definitions[key]=etf_flow.definition(symbol)
+                    field=prepared_definitions[key]['primary_field']
+                    # 每行估算及其输入来自同一WT版本；缺口保留上一整行有效估算。
+                    by_date={row['date']:row for row in old}
+                    rows=[by_date[row['date']] if row[field] is None and
+                          by_date.get(row['date'],{}).get(field) is not None else row for row in rows]
                 if source.get('replace_tables'):
                     if not is_table:
                         raise SourceFailure('market_existing_coverage_missing')
@@ -216,16 +294,47 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 else:datasets[key]=rows
             incomplete=source['kind']==market_structure_source.STOCK_KIND and any(
                 item.get('diagnostic_code') for item in fetch.records)
+            etf_incomplete=False
+            if source['kind'] in etf_flow.ETF_KINDS:
+                etf_field='ratio' if source['kind']==etf_flow.CAP_KIND else 'flow'
+                sessions,_=official_calendar(calendar,check=budget.remaining)
+                expected={row['date'] for row in sessions if row['is_open'] and start<=row['date']<=end}
+                etf_incomplete=any(expected-{row['date'] for row in updates.get(key,())
+                    if (etf_flow.cap_row_complete(row) if source['kind']==etf_flow.CAP_KIND else row[etf_field] is not None)}
+                                   for key in source['datasets'])
             def observed_dates(items):
                 return [row['date'] for rows in items for row in rows
-                        if source['kind']!=market_structure_source.STOCK_KIND or row['sample_count'] is not None]
-            receipt.update(status='partial' if incomplete else 'checked_disclosure' if source['kind']=='disclosure' else 'success' if count else 'no_new_observations',
+                        if (source['kind']!=market_structure_source.STOCK_KIND or row['sample_count'] is not None)
+                        and (source['kind'] not in etf_flow.ETF_KINDS or row[etf_field] is not None)]
+            receipt.update(status='partial' if incomplete or etf_incomplete else 'checked_disclosure' if source['kind']=='disclosure' else 'success' if count else 'no_new_observations',
                 observations=count,revisions=revisions,source_manifest=raw_manifest,
                 latest_period=max(observed_dates(updates.values()),default=None),
                 loaded_period=max(source_observation_dates(datasets,definitions,source.get('datasets',[]))+
                     observed_dates(tables.get(key,[]) for key in source.get('tables',[])),
                     default=None if source['kind']==market_structure_source.STOCK_KIND else last))
             if incomplete:receipt['error_code']='market_structure_stock_partial'
+            if etf_incomplete:receipt['error_code']='wt_history_incomplete'
+            if source['kind'] in WT_DERIVED:
+                derived=WT_DERIVED[source['kind']]
+                rows=updates.get(derived.METRIC,())
+                receipt.update(latest_period=max((row['date'] for row in rows if derived.row_complete(row)),default=None),
+                               loaded_period=max((row['date'] for row in datasets.get(derived.METRIC,())
+                                                   if derived.row_complete(row)),default=None))
+                if any(not derived.row_complete(row) for row in rows):
+                    receipt.update(status='partial',error_code='wt_history_incomplete')
+            if source['kind']==market_structure_source.WT_STOCK_KIND:
+                sessions,_=official_calendar(calendar,check=budget.remaining)
+                expected={row['date'] for row in sessions if row['is_open'] and start<=row['date']<=end}
+                if expected-{row['date'] for row in updates[market_structure_source.STOCK_TABLE]}:
+                    receipt.update(status='partial',error_code='wt_history_incomplete')
+            if source['kind']==market_structure_source.WT_INDEX_KIND:
+                received=set.intersection(*({row['date'] for row in updates[key]
+                    if market_structure_source.index_row_complete(key,row)} for key in source['tables']))
+                loaded=set.intersection(*({row['date'] for row in tables[key]
+                    if market_structure_source.index_row_complete(key,row)} for key in source['tables']))
+                receipt.update(latest_period=max(received,default=None),loaded_period=max(loaded,default=None))
+                if any(start<=day<=end and day not in loaded for day in index_days):
+                    receipt.update(status='partial',error_code='wt_history_incomplete')
             # 表ID→ISO交易日：原参考表已接纳、本次原生日线未返回而继续保留的日期。
             # 字段缺省表示无需保留；不将旧观察重标成本次新采集。
             if retained_dates:receipt['retained_dates']=retained_dates
@@ -269,6 +378,15 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             finalization.remaining();definition=definitions[key]
             relevant=[r for r in receipts if any(s['id']==r['source_id'] and key in s.get('datasets',[])+s.get('derived_metrics',[])+s.get('tables',[]) for s in config['sources'])]
             if relevant:definition['freshness']=dict(last_checked_at=run['completed_at'],source_results=relevant,loaded_end=rows[-1]['date'] if rows else None)
+            if definition['board'] in (etf_flow.BOARD,etf_flow.CAP_BOARD):
+                available=[row['date'] for row in rows if row[definition['primary_field']] is not None]
+                definition['primary_coverage']=dict(start=min(available,default=None),end=max(available,default=None),
+                                                    observations=len(available))
+            for derived in WT_DERIVED.values():
+                if key == derived.METRIC:
+                    available=[row['date'] for row in rows if derived.row_complete(row)]
+                    definition['primary_coverage']=dict(start=min(available,default=None),end=max(available,default=None),
+                                                        observations=len(available))
             if key==legulegu_gdp.METRIC:legulegu_gdp.update_definition(definition,rows,relevant,run['completed_at'])
             if key in ('bond.custody','holdings_wealth','holdings_broker') and relevant and any(
                     source['kind'] in ('pbc_custody','wealth_allocation','citic_broker')
@@ -300,6 +418,12 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         executive_models.attach_boards(candidate,candidate['datasets'])
         t2108_models.attach_board(candidate)
         market_structure.attach_boards(candidate)
+        etf_flow.attach_board(candidate)
+        for derived in WT_DERIVED.values():
+            if derived.METRIC in candidate['datasets']:
+                if not any(board['id']==derived.METRIC for board in candidate['boards']):
+                    candidate['boards'].append(dict(id=derived.METRIC,label=derived.LABEL))
+                candidate['preferences']['default_datasets'][derived.METRIC]=derived.METRIC
         candidate['source_table_parents']=table_parents
         active_assets=set()  # 本轮真实生成/复用的抓取资产身份；同内容复用也保持本轮登记。
         for receipt in receipts:

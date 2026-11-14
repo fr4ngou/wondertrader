@@ -17,6 +17,7 @@ export interface Definition {
 }
 export interface Catalog {
   snapshot_id: string; published_at: string;
+  recent_events?: Record<string, {state: 'complete' | 'incomplete'; events: {date: string; label: string}[]}>;
   boards: { id: string; label: string }[];
   datasets: { id: string; board: string; label: string; source?: string; frequency: string; dataset_version: string; coverage: Definition['coverage']; default_preset?: 'all' }[];
   preferences: { default_board: string; default_datasets: Record<string, string> };
@@ -24,3 +25,37 @@ export interface Catalog {
 export interface Series { snapshot_id: string; dataset_version: string; definition: Definition; rows: Row[]; total: number; next_cursor: string | null }
 export interface History { coverage: Definition['coverage']; points: { date: string; value: number | null }[]; aggregation: string; raw_count: number }
 export type Range = { start: string; end: string }
+export type DataRepair = {
+  /** 同一轮补齐在重新连接后保持的身份。 */
+  id: string
+  /** 调度器记录的当前阶段。 */
+  state: 'queued' | 'running' | 'complete' | 'partial' | 'failed'
+  /** 无法启动整轮时的原因码。 */
+  reason?: string
+  /** 已提交到 WT 数据进程的补齐请求。 */
+  wt_request?: { /** 按来源核定的闭合目标日。 */ dates: string[] }
+  /** WT 原日更的业务确认。 */
+  wt_receipt?: { /** 运行、发布或失败阶段。 */ state: 'running' | 'published' | 'failed' }
+  /** 本轮实际核对的来源状态。 */
+  items: {
+    /** 现有来源登记 ID。 */
+    source_id: string
+    /** 逐项核对与补齐阶段。 */
+    state: 'pending' | 'checking' | 'repairing' | 'complete' | 'missing' | 'waiting_for_wt' | 'waiting_for_wt_repair'
+    /** 在已核覆盖范围内仍缺的交易日数。 */
+    missing_count: number | null
+    /** 仍有缺口的输入表或指标，沿实际覆盖检查。 */
+    inputs?: {
+      /** 源表或指标的登记身份。 */
+      id: string
+      /** 此输入缺失的交易日数。 */
+      missing_count: number
+      /** 最早缺失交易日。 */
+      first_missing: string
+      /** 最晚缺失交易日。 */
+      last_missing: string
+    }[]
+    /** 仍有缺口时的原因码。 */
+    reason: string | null
+  }[]
+}
