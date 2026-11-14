@@ -39,6 +39,7 @@
 - **策略状态接续**　23:17 正式 WT 采用 `677827d8`。两套策略的业务状态、资金、持仓与目标与停机前逐项一致，行情和观衡策略读取就绪，交易写入关闭。受控安装收据在 `strategy-decision-8e08701b/ACCEPTANCE.json`，开盘基线在 D 盘的 `NEXT-NATURAL-SESSION-BASELINE-49a1a4d7.json`。提交前后强制退出的结果见[策略决策与重启](../migration/wt-private-persistence-migration.md#策略决策与重启)。
 - **原生状态按变化保存**　11 月 15 日 01:52 正式 WT 采用 `16d7851b` 并启用 `on_change`。两个策略、行情、观衡及停机前后对账均通过，交易写入关闭。受控收据为 `native-state-save-16d7851b/ACCEPTANCE.json` 和 `IDLE-IO.json`。回退及采样范围见[迁移记录](../migration/wt-private-persistence-migration.md#通用原生状态按变化保存的修改范围)。
 - **分账批次耗时**　11 月 15 日 02:16 正式 WT 采用 `fbc09696`，标签 `deploy/wt-broker-batch-diagnostics-20261115-001`。保留 `on_change` 与既有不下单模式。原生已接账并收到行情，分账停机副本和新代双向对账，观衡逐策略读回就绪。已保存最新代开盘前基线。分账日志覆盖带行的查询批次，记录本地收件与投影耗时。隔离回报标本已读回，休市窗口无批次，开盘实测沿原日志汇总。上线与取样材料分别在受控发行和 D 盘验收的 `broker-batch-diagnostics-fbc09696` 目录。
+- **高精度分账计时**　11 月 15 日 02:37 正式 WT 采用 `ab4fcc9a`，标签 `deploy/wt-allocation-timing-20261115-001`。部署解释器原计时实测粒度约 15 毫秒，改用高精度计数器记录收件和投影耗时，业务截止继续用原时钟。D 盘正式停机账本副本在三个独立进程回放，每代 32 行成交和 51 行委托，六批本地耗时 4.612–5.344 毫秒，九张账本表逐行一致。487 项软件回归和 8 个券商替身场景通过。正式进程收到行情，观衡两套策略读回就绪，原分账与停机副本对账一致，交易写入关闭。受控发行和 D 盘验收目录为 `allocation-timing-clock-ab4fcc9a`，开盘验收使用该目录内的最新基线。
 - **自然交易窗口**　11 月 16 日开盘后，从当前 WT 原生报告和观衡详情逐只核对原策略本轮决策、七只版实际消费的决策日与适用日、买卖判断、目标和实际持仓。开盘前两端目标与持仓已一致，七只版正式数据只读重放七只均合格且无买卖信号。自然计算继续待验。
 
 以上后继材料见受控目录 `wt-minute-callback-release-20261114-001`、`wt-history-startup-diagnostics-20261114-001` 及 `wt-consumed-signal-release-20261113-001/WT-STABILITY-REQUIREMENT-CROSSCHECK.json`。
