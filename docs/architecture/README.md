@@ -60,3 +60,4 @@
 
 - [ADR-0026 日线HPR通信代接续](adr/0026-daily-hpr-transport-generations.md)：原补齐计划、旧槽和新通信代分别持有身份。
 - [ADR-0027 日线批读通信代接续](adr/0027-daily-batch-transport-generations.md)：原批读SDK保持，数据owner显式选择跨同业务来源的通信代接续。
+- [ADR-0030 WT 私有持久化](adr/0030-wt-private-persistence.md)记录私有目录、策略扩展、提交与去重的归属。
