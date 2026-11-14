@@ -571,16 +571,22 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
     report_days = {metric: [(d,s) for d,m,s in cells if m==metric and d<day and _key(d,m,s) not in state['rows']]
                    for metric in report_readers}
 
-    def fill_buybacks():
+    attempted_buybacks = set()  # 同一轮已进入采集的单元，历史阶段不重复请求。
+
+    def fill_buybacks(*, current_only=False):
         from .market_buyback_disclosures import disclosure_window
         from .market_supplement_sources import _fact
 
         attempts = state.setdefault('buyback_attempts',{})
-        pending = [cell for cell in reversed(cells) if cell[1]==BUYBACK_EXECUTION and _key(*cell) not in state['rows']]
+        pending = [cell for cell in reversed(cells)
+                   if cell[1]==BUYBACK_EXECUTION and _key(*cell) not in state['rows']
+                   and _key(*cell) not in attempted_buybacks
+                   and (not current_only or cell[0]==day and _key(*cell) not in attempts)]
         pending.sort(key=lambda cell:(0 if _key(*cell) not in attempts else
                                       1 if attempts[_key(*cell)] in BUYBACK_BUDGET_GAPS else 2))
         for date_, metric, scope in pending:
             key = _key(date_, metric, scope)
+            attempted_buybacks.add(key)
             requested_keys.clear()
             requests_before = fetch.budget.requests
             try:
@@ -634,14 +640,17 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                 _save(state_path,state)
 
     historical=False
+    collect_buybacks = BUYBACK_EXECUTION in metrics and 'CNINFO' in plan['external_fallback']
     # 本轮最新份额、融资与市场成交先走原路径，旧日缺口只占剩余窗口。
     for d, metric, symbol in sorted(cells, key=lambda item: (-date.fromisoformat(item[0]).toordinal(), item[1], item[2])):
         key = _key(d, metric, symbol)
-        if d < day and not historical and any(report_days.values()):
+        if d < day and not historical and (collect_buybacks or any(report_days.values())):
             historical=True
             if current:
                 fill_index(current)
                 current=[]
+            if collect_buybacks:
+                fill_buybacks(current_only=True)
             for report_metric, pending in report_days.items():
                 if pending:
                     fill_report_history(report_metric, pending)
@@ -705,7 +714,7 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                 reasons[key] = error.code
                 if error.code in ('collection_stopped','collection_timeout','request_budget_exceeded','capture_budget_exceeded'):
                     break
-    if BUYBACK_EXECUTION in metrics and 'CNINFO' in plan['external_fallback']:
+    if collect_buybacks:
         fill_buybacks()
     catalog = dict(
         schema='guanheng.market-supplement-catalog.v1',  # 独立于股票八字段事实。

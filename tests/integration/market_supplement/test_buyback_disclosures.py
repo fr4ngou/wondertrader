@@ -404,3 +404,34 @@ def test_buyback_backfill_advances_when_latest_day_exhausts_budget(tmp_path, mon
     assert attempted == [latest, older, latest]
     assert [row['date'] for row in catalog['rows']] == [older]
     assert catalog['gaps'][0]['reason'] == reason
+
+
+def test_current_buyback_is_collected_before_etf_history(tmp_path, monkeypatch):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+    from integrations.guanheng.market_supplement_capture import collect_supplement
+    from msf_fixture import ContentStore, FrozenFetch, QmtTransport, plan
+
+    previous, latest = '2026-11-12', '2026-11-13'
+    calendar = ['2026-11-11', previous, latest]
+    objects = ContentStore(tmp_path / 'raw')
+    parent = objects.put(b'issuer evidence')
+    targets = plan(('buyback_execution_disclosed', 'CN.SH_SZ'),
+                   ('etf_total_shares', 'SSE.510300'), required=False)
+    targets.update(max_requests=3, external_fallback=['CNINFO', 'SSE'])
+    for target in targets['targets']:
+        target['from'] = previous
+    fetch = FrozenFetch()
+
+    def disclosure(days, *args):
+        day, = days
+        fetch.budget.request()
+        return {day: dict(amount=Decimal('10'), gap=None)}, [(parent, day+'T15:00:00+00:00')]
+
+    monkeypatch.setattr(buybacks, 'disclosure_window', disclosure)
+    result = collect_supplement(targets, latest, calendar, tmp_path / 'work', objects=objects,
+        fetch=fetch, qmt_transport=QmtTransport(), calendar_coverage=(calendar[0], latest),
+        deadline=time.monotonic()+20)
+    catalog = json.loads(Path(result['path']).read_bytes())
+    assert [(row['date'], row['metric']) for row in catalog['rows']] == [
+        (latest, 'buyback_execution_disclosed'), (latest, 'etf_total_shares')]
+    assert {row['date'] for row in catalog['gaps']} == {previous}
