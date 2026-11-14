@@ -896,6 +896,9 @@ def test_migrate_v2_and_reopen_with_concurrent_same_fill(tmp_path):
         db.execute('UPDATE asa_book SET value=?,sha256=? WHERE id=1', (raw, digest(raw)))
         db.execute("UPDATE asa_identity SET value=replace(value, 'asa-book.v3', 'asa-book.v2')")
         db.execute('DROP TABLE asa_source_proof')
+        db.execute('DROP TRIGGER asa_fill_strategy_insert')
+        db.execute('DROP TRIGGER asa_fill_strategy_fee')
+        db.execute('DROP TABLE asa_fill_strategy')
         db.execute('DROP TABLE asa_record')
 
     reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
@@ -982,6 +985,39 @@ def _assert_broker_crash_replay(tmp_path, identity, event_id, raw, before, comma
     assert after.reserved_cash_cny == before.reserved_cash_cny - D('40')
     assert after.pending_groups == before.pending_groups
     assert successor.lookup_prepared(command.wt_order_id, deadline=deadline()) == command
+
+
+def test_strategy_observation_seeks_fill_index_after_migration(tmp_path):
+    store, identity = book(tmp_path)
+    _, _, command = prepare(store, 11000, 3000, 4000)
+    first = fill(command, 20, fee=None)
+    assert store.apply_fill(first, deadline=deadline())
+    with closing(sqlite3.connect(store.path)) as db, db:
+        db.execute('DROP TRIGGER asa_fill_strategy_insert')
+        db.execute('DROP TRIGGER asa_fill_strategy_fee')
+        db.execute('DROP TABLE asa_fill_strategy')
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None, require_existing=True, wal=True)
+    try:
+        assert reopened.view('old', deadline=deadline()).positions[0].quantity == 10020
+        migrated = reopened.strategy_observation('old', deadline=deadline())
+        assert [row.fill_id for row in migrated.fills] == [first.fill_id]
+        assert migrated.strategy.unknown_fee_count == 1
+        assert reopened.strategy_observation('new', deadline=deadline()).fills == ()
+        second = fill(command, 10, fee='0')
+        assert reopened.apply_fill(second, deadline=deadline())
+        reopened.apply_fee(FeeFact(uid(), first.fill_id, D('1'), SHA), deadline=deadline())
+        current = reopened.strategy_observation('old', deadline=deadline())
+        assert current.strategy.unknown_fee_count == 0
+        observed = current.fills
+        assert {row.fill_id for row in observed} == {first.fill_id, second.fill_id}
+        assert next(row for row in observed if row.fill_id == first.fill_id).fee_cny == D('1')
+        with closing(sqlite3.connect(store.path)) as db:
+            plan = db.execute('EXPLAIN QUERY PLAN SELECT fill_id FROM asa_fill_strategy '
+                              'WHERE strategy_id=? ORDER BY fill_id DESC LIMIT 2001', ('old',)).fetchall()
+            assert any('USING PRIMARY KEY (strategy_id=?)' in row[3] for row in plan)
+            assert db.execute('SELECT count(*) FROM asa_fill_strategy').fetchone()[0] == 2
+    finally:
+        assert reopened.close(deadline())
 
 
 def test_replay_lookup_seeks_the_original_order_index(tmp_path, monkeypatch):

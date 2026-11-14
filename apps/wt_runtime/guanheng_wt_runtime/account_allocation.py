@@ -19,7 +19,7 @@ from time import monotonic
 from uuid import UUID
 
 from .allocation_records import (KINDS, Records, broker_receipt_key, decode, digest,
-                                 ensure_broker_receipt_index, save_proof, schema)
+                                 ensure_broker_receipt_index, ensure_fill_strategy_index, save_proof, schema)
 from .thread_owner import ThreadOwner
 
 
@@ -455,6 +455,8 @@ class AccountAllocation:
             changes_before = db.total_changes
             db.execute('BEGIN IMMEDIATE')
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
+            has_fill_strategy_index = 'asa_fill_strategy' in tables
+            tables.discard('asa_fill_strategy')
             original_tables = {'asa_identity', 'asa_book', 'asa_events', 'asa_inbox', 'asa_conflicts'}
             current_tables = original_tables | {'asa_record', 'asa_source_proof'}
             _need(tables in (original_tables, current_tables) or (not tables and not self._require_existing),
@@ -479,6 +481,13 @@ class AccountAllocation:
             else:
                 _need(tables == current_tables, 'storage_invalid')
             ensure_broker_receipt_index(db)
+            if not has_fill_strategy_index:
+                ensure_fill_strategy_index(db)
+            else:
+                _need(db.execute("SELECT count(*) FROM sqlite_master WHERE type='trigger' "
+                                 "AND name IN ('asa_fill_strategy_insert','asa_fill_strategy_fee') "
+                                 "AND tbl_name='asa_record'").fetchone()[0] == 2,
+                      'storage_invalid')
             rejection = None
             try:
                 yield db
@@ -1479,7 +1488,8 @@ class AccountAllocation:
     def _strategy_view(state, strategy_id, revision):
         _need(strategy_id in state['strategies'], 'strategy_unknown')
         strategy = state['strategies'][strategy_id]; cash, sells = AccountAllocation._reserves(state)
-        unknown = sum(fill['fee'] is None and any(a['strategy'] == strategy_id for a in fill['allocations']) for _, fill in state['fills'].items(active_only=True))
+        unknown = state['fills'].db.execute('SELECT count(*) FROM asa_fill_strategy '
+            'WHERE strategy_id=? AND fee_pending=1', (strategy_id,)).fetchone()[0]
         reserved = cash[strategy_id]
         positions = tuple(PositionView(symbol, position['quantity'], position['sellable']-sells.get((strategy_id, symbol), 0),
                                        sells.get((strategy_id, symbol), 0)) for symbol, position in sorted(strategy['positions'].items()))
@@ -1532,10 +1542,8 @@ class AccountAllocation:
             snapshot = self._strategy_observation(state, strategy_id, revision)
             allocated = []
             identities = db.execute("""
-                SELECT id FROM asa_record WHERE kind='fills' AND EXISTS (
-                    SELECT 1 FROM json_each(asa_record.payload, '$.allocations')
-                    WHERE json_extract(value, '$.strategy')=?
-                ) ORDER BY id DESC LIMIT 2001
+                SELECT fill_id FROM asa_fill_strategy
+                WHERE strategy_id=? ORDER BY fill_id DESC LIMIT 2001
                 """, (strategy_id,)).fetchall()
             for (identity,) in reversed(identities[:2000]):
                 fill = state['fills'][identity]

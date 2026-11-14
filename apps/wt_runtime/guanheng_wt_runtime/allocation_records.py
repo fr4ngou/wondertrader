@@ -42,6 +42,30 @@ def ensure_broker_receipt_index(db):
         db.execute('CREATE UNIQUE INDEX asa_inbox_receipt ON asa_inbox(receipt_key) WHERE receipt_key IS NOT NULL')
 
 
+def ensure_fill_strategy_index(db):
+    """在原账事务内从成交事实重建一次归属索引，后续随原行同步。"""
+    db.execute("""CREATE TABLE asa_fill_strategy (
+        strategy_id TEXT NOT NULL, fill_id TEXT NOT NULL, fee_pending INTEGER NOT NULL,
+        PRIMARY KEY(strategy_id, fill_id)
+    ) WITHOUT ROWID""")
+    db.execute("""INSERT INTO asa_fill_strategy
+        SELECT DISTINCT json_extract(part.value, '$.strategy'), record.id, record.active
+        FROM asa_record AS record, json_each(record.payload, '$.allocations') AS part
+        WHERE record.kind='fills'""")
+    db.execute("""CREATE TRIGGER asa_fill_strategy_insert AFTER INSERT ON asa_record
+        WHEN NEW.kind='fills' BEGIN
+        INSERT INTO asa_fill_strategy
+        SELECT DISTINCT json_extract(value, '$.strategy'), NEW.id, NEW.active
+        FROM json_each(NEW.payload, '$.allocations');
+        END""")
+    db.execute('CREATE INDEX asa_fill_strategy_pending ON asa_fill_strategy(strategy_id) WHERE fee_pending=1')
+    db.execute('CREATE INDEX asa_fill_strategy_by_fill ON asa_fill_strategy(fill_id)')
+    db.execute("""CREATE TRIGGER asa_fill_strategy_fee AFTER UPDATE OF active ON asa_record
+        WHEN NEW.kind='fills' AND NEW.active<>OLD.active BEGIN
+        UPDATE asa_fill_strategy SET fee_pending=NEW.active WHERE fill_id=NEW.id;
+        END""")
+
+
 def broker_receipt_key(kind, payload, wire):
     """以柜台业务状态去重，保留不同来源类型、经济变化和原始证据。"""
     identity = payload.get('trade_id' if kind == '8' else 'order_id')
