@@ -7,6 +7,7 @@ from .providers import SourceFailure
 from .weekly import continue_weekly
 from .pcr_context import attach_pcr_context
 from .calendars import comparison_calendars
+from .wt_shenwan_source import combined_rows as shenwan_rows
 
 def merge(old, new, *, tenor=False):
     def key(r): return (r['date'],r['tenor_years']) if tenor else r['date']
@@ -110,7 +111,8 @@ def market_models(tables, datasets, definitions, config,as_of):
                 repair.append(max(0,(h5-a5)/(sd*math.sqrt(5)))*q*int(a[i]<statistics.mean(a[i-20:i])) if sd>1e-10 and q is not None else None)
             old={r['date']:r for r in datasets['system_c.research']}; smoothed=ema(pressure,5); repaired=ema(repair,5)
             broad={r['date']:r.get('a_all_volume_field') for r in old.values()}
-            broad.update({r['date']:r.get('bargainamount') for r in tables.get('source.shenwan',[])})
+            broad.update({r['date']:r['bargainamount'] for r in shenwan_rows(tables)
+                          if r.get('bargainamount') is not None})
             activities=[]
             for i,day in enumerate(system_dates):
                 previous=[broad.get(d) for d in system_dates[max(0,i-20):i]]
@@ -131,10 +133,11 @@ def spread_and_bond(tables,datasets,config):
     for day,row in spread.items():
         if day in yields and row.get('pe') and row['pe']>0:
             row.update(gov10y_pct=yields[day],ey_pct=100/row['pe'],spread=100/row['pe']-yields[day])
-    for row in tables.get('source.shenwan',[]):
+    for row in shenwan_rows(tables):
         day=row['date']; pe=row['pe']; y=yields.get(day,spread.get(day,{}).get('gov10y_pct'))
-        weighted[day]=dict(date=day,weighted_pb=row['weighted_pb'],reference=row['reference'],sse_reference=None,available_at=None)
-        if pe and y is not None:
+        if row['weighted_pb'] is not None and row['reference'] is not None:
+            weighted[day]=dict(date=day,weighted_pb=row['weighted_pb'],reference=row['reference'],sse_reference=None,available_at=None)
+        if pe and y is not None and row['reference'] is not None:
             spread[day]=dict(date=day,pe=pe,ey_pct=100/pe,gov10y_pct=y,spread=100/pe-y,reference=row['reference'],sse_reference=None,available_at=None)
     if 'spread_sw' in datasets:datasets['spread_sw']=sorted(spread.values(),key=lambda r:r['date'])
     if 'pb_sw_daily' in datasets:datasets['pb_sw_daily']=sorted(weighted.values(),key=lambda r:r['date'])

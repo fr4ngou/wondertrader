@@ -14,7 +14,7 @@ import zlib
 
 from ..guanheng_market_client.supplement_facts import (
     CSI300_INDEX, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS, MARGIN_PURCHASE, MARGIN_REPORT,
-    MARGIN_SUMMARY_FIELDS, SH_SZ_SCOPE, SIGNED_MARGIN_SUMMARY, SMALL_CAP_INDEX,
+    MARGIN_SUMMARY_FIELDS, SHENWAN_FIELDS, SH_SZ_SCOPE, SIGNED_MARGIN_SUMMARY, SIGNED_REPORT_METRICS, SMALL_CAP_INDEX,
 )
 
 class SourceUnavailable(RuntimeError):
@@ -452,6 +452,56 @@ def gov10y_history(first, last, get):
         raise SourceUnavailable(error.code) from None
     return {day: _fact(value, 'pct', 'ChinaBond', [(receipt['sha256'], receipt['received_at'])])
             for day, value in values.items()}
+
+
+def shenwan_history(first, last, get):
+    """沿原公开日报批取申万 A 指 801003，并为每个定日字段保留原页。"""
+    url = 'https://www.swsresearch.com/institute-sw/api/index_analysis/index_analysis_report/'
+    referer = 'https://www.swsresearch.com/'
+    facts, invalid, seen = {}, {}, set()
+    expected_total = None
+    for page in range(1, 16):
+        params = dict(page=page, page_size=1000, index_type='市场表征', start_date=first, end_date=last,
+                      type='DAY', swindexcode='all')
+        packet, parent, received = _read(get, url, params, referer)
+        data = packet.get('data') if type(packet) is dict and packet.get('code') in ('200', 200) else None
+        if type(data) is not dict or type(data.get('results')) is not list:
+            _fail('source_schema_invalid')
+        total = _integer(data.get('count'), 15000)
+        if expected_total is None:
+            expected_total = total
+        offset = (page - 1) * 1000
+        if total != expected_total or len(data['results']) != min(1000, total - offset):
+            _fail('source_pagination_incomplete')
+        for row in data['results']:
+            if type(row) is not dict or 'swindexcode' not in row:
+                _fail('source_schema_invalid')
+            if str(row['swindexcode']) != '801003':
+                continue
+            try:
+                day = datetime.fromisoformat(row['bargaindate']).date().isoformat()
+            except (KeyError, TypeError, ValueError):
+                _fail('source_date_mismatch')
+            if not first <= day <= last:
+                _fail('source_date_mismatch')
+            if day in seen:
+                _fail('source_duplicate_record')
+            seen.add(day)
+            for metric, (_, column, unit) in SHENWAN_FIELDS.items():
+                if row.get(column) in (None, '', '--', '-'):
+                    invalid[day, metric] = 'source_record_missing'
+                    continue
+                signed = metric in SIGNED_REPORT_METRICS
+                try:
+                    amount = _number(row[column], signed=signed)
+                    if metric == 'shenwan_market_close' and amount <= 0:
+                        _fail('source_value_invalid')
+                    facts[day, metric] = _fact(amount, unit, 'Shenwan', [(parent, received)], signed=signed)
+                except SourceUnavailable as error:
+                    invalid[day, metric] = error.code
+        if total <= offset + 1000:
+            return facts, invalid
+    _fail('source_pagination_incomplete')
 
 
 def margin_purchase_history(first, last, get):

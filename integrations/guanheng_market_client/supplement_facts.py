@@ -29,6 +29,15 @@ SHAREHOLDER_REDUCTION = 'shareholder_reduction_gross'
 BUYBACK_EXECUTION = 'buyback_execution_disclosed'
 GOV10Y_YIELD = 'government_bond_10y_yield'
 GOV10Y_SCOPE = 'CN.GOV10Y'
+SHENWAN_SCOPE = 'SW.801003'
+SHENWAN_FIELDS = {
+    'shenwan_market_pe': ('pe', 'pe', 'multiple'),  # 表示市盈率倍数，保留有符号原值。
+    'shenwan_market_pb': ('weighted_pb', 'pb', 'multiple'),  # 申万市场表征日表市净率，倍。
+    'shenwan_market_close': ('reference', 'closeindex', 'point'),  # 申万 A 指收盘指数点。
+    'shenwan_market_amount': ('bargainamount', 'bargainamount', 'unknown'),  # 保留原成交额数字，单位待核。
+    'shenwan_market_turnover': ('turnoverrate', 'turnoverrate', 'pct'),  # 原换手率百分数。
+}
+SIGNED_REPORT_METRICS = (SIGNED_MARGIN_SUMMARY, 'shenwan_market_pe', 'shenwan_market_pb')
 SH_SZ_SCOPE = 'CN.SH_SZ'
 LEGACY_METRICS = ('etf_total_shares', 'margin_balance', 'market_turnover', 'market_turnover_proxy')
 INDEX_SCOPES = {
@@ -36,18 +45,19 @@ INDEX_SCOPES = {
     INDEX_FREE_FLOAT_CAP: (CSI300_INDEX, 'CSI'),
 }
 METRICS = LEGACY_METRICS + tuple(INDEX_SCOPES) + (
-    MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, BUYBACK_EXECUTION, GOV10Y_YIELD, *MARGIN_SUMMARY_FIELDS,
+    MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, BUYBACK_EXECUTION, GOV10Y_YIELD,
+    *MARGIN_SUMMARY_FIELDS, *SHENWAN_FIELDS,
 )
 MAX_CELLS = 60000
 MAX_CATALOG_BYTES = 32 * 1024 * 1024
-SOURCES = ('QMT', 'SSE', 'SZSE', 'SSE+SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO', 'ChinaBond')
+SOURCES = ('QMT', 'SSE', 'SZSE', 'SSE+SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO', 'ChinaBond', 'Shenwan')
 # 以下字段是MSF03的公开模型，原单位和来源时间逐项保留。
 ROW_FIELDS = (
     'date',  # 原事实交易日期，ISO日历日，不表示该日开盘已知。
     'symbol',  # ETF或指数的WT标识，或市场报表及CN.GOV10Y国债收益率范围。
     'metric',  # 补充事实类别；官方、指数及双指数代理各有身份。
     'value',  # 有限十进制字符串，保留原精度；融资净买入额允许负数，零表示已知零。
-    'unit',  # share/CNY/pct/unknown。pct为年化百分数，unknown不能获得单位资格。
+    'unit',  # share/CNY/pct/multiple/point/unknown。unknown只保留来源原值。
     'source',  # 实际来源标识；SSE+SZSE显式保留两市合并归属。
     'source_sha256',  # 源proof清单SHA，清单字段同本行并引用父原始字节。
     'received_at',  # 本次实收UTC带时区时刻，与历史首次可知分别保存。
@@ -96,6 +106,8 @@ def validate_metric_scope(metric, symbol):
         _need(symbol == INDEX_SCOPES[metric][0], 'supplement index identity invalid')
     elif metric == GOV10Y_YIELD:
         _need(symbol == GOV10Y_SCOPE, 'supplement bond yield scope invalid')
+    elif metric in SHENWAN_FIELDS:
+        _need(symbol == SHENWAN_SCOPE, 'supplement Shenwan scope invalid')
     elif metric in MARGIN_SUMMARY_FIELDS:
         _need(symbol == MARGIN_DAILY_SUMMARY, 'supplement margin summary scope invalid')
     else:
@@ -127,13 +139,14 @@ def _utc(value):
 
 def _value_fields(row):
     value = row['value']
-    signed = row['metric'] == SIGNED_MARGIN_SUMMARY
+    signed = row['metric'] in SIGNED_REPORT_METRICS
     pattern = r'-?[0-9]+(?:\.[0-9]+)?' if signed else r'[0-9]+(?:\.[0-9]+)?'
     _need(type(value) is str and len(value) <= 128
           and re.fullmatch(pattern, value) is not None, 'supplement decimal invalid')
     number = Decimal(value)
     _need(number.is_finite() and (signed or number >= 0), 'supplement decimal invalid')
-    expected_unit = {'etf_total_shares': 'share', GOV10Y_YIELD: 'pct'}.get(row['metric'], 'CNY')
+    expected_unit = (SHENWAN_FIELDS[row['metric']][2] if row['metric'] in SHENWAN_FIELDS
+                     else {'etf_total_shares': 'share', GOV10Y_YIELD: 'pct'}.get(row['metric'], 'CNY'))
     _need(row['unit'] in (expected_unit, 'unknown'), 'supplement unit invalid')
     _need(type(row['source']) is str and row['source'] in SOURCES, 'supplement source invalid')
     if row['metric'] in INDEX_SCOPES:
@@ -147,8 +160,12 @@ def _value_fields(row):
     elif row['metric'] == GOV10Y_YIELD:
         _need(row['source'] == 'ChinaBond' and row['unit'] == 'pct' and number < 20,
               'supplement bond yield invalid')
+    elif row['metric'] in SHENWAN_FIELDS:
+        _need(row['source'] == 'Shenwan' and row['unit'] == expected_unit
+              and (row['metric'] != 'shenwan_market_close' or number > 0), 'supplement Shenwan value invalid')
     else:
-        _need(row['source'] not in ('BigQuant', 'CSI', 'CNINFO', 'ChinaBond'), 'supplement source invalid for metric')
+        _need(row['source'] not in ('BigQuant', 'CSI', 'CNINFO', 'ChinaBond', 'Shenwan'),
+              'supplement source invalid for metric')
 
 
 def validate_source_proof(value, row=None):

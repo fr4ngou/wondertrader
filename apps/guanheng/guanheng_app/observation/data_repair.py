@@ -3,9 +3,9 @@
 from datetime import date, datetime, timedelta
 from time import monotonic
 
-from guanheng_market_client.supplement_facts import MARGIN_SUMMARY_FIELDS
+from guanheng_market_client.supplement_facts import MARGIN_SUMMARY_FIELDS, SHENWAN_FIELDS
 
-from . import wt_margin_summary, wt_shsz_pb
+from . import wt_margin_summary, wt_shenwan_source, wt_shsz_pb
 from .contracts import ObservationError
 from .collection_config import WT_DERIVED
 from .etf_flow import CAP_KIND, ETF_KINDS, cap_row_complete
@@ -15,6 +15,7 @@ from .schedule_policy import closed_market_day, source_as_of
 from .source_fetch import SourceFailure
 
 WT_SOURCES = frozenset(('wondertrader', 'wt_breadth', 'wt_t2108', WT_GOV10Y, wt_margin_summary.KIND, wt_shsz_pb.KIND,
+                        wt_shenwan_source.KIND,
                         *ETF_KINDS, WT_INDEX_KIND, WT_STOCK_KIND, *WT_DERIVED))
 
 
@@ -34,12 +35,16 @@ def _coverage_by_input(reader, manifest, source, target, check):
         observed = {row['date'] for row in reader.rows(partition)} if partition else set()
         missing = [day for day in open_days if day >= source['history_from'] and day not in observed]
         return {wt_shsz_pb.TABLE: missing} if missing else {}
-    if source['kind'] == wt_margin_summary.KIND:
-        partition = tables.get(wt_margin_summary.TABLE)
+    if source['kind'] in (wt_margin_summary.KIND, wt_shenwan_source.KIND):
+        check()
+        margin = source['kind'] == wt_margin_summary.KIND
+        partition = tables.get(wt_margin_summary.TABLE if margin else wt_shenwan_source.TABLE)
+        fields = (MARGIN_SUMMARY_FIELDS if margin else
+                  {metric: field for metric, (field, _, _) in SHENWAN_FIELDS.items()})
         rows = reader.rows(partition) if partition else ()
         by_day = {row['date']: row for row in rows}
         expected = [day for day in open_days if day >= source['history_from']]
-        return {metric: missing for metric, field in MARGIN_SUMMARY_FIELDS.items()
+        return {metric: missing for metric, field in fields.items()
                 if (missing := [day for day in expected if by_day.get(day, {}).get(field) is None])}
     if source['kind']=='wt_t2108':
         # 同一指标及其定日股池须在同一历史区间内均有归档。

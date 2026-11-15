@@ -13,6 +13,7 @@ from .market_generation import encode
 from ..guanheng_market_client.supplement_facts import (
     BUYBACK_EXECUTION, GOV10Y_YIELD, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS,
     MARGIN_DAILY_SUMMARY, MARGIN_PURCHASE, MARGIN_REPORT, MARGIN_SUMMARY_FIELDS, SHAREHOLDER_REDUCTION,
+    SHENWAN_FIELDS, SHENWAN_SCOPE,
     SMALL_CAP_INDEX, MarketProtocolError, validate_metric_scope,
 )
 
@@ -48,7 +49,7 @@ def validate_plan(value):
     if 'max_requests' in value and (type(value['max_requests']) is not int or not 1 <= value['max_requests'] <= 512):
         raise ValueError('supplement request share invalid')
     fallback = value['external_fallback']
-    if (type(fallback) is not list or any(type(s) is not str or s not in ('SSE', 'SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO', 'ChinaBond') for s in fallback)
+    if (type(fallback) is not list or any(type(s) is not str or s not in ('SSE', 'SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO', 'ChinaBond', 'Shenwan') for s in fallback)
             or len(fallback) != len(set(fallback))):
         raise ValueError('supplement external source policy invalid')
     if 'BigQuant' in fallback:
@@ -319,7 +320,7 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
     from ..guanheng_market_client.supplement_facts import validate_supplement_catalog, validate_source_proof
     from .market_supplement_sources import (
         collect_external, gov10y_history, ipo_proceeds_history, margin_purchase_history, margin_summary_history,
-        margin_summary_regional, MARGIN_REGIONAL_HOST, shareholder_reduction_history, SourceUnavailable,
+        margin_summary_regional, MARGIN_REGIONAL_HOST, shareholder_reduction_history, shenwan_history, SourceUnavailable,
     )
 
     validate_plan(plan)
@@ -578,6 +579,7 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
     report_days = {metric: [(d,s) for d,m,s in cells if m==metric and d<day and _key(d,m,s) not in state['rows']]
                    for metric in report_readers}
     margin_summary = set(metrics) & MARGIN_SUMMARY_FIELDS.keys() if 'Eastmoney' in plan['external_fallback'] else set()
+    shenwan = set(metrics) & SHENWAN_FIELDS.keys() if 'Shenwan' in plan['external_fallback'] else set()
 
     attempted_buybacks = set()  # 同一轮已进入采集的单元，历史阶段不重复请求。
 
@@ -710,6 +712,39 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                     if any(m not in regional for m in metrics):
                         discard_requests(all_regional_keys | requested_keys)
 
+    shenwan_failure = None  # 一轮日更共享源端退避，避免失败后立刻转入历史请求。
+
+    def fill_shenwan(*, latest):
+        nonlocal shenwan_failure
+        pending = {}
+        for d, metric, symbol in cells:
+            if metric in shenwan and (d == day) == latest and _key(d, metric, symbol) not in state['rows']:
+                pending.setdefault(d, []).append(metric)
+        for part in reversed(_proxy_partitions(sorted(pending), dict(max_rows=90, max_calendar_days=90))):
+            if shenwan_failure:
+                reasons.update({_key(d, m, SHENWAN_SCOPE): shenwan_failure for d in part for m in pending[d]})
+                continue
+            requested_keys.clear()
+            try:
+                report, invalid = shenwan_history(part[0], part[-1], get)
+                missing = 'source_record_missing'
+            except SourceUnavailable as error:
+                report, invalid = {}, {}
+                missing = error.code
+            except SourceFailure as error:
+                shenwan_failure = error.code
+                reasons.update({_key(d, m, SHENWAN_SCOPE): error.code for d in part for m in pending[d]})
+                continue
+            record_batch([(d, m, SHENWAN_SCOPE, report[d, m]) for d in part for m in pending[d] if (d, m) in report])
+            gaps = {(d, m) for d in part for m in pending[d] if (d, m) not in report}
+            if gaps:
+                reasons.update({_key(d, m, SHENWAN_SCOPE): invalid.get((d, m), missing) for d, m in gaps})
+                for cached in requested_keys:
+                    state['requests'].pop(cached, None)
+                _save(state_path, state)
+
+    if shenwan:
+        fill_shenwan(latest=True)
     if margin_summary:
         fill_margin_summary(latest=True)
     historical=False
@@ -739,7 +774,7 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
             continue
         if metric == BUYBACK_EXECUTION and 'CNINFO' in plan['external_fallback']:
             continue
-        if metric in margin_summary:
+        if metric in margin_summary or metric in shenwan:
             continue
         if metric in report_readers and d < day:
             continue
@@ -771,6 +806,8 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
             if error.code in ('collection_stopped', 'collection_timeout', 'request_budget_exceeded', 'capture_budget_exceeded'):
                 break
     fill_index([d for d in index_days if d < day] + current)
+    if shenwan:
+        fill_shenwan(latest=False)
     if margin_summary:
         fill_margin_summary(latest=False)
     if 'CSI' in plan['external_fallback']:

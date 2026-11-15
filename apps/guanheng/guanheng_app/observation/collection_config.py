@@ -8,7 +8,7 @@ import re
 from urllib.parse import urlsplit,parse_qsl
 from .contracts import ObservationError
 from .market_structure_source import CSI_KIND, CSI_URL, FIRST_DAY, INDEX_TABLES, STOCK_KIND, STOCK_TABLE, TUSHARE_URL, WT_INDEX_KIND, WT_STOCK_KIND
-from . import broker_heat, etf_flow, ipo_supply, wt_margin_summary, wt_shsz_pb
+from . import broker_heat, etf_flow, ipo_supply, wt_margin_summary, wt_shenwan_source, wt_shsz_pb
 from .gov10y_source import TABLE as GOV10Y_TABLE, WT_KIND as WT_GOV10Y
 
 WT_DERIVED = {broker_heat.KIND:broker_heat, ipo_supply.KIND:ipo_supply}
@@ -16,9 +16,11 @@ WT_DERIVED = {broker_heat.KIND:broker_heat, ipo_supply.KIND:ipo_supply}
 KINDS = {'tencent','wondertrader','baostock','cffex','sse','szse','sgx','eastmoney','shenwan','irs',
          'disclosure','gov10y','repo_fixing','northbound','marketcap_gdp','fund_allocation','pbc_bank','financial_annual','executive_changes','qmt_t2108','ashare_snapshot','ashare_public','legulegu_pb','nfra_insurance','legulegu_gdp',
          'pbc_custody','wealth_allocation','citic_broker','chinabond_wealth','wt_t2108','wt_breadth','shareholder_changes',
-         CSI_KIND, STOCK_KIND, WT_INDEX_KIND, WT_STOCK_KIND, WT_GOV10Y, wt_margin_summary.KIND, wt_shsz_pb.KIND, *WT_DERIVED, *etf_flow.ETF_KINDS}
+         CSI_KIND, STOCK_KIND, WT_INDEX_KIND, WT_STOCK_KIND, WT_GOV10Y, wt_margin_summary.KIND,
+         wt_shenwan_source.KIND, wt_shsz_pb.KIND, *WT_DERIVED, *etf_flow.ETF_KINDS}
 STRUCTURE_KINDS = {CSI_KIND, STOCK_KIND, WT_INDEX_KIND, WT_STOCK_KIND}
-WT_LOCAL_KINDS = {'wt_breadth', 'wt_t2108', WT_INDEX_KIND, WT_STOCK_KIND, WT_GOV10Y, wt_margin_summary.KIND, wt_shsz_pb.KIND, *WT_DERIVED, *etf_flow.ETF_KINDS}
+WT_LOCAL_KINDS = {'wt_breadth', 'wt_t2108', WT_INDEX_KIND, WT_STOCK_KIND, WT_GOV10Y, wt_margin_summary.KIND,
+                  wt_shenwan_source.KIND, wt_shsz_pb.KIND, *WT_DERIVED, *etf_flow.ETF_KINDS}
 SOURCE_FIELDS = {'id','kind','url','referer','tables','datasets','derived_metrics','window_mode',
     'minimum_sample_count','symbols','minimum_universe','timeout_seconds','overlap_days','max_pages',
     'sql_id','products','reports','params','qualification','replace_tables','scope','bse_history','minimum_bse_universe',
@@ -130,7 +132,8 @@ def validate_configuration(value):
     for source in value['sources']:
         _need(type(source) is dict and {'id','kind'}<=set(source) and not set(source)-SOURCE_FIELDS
             and type(source['kind']) is str and source['kind'] in KINDS)
-        _need('history_from' not in source or source['kind'] in STRUCTURE_KINDS | {WT_GOV10Y,wt_margin_summary.KIND,wt_shsz_pb.KIND,*etf_flow.ETF_KINDS,*WT_DERIVED})
+        _need('history_from' not in source or source['kind'] in STRUCTURE_KINDS | {
+            WT_GOV10Y,wt_margin_summary.KIND,wt_shenwan_source.KIND,wt_shsz_pb.KIND,*etf_flow.ETF_KINDS,*WT_DERIVED})
         if schedule.get('date_policy')=='source-aware-v1':
             _need(source.get('date_policy') in ('calendar-day','cn-closed-day','hk-closed-day','cn-prior-day'))
             # 允许保守的前日口径只用于已接入的 WT 事实；其他登记来源沿各自截止。
@@ -169,6 +172,15 @@ def validate_configuration(value):
                 and date.fromisoformat(source['history_from']).isoformat()==source['history_from']
                 and 0<=source['overlap_days']<value['max_days_per_batch']
                 and sum(GOV10Y_TABLE in item.get('tables', []) for item in value['sources'] if type(item) is dict) == 1)
+        elif source['kind'] == wt_shenwan_source.KIND:
+            _need(set(source) == {'id','kind','tables','datasets','date_policy','history_from','overlap_days'}
+                and source['tables'] == [wt_shenwan_source.TABLE]
+                and source['datasets'] == list(wt_shenwan_source.DATASETS)
+                and source['date_policy'] == 'cn-closed-day'
+                and date.fromisoformat(source['history_from']).isoformat() == source['history_from']
+                and 0 <= source['overlap_days'] < value['max_days_per_batch']
+                and sum(item['kind'] in ('shenwan', wt_shenwan_source.KIND)
+                        for item in value['sources']) == 1)
         elif source['kind'] == wt_shsz_pb.KIND:
             _need(set(source) == {'id','kind','tables','datasets','date_policy','history_from','overlap_days','minimum_universe'}
                 and source['tables'] == [wt_shsz_pb.TABLE]
