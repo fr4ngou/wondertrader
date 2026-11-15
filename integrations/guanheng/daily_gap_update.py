@@ -24,7 +24,7 @@ def _day(value):
 
 def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=(), daily_facts=None,
                      authorized_from, authorized_to, deadline, required_adjustments=('none','front_ratio'),
-                     required_from=None, cancelled=lambda:False, trading_exceptions=None):
+                     required_from=None, cancelled=lambda:False, trading_exceptions=None, archived_raw_dates=None):
     """输入为完成QAB根、已准入资料/股票池和授权日期，输出只表示需补缓存。
 
     capture含directory/sha256；保护slot按原业务身份读取，旧结果/消费状态不改。
@@ -32,6 +32,7 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
     计划按交易日和实际共同日期计算；不将SDK返回或计划任务数当覆盖证据。
     required_adjustments默认保持原两口径共同日期；原价任务可显式只要求none。
     required_from按证券约束真正需要的原生尾部日期，不为已有完整旧档重下历史。
+    archived_raw_dates由同一固定WT版本实际读取，仅为原价计划逐日补足已有覆盖。
     """
     from guanheng_qmt_shm.analysis_batch_source import read_capture
     if (not callable(cancelled)or type(deadline)not in(int,float)or not math.isfinite(deadline)
@@ -57,6 +58,8 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
         raise ValueError('daily gap price requirements invalid')
     if required_from is not None and (type(required_from)is not dict or not set(required_from)<=set(request['symbols'])):
         raise ValueError('daily gap per-security range invalid')
+    if archived_raw_dates is not None and required_adjustments != ('none',):
+        raise ValueError('raw archive dates require a raw price plan')
     first, last = _day(authorized_from), _day(authorized_to)
     if not _day(request['start_date']) <= first <= last <= _day(request['end_date']):
         raise ValueError('daily gap authorization differs')
@@ -74,9 +77,14 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
     securities = {}
     selected_dates={}
     if required_adjustments!=('none','front_ratio'):
-        from .analysis_price_capture import price_batches
+        from .analysis_price_capture import original_price_quality, price_batches
         for _,items in price_batches(capture,manifest,adjustment=required_adjustments[0],deadline=deadline,cancelled=cancelled):
-            for symbol,item in items.items():selected_dates[symbol]=set(item['data'])
+            for symbol,item in items.items():
+                if archived_raw_dates is None:
+                    selected_dates[symbol]=set(item['data'])
+                else:
+                    selected_dates[symbol]=archived_raw_dates.get(symbol,set()) | {
+                        day for day,bar in item['data'].items() if original_price_quality(bar)=='qualified'}
     for symbol in request['symbols']:
         code, market = symbol.split('.')
         identity = mappings[market] + '.' + code

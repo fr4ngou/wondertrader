@@ -18,7 +18,7 @@ from .security_reference import SecurityReference
 from .source_market import create_native_source_market
 
 
-def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,environ=None):
+def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,environ=None,daily_facts=None):
     """调用方持同一publication租约；同步完成缓存先读、实际缺口续补和回读。
 
     request固定价格池、旧价格版本、授权起日及原保护槽；不修改指标股票池。
@@ -52,7 +52,8 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
     target=datetime.strptime(day,'%Y-%m-%d').date();authorized=datetime.strptime(request['authorized_from'],'%Y%m%d').date()
     if authorized>target:raise ValueError('daily price authorization outside target')
     source=create_native_source_market(_load(request['current_configuration'],1048576))
-    bounds={};previous={};native_present={}
+    bounds={};previous={};archived_raw_dates={};locally_covered_target=set()
+    capture_from=authorized.strftime('%Y%m%d');last=target.strftime('%Y%m%d')
     try:
         for symbol,identity in members.items():
             check()
@@ -60,29 +61,23 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
             if identity['symbol']!=symbol or identity['security_type']not in ('stock','etf','index','unknown'):
                 raise ValueError('daily price universe member invalid')
             exchange,code=symbol.split('.')
-            query=dict(exchange=exchange,code=code,**{'from':10000101,'to':20991231,'limit':1},
+            query=dict(exchange=exchange,code=code,**{'from':int(capture_from),'to':int(last),'limit':2000},
                 adjustment='none',view='archive',include_archive=True)
             if request['snapshot_id']is not None:query['snapshot_id']=request['snapshot_id']
             reply=source.call(dict(api_version=API_VERSION,action='history.source-daily-query',request=query))
             if reply['status']['code']not in ('Ok','Unavailable'):
                 raise ValueError('daily price previous history unavailable')
             archive=reply['data'].get('archive')
-            last=datetime.strptime(str(archive['last_date']),'%Y%m%d').date()if archive else None
-            target_day=int(target.strftime('%Y%m%d'))
-            present=any(bar['date']==target_day for bar in reply['data'].get('bars',[]))
-            if not present and last is not None and last>=target:
-                selected=dict(query,**{'from':target_day,'to':target_day})
-                selected_reply=source.call(dict(api_version=API_VERSION,action='history.source-daily-query',request=selected))
-                if selected_reply['status']['code']not in('Ok','Unavailable'):
-                    raise ValueError('daily price previous target unavailable')
-                present=any(bar['date']==target_day for bar in selected_reply['data'].get('bars',[]))
-            native_present[symbol]=present
-            # 即使Native已更新，也保留目标日缓存核查，供同一原QMT缓存的其他消费者使用。
-            first=max(authorized,min(target,last+timedelta(days=1)))if last is not None else authorized
             qmt=code+'.'+{'SSE':'SH','SZSE':'SZ','BSE':'BJ'}[exchange]
+            archived_raw_dates[qmt]={str(bar['date']) for bar in reply['data'].get('bars',[])
+                if original_price_quality({key:value for key,value in bar.items() if key not in ('date','symbol')})=='qualified'}
+            if last in archived_raw_dates[qmt]:
+                locally_covered_target.add(symbol)
+            # 原尾日边界只用于验明已创建的旧计划，仍沿其固定任务身份。
+            archive_tail=datetime.strptime(str(archive['last_date']),'%Y%m%d').date() if archive else None
+            first=max(authorized,min(target,archive_tail+timedelta(days=1))) if archive_tail is not None else authorized
             bounds[qmt]=first.strftime('%Y%m%d');previous[symbol]=archive
     finally:source.close()
-    earliest=min(bounds.values());last=target.strftime('%Y%m%d');capture_from=authorized.strftime('%Y%m%d')
     calendar=_load(request['calendar'])
     from guanheng_app.observation.calendars import official_calendar
     from .daily_batch_source import seed_local_analysis_batches, seed_unaffected_readback_batches
@@ -135,11 +130,14 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
         snapshot=dict(snapshot_id=hashlib.sha256(encode(request)).hexdigest(),observation_date=day,basics={})
         def restore(output):
             return restore_gap_plan(output/'PLAN.json',capture=initial,snapshot_id=snapshot['snapshot_id'],
-                authorized_from=earliest,authorized_to=last,protected_slots=request['protected_slots'],
-                required_adjustments=('none',),required_from=bounds,deadline=deadline,cancelled=cancelled)
+                authorized_from=capture_from,authorized_to=last,protected_slots=request['protected_slots'],
+                required_adjustments=('none',),required_from={},legacy_window=(min(bounds.values()),bounds),
+                deadline=deadline,cancelled=cancelled)
         plan=prepare_directory(root,'gap-plan','PLAN.json',lambda output:prepare_gap_plan(initial,reference,snapshot,output,
-            protected_slots=request['protected_slots'],authorized_from=earliest,authorized_to=last,deadline=deadline,
-            required_adjustments=('none',),required_from=bounds,cancelled=cancelled),restore,recover_prior=True)
+            protected_slots=request['protected_slots'],daily_facts=daily_facts,
+            authorized_from=capture_from,authorized_to=last,deadline=deadline,
+            required_adjustments=('none',),archived_raw_dates=archived_raw_dates,cancelled=cancelled),restore,recover_prior=True)
+        del archived_raw_dates  # 逐日集合用于本地计划，释放后再物化QMT回读。
         plan_value=load_gap_plan(plan,deadline=deadline,cancelled=cancelled);progress=None;selected=initial
         if plan_value['tasks']:
             readback_progress=root/'READBACK-PROGRESS.json'
@@ -191,7 +189,8 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
         supplement=None
         if request.get('index_fallback')=='official-publishers':
             selected_indices={symbol:identity for symbol,identity in members.items()
-                if identity['security_type']=='index'and not native_present[symbol]and not source_days[symbol]['target_native_qualified']
+                if identity['security_type']=='index'and not source_days[symbol]['target_native_qualified']
+                and symbol not in locally_covered_target
                 and source_days[symbol]['reason']not in('before_listing','after_expiry')}
             if selected_indices:
                 from .official_index_prices import prepare_official_index_prices

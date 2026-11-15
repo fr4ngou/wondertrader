@@ -217,16 +217,20 @@ def load_gap_plan(descriptor, *, deadline=None, cancelled=lambda: False):
 
 def restore_gap_plan(path, *, capture, snapshot_id, authorized_from, authorized_to,
                      protected_slots, deadline=None, cancelled=lambda: False,
-                     required_adjustments=None, required_from=None):
+                     required_adjustments=None, required_from=None, legacy_window=None):
     """完成marker按原输入认领；冻结责任不重算，不改旧slot或重新生成HPR身份。"""
     descriptor, value = inspect_gap_plan(path, deadline=deadline, cancelled=cancelled)
-    expected = dict(capture=capture, snapshot_id=snapshot_id,
-                    authorized_from=authorized_from, authorized_to=authorized_to)
+    expected = dict(capture=capture, snapshot_id=snapshot_id, authorized_to=authorized_to)
+    windows = [(authorized_from, required_from)]
+    if legacy_window is not None:
+        windows.append(legacy_window)
+    matching_window = any(value['authorized_from'] == start and
+        (bounds is None or value.get('required_from', {}) == bounds) for start,bounds in windows)
     if (any(value[key] != item for key, item in expected.items())
+            or not matching_window
             or sorted(row['slot'] for row in value['protected_requests'])
             != sorted(str(Path(path).absolute()) for path in protected_slots)
-            or required_adjustments is not None and value.get('required_adjustments', ['none', 'front_ratio']) != list(required_adjustments)
-            or required_from is not None and value.get('required_from', {}) != required_from):
+            or required_adjustments is not None and value.get('required_adjustments', ['none', 'front_ratio']) != list(required_adjustments)):
         raise ValueError('daily gap plan restored input differs')
     def verify(original,stop):
         try:

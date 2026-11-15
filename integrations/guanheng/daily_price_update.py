@@ -79,7 +79,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         if request.get('cache_seed')is not None:price_request['cache_seed']=request['cache_seed']
         if request.get('index_fallback')is not None:price_request['index_fallback']=request['index_fallback']
         inputs=prepare_price_inputs(price_request,root/'inputs',
-            deadline=deadline,cancelled=cancelled,environ=environ)
+            deadline=deadline,cancelled=cancelled,environ=environ,daily_facts=daily_facts)
     base=_load(base_configuration,1048576)
     if native is not None:
         base=compose_native_import(base,_load(native))
