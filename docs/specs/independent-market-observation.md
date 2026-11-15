@@ -30,6 +30,10 @@ WT 正在维护同一交易日价格且完整日更输入尚未开始时，观�
 
 2026-11-16 核对上一轮手动补数。WT 已发布，观衡复查后结案为部分完成，9 项 WT 来源中有 5 项补齐、4 项仍有缺口。待补来源为全 A 市场宽度、T2108、券商融资和 IPO 供给回购比的原始事实。
 
+11 月 13 日融资买入额复核中，Choice 全国综合统计与历史汇总均返回空结果，分市场汇总仅上海有值。已有九个交易日的分市场合计与全国历史汇总精确一致，综合统计存在差异，券商回撤继续等待原综合统计记录。原件保存在 `D:/wt-build/observer-structured-report-recheck-20261116-001` 的 `NATIONAL-FINANCE.json` 和 `RESULT.json`。
+
+IPO 供给回购比的 20 日窗口中，正式 IPO 募资额覆盖 20 日，回购披露增量覆盖 6 日。减持毛额已在隔离 WT 读回 18 日。11 月 2 日复用原 Choice 报表，按发行人公告核除圆通速递三笔共 47,687,600 股的内部划转，其余六笔减持原口径合计 162,085,613.24 元。待采用回执为 `D:/wt-build/observer-structured-report-recheck-20261116-001/NOV02-WT-QUERY.json`。11 月 6 日广东宏大、11 月 13 日安集科技的原始报告披露区间成交股数和价格范围，缺少这两笔的实付金额及平均成交价，仍留待补。[圆通速递原公告](https://epaper.cs.com.cn/zgzqb/html/2026-11/02/nw.D110000zgzqb_20261102_6-A10.htm) · [广东宏大权益变动报告](https://money.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=12693743&stockid=002683) · [安集科技权益变动报告](https://static.cninfo.com.cn/finalpage/2026-11-13/1225668185.PDF)
+
 在当前正式 WT 快照的隔离副本中复用本地原件，补回 11 月 10 日定日股票池。观衡经原 WT 接口复算广度，5,579 只中 5,572 只参与计算，4,272 只上涨，参与计算的股票均有原价。该日 5,548 只有成交股票具备 40 期前复权日线，24 只不足期，7 只当日无成交并保留旧末日。广度和价格回执分别为 `D:/wt-build/observer-formal-base-stock-replay-20261116-001/CONSUMER-READBACK.json` 与 `D:/wt-build/observer-formal-base-stock-replay-20261116-002/T2108-PRICE-COVERAGE.json`。
 
 11 月 10 日收盘后原 QMT 回执的沪深北三个普通 A 股组均完整，原名册 5,579 只与定日事实逐一一致。按 UDI-R4 复用该名单后，观衡通过隔离 WT 的正常读取路径算得 1,542 只在均线上方，占合格样本 27.7938%，样本覆盖 99.4443%。该修订待 WT 和观衡同步采用。回执为 `D:/wt-build/observer-t2108-retained-membership-20261116-001/RESULT.json`。
