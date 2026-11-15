@@ -60,12 +60,21 @@ def validate_day_facts(value,*,response=False):
     original=_object(value['provenance'],('packet_sha256','universe_sha256','source_received_at'))
     _hash(original['packet_sha256']);_hash(original['universe_sha256']);_clock(original['source_received_at'])
     if 'qualification'in value:
-        quality=_object(value['qualification'],('membership_method','membership_as_of','turnover_method','point_in_time','first_available_at'))
-        if (quality['membership_method']not in ('same_day_public','listing_intervals_latest_identity')
-                or quality['turnover_method']not in ('same_day_public','vendor_current_revised_date_series')
+        keys = ('membership_method', 'membership_as_of', 'turnover_method', 'point_in_time', 'first_available_at')
+        quality = _object(value['qualification'], keys + ('membership_source_sha256',), keys)
+        method = quality['membership_method']
+        if (method not in ('same_day_public', 'same_day_qmt', 'listing_intervals_latest_identity')
+                or (quality['turnover_method'] not in ('same_day_public', 'vendor_current_revised_date_series')
+                    and not (method == 'same_day_qmt' and quality['turnover_method'] is None))
                 or quality['point_in_time']is not False or quality['first_available_at']is not None):
             raise MarketProtocolError('daily facts source qualification invalid')
         if quality['membership_as_of']is not None:_day(quality['membership_as_of'])
+        if method == 'same_day_qmt':
+            if quality['membership_as_of'] != day:
+                raise MarketProtocolError('daily facts QMT membership date differs')
+            _hash(quality.get('membership_source_sha256'))
+        elif 'membership_source_sha256' in quality:
+            raise MarketProtocolError('daily facts QMT membership proof requires QMT method')
     if response:_hash(value['source_snapshot_id']);_hash(value['source_sha256'])
     if 'stock_cross_section' in value:
         validate_stock_cross_section(value['stock_cross_section'], len(members))

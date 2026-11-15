@@ -674,7 +674,7 @@
       "source": "integrations/guanheng/source_market_service.py"
     },
     "integrations/guanheng/source_reference_capture.py": {
-      "sha256": "18544bab02364e9ce95d8a20242c6046cfbb6b0d80d0daa5e0f73321eb1ce401",
+      "sha256": "2784f8f088333102c85689868da0f4baaca37b09a1499b9a1c0483c54e533de0",
       "source": "integrations/guanheng/source_reference_capture.py"
     },
     "integrations/guanheng_market_client/__init__.py": {
@@ -690,7 +690,7 @@
       "source": "integrations/guanheng_market_client/daily_contract.py"
     },
     "integrations/guanheng_market_client/daily_facts.py": {
-      "sha256": "acd6be988f4cff47f28ec27630e11056c8113f5f892792aefb6a810d22890e86",
+      "sha256": "28a14b9e4919f6166296a9080c91e5f853126de7c6df4fa3b878cc6ff08f7ff2",
       "source": "integrations/guanheng_market_client/daily_facts.py"
     },
     "integrations/guanheng_market_client/history_calendar.py": {

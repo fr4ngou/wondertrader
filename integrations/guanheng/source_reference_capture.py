@@ -47,6 +47,80 @@ def _date(value):
         raise ValueError('reference source date invalid')
 
 
+def qualify_archived_stock_membership(facts, reference, *, check):
+    """以 WT 原名册归档核验定日成员，保留原行情、成交及股本事实。"""
+    from zoneinfo import ZoneInfo
+    from guanheng_qmt_shm.read_retention_client import inspect_saved_result
+    from .market_generation import read_fixed
+    from ..guanheng_market_client import strict_json
+    from ..guanheng_market_client.daily_facts import validate_day_facts
+
+    validate_day_facts(facts)
+    existing = facts.get('qualification', {})
+    if existing.get('membership_method') == 'same_day_public' and existing.get('membership_as_of') == facts['date']:
+        return facts
+    check()
+    root = Path(reference['path']).resolve(strict=True)
+    catalogue = strict_json(read_fixed(root, maximum=16777216, identity=reference['sha256']))
+    provenance = catalogue['provenance']
+    if catalogue['schema'] != 'guanheng.security-reference.v2':
+        raise ValueError('archived stock membership reference schema differs')
+    day = facts['date']
+    zone = ZoneInfo('Asia/Shanghai')
+    for key in ('captured_at', 'source_as_of'):
+        clock = provenance[key]
+        if key == 'source_as_of' and clock is None:
+            continue
+        _clock(clock)
+        local = datetime.fromisoformat(clock).astimezone(zone)
+        if local.date().isoformat() != day or (key == 'captured_at' and local.hour < 15):
+            raise ValueError('archived stock membership clock differs')
+
+    pages = [entry for entry in provenance['evidence'] if Path(entry['path']).name.startswith('universe-')]
+    stock_groups = {group['market']: group for group in provenance['groups'] if group['security_type'] == 'stock'}
+    if (not pages or set(stock_groups) != set(MARKETS)
+            or any(group['state'] != 'complete' or group['expected_count'] != group['observed_count']
+                   for group in stock_groups.values())):
+        raise ValueError('archived stock membership coverage incomplete')
+    names, cursor, binding = set(), None, None
+    counts = dict.fromkeys(MARKETS, 0)
+    for number, entry in enumerate(pages):
+        check()
+        slot = Path(entry['path']).resolve(strict=True)
+        if slot != root.parent / f'universe-{number:03d}.json' or (number and cursor is None):
+            raise ValueError('archived stock membership page sequence differs')
+        saved = strict_json(read_fixed(slot, maximum=2097152, identity=entry['sha256']))
+        original = inspect_saved_result(saved)
+        if (original is None or not original['ok'] or original['operation_id'] != UNIVERSE
+                or saved['request']['arguments']['cursor'] != cursor
+                or (binding is not None and saved['binding'] != binding)):
+            raise ValueError('archived stock membership page binding differs')
+        binding = saved['binding']
+        page = original['data']
+        if any(page[key] != provenance[key] for key in ('catalog_id', 'captured_at', 'source_as_of', 'groups')):
+            raise ValueError('archived stock membership page catalogue differs')
+        for item in page['items']:
+            if item['security_type'] != 'stock':
+                continue
+            symbol, market = _symbol(item['symbol'])
+            if market != item['market'] or symbol in names:
+                raise ValueError('archived stock membership identity differs')
+            names.add(symbol)
+            counts[market] += 1
+        cursor = page['next_cursor']
+    if (cursor is not None or names != set(facts['members'])
+            or any(counts[market] != group['expected_count'] for market, group in stock_groups.items())):
+        raise ValueError('archived stock membership does not cover facts')
+
+    return validate_day_facts(dict(facts, qualification=dict(
+        membership_method='same_day_qmt',  # 来自收盘后留存的三所普通 A 股原名单。
+        membership_as_of=day,  # 名单核验所用上海交易日。
+        membership_source_sha256=reference['sha256'],  # 固定参照资料及原分页回执索引。
+        turnover_method=existing.get('turnover_method'),  # 沿原换手证明，原未证明时保持空。
+        point_in_time=False,  # 复算继续使用当前可见的前复权价格。
+        first_available_at=None)))  # 历史首次可知时刻仍然未知。
+
+
 def capture_reference(source, scope, directory, *, deadline, cancelled=lambda:False,
                       maximum_records=20000, maximum_pages=128):
     """同步消费有限分页及64只详情；缺少新能力时保持明确等待，不取本地终端文件。

@@ -44,7 +44,8 @@ def history(fetch,source,start,end,client_factory,*,calendar,snapshot_dates=None
         if facts['date']!=day or facts['source_snapshot_id']!=snapshot['snapshot_id']:
             raise SourceFailure('wt_market_snapshot_date_differs')
         quality=facts.get('qualification',{})
-        if quality.get('membership_method')!='same_day_public' or quality.get('membership_as_of')!=day:
+        if (quality.get('membership_method') not in ('same_day_public', 'same_day_qmt')
+                or quality.get('membership_as_of') != day):
             raise SourceFailure('wt_t2108_historical_universe_unqualified')
         universe=facts['members']
         universe_sha=facts['provenance']['universe_sha256']

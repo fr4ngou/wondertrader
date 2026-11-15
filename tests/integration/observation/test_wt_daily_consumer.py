@@ -372,7 +372,7 @@ def test_price_from_another_snapshot_is_rejected_before_calculation(tmp_path,pro
         provider.history(fetch,{},'2026-10-30','2026-10-30',lambda seconds:client,**kwargs)
 
 
-@pytest.mark.parametrize('mode',['same_day','historical','unqualified','missing'])
+@pytest.mark.parametrize('mode',['same_day','historical','historical_qmt','unqualified','missing'])
 def test_t2108_preserves_stale_and_insufficient_samples_and_snapshot_binding(tmp_path,mode):
     _,fetch=fetch_at(tmp_path);seen=[];sid='1'*64
     snapshot=dict(observation_date='2026-10-30',members=['SSE.600001','SSE.600002','SZSE.000001'],snapshot_id=sid,
@@ -385,7 +385,8 @@ def test_t2108_preserves_stale_and_insufficient_samples_and_snapshot_binding(tmp
         assert day=='2026-10-30' and identity==sid
         if mode=='missing':
             return dict(status=dict(code='Unavailable'),data={})
-        method='listing_intervals_latest_identity' if mode=='unqualified' else 'same_day_public'
+        method = {'unqualified': 'listing_intervals_latest_identity', 'historical_qmt': 'same_day_qmt'}.get(
+            mode, 'same_day_public')
         return dict(status=dict(code='Ok'),data=dict(date=day,members=universe,source_snapshot_id=sid,
             qualification=dict(membership_method=method,membership_as_of=day),
             provenance=dict(universe_sha256='4'*64,source_received_at='2026-10-30T08:00:00Z')))
@@ -412,6 +413,6 @@ def test_t2108_preserves_stale_and_insufficient_samples_and_snapshot_binding(tmp
     assert (row['eligible_count'],row['above_count'],row['insufficient_count'],row['stale_count'])==(1,1,1,1)
     assert row['above_sma40_pct']==100 and row['market_above_sma40_pct'] is None and row['available_at'] is None
     assert seen[0]['snapshot_id']==sid and seen[0]['limit']==40 and seen[0]['adjustment']=='front_ratio'
-    assert output['source.t2108_ashare_universe'][0]['universe_version']==('4' if mode=='historical' else '3')*64
-    assert row.get('reconstruction_as_of')==('2026-11-03' if mode=='historical' else None)
-    assert fetch.budget.requests==(3 if mode=='historical' else 2)
+    assert output['source.t2108_ashare_universe'][0]['universe_version'] == ('3' if mode == 'same_day' else '4')*64
+    assert row.get('reconstruction_as_of') == (None if mode == 'same_day' else '2026-11-03')
+    assert fetch.budget.requests == (2 if mode == 'same_day' else 3)
