@@ -12,7 +12,7 @@ import uuid
 from .daily_data_update import DAILY_UPDATE_REQUEST_BYTES, _save, _load, _descriptor, price_maintenance_with_slots
 from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .market_generation import encode, read_fixed, read_generation
-from .daily_gap_plan import load_gap_plan, MAX_PROTECTED_SLOTS
+from .daily_gap_plan import load_gap_plan, read_protected_request, MAX_PROTECTED_SLOTS
 from ..guanheng_market_client import strict_json
 
 
@@ -34,6 +34,36 @@ def fixed_unit_evidence_configuration(configuration, original):
         if 'unit_evidence'in prior:scope['unit_evidence']=deepcopy(prior['unit_evidence'])
         else:scope.pop('unit_evidence',None)
     return selected
+
+
+def reusable_analysis_capture(candidates, day, symbols, universe_sha256, inputs, required_rows, *, check, read_after=None):
+    """选择同日、同股票池和来源的已固定原批次，保留原请求及回包身份。"""
+    from guanheng_qmt_shm.analysis_batch_source import read_capture
+
+    seen = set()
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        key = (candidate['directory'], candidate['sha256'])
+        if key in seen:
+            continue
+        seen.add(key)
+        check()
+        manifest = strict_json(read_fixed(Path(candidate['directory']) / 'manifest.json', maximum=16777216,
+                                          identity=candidate['sha256']))
+        selection = manifest['request']
+        if (selection['end_date'] == day.replace('-', '')
+                and selection['start_date'] == inputs['cache_from']
+                and selection['universe']['sha256'] == universe_sha256
+                and selection['symbols'] == symbols
+                and selection['max_rows'] >= required_rows
+                and (read_after is None or all(datetime.fromisoformat(batch['requested_at']) >= read_after
+                                               for batch in manifest['batches']))
+                and manifest['source_kind'] == inputs['source_kind']):
+            read_capture(candidate['directory'])
+            check()
+            return candidate, manifest
+    return None, None
 
 
 def observe_prior_plans(plans, owner, *, deadline, cancelled):
@@ -169,6 +199,13 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     from .daily_strategy_history import strategy_slots
     protected.update(strategy_slots((*previous_requests,*prior_price_requests)))
     plans = [];scope_history=[]
+    committed_captures = []  # 原INDEX已发布的同日归档，沿原请求固定身份。
+    latest_download = None  # 可能补过本窗口的最新原HPR接收时刻；更早的行情回包须重新读取。
+
+    def returned_download(clock):
+        nonlocal latest_download
+        received = datetime.fromisoformat(clock)
+        latest_download = received if latest_download is None else max(latest_download, received)
     # 独立价格阶段属于同owner的原责任；不改已有INPUTS原意图，另从持久INDEX引用恢复保护。
     for request_path in (*previous_requests,*prior_price_requests):
         request_path = Path(request_path)
@@ -181,6 +218,11 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         if not state_path.exists():
             continue
         state = strict_json(read_fixed(state_path, maximum=16777216))
+        if (state.get('status') == 'published' and previous.get('schema') == 'guanheng.daily-data-update.v1'
+                and previous.get('authorized_to') == day.replace('-', '')):
+            committed_captures.append(previous['cache'])
+            if 'readback' in state['stages']:
+                committed_captures.append(state['stages']['readback'])
         prior_plans=[]
         if state['stages'].get('gap_plan')is not None:
             prior_plans.append((state['stages']['gap_plan'],state_path.parent/'gap-work'))
@@ -197,8 +239,17 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                 slot=gap_work/'preparation'/('%06d.json'%task['index'])
                 if not slot.exists():continue
                 protected.add(str(slot));observed=gap_work/'observations'/('%06d.json'%task['index'])
-                if not observed.exists()or strict_json(read_fixed(observed,maximum=1048576))['row']['state']!='call_returned':
-                    pending.append(task['index'])
+                row = strict_json(read_fixed(observed,maximum=1048576))['row'] if observed.exists() else {}
+                if value['authorized_to'] >= inputs['cache_from']:
+                    clock = (row.get('record') or {}).get('received_at') if row.get('state')=='call_returned' else None
+                    if clock is not None:
+                        returned_download(clock)
+                    else:
+                        # HPR先持久写原slot才写观察；跨进程恢复也能看到已完成的补齐时点。
+                        read_protected_request(slot,deadline=deadline,cancelled=cancelled,on_returned=returned_download)
+                if row.get('state') == 'call_returned':
+                    continue
+                pending.append(task['index'])
             if pending:plans.append((plan,gap_work,pending))
     if len(protected) > MAX_PROTECTED_SLOTS:
         raise ValueError('daily protected request capacity')
@@ -210,6 +261,10 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             owner = MarketDailyPreparation(lambda: BoundHistorySource(inputs['connections']['hpr'], environ=environ,
                 reuse_connections=True), batch, concurrency=1)
             prior_observations=observe_prior_plans(plans,owner,deadline=deadline,cancelled=cancelled)
+            for _, gap_work, indices in plans:
+                for index in indices:
+                    slot = gap_work/'preparation'/('%06d.json'%index)
+                    read_protected_request(slot,deadline=deadline,cancelled=cancelled,on_returned=returned_download)
         finally:
             batch.close()
     check()
@@ -259,19 +314,12 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     pool = strict_json(body)
     if pool['date'] != day:
         raise ValueError('daily input universe date differs')
-    seed = inputs.get('cache_seed')
-    adopted = None
-    if seed is not None:
-        from guanheng_qmt_shm.analysis_batch_source import read_capture
-        original = strict_json(read_fixed(Path(seed['directory']) / 'manifest.json', maximum=16777216,
-                                         identity=seed['sha256']))
-        if (original['request']['end_date'] == day.replace('-', '')
-                and original['request']['start_date'] == inputs['cache_from']
-                and original['request']['universe']['sha256'] == _descriptor(universe)['sha256']):
-            read_capture(seed['directory'])
-            adopted = original
+    convert = lambda s: s[3:] + '.' + {'sh': 'SH', 'sz': 'SZ', 'bj': 'BJ'}[s[:2]]
+    symbols = sorted(convert(symbol) for symbol in pool['members'])
     capture_request = root / 'CAPTURE-REQUEST.json'
-    if adopted is None and not capture_request.exists():
+    adopted = None
+    seed = None
+    if not capture_request.exists():
         from guanheng_app.observation.calendars import official_calendar
         calendar = _load(template['calendar'])
         calendar_rows, _ = official_calendar(calendar)
@@ -282,17 +330,20 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         rows = max(inputs['max_rows'], complete_rows)
         if rows > 2000:
             raise ValueError('daily input complete price window capacity')
-        convert = lambda s: s[3:] + '.' + {'sh': 'SH', 'sz': 'SZ', 'bj': 'BJ'}[s[:2]]
-        _save(capture_request, dict(
-            schema='qab.request-plan.v1',  # 原BatchAnalysisSource请求计划版本。
-            capture_id=str(uuid.uuid4()),  # 本任务首次生成的原捕获UUID；恢复沿原值。
-            source_kind=inputs['source_kind'],  # actual-qmt或显式SDK替身，沿原来源合同。
-            symbols=sorted(convert(s) for s in pool['members']),  # 本日真实股票池；资料缺项仍保留。
-            start_date=inputs['cache_from'],  # 已授权的来源读取起日YYYYMMDD。
-            end_date=day.replace('-', ''),  # 本次闭合市场日期，独立于接收时刻。
-            max_rows=rows,  # 至少覆盖固定起日至目标日全部官方交易日；上限2000，避免滑窗截掉旧历史。
-            ticket_lifetime_ms=30000,  # 原单请求30秒截止；恢复不重置原slot。
-            universe=_descriptor(universe)))  # 原定日池正文身份。
+        seed, adopted = reusable_analysis_capture(
+            [*reversed(committed_captures), inputs.get('cache_seed')], day, symbols,
+            _descriptor(universe)['sha256'], inputs, rows, check=check, read_after=latest_download)
+        if adopted is None:
+            _save(capture_request, dict(
+                schema='qab.request-plan.v1',  # 原BatchAnalysisSource请求计划版本。
+                capture_id=str(uuid.uuid4()),  # 本任务首次生成的原捕获UUID；恢复沿原值。
+                source_kind=inputs['source_kind'],  # actual-qmt或显式SDK替身，沿原来源合同。
+                symbols=symbols,  # 本日真实股票池；资料缺项仍保留。
+                start_date=inputs['cache_from'],  # 已授权的来源读取起日YYYYMMDD。
+                end_date=day.replace('-', ''),  # 本次闭合市场日期，独立于接收时刻。
+                max_rows=rows,  # 至少覆盖固定起日至目标日全部官方交易日；上限2000。
+                ticket_lifetime_ms=30000,  # 原单请求30秒截止；恢复不重置原slot。
+                universe=_descriptor(universe)))  # 原定日池正文身份。
     if adopted is None:
         request = strict_json(read_fixed(capture_request, maximum=16777216))
         completed_capture = root / 'cache' / 'manifest.json'

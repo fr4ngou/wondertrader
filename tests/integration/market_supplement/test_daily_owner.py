@@ -50,8 +50,9 @@ def owner_fixture(root):
     raw=encode(dict(symbol='600000.SH',value=None))+b'\n';(basic/'rows.jsonl').write_bytes(raw)
     write(basic/'RESULT.json',dict(state='completed',rows_sha256=hashlib.sha256(raw).hexdigest()))
     capture=root/'seed';capture.mkdir()
-    original_request=dict(universe=universe,start_date='20261104',end_date='20261105')
-    manifest=write(capture/'manifest.json',dict(request=original_request))
+    original_request=dict(universe=universe,start_date='20261104',end_date='20261105',
+                          source_kind='sdk-synthetic', symbols=['600000.SH'], max_rows=40)
+    manifest=write(capture/'manifest.json',dict(request=original_request,source_kind='sdk-synthetic', batches=[dict(requested_at='2026-11-06T00:00:00+00:00')], generated_at='2026-11-06T00:01:00+00:00'))
     metadata=capture_metadata()
     binding=metadata['binding']
     write(capture/'BINDING.json',metadata)
@@ -98,6 +99,46 @@ def patch_owner_dependencies(monkeypatch,config,pool,facts,original_request):
     monkeypatch.setattr('integrations.guanheng.daily_gap_update.prepare_gap_plan',gap_plan)
     monkeypatch.setattr('integrations.guanheng.source_market.create_native_source_market',lambda *a,**k:BaseMarket())
     return fetches,transports,healthy
+
+
+@pytest.mark.parametrize('with_readback', [False, True])
+def test_same_day_revision_reuses_the_committed_analysis_capture(tmp_path, monkeypatch, with_readback):
+    config, pool, facts, request = owner_fixture(tmp_path)
+    _, _, healthy = patch_owner_dependencies(monkeypatch, config, pool, facts, request)
+    healthy['value'] = True
+    (tmp_path/'first').mkdir()
+    (tmp_path/'next').mkdir()
+    original = inputs.prepare_update(config, DAYS[-1], tmp_path/'first'/'inputs',
+                                     deadline=time.monotonic()+20)
+    previous = write(tmp_path/'first'/'REQUEST.json', inputs._load(original))
+    capture = inputs._load(original)['cache']
+    stages = {}
+    if with_readback:
+        manifest = write(tmp_path/'readback'/'manifest.json', dict(request=request, source_kind='sdk-synthetic', batches=[dict(requested_at='2026-11-06T00:00:00+00:00')], generated_at='2026-11-06T00:01:00+00:00'))
+        capture = dict(directory=str(Path(manifest['path']).parent), sha256=manifest['sha256'])
+        stages['readback'] = capture
+    write(tmp_path/'first'/'work'/'STATE.json', dict(status='published', stages=stages))
+
+    old_seed = tmp_path/'old-seed'/'manifest.json'
+    write(old_seed, dict(request=dict(request, end_date='20261103')))
+    config['inputs']['cache_seed'] = dict(directory=str(old_seed.parent),
+                                         sha256=hashlib.sha256(old_seed.read_bytes()).hexdigest())
+
+    def unexpected_capture(*args, **kwargs):
+        pytest.fail('same-day continuation repeated the QMT capture')
+
+    monkeypatch.setattr('integrations.guanheng.daily_batch_source.DailyBatchAnalysisSource.capture', unexpected_capture)
+    next_input = inputs.prepare_update(config, DAYS[-1], tmp_path/'next'/'inputs',
+                                       previous_requests=[previous['path']], deadline=time.monotonic()+20)
+    assert inputs._load(next_input)['cache'] == capture
+    assert not (tmp_path/'next'/'inputs'/'CAPTURE-REQUEST.json').exists()
+    bound = request['universe']['sha256']
+    assert inputs.reusable_analysis_capture([capture], DAYS[-1], request['symbols'], bound,
+                                            config['inputs'], 41, check=lambda: None) == (None, None)
+    from datetime import datetime
+    assert inputs.reusable_analysis_capture([capture], DAYS[-1], request['symbols'], bound,
+        config['inputs'], 40, check=lambda: None,
+        read_after=datetime.fromisoformat('2026-11-06T00:00:01+00:00')) == (None, None)
 
 
 def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypatch):

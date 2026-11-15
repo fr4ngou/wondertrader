@@ -131,7 +131,7 @@ def _validate(value, deadline, cancelled, *, historical_read=False):
     return dict(value,protected_requests=protected)
 
 
-def read_protected_request(path, *, deadline, cancelled=lambda: False):
+def read_protected_request(path, *, deadline, cancelled=lambda: False, on_returned=None):
     """新计划及恢复共用原slot/SDK资格核验，只读、不确认消费或访问Source。"""
     from guanheng_qmt_shm.read_retention_client import inspect_saved_result
     _controls(deadline, cancelled)
@@ -144,6 +144,8 @@ def read_protected_request(path, *, deadline, cancelled=lambda: False):
                 and all(slot['result'][key] == slot['binding'] for key in
                         ('admitted_binding', 'dispatch_binding', 'result_binding'))):
             state = 'call_returned'
+            if on_returned is not None:
+                on_returned(slot['received_at'])
         elif (reply is not None and reply['ok'] is False and reply.get('error_code') == 'preparation_not_executed'
                 and slot['result']['admitted_binding'] == slot['binding']
                 and slot['result']['dispatch_binding'] is None and slot['result']['result_binding'] is None):
