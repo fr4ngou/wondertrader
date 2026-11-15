@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
@@ -115,7 +116,8 @@ def _date_window(from_date,to_date):
     return start,end,dict(from_date=from_date,to_date=to_date,basis='source_label_date')
 
 
-def _export_one(root,symbol,csv_path,max_rows,max_input_bytes,block_records,period='1m',*,from_date=None,to_date=None,max_scan_rows=None):
+def _export_one(root,symbol,csv_path,max_rows,max_input_bytes,block_records,period='1m',*,from_date=None,to_date=None,max_scan_rows=None,
+                dates=None,consume=None,check=lambda:None):
     start,end,selection=_date_window(from_date,to_date)
     code,market=symbol.split('.')
     directory_name,unused,unused2,unused3=_period(period)
@@ -140,16 +142,18 @@ def _export_one(root,symbol,csv_path,max_rows,max_input_bytes,block_records,peri
             source_file_id=opened.st_ino,rows=0,scanned_rows=0,selected_rows=0,excluded_rows=0,selection=selection)
     original=hashlib.sha256();csv_hash=hashlib.sha256();csv_bytes=0
     first=last=None;previous=None;observed=selected=0;quality=PriceRangeQuality()
-    with source.open('rb') as stream, csv_path.open('xb') as output:
+    with source.open('rb') as stream, (csv_path.open('xb') if csv_path is not None else nullcontext()) as output:
         opened=os.fstat(stream.fileno());_need(_same_file(before,opened),'source_changed')
         header=stream.read(8);_need(header==MAGIC,'layout');original.update(header)
         def emit(raw):
             nonlocal csv_bytes
             _need(csv_bytes+len(raw)<=max_input_bytes,'budget')
             output.write(raw);csv_hash.update(raw);csv_bytes+=len(raw)
-        emit(b'timestamp,open,high,low,close,volume,amount\n')
+        if output is not None:
+            emit(b'timestamp,open,high,low,close,volume,amount\n')
         remaining=opened.st_size-8
         while remaining:
+            check()
             size=min(remaining,block_records*RECORD_BYTES)
             block=stream.read(size);_need(len(block)==size,'source_changed')
             original.update(block);remaining-=size
@@ -162,6 +166,7 @@ def _export_one(root,symbol,csv_path,max_rows,max_input_bytes,block_records,peri
                 if period=='1d':_need(not (label.hour or label.minute or label.second),'timestamp')
                 previous=seconds;observed+=1
                 if (start is not None and label.date()<start) or (end is not None and label.date()>end):continue
+                if dates is not None and label.date() not in dates:continue
                 _need(selected<max_rows,'budget')
                 prices=struct.unpack_from('<4I',block,offset+4)
                 volume,amount=COUNTERS.unpack_from(block,offset+24)
@@ -172,22 +177,48 @@ def _export_one(root,symbol,csv_path,max_rows,max_input_bytes,block_records,peri
                 # 原始四价独立保存；来源范围异常只记录质量，不改值或丢整只证券。
                 quality.observe(text,op,high,low,close)
                 # 只按固定布局还原千分之一价格；量额不猜倍率，原整数文本保留。
-                row=[text]+[repr(value/1000.0) for value in prices]+[str(volume),str(amount)]
-                emit((','.join(row)+'\n').encode('ascii'));selected+=1
+                prices=tuple(value/1000.0 for value in prices)
+                if output is not None:
+                    row=[text]+[repr(value) for value in prices]+[str(volume),str(amount)]
+                    emit((','.join(row)+'\n').encode('ascii'))
+                else:
+                    consume(label,prices,volume,amount)
+                selected+=1
         _need(not stream.read(1) and observed==count,'source_changed')
         after=os.fstat(stream.fileno())
         path_after=_ordinary(source)
         # 同一句柄及同一路径各自前后保留ctime稳定性检查。
         _need(_stamp(after)==_stamp(opened) and _stamp(path_after)==_stamp(before) and
               _same_file(path_after,after),'source_changed')
-        output.flush();os.fsync(output.fileno())
+        if output is not None:
+            output.flush();os.fsync(output.fileno())
         _need(_stamp(os.fstat(stream.fileno()))==_stamp(opened),'source_changed')
     return dict(symbol=symbol,status='exported' if selected else 'empty',source_path=str(source),source_sha256=original.hexdigest(),
         source_size=opened.st_size,source_mtime_ns=opened.st_mtime_ns,source_device=opened.st_dev,
         source_file_id=opened.st_ino,rows=selected,scanned_rows=observed,selected_rows=selected,
         excluded_rows=observed-selected,selection=selection,first_label=first,last_label=last,
-        csv_path='csv/'+csv_path.name,csv_sha256=csv_hash.hexdigest(),csv_bytes=csv_bytes,
+        csv_path='csv/'+csv_path.name if csv_path is not None else None,csv_sha256=csv_hash.hexdigest(),csv_bytes=csv_bytes,
         price_range_quality=quality.result())
+
+
+def read_cache_dates(cache_root,symbol,days,*,period,check):
+    """复用本地DAT原解析器，仅向日更返回指定日期及已核原件，不写CSV。"""
+    root=_root(cache_root)
+    _need(type(symbol) is str and re.fullmatch(r'[0-9]{6}\.(SH|SZ|BJ)',symbol) is not None)
+    dates={date.fromisoformat(day) for day in days}
+    if not dates:
+        return [],None
+    bounds=_inspect_one(root,symbol,period)
+    if (bounds['status']=='empty' or bounds['first_label'][:10]>max(dates).isoformat()
+            or bounds['last_label'][:10]<min(dates).isoformat()):
+        return [],None
+    rows=[]
+    def receive(label,prices,volume,amount):
+        rows.append((label,*prices,volume,amount))
+    evidence=_export_one(root,symbol,None,len(dates)*(241 if period=='1m' else 1),
+        MAX_FILE_BYTES,4096,period,from_date=min(dates).isoformat(),to_date=max(dates).isoformat(),
+        dates=dates,consume=receive,check=check)
+    return rows,evidence['source_sha256']
 
 
 def _select_cache(root,symbols,all_cache):

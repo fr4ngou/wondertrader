@@ -77,6 +77,15 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                 resolver=getattr(market,'static_archive_identity',None)
                 if callable(resolver)and resolver(entry['symbol'],'none')==identity:
                     preloaded[entry['symbol']]=PreloadedArchiveRows(identity,entry_rows,price_rows_identity(original_rows),tuple(parts))
+        if prepared.get('local_prices') is not None:
+            from .daily_local_prices import local_price_groups
+            for qmt,metadata,items in local_price_groups(prepared['local_prices'],check=check):
+                code,exchange=qmt.split('.')
+                symbol={'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[exchange]+'.'+code
+                values=additions.setdefault(symbol,{})
+                for item in items:
+                    day=int(item['date'].replace('-',''))
+                    values.setdefault(day,(dict(date=day,**item['bar']),metadata))
         for current_capture in (cache,*additional_captures):
             current_manifest=manifest if current_capture==cache else load_price_capture(current_capture)
             current_metadata=capture_metadata(current_manifest,current_capture['sha256'],'none')

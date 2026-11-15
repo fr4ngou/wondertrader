@@ -78,6 +78,8 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
             authorized_from=request['authorized_from'],source_kind=request['source_kind'])
         if request.get('cache_seed')is not None:price_request['cache_seed']=request['cache_seed']
         if request.get('index_fallback')is not None:price_request['index_fallback']=request['index_fallback']
+        if 'local_qmt_dat_root' in request:
+            price_request.update(local_qmt_dat_root=request['local_qmt_dat_root'],local_helper=request['helper'])
         inputs=prepare_price_inputs(price_request,root/'inputs',
             deadline=deadline,cancelled=cancelled,environ=environ,daily_facts=daily_facts)
     base=_load(base_configuration,1048576)

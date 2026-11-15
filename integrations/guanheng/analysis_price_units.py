@@ -86,13 +86,17 @@ def qualify_capture_units(descriptor, evidence, *, deadline, cancelled=lambda: F
         slot = strict_json(read_fixed(root / batch["slot"], maximum=16777216, identity=batch["sha256"]))
         original = slot["request"]
         args = original["arguments"]
+        window = {key:request[key] for key in ("start_date","end_date","max_rows")}
+        if batch["adjustment"] == "none" and "raw_ranges" in request:
+            planned = [request["raw_ranges"].get(symbol) for symbol in batch["symbols"]]
+            if any(item != {key:args.get(key) for key in window} for item in planned):
+                raise ValueError("source_unit_capture_parameters_differ")
+            window = planned[0]
         if (original["operation_id"] != "market.market_data"
                 or original["policy_id"] != "qmt.daily-batch-read.v1"
                 or original["policy_version"] != "1.0"
                 or set(args) != {"symbols", "start_date", "end_date", "max_rows", "adjustment"}
-                or args["start_date"] != request["start_date"]
-                or args["end_date"] != request["end_date"]
-                or args["max_rows"] != request["max_rows"]
+                or any(args[key] != value for key,value in window.items())
                 or args["symbols"] != batch["symbols"]
                 or args["adjustment"] != batch["adjustment"]
                 or args["adjustment"] not in ("none", "front_ratio")

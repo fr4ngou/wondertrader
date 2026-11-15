@@ -16,7 +16,7 @@ def prepare_directory(root, name, marker, build, restore, *, recover_prior=False
     不跨过较晚尝试可能持有的Source/未知责任。
     """
     from .daily_data_update import _save
-    if (name not in ('facts', 'gap-plan', 'snapshot', 'price-archive', 'price-front') or type(marker) is not str
+    if (name not in ('facts', 'gap-plan', 'snapshot', 'price-archive', 'price-front', 'local-price') or type(marker) is not str
             or Path(marker).name != marker or type(recover_prior) is not bool):
         raise ValueError('daily immutable stage name invalid')
     root = Path(root).absolute()

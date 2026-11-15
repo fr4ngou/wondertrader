@@ -14,7 +14,7 @@ from .daily_data_stages import prepare_directory
 from .analysis_price_capture import load_price_capture,price_batches,original_price_quality
 from .daily_gap_update import prepare_gap_plan,advance_gap_plan,freeze_gap_progress
 from .daily_gap_plan import load_gap_plan, restore_gap_plan
-from .security_reference import SecurityReference
+from .security_reference import SecurityReference,trade_day_state
 from .source_market import create_native_source_market
 
 
@@ -27,9 +27,12 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
     """
     required={'schema','universe','current_configuration','snapshot_id','reference','calendar',
               'connections','protected_slots','authorized_from','source_kind'}
-    if (type(request)is not dict or not required<=set(request)or set(request)-required-{'cache_seed','index_fallback'}
+    if (type(request)is not dict or not required<=set(request)
+            or set(request)-required-{'cache_seed','index_fallback','local_qmt_dat_root','local_helper'}
             or request['schema']!='guanheng.daily-price-inputs.v1'):
         raise ValueError('daily price input request invalid')
+    if ('local_qmt_dat_root' in request) != ('local_helper' in request):
+        raise ValueError('daily price local source configuration incomplete')
     if request.get('index_fallback')not in(None,'official-publishers'):
         raise ValueError('daily price official fallback invalid')
     if (not callable(cancelled)or type(deadline)not in(int,float)or not math.isfinite(deadline)
@@ -87,18 +90,20 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
     needed=sum(r['is_open']==1 and capture_from<=r['date'].replace('-','')<=last for r in rows)
     if not 1<=needed<=2000:raise ValueError('daily price cache window exceeds capacity')
     reference=SecurityReference(request['reference'],request['calendar'])
+    raw_ranges=None
     def capture(name, *, previous=None, changed_symbols=None):
         check();seed=request.get('cache_seed')if name=='cache'else None
         if seed is not None:
             original=load_price_capture(seed);selection=original['request']
             if (original['source_kind']==request['source_kind']and selection['symbols']==sorted(bounds)
                     and selection['start_date']<=capture_from and selection['end_date']==last
-                    and selection['max_rows']>=needed):
+                    and selection['max_rows']>=needed
+                    and (selection.get('raw_ranges') is None or selection.get('raw_ranges') == raw_ranges)):
                 # 原捕获身份保持；本轮名称/类别/分母由独立universe与reference拥有。
                 return seed
         request_file=root/(name+'-REQUEST.json')
         if not request_file.exists():
-            _save(request_file,dict(
+            intent=dict(
                 schema='qab.request-plan.v1',  # 原批读捕获合同。
                 capture_id=str(uuid.uuid4()),  # 本阶段一次生成，恢复沿原身份。
                 source_kind=request['source_kind'],  # 真实QMT与替身显式区分。
@@ -106,11 +111,14 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
                 start_date=capture_from,  # 完整已授权窗口保留供应商前复权参考；HPR仍只补bounds之后的原价缺口。
                 end_date=last,  # 原闭合目标日，不借接收时刻推进。
                 max_rows=needed,  # 全部所需官方交易日；公开响应额度仍沿原协议。
-                universe=request['universe']))  # 独立价格池正文身份。
+                universe=request['universe'])  # 独立价格池正文身份。
+            if raw_ranges is not None:
+                intent['raw_ranges']=raw_ranges  # 原价各证券仍缺的请求区间，前复权沿原整体窗口。
+            _save(request_file,intent)
         capture_request=strict_json(read_fixed(request_file,maximum=16777216))
         output=root/name
         if not(output/'manifest.json').exists():
-            if seed is not None:
+            if seed is not None and 'raw_ranges' not in capture_request:
                 seed_local_analysis_batches(root,capture_request,[seed],{},check=check)
             if previous is not None:
                 captured = load_price_capture(previous)
@@ -118,7 +126,9 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
                 # 只有原QMT参数相同的批次沿用已核slot；本轮股票池元数据不参与。
                 keys = ('source_kind','symbols','start_date','end_date','max_rows')
                 if all(actual[key] == capture_request[key] for key in keys):
-                    seed_unaffected_readback_batches(output,previous['directory'],captured,changed_symbols,check=check)
+                    adjustments=('none','front_ratio') if actual.get('raw_ranges') == capture_request.get('raw_ranges') else ('front_ratio',)
+                    seed_unaffected_readback_batches(output,previous['directory'],captured,changed_symbols,
+                                                     check=check,adjustments=adjustments)
             from .daily_price_capture import capture_price_window
             capture_price_window(capture_request,output,request['connections']['batch'],deadline=deadline,
                 cancelled=cancelled,environ=environ)
@@ -126,8 +136,45 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
         load_price_capture(descriptor)
         return descriptor
     try:
-        initial=capture('cache')
         snapshot=dict(snapshot_id=hashlib.sha256(encode(request)).hexdigest(),observation_date=day,basics={})
+        local=None
+        if 'local_qmt_dat_root' in request:
+            from .daily_local_prices import local_price_groups, prepare_local_prices
+            open_days={row['date'] for row in rows if row['is_open']==1 and int(capture_from)<=int(row['date'].replace('-',''))<=int(last)}
+            local_wanted={}
+            qmt_to_symbol={}
+            for symbol in members:
+                check()
+                exchange,code=symbol.split('.')
+                qmt=code+'.'+{'SSE':'SH','SZSE':'SZ','BSE':'BJ'}[exchange]
+                qmt_to_symbol[qmt]=symbol
+                basic=reference.security(snapshot,symbol)
+                local_wanted[qmt]={date for date in open_days if (basic['listed_on'] or date)<=date<=(basic['expires_on'] or date)
+                                   and date.replace('-','') not in archived_raw_dates[qmt]}
+            if daily_facts is not None:
+                for date in sorted(open_days):
+                    check()
+                    for qmt,symbol in qmt_to_symbol.items():
+                        if date in local_wanted[qmt] and trade_day_state(daily_facts.security_state(date,symbol))=='source_halted_no_trade':
+                            local_wanted[qmt].remove(date)
+            def build_local(output):
+                return prepare_local_prices(request['local_qmt_dat_root'],local_wanted,output,request['local_helper'],
+                                            deadline=deadline,cancelled=cancelled)
+            local=prepare_directory(root,'local-price','catalog.json',build_local,
+                                    lambda output: _descriptor(output/'catalog.json'),recover_prior=True)
+            for qmt,_,prices in local_price_groups(local,check=check):
+                dates={row['date'] for row in prices}
+                local_wanted[qmt].difference_update(dates)
+                archived_raw_dates[qmt].update(date.replace('-','') for date in dates)
+                if day in dates:
+                    locally_covered_target.add(qmt_to_symbol[qmt])
+            raw_ranges={}
+            for qmt,dates in local_wanted.items():
+                if dates:
+                    start,end=min(dates),max(dates)
+                    raw_ranges[qmt]=dict(start_date=start.replace('-',''),end_date=end.replace('-',''),
+                        max_rows=sum(start<=date<=end for date in open_days))
+        initial=capture('cache')
         def restore(output):
             return restore_gap_plan(output/'PLAN.json',capture=initial,snapshot_id=snapshot['snapshot_id'],
                 authorized_from=capture_from,authorized_to=last,protected_slots=request['protected_slots'],
@@ -166,7 +213,8 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
             for kind in ('stock','etf','index','unknown')}
         for symbol,identity in members.items():
             check();exchange,code=symbol.split('.');qmt=code+'.'+{'SSE':'SH','SZSE':'SZ','BSE':'BJ'}[exchange]
-            item=data[qmt];dates=sorted(item['data']);present=last in item['data'];count=counts[identity['security_type']]
+            item=data.get(qmt,dict(status='not_requested',data={}))
+            dates=sorted(item['data']);present=last in item['data'];count=counts[identity['security_type']]
             quality={d:original_price_quality(bar)for d,bar in item['data'].items()}
             qualified=present and quality[last]=='qualified'
             count['known_scope_count']+=1;count['target_in_cache']+=present;count['target_absent']+=not present
@@ -207,5 +255,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
             counts=counts,  # 已知范围逐类缓存数量，不宣称全市场分母。
             securities=source_days,  # 每证券实际日期/原因，缺失不填0。
             supplemental_prices=supplement)  # 显式官方原价原件；不修改原QMT捕获事实。
+        if local is not None:
+            result['local_prices']=local  # 已核DAT与WT派生日线的独立原价目录。
         _save(final,result);return _descriptor(final)
     finally:reference.close()

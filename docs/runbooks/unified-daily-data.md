@@ -6,6 +6,8 @@
 
 永久声明`config/unified-daily-data-source.json`固定共享原模块、角色项目、工具、原生身份及基础解释器清单。构建从永久源码生成Core与SDK轮子，沿固定registry收集完整第三方wheel；原件数据和凭据保持在运行数据根。参数均使用受控绝对路径，以下变量表示调用方已核SHA的工具和输入。
 
+部署全类别价格的本地来源时，`price_scope.local_qmt_dat_root` 指向 WT 数据进程可读的现有 QMT `datadir`。该选项在新价格任务中启用日线及完整分钟的本地原价准备。采用前核对声明目录、可读权限、实际证券和日期覆盖，再用固定任务确认 QMT 原价请求及已发布日线。复权请求继续使用原供应商参考。
+
 ```powershell
 & $sourcePython -I -B scripts/unified_daily_source.py --work $newBuild --python $sourcePython --backend $flitWheel --wheelhouse $fixedWheels --native-directory $verifiedNative --seconds 600
 & $sourcePython -I -B $installer --artifact $artifact --manifest-sha256 $manifestSha --destination $newProgram --python $sourcePython --seconds 600

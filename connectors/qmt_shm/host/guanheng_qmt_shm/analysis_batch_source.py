@@ -56,42 +56,37 @@ class BatchAnalysisSource:
         if profile['read_profile_version'] != 'qmt.read-profile.v8' or descriptor['policy_id'] != POLICY:
             raise ValueError('explicit_batch_profile_required')
         scope = descriptor['limits']
-        batches = self._batches(directory, request, scope)
         records, securities = [], {s: {} for s in request['symbols']}
         source_dates = {s: {} for s in request['symbols']}
-        for index, symbols in enumerate(batches):
-            for adjustment in ('none', 'front_ratio'):
-                args = dict(symbols=symbols, start_date=request['start_date'], end_date=request['end_date'],
-                    max_rows=request['max_rows'], adjustment=adjustment)
-                # 完整arguments准入交原Host/Agent；消费前再次核同批来源和结构。
-                batch_id = '%04d-%s' % (index, adjustment)
-                slot = self._slot(directory, batch_id, args, deadline)
-                returned = self.client.read('market.market_data', args, slot, deadline=deadline,
-                    expected_binding=metadata['binding'], minimum_new_request_seconds=minimum_new_request_seconds)
-                reply = returned['reply']
-                data = reply['data']
-                if (data['schema'] != RESULT_SCHEMA or data['adjustment'] != adjustment
-                        or set(data['securities']) != set(symbols)):
-                    raise ValueError('batch_result_projection')
-                record = json.loads(slot.read_bytes())
-                records.append(dict(batch_id=batch_id, slot=str(slot.relative_to(directory)).replace('\\','/'),
-                    sha256=hashlib.sha256(slot.read_bytes()).hexdigest(), request_id=returned['request_id'],
-                    request_body_sha256=record['request_body_sha256'], result_body_sha256=record['result']['result_body_sha256'],
-                    binding=record['binding'], requested_at=returned['requested_at'], received_at=returned['received_at'],
-                    completed_at=reply['completed_at'], queue_wait_ms=reply['queue_wait_ms'], execution_ms=reply['execution_ms'],
-                    symbols=symbols, adjustment=adjustment))
-                for symbol in symbols:
-                    value = data['securities'][symbol]
-                    if value['status'] not in ('observed','empty','missing','invalid','requires_partition'):
-                        raise ValueError('batch_security_status')
-                    securities[symbol][adjustment] = dict(batch_id=batch_id, status=value['status'],
-                        data_pointer='/data/securities/'+symbol)
-                    source_dates[symbol][adjustment] = set(value['data'])
-                if on_result is not None:
-                    on_result(batch_id, returned, record)
+        for batch_id, args in self._observations(directory, request, scope):
+            symbols, adjustment = args['symbols'], args['adjustment']
+            slot = self._slot(directory, batch_id, args, deadline)
+            returned = self.client.read('market.market_data', args, slot, deadline=deadline,
+                expected_binding=metadata['binding'], minimum_new_request_seconds=minimum_new_request_seconds)
+            reply = returned['reply']
+            data = reply['data']
+            if (data['schema'] != RESULT_SCHEMA or data['adjustment'] != adjustment
+                    or set(data['securities']) != set(symbols)):
+                raise ValueError('batch_result_projection')
+            record = json.loads(slot.read_bytes())
+            records.append(dict(batch_id=batch_id, slot=str(slot.relative_to(directory)).replace('\\','/'),
+                sha256=hashlib.sha256(slot.read_bytes()).hexdigest(), request_id=returned['request_id'],
+                request_body_sha256=record['request_body_sha256'], result_body_sha256=record['result']['result_body_sha256'],
+                binding=record['binding'], requested_at=returned['requested_at'], received_at=returned['received_at'],
+                completed_at=reply['completed_at'], queue_wait_ms=reply['queue_wait_ms'], execution_ms=reply['execution_ms'],
+                symbols=symbols, adjustment=adjustment))
+            for symbol in symbols:
+                value = data['securities'][symbol]
+                if value['status'] not in ('observed','empty','missing','invalid','requires_partition'):
+                    raise ValueError('batch_security_status')
+                securities[symbol][adjustment] = dict(batch_id=batch_id, status=value['status'],
+                    data_pointer='/data/securities/'+symbol)
+                source_dates[symbol][adjustment] = set(value['data'])
+            if on_result is not None:
+                on_result(batch_id, returned, record)
         comparison = {}
         for symbol, references in securities.items():
-            dates = sorted(source_dates[symbol]['none'] & source_dates[symbol]['front_ratio'])
+            dates = sorted(source_dates[symbol].get('none', set()) & source_dates[symbol]['front_ratio'])
             comparison[symbol] = dict(common_dates=dates,basis=dates[-1] if dates else None,rows=len(dates),
                 at_least_40=len(dates)>=40,adjustment_qualified=False,closed_basis_qualified=False,factors='not_requested')
         manifest = dict(schema=SCHEMA, universe=request.get('universe'), request=request,
@@ -108,6 +103,35 @@ class BatchAnalysisSource:
         """普通SDK入口沿原始顺序和来源资源额度分片。"""
         return request_batches(request['symbols'], max_rows=request['max_rows'],
             max_data_bytes=scope['max_data_bytes'], max_symbols=scope['max_symbols'])
+
+    def _observations(self, directory, request, scope):
+        """显式原价区间仅用于拥有本地原价的价格维护；前复权保持原参考。"""
+        common = {key:request[key] for key in ('start_date','end_date','max_rows')}
+        batches = self._batches(directory, request, scope)
+        raw = request.get('raw_ranges')
+        if raw is None:
+            for index,symbols in enumerate(batches):
+                for adjustment in ('none','front_ratio'):
+                    yield '%04d-%s' % (index,adjustment),dict(common,symbols=symbols,adjustment=adjustment)
+            return
+        if type(raw) is not dict or not set(raw) <= set(request['symbols']):
+            raise ValueError('batch_raw_range_symbols')
+        groups = {}
+        for symbol,window in sorted(raw.items()):
+            if (type(window) is not dict or set(window) != set(common)
+                    or not common['start_date'] <= window['start_date'] <= window['end_date'] <= common['end_date']
+                    or type(window['max_rows']) is not int or not 1 <= window['max_rows'] <= common['max_rows']):
+                raise ValueError('batch_raw_range')
+            key = (window['start_date'],window['end_date'],window['max_rows'])
+            groups.setdefault(key,[]).append(symbol)
+        index = 0
+        for (first,last,max_rows),symbols in sorted(groups.items()):
+            for group in request_batches(symbols,max_rows=max_rows,max_data_bytes=scope['max_data_bytes'],
+                                         max_symbols=scope['max_symbols']):
+                yield '%04d-none' % index,dict(symbols=group,start_date=first,end_date=last,max_rows=max_rows,adjustment='none')
+                index += 1
+        for index,symbols in enumerate(batches):
+            yield '%04d-front_ratio' % index,dict(common,symbols=symbols,adjustment='front_ratio')
 
 
 def read_capture(directory):

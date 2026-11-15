@@ -7,7 +7,7 @@ from pathlib import Path
 from .daily_data_update import _save,_load,_descriptor,price_maintenance_with_slots
 from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .daily_price_scope import prepare_price_scope
-from .daily_data_inputs import fixed_unit_evidence_configuration
+from .daily_data_inputs import fixed_price_input_configuration
 from .daily_gap_plan import committed_gap_plans, load_gap_plan, terminal_hpr_paths
 from .daily_price_update import prepare_price_update,compact_price_base
 from .market_generation import GenerationPublisher,encode,read_fixed,read_generation
@@ -50,7 +50,7 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
     intent=inputs/'INPUTS.json';bound=dict(configuration=configuration,day=day,previous_requests=list(previous_requests))
     if intent.exists():
         original=strict_json(read_fixed(intent,maximum=16777216))
-        configuration=fixed_unit_evidence_configuration(configuration,original.get('configuration')if type(original)is dict else None)
+        configuration=fixed_price_input_configuration(configuration,original.get('configuration')if type(original)is dict else None)
         bound=dict(bound,configuration=configuration)
         if original!=bound:raise ValueError('daily price refresh input differs')
     else:_save(intent,bound)
@@ -112,6 +112,8 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
         maintenance['index_fallback']=configuration['price_scope']['index_fallback']
     if configuration['price_scope'].get('unit_evidence')is not None:
         maintenance['unit_evidence']=deepcopy(configuration['price_scope']['unit_evidence'])  # 原INPUTS选择进入原维护请求，恢复不注入live后继。
+    if 'local_qmt_dat_root' in configuration['price_scope']:
+        maintenance['local_qmt_dat_root']=configuration['price_scope']['local_qmt_dat_root']  # 固定当前价格任务的本地原件根。
     if configuration['price_scope'].get('strategy_history')is not None:
         maintenance['strategy_history']=configuration['price_scope']['strategy_history']
         maintenance['strategy_history_previous_requests']=list(previous_requests)

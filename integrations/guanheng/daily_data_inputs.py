@@ -25,15 +25,16 @@ def validate_unit_evidence_descriptor(value):
         raise ValueError('daily price unit evidence descriptor invalid')
 
 
-def fixed_unit_evidence_configuration(configuration, original):
-    """已有任务拥有原证据选择；只固定此新增可选字段，其余配置仍由入口严格核同。"""
+def fixed_price_input_configuration(configuration, original):
+    """已有任务拥有原价格来源及证据选择，其余配置继续按原入口完整核同。"""
     if type(configuration)is not dict or type(original)is not dict:
         raise ValueError('daily input original configuration invalid')
     selected=deepcopy(configuration)
     scope=selected.get('price_scope');prior=original.get('price_scope')
     if type(scope)is dict and type(prior)is dict:
-        if 'unit_evidence'in prior:scope['unit_evidence']=deepcopy(prior['unit_evidence'])
-        else:scope.pop('unit_evidence',None)
+        for key in ('unit_evidence','local_qmt_dat_root'):
+            if key in prior:scope[key]=deepcopy(prior[key])
+            else:scope.pop(key,None)
     return selected
 
 
@@ -156,7 +157,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     bound = dict(configuration=configuration, day=day, previous_requests=list(previous_requests))
     if intent.exists():
         original=strict_json(read_fixed(intent, maximum=16777216))
-        configuration=fixed_unit_evidence_configuration(configuration,original.get('configuration')if type(original)is dict else None)
+        configuration=fixed_price_input_configuration(configuration,original.get('configuration')if type(original)is dict else None)
         bound=dict(bound,configuration=configuration)
         if original != bound:
             raise ValueError('daily input original configuration differs')
@@ -473,6 +474,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             template['price_maintenance']['index_fallback']=configuration['price_scope']['index_fallback']  # 显式官方指数来源；读侧仍只读WT。
         if configuration['price_scope'].get('unit_evidence')is not None:
             template['price_maintenance']['unit_evidence']=deepcopy(configuration['price_scope']['unit_evidence'])  # 固定本任务的证据原件SHA；旧INPUTS沿原选择。
+        if 'local_qmt_dat_root' in configuration['price_scope']:
+            template['price_maintenance']['local_qmt_dat_root']=configuration['price_scope']['local_qmt_dat_root']  # 固定本轮只读本地DAT输入根。
         if configuration['price_scope'].get('strategy_history')is not None:
             template['price_maintenance']['strategy_history']=configuration['price_scope']['strategy_history']  # 额外策略窗口，不改变全市场authorized_from。
             template['price_maintenance']['strategy_history_previous_requests']=list(dict.fromkeys((*previous_requests,*prior_price_requests)))  # 固定旧工作流身份，后继续核不重发。

@@ -127,7 +127,8 @@ class _DailyBatchClient(RetainedReadClient):
             self._capture_context = None
 
 
-def seed_unaffected_readback_batches(directory, original, manifest, changed_symbols, *, check, partition=None):
+def seed_unaffected_readback_batches(directory, original, manifest, changed_symbols, *, check, partition=None,
+                                     adjustments=('none','front_ratio')):
     """同次补数只重读受影响的批次；其余批次沿原本地只读回包及绑定。"""
     root, prior = Path(directory), Path(original)
     if (root/'manifest.json').exists():
@@ -171,10 +172,14 @@ def seed_unaffected_readback_batches(directory, original, manifest, changed_symb
     for batch in manifest['batches']:
         check()
         group = tuple(batch['symbols'])
-        if not changed_symbols.isdisjoint(group) or (partition is not None and group not in batch_ids):
+        adjustment=batch.get('adjustment',batch['batch_id'].split('-',1)[1])
+        scoped_raw=adjustment=='none' and 'raw_ranges' in manifest.get('request',{})
+        remap=partition is not None and not scoped_raw
+        if (adjustment not in adjustments or not changed_symbols.isdisjoint(group)
+                or (remap and group not in batch_ids)):
             continue
         relative = Path(batch['slot'])
-        batch_id = batch['batch_id'] if partition is None else '%04d-%s' % (batch_ids[group], batch['adjustment'])
+        batch_id = '%04d-%s' % (batch_ids[group],adjustment) if remap else batch['batch_id']
         target = root/'slots'/(batch_id+'.json')
         if target.exists():
             continue

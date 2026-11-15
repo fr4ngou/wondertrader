@@ -75,9 +75,9 @@ def test_full_input_resume_preserves_original_optional_choice_and_source_bytes(t
 def test_broken_original_configuration_cannot_acquire_new_selection(bad):
     if type(bad)is dict:
         # 相同字段仍交入口完整比较，不能重写原坏shape为live结构。
-        assert inputs.fixed_unit_evidence_configuration({'price_scope':{}},bad)!=bad
+        assert inputs.fixed_price_input_configuration({'price_scope':{}},bad)!=bad
     else:
-        with pytest.raises(ValueError):inputs.fixed_unit_evidence_configuration({'price_scope':{}},bad)
+        with pytest.raises(ValueError):inputs.fixed_price_input_configuration({'price_scope':{}},bad)
 
 
 @pytest.mark.parametrize("resuming", [False, True])

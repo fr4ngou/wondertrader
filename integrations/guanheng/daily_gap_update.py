@@ -90,7 +90,8 @@ def prepare_gap_plan(capture, reference, snapshot, output, *, protected_slots=()
         identity = mappings[market] + '.' + code
         securities[symbol] = dict(identity=identity, basic=reference.security(snapshot, identity),
                                   dates=(set(manifest['comparison'][symbol]['common_dates'])
-                                         if required_adjustments==('none','front_ratio')else selected_dates[symbol]))
+                                         if required_adjustments==('none','front_ratio')else
+                                         selected_dates.get(symbol,(archived_raw_dates or {}).get(symbol,set()))))
     # 所有原槽继续留证；严格确认SDK返回的执行责任与尚缺缓存分别拥有。
     protected=collect_protected_requests(protected_slots,deadline=deadline,cancelled=cancelled)
     blocked = {}
