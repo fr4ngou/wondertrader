@@ -56,8 +56,7 @@ class BatchAnalysisSource:
         if profile['read_profile_version'] != 'qmt.read-profile.v8' or descriptor['policy_id'] != POLICY:
             raise ValueError('explicit_batch_profile_required')
         scope = descriptor['limits']
-        batches = request_batches(request['symbols'], max_rows=request['max_rows'],
-            max_data_bytes=scope['max_data_bytes'], max_symbols=scope['max_symbols'])
+        batches = self._batches(directory, request, scope)
         records, securities = [], {s: {} for s in request['symbols']}
         source_dates = {s: {} for s in request['symbols']}
         for index, symbols in enumerate(batches):
@@ -104,6 +103,11 @@ class BatchAnalysisSource:
     def _slot(self, directory, batch_id, arguments, deadline):
         """批次原持久位置；专用读取owner可选后继观察，默认路径和恢复行为保持。"""
         return directory/'slots'/(batch_id+'.json')
+
+    def _batches(self, directory, request, scope):
+        """普通SDK入口沿原始顺序和来源资源额度分片。"""
+        return request_batches(request['symbols'], max_rows=request['max_rows'],
+            max_data_bytes=scope['max_data_bytes'], max_symbols=scope['max_symbols'])
 
 
 def read_capture(directory):

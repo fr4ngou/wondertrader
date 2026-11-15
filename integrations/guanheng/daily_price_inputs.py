@@ -85,7 +85,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
     earliest=min(bounds.values());last=target.strftime('%Y%m%d');capture_from=authorized.strftime('%Y%m%d')
     calendar=_load(request['calendar'])
     from guanheng_app.observation.calendars import official_calendar
-    from .daily_batch_source import DailyBatchAnalysisSource, seed_unaffected_readback_batches
+    from .daily_batch_source import seed_local_analysis_batches, seed_unaffected_readback_batches
     from guanheng_qmt_shm.market_daily_preparation import MarketDailyPreparation
     from .source_history_transport import BoundHistorySource
     rows,_=official_calendar(calendar)
@@ -115,6 +115,8 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
         capture_request=strict_json(read_fixed(request_file,maximum=16777216))
         output=root/name
         if not(output/'manifest.json').exists():
+            if seed is not None:
+                seed_local_analysis_batches(root,capture_request,[seed],{},check=check)
             if previous is not None:
                 captured = load_price_capture(previous)
                 actual = captured['request']

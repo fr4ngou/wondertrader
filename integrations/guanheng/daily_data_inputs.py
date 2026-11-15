@@ -351,6 +351,9 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             from guanheng_qmt_shm.analysis_batch_source import read_capture
             read_capture(root / 'cache')
         else:
+            from .daily_batch_source import seed_local_analysis_batches
+            seed_local_analysis_batches(root, request, [*reversed(committed_captures), inputs.get('cache_seed')],
+                                        latest_download, check=check)
             batch = BoundHistorySource(inputs['connections']['batch'], environ=environ, reuse_connections=True)
             try:
                 DailyBatchAnalysisSource(batch, lifetime_ms=30000).capture(request, root / 'cache', deadline=deadline,

@@ -1,4 +1,5 @@
 """闭合日日线批读的通信代接续；原SDK继续拥有请求、结果和消费确认。"""
+from datetime import datetime
 import hashlib
 import os
 from pathlib import Path
@@ -126,7 +127,7 @@ class _DailyBatchClient(RetainedReadClient):
             self._capture_context = None
 
 
-def seed_unaffected_readback_batches(directory, original, manifest, changed_symbols, *, check):
+def seed_unaffected_readback_batches(directory, original, manifest, changed_symbols, *, check, partition=None):
     """同次补数只重读受影响的批次；其余批次沿原本地只读回包及绑定。"""
     root, prior = Path(directory), Path(original)
     if (root/'manifest.json').exists():
@@ -156,13 +157,25 @@ def seed_unaffected_readback_batches(directory, original, manifest, changed_symb
         finally:
             staged.unlink(missing_ok=True)
     publish(anchor,binding)
+    if partition is None and (prior/'BATCHES.json').exists():
+        partition = strict_json(read_fixed(prior/'BATCHES.json', maximum=1048576))
+    batch_ids = {}
+    if partition is not None:
+        plan = encode(partition)
+        layout = root/'BATCHES.json'
+        publish(layout, plan)
+        if read_fixed(layout, maximum=1048576) != plan:
+            raise ValueError('daily capture partition changed')
+        batch_ids = {tuple(group): index for index, group in enumerate(partition)}
     original_binding = strict_json(binding)['binding']
     for batch in manifest['batches']:
         check()
-        if not changed_symbols.isdisjoint(batch['symbols']):
+        group = tuple(batch['symbols'])
+        if not changed_symbols.isdisjoint(group) or (partition is not None and group not in batch_ids):
             continue
         relative = Path(batch['slot'])
-        target = root/'slots'/(batch['batch_id']+'.json')
+        batch_id = batch['batch_id'] if partition is None else '%04d-%s' % (batch_ids[group], batch['adjustment'])
+        target = root/'slots'/(batch_id+'.json')
         if target.exists():
             continue
         # read_capture已核原slot路径；复制前再次核其摘要并保留原字节。
@@ -174,6 +187,52 @@ def seed_unaffected_readback_batches(directory, original, manifest, changed_symb
         publish(target,body,source=prior/relative)
 
 
+def seed_local_analysis_batches(root, request, candidates, read_after, *, check):
+    """从同口径同日原件固定可用分片；新增或变动的证券沿原SDK补读。"""
+    from guanheng_qmt_shm.analysis_batch_source import request_batches
+    from .analysis_price_capture import load_price_capture
+    from .daily_data_update import _descriptor, _load, _save
+
+    checkpoint = root/'CACHE-REUSE.json'
+    output = root/'cache'
+    if checkpoint.exists():
+        selection = _load(_descriptor(checkpoint))
+    elif (output/'REQUEST.json').exists():
+        return  # 已开始的计划保留原分片及原槽。
+    else:
+        needed = set(request['symbols'])
+        keys = ('source_kind', 'start_date', 'end_date', 'max_rows')
+        for candidate in filter(None, candidates):
+            check()
+            prior = Path(candidate['directory'])
+            manifest = strict_json(read_fixed(prior/'manifest.json', maximum=16777216, identity=candidate['sha256']))
+            if any(manifest['request'].get(key) != request[key] for key in keys):
+                continue
+            stale = {symbol for batch in manifest['batches'] for symbol in batch['symbols']
+                     if symbol in read_after and datetime.fromisoformat(batch['requested_at']) < read_after[symbol]}
+            groups = [batch['symbols'] for batch in manifest['batches'] if batch['adjustment'] == 'none'
+                      and needed.issuperset(batch['symbols']) and stale.isdisjoint(batch['symbols'])]
+            if not groups:
+                continue
+            remaining = sorted(needed.difference(symbol for group in groups for symbol in group))
+            if remaining:
+                metadata = strict_json(read_fixed(prior/'BINDING.json', maximum=1048576))
+                scope = metadata['profile']['operation_profiles']['market.market_data']['limits']
+                groups += request_batches(remaining, max_rows=request['max_rows'],
+                    max_data_bytes=scope['max_data_bytes'], max_symbols=scope['max_symbols'])
+            selection = dict(source=candidate,  # 原manifest目录与内容摘要，重启继续读取。
+                             partition=groups,  # 新池的完整固定分片，按序对应原批次号。
+                             stale=sorted(stale))  # HPR已更新、旧回包需重读的证券。
+            _save(checkpoint, selection)
+            break
+        else:
+            return
+    source = selection['source']
+    manifest = load_price_capture(source)
+    seed_unaffected_readback_batches(output, source['directory'], manifest, set(selection['stale']),
+                                     check=check, partition=selection['partition'])
+
+
 class DailyBatchAnalysisSource(BatchAnalysisSource):
     """日线owner显式选择；批次分片、数值验证、manifest和SDK默认行为沿原实现。
 
@@ -183,6 +242,17 @@ class DailyBatchAnalysisSource(BatchAnalysisSource):
 
     def __init__(self, transport, *, lifetime_ms=30000):
         self.client = _DailyBatchClient(transport, lifetime_ms=lifetime_ms)  # 原SDK请求owner，随调用线程关闭transport。
+
+    def _batches(self, directory, request, scope):
+        layout = directory/'BATCHES.json'
+        if not layout.exists():
+            return super()._batches(directory, request, scope)
+        batches = strict_json(read_fixed(layout, maximum=1048576))
+        max_group_size = len(super()._batches(directory, request, scope)[0])
+        if (type(batches) is not list or any(type(group) is not list or not 1 <= len(group) <= max_group_size
+                for group in batches) or sorted(symbol for group in batches for symbol in group) != sorted(request['symbols'])):
+            raise ValueError('daily capture partition invalid')
+        return batches
 
     def _slot(self, directory, batch_id, arguments, deadline):
         """缓存纯查询的中断终态允许新观察；原结果及未决责任永不覆盖。"""
