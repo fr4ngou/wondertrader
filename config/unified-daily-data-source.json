@@ -150,7 +150,7 @@
       "source": "apps/guanheng/guanheng_app/observation/stock_universe.py"
     },
     "guanheng_app/observation/storage.py": {
-      "sha256": "e008bd7ee8fec88b31c3b740b61c3b8082b56ecd40ed6f4759ed22667683ab57",
+      "sha256": "c0649d6d60d06c95f98d367d894f4b60683615effa6d0aece60103f7241cf93d",
       "source": "apps/guanheng/guanheng_app/observation/storage.py"
     },
     "guanheng_app/strategy_job.py": {
@@ -426,7 +426,7 @@
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "9ebb7630a7b008f90d8a4ded3332f38ff742cce0be71ec898d2853582229090d",
+      "sha256": "c69531f73009a80ab85cc2596ae8766440c46b3a318c5855c9e8be08d01d17d0",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -434,7 +434,7 @@
       "source": "integrations/guanheng/daily_data_stages.py"
     },
     "integrations/guanheng/daily_data_update.py": {
-      "sha256": "8128b0a9cb762991df5c0e8f51896da32535b412ebc39f260ae188b0202616bb",
+      "sha256": "350e0ef61994f15c2b7b8497af50cb0c538af19c5a3754c28e7746b72f87fa08",
       "source": "integrations/guanheng/daily_data_update.py"
     },
     "integrations/guanheng/daily_front_archive.py": {
@@ -782,5 +782,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.41"
+  "version": "0.2.0a1+unified.42"
 }

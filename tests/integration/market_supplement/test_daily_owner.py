@@ -145,7 +145,10 @@ def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypa
     before=len(fetches)
     assert inputs.prepare_update(config,DAYS[-1],work,deadline=time.monotonic()+20)==descriptor
     assert len(fetches)==before
-    result=update.run_update(request,tmp_path/'update',deadline=time.monotonic()+20)
+    stages = []
+    result=update.run_update(request,tmp_path/'update',deadline=time.monotonic()+20,on_stage=stages.append)
+    assert stages[-3:] == ['native', 'snapshot', 'publishing']
+    assert 'parent' not in stages
     assert result['status']=='published'
     current=json.loads((tmp_path/'publication/CURRENT.json').read_bytes())
     published=json.loads(Path(current['configuration']['path']).read_bytes())

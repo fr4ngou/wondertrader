@@ -25,6 +25,9 @@ export interface Catalog {
 export interface Series { snapshot_id: string; dataset_version: string; definition: Definition; rows: Row[]; total: number; next_cursor: string | null }
 export interface History { coverage: Definition['coverage']; points: { date: string; value: number | null }[]; aggregation: string; raw_count: number }
 export type Range = { start: string; end: string }
+export type WtRepairPhase = 'price_first' | 'inputs' | 'gap_plan' | 'gap_requests' | 'readback' | 'quality' |
+  'native' | 'prices' | 'snapshot' | 'publishing' | 'retry_wait'
+
 export type DataRepair = {
   /** 同一轮补齐在重新连接后保持的身份。 */
   id: string
@@ -35,7 +38,12 @@ export type DataRepair = {
   /** 已提交到 WT 数据进程的补齐请求。 */
   wt_request?: { /** 按来源核定的闭合目标日。 */ dates: string[] }
   /** WT 原日更的业务确认。 */
-  wt_receipt?: { /** 运行、发布或失败阶段。 */ state: 'running' | 'published' | 'failed' }
+  wt_receipt?: {
+    /** WT 原日更运行、发布或失败状态。 */
+    state: 'running' | 'published' | 'failed'
+    /** WT 已进入的实际阶段；旧回执及终态可省略。 */
+    phase?: WtRepairPhase
+  }
   /** 本轮实际核对的来源状态。 */
   items: {
     /** 现有来源登记 ID。 */

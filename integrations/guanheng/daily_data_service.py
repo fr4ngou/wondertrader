@@ -18,7 +18,7 @@ from uuid import UUID,uuid4
 from integrations.guanheng.daily_data_update import run_update, _save, _load
 from integrations.guanheng.daily_data_inputs import prepare_update
 from integrations.guanheng.daily_input_recovery import observe_input_reads, close_input_discovery, registered_requests
-from integrations.guanheng.market_generation import GenerationPublisher, read_fixed
+from integrations.guanheng.market_generation import GenerationPublisher, read_fixed, read_generation
 from integrations.guanheng_market_client import strict_json
 
 ZONE = timezone(timedelta(hours=8))
@@ -159,9 +159,11 @@ def pending_observation_repair(repository, index, day, now):
 def report_observation_repair(repository, repair, day):
     """观察目录暂不可写时由下次轮询沿 INDEX 原回执继续。"""
     from guanheng_app.observation.contracts import ObservationError
+    state = repair['state']
     try:
-        repository.record_wt_repair_receipt(repair['id'], repair['state'], observation_date=day,
-                                            current_sha256=repair.get('current_sha256'))
+        repository.record_wt_repair_receipt(repair['id'], state, observation_date=day,
+                                            current_sha256=repair.get('current_sha256'),
+                                            phase=repair.get('phase') if state == 'running' else None)
     except ObservationError as error:
         if error.code not in ('catalog_unavailable', 'write_outcome_unknown'):
             raise
@@ -256,6 +258,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                                 receipt.update(state='published', current_sha256=saved['current_sha256'])
                             else:
                                 receipt['state'] = 'failed'
+                            receipt.pop('phase', None)
                             _save(index_path, index)
                             report_observation_repair(observation_repository, receipt, requested_day)
                             observation_id = None
@@ -337,13 +340,26 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                     if 'stock_cross_section' in config['inputs']:
                         entry['stock_cross_section_attempt_date'] = local_now.date().isoformat()
                     if observation_id:
-                        entry['observation_repair'] = dict(
-                            id=observation_id,  # 观衡本轮补齐任务身份。
-                            state='running',  # 本轮日更已持久登记，尚未发布。
-                        )
+                        active = entry.get('observation_repair', {})
+                        if active.get('id') != observation_id:
+                            entry['observation_repair'] = dict(
+                                id=observation_id,  # 观衡本轮补齐任务身份。
+                                state='running',  # 本轮日更已持久登记，尚未发布。
+                            )
                     index[day]=entry;_save(index_path,index)
                     if observation_id:
                         report_observation_repair(observation_repository, entry['observation_repair'], day)
+
+                    def report_phase(phase):
+                        if observation_id:
+                            repair = entry['observation_repair']
+                            if repair.get('phase') != phase:
+                                repair['phase'] = phase  # 原任务当前阶段，写入 INDEX 后再转报。
+                                try:
+                                    _save(index_path, index)
+                                except OSError:
+                                    return  # 进度提示晚到时仍继续实际采集；原业务提交边界照常校验。
+                                report_observation_repair(observation_repository, repair, day)
                     deadline = time.monotonic() + config['cycle_seconds']
                     status.update(state='updating', active_date=day)
                     _save(directory / 'status.json', status)
@@ -368,6 +384,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             prior_prices=[p for d,row in index.items()for p in
                                 [*row.get('price_history_requests',[]),*([row['price_request']]if row.get('price_request')else[])]
                                 if p!=price_entry['price_request']and Path(p).is_file()]
+                            report_phase('price_first')
                             price_result=price_refresh(config,day,Path(price_entry['price_request']).parent,
                                 publisher=publisher,deadline=deadline,cancelled=stopped,
                                 previous_requests=[*registered,*prior_prices])
@@ -377,6 +394,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                                           auxiliary_observation_date=price_result['auxiliary_observation_date'])
                             _save(index_path,index);_save(directory/'status.json',status)
                         if not request_file.exists():
+                            report_phase('inputs')
                             previous=list(config['inputs'].get('previous_requests',[]))
                             previous.extend(path for path in registered if Path(path)!=request_file)
                             previous=list(dict.fromkeys(previous))
@@ -399,7 +417,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             finally:
                                 day_facts.close()
                         result = run_update(request, work / 'work',
-                            deadline=deadline, cancelled=stopped, publisher=publisher)
+                            deadline=deadline, cancelled=stopped, publisher=publisher, on_stage=report_phase)
                         index[day].update(
                             state='published',  # 已确认指针成功采用，而非仅接收任务。
                             current_sha256=result['current_sha256'],  # 本日实际采用的指针身份；后继版本独立保存。
@@ -411,6 +429,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             status['stock_cross_section'] = section.get('provider', section.get('reason', 'not_archived'))
                         if observation_id:
                             entry['observation_repair'].update(state='published', current_sha256=result['current_sha256'])
+                            entry['observation_repair'].pop('phase', None)
                         if index[day]['continuation_required']:retry_at=time.monotonic()+config['retry_seconds']
                         status.update(state='waiting', active_date=None, last_success=day)
                     except InterruptedError:
@@ -421,6 +440,8 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             state='failed',  # 当前轮次失败，原CURRENT与已成功阶段保留。
                             error_type=type(failure).__name__)  # 固定异常类型，不持久化来源原文或秘密。
                         retry_at = time.monotonic() + config['retry_seconds']
+                        if observation_id:
+                            entry['observation_repair']['phase'] = 'retry_wait'
                     _save(index_path, index)
                     if observation_id:
                         report_observation_repair(observation_repository, entry['observation_repair'], day)

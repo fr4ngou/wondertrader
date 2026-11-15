@@ -166,17 +166,23 @@ def test_wt_receipt_replays_from_index_then_observation_rechecks_coverage(tmp_pa
         waiting = repo.data_repair()
         assert waiting['items'][0]['state'] == 'waiting_for_wt_repair'
         assert pending_observation_repair(repo, {}, DAY, NOW) == (job['id'], DAY)
-        report_observation_repair(repo, dict(id=job['id'], state='running'), DAY)
+        report_observation_repair(repo, dict(id=job['id'], state='running', phase='readback'), DAY)
         # 观衡读取旧状态后晚到的写入不能覆盖 WT 进度。
         repo.record_data_repair(waiting, lease=lease)
         assert repo.data_repair()['wt_receipt']['state'] == 'running'
-        running = {DAY: dict(observation_repair=dict(id=job['id'], state='running'))}
+        assert repo.data_repair()['wt_receipt']['phase'] == 'readback'
+        running = {DAY: dict(observation_repair=dict(id=job['id'], state='running', phase='retry_wait'))}
         assert pending_observation_repair(repo, running, '2026-11-16', NOW) == (job['id'], DAY)
+        report_observation_repair(repo, running[DAY]['observation_repair'], DAY)
+        assert repo.data_repair()['wt_receipt']['phase'] == 'retry_wait'
         run(lease)
         assert reads == [DAY]
         index = {DAY: dict(observation_repair=dict(id=job['id'], state='published', current_sha256='8'*64))}
         assert pending_observation_repair(repo, index, DAY, NOW) is None
         assert repo.data_repair()['wt_receipt']['current_sha256'] == '8'*64
+        report_observation_repair(repo, running[DAY]['observation_repair'], DAY)
+        assert repo.data_repair()['wt_receipt']['state'] == 'published'
+        assert 'phase' not in repo.data_repair()['wt_receipt']
         waiting['state'] = 'partial'
         repo.record_data_repair(waiting, lease=lease)
         assert repo.data_repair()['state'] == 'running'

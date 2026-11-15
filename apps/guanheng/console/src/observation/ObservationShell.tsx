@@ -18,7 +18,7 @@ import { sourceChartDate } from '../sourceChartPresentation'
 import { ChartHistoryTrack } from '../components/ChartHistoryTrack'
 import { boardDatasets, defaultMetric, selectableBoard } from './presets'
 import {statusLabel,sourceLabel,failureLabel,displayedUnit,displayedPrimary,automaticUpdateLabel,localSchedulerLabel,frequencyLabel,repairInputLabel} from './presentation'
-import type { Catalog, DataRepair, Definition, Range, Row, Series } from './types'
+import type { Catalog, DataRepair, Definition, Range, Row, Series, WtRepairPhase } from './types'
 import './observation.css'
 import { exactObservationValue, observationNumber, observationDisplayUnit } from './numbers'
 import { MarketObservationGroup, groupedBoard, groupDateDomain } from './MarketObservationGroup'
@@ -42,6 +42,19 @@ const repairActive = (job?: DataRepair | null) => job?.state === 'queued' || job
 const repairStates = { queued: '等待补齐', running: '正在补齐', complete: '补齐完成', partial: '仍有缺口', failed: '检查失败' }
 const repairItemStates = { pending: '等待检查', checking: '检查覆盖', repairing: '正在补齐',
   complete: '覆盖通过', missing: '仍有缺口', waiting_for_wt: '待接入 WT', waiting_for_wt_repair: '等待 WT 数据' }
+const wtRepairPhases: Record<WtRepairPhase, string> = {
+  price_first: 'WT 正在更新日线价格',
+  inputs: 'WT 正在准备定日原始数据',
+  gap_plan: 'WT 正在核对历史缺口',
+  gap_requests: 'WT 正在补采历史数据',
+  readback: 'WT 正在读取补采结果',
+  quality: 'WT 正在校验数据覆盖',
+  native: 'WT 正在生成日线归档',
+  prices: 'WT 正在整理价格归档',
+  snapshot: 'WT 正在生成数据快照',
+  publishing: 'WT 正在发布数据快照',
+  retry_wait: 'WT 正在等待重试',
+}
 const updateKey = ['observation', 'updates'] as const
 
 function DataRepairControl({ status, pinned }: { status?: UpdateStatus; pinned?: string }) {
@@ -65,6 +78,7 @@ function DataRepairControl({ status, pinned }: { status?: UpdateStatus; pinned?:
   if (!job && !status?.data_repair_available) return null
   const checked = job?.items.filter(item => !['pending', 'checking', 'repairing', 'waiting_for_wt_repair'].includes(item.state)).length ?? 0
   const upstream = job?.wt_receipt?.state
+  const phase = job?.wt_receipt?.phase
   return <div className="observation-repair">
     <button type="button" onClick={() => repair.mutate()} disabled={!!pinned || !status?.data_repair_available || jobActive || repair.isPending}>检查并补齐</button>
     <div className="observation-repair-popover" onPointerEnter={event => {
@@ -77,7 +91,7 @@ function DataRepairControl({ status, pinned }: { status?: UpdateStatus; pinned?:
       <div id="observation-repair-list" className="observation-repair-list" hidden={!hovered && !opened}>
         {job && <><strong>{repairStates[job.state]} · {checked}/{job.items.length} 项</strong>
           {job.items.length > 0 && <progress value={checked} max={job.items.length} aria-label="已检查来源" />}
-          {job.wt_request && <p>{upstream === 'running' && jobActive ? 'WT 正在补采' : upstream === 'published' ? (jobActive ? 'WT 已发布，正在核对覆盖' : '已核对 WT 本轮发布') :
+          {job.wt_request && <p role="status">{upstream === 'running' && jobActive ? (phase && wtRepairPhases[phase]) || 'WT 正在补采' : upstream === 'published' ? (jobActive ? 'WT 已发布，正在核对覆盖' : '已核对 WT 本轮发布') :
             upstream === 'failed' ? 'WT 补采失败，保留已发布数据' : jobActive ? '等待 WT 接收' : 'WT 回执已超时'}</p>}
           {job.reason && <p>{failureLabel(job.reason)}</p>}
           <ul>{job.items.map(item => <li key={item.source_id}>

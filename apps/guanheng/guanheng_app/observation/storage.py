@@ -433,15 +433,21 @@ class SnapshotRepository:
                     saved['wt_receipt'] = current['wt_receipt']
                 db.execute('UPDATE data_repair SET body=? WHERE id=1', (encode(saved),))
 
-    def record_wt_repair_receipt(self, job_id, state, *, observation_date, current_sha256=None):
+    def record_wt_repair_receipt(self, job_id, state, *, observation_date, current_sha256=None, phase=None):
         """WT 只更新同一活动任务的回执字段。观察调度器独占其余状态。"""
         if state not in ('running', 'published', 'failed'):
             raise ValueError('WT observation repair receipt state invalid')
+        if phase is not None and (state != 'running' or phase not in (
+                'price_first', 'inputs', 'gap_plan', 'gap_requests', 'readback', 'quality',
+                'native', 'prices', 'snapshot', 'publishing', 'retry_wait')):
+            raise ValueError('WT observation repair receipt phase invalid')
         receipt = dict(
             state=state,  # WT 日更实际运行、发布或失败。
             observation_date=observation_date,  # 固定日更交易日。
             current_sha256=current_sha256,  # 已发布的 WT CURRENT 字节摘要，其他状态为空。
         )
+        if phase is not None:
+            receipt['phase'] = phase  # WT 已进入的实际阶段，终态和旧回执可省略。
         with self.connect(writing=True) as db:
             db.execute("""UPDATE data_repair
                 SET body=CAST(json_set(CAST(body AS TEXT), '$.wt_receipt', json(?)) AS BLOB)

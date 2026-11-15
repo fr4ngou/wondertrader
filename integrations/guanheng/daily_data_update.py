@@ -70,12 +70,14 @@ def verify_supplement_configuration(config, expected, day, check):
         store.close()
 
 
-def run_update(request, directory, *, deadline, cancelled=lambda: False, environ=None, publisher=None):
+def run_update(request, directory, *, deadline, cancelled=lambda: False, environ=None, publisher=None,
+               on_stage=lambda phase: None):
     """持同一publication排他锁运行；directory仅供本次固定请求恢复。
 
     输入为数据侧已完成的原缓存、日事实和资料，网络捕获由同一数据角色先行保存。
     prepared_native为已核复用候选；实际capture/Helper相同时复用，否则沿实际回读转换。
     失败保留阶段、原slot及当前版本；同任务恢复沿原slot，首次成功阶段保持只读。
+    on_stage 在本线程同步通知实际推进的阶段；复用已完成阶段时不通知。
     原SDK及DLL的物理硬截止由外层WT进程Job负责，返回前关闭本轮全部Reader/连接。
     """
     from .daily_gap_update import prepare_gap_plan, advance_gap_plan,freeze_gap_progress
@@ -139,6 +141,8 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
             if name not in state['stages']:
                 state.update(status='running', active_stage=name)
                 _save(journal, state)
+                if name != 'parent':
+                    on_stage(name)
                 state['stages'][name] = action()
                 _save(journal, state)
             return state['stages'][name]
@@ -194,6 +198,8 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 owner = MarketDailyPreparation(lambda: BoundHistorySource(connections['hpr'], environ=environ,
                     reuse_connections=True), transport, concurrency=1)
                 # 本阶段每次恢复都续核原slot；call_returned在advance内跳过，不重新派发。
+                if 'readback' not in state['stages']:
+                    on_stage('gap_requests')
                 progress = advance_gap_plan(plan, root / 'gap-work', owner, deadline=deadline,
                     max_tasks=10000, cancelled=cancelled)
                 state['gap_progress'] = progress  # 原调用结果，coverage仍由后续实际批读确认。
@@ -264,6 +270,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 return restore_snapshot(output)
             configuration = stage('snapshot', lambda: prepare_directory(root, 'snapshot', 'PREPARED.json',
                 prepare_snapshot, restore_snapshot))
+            on_stage('publishing')
             candidate = _load(configuration, 1048576)
             supplement_complete = verify_supplement_configuration(candidate, request.get('supplement_facts'), day, check)
             current = read_generation(publisher.current_file) if publisher.current_file.exists() else (None, None)

@@ -64,6 +64,24 @@ it('补齐进度展开后按 ETF 显示缺日范围', async () => {
   expect(screen.getByText('披露回购执行增量 · 20 日窗口')).toBeVisible()
 })
 
+it('进度浮层随 WT 回执显示实际阶段、等待重试及发布后复核', async () => {
+  const {query}=await open()
+  const receipt=(wt_receipt: DataRepair['wt_receipt']) => act(()=>query.setQueryData(['observation','updates'], {
+    data_repair_available:true, runs:[], data_repair:{
+      id:'job', state:'running', items:[], wt_request:{dates:['2026-10-16']}, wt_receipt,
+    },
+  }))
+  receipt({state:'running'})
+  fireEvent.click(await screen.findByRole('button',{name:'正在补齐'}))
+  expect(screen.getByText('WT 正在补采')).toBeVisible()
+  receipt({state:'running',phase:'readback'})
+  expect(await screen.findByText('WT 正在读取补采结果')).toBeVisible()
+  receipt({state:'running',phase:'retry_wait'})
+  expect(await screen.findByText('WT 正在等待重试')).toBeVisible()
+  receipt({state:'published'})
+  expect(await screen.findByText('WT 已发布，正在核对覆盖')).toBeVisible()
+})
+
 it('多看板保持各自图表，日期可联动，事件标记在关闭看板后仍可见', async () => {
   const {query}=await open()
   act(()=>query.setQueryData(['observation','catalog',undefined], {

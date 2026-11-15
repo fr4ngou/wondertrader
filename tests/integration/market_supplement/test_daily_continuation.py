@@ -123,11 +123,26 @@ def test_observation_request_wakes_published_daily_service_and_reuses_index(tmp_
     monkeypatch.setattr(service, 'observe_input_reads', lambda *args, **kwargs: {})
     calls = []
     fail_once = False
+    failed_phase_write = False
+    break_phase_write = False
+    index_path = Path(config['directory'])/'INDEX.json'
+    original_save = service._save
+
+    def save(path, value):
+        nonlocal failed_phase_write
+        if path == index_path and break_phase_write and not failed_phase_write and (
+                value[DAYS[-1]].get('observation_repair',{}).get('phase') == 'readback'):
+            failed_phase_write = True
+            raise OSError('progress file temporarily busy')
+        original_save(path, value)
+
+    monkeypatch.setattr(service, '_save', save)
     def prepare(_config, day, directory, **kwargs):
         calls.append(day)
         return write(Path(directory)/'UPDATE.json', dict(day=day))
     def publish(*args, **kwargs):
         nonlocal fail_once
+        kwargs['on_stage']('readback')
         if fail_once:
             fail_once = False
             raise OSError('transient source error')
@@ -148,7 +163,10 @@ def test_observation_request_wakes_published_daily_service_and_reuses_index(tmp_
     with pytest.raises(RuntimeError, match='one cycle failed'):
         run()
     assert repository.data_repair()['wt_receipt']['state'] == 'running'
+    assert repository.data_repair()['wt_receipt']['phase'] == 'retry_wait'
+    break_phase_write = True
     run()
+    assert failed_phase_write
     assert calls == [DAYS[-1], DAYS[-1]]
     assert repository.data_repair()['wt_receipt']['state'] == 'published'
     index = json.loads((Path(config['directory'])/'INDEX.json').read_bytes())
@@ -156,6 +174,45 @@ def test_observation_request_wakes_published_daily_service_and_reuses_index(tmp_
     assert index[DAYS[-1]]['observation_repair']['id'] == job['id']
     run()
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize('prior_state', ['published', 'failed'])
+def test_overtaken_observation_receipt_retires_its_running_phase(tmp_path, monkeypatch, prior_state):
+    from guanheng_app.observation.storage import SnapshotRepository
+
+    config, *_ = owner_fixture(tmp_path)
+    config['inputs'].pop('supplement_facts')
+    repository = SnapshotRepository(tmp_path/'observation')
+    repository.initialize()
+    config['observation_repair_root'] = str(repository.root)
+    descriptor = write(tmp_path/'daily.json', config)
+    previous, current = DAYS
+    now = datetime.fromisoformat(current+'T16:00:00+08:00')
+    with repository.scheduler_lease() as lease:
+        job = repository.request_data_repair('startup')
+        job.update(state='running', wt_request=dict(dates=[previous], requested_at=now.isoformat()))
+        repository.record_data_repair(job, lease=lease)
+    index_path = Path(config['directory'])/'INDEX.json'
+    old_task = index_path.parent/previous
+    journal = dict(status=prior_state, current_sha256='e'*64 if prior_state=='published' else None)
+    write(old_task/'work'/'STATE.json', journal)
+    write(index_path, {
+        previous:dict(state='updating', request=str(old_task/'REQUEST.json'),
+                      observation_repair=dict(id=job['id'], state='running', phase='prices')),
+        current:dict(state='published'),
+    })
+    write(Path(config['template']['publication_directory'])/'CURRENT.json', {'fixture':True})
+    monkeypatch.setattr(service, 'read_generation', lambda _: ({'observation_date':current}, '2'*64))
+    monkeypatch.setattr(service, 'registered_requests', lambda _: [])
+    monkeypatch.setattr(service, 'observe_input_reads', lambda *args, **kwargs: {})
+    controls = tmp_path/'controls'
+    controls.mkdir()
+    identity = str(uuid4())
+    service.serve(descriptor, controls/identity, identity, once=True, as_of=current, clock=lambda: now)
+    receipt = repository.data_repair()['wt_receipt']
+    assert receipt == dict(state=prior_state, observation_date=previous, current_sha256=journal['current_sha256'])
+    saved = json.loads(index_path.read_bytes())[previous]['observation_repair']
+    assert saved['state'] == prior_state and 'phase' not in saved
 
 
 def test_manual_observation_request_revises_partial_wt_snapshot_and_fills_gap(tmp_path,monkeypatch):
