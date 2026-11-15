@@ -193,13 +193,23 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     root.mkdir(parents=False, exist_ok=True)
     intent = root / 'INPUTS.json'
     bound = dict(configuration=configuration, day=day, previous_requests=list(previous_requests))
+    current = Path(configuration['template']['publication_directory']) / 'CURRENT.json'
+    current_config = None
     if intent.exists():
         original=strict_json(read_fixed(intent, maximum=16777216))
         configuration=fixed_price_input_configuration(configuration,original.get('configuration')if type(original)is dict else None)
         bound=dict(bound,configuration=configuration)
+        if 'security_reference' in original:
+            bound['security_reference'] = original['security_reference']
         if original != bound:
             raise ValueError('daily input original configuration differs')
     else:
+        if current.exists():
+            current_value, _ = read_generation(current)
+            current_config = _load(current_value['configuration'], 1048576)
+            reference = current_config.get('security_reference')
+            if reference is not None:
+                bound['security_reference'] = reference  # 固定价格阶段已发布的证券资料，恢复沿本轮原件。
         _save(intent, bound)
     final = root / 'UPDATE.json'
     if final.exists():
@@ -209,11 +219,13 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     template = deepcopy(configuration['template'])
     inputs = configuration['inputs']
     supplement_previous = template.pop('supplement_facts', None)  # 同一原件库的已采市场事实。
-    # 运行指针只贡献成功日事实和上次原生版本；固定基准/旧价格根持续保留。
-    current = Path(template['publication_directory']) / 'CURRENT.json'
-    if current.exists():
+    if 'security_reference' in bound:
+        template['security_reference'] = bound['security_reference']
+    # 原生合并及日事实仍沿可读成功版本，证券资料由本轮输入检查点固定。
+    if current_config is None and current.exists():
         current_value, _ = read_generation(current)
         current_config = _load(current_value['configuration'], 1048576)
+    if current_config is not None:
         if 'supplement_facts' in inputs:
             supplement_previous = current_config.get('supplement_facts', supplement_previous)
         template['daily_facts'] = current_config['daily_facts']

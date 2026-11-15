@@ -101,6 +101,44 @@ def patch_owner_dependencies(monkeypatch,config,pool,facts,original_request):
     return fetches,transports,healthy
 
 
+@pytest.mark.parametrize('legacy_intent', [False, True])
+def test_complete_update_uses_published_security_reference_and_keeps_input_binding(tmp_path, monkeypatch, legacy_intent):
+    config, pool, facts, request = owner_fixture(tmp_path)
+    _, _, healthy = patch_owner_dependencies(monkeypatch, config, pool, facts, request)
+    healthy['value'] = True
+    directory = tmp_path/'inputs'
+    directory.mkdir()
+    publication = Path(config['template']['publication_directory'])
+    publication.mkdir()
+    (publication/'CURRENT.json').touch()
+    old = config['template']['security_reference']
+    published = write(tmp_path/'price-reference.json', {'listing_date':'2026-11-05'})
+    later = write(tmp_path/'later-reference.json', {'listing_date':'2026-11-06'})
+    descriptor = lambda reference: write(tmp_path/'current-config.json', dict(
+        daily_facts=config['template']['daily_facts'], base={}, security_reference=reference))
+    current = dict(configuration=descriptor(published))
+    monkeypatch.setattr(inputs,'read_generation',lambda *_: (current, '1'*64))
+
+    from integrations.guanheng import day_facts_capture
+    fetch_facts = day_facts_capture.capture_day_facts
+    intent = directory/'INPUTS.json'
+    if legacy_intent:
+        write(intent, dict(configuration=config, day=DAYS[-1], previous_requests=[]))
+    else:
+        def interrupted(*args, **kwargs):
+            raise InterruptedError('source stopped after input binding')
+        monkeypatch.setattr(day_facts_capture,'capture_day_facts',interrupted)
+        with pytest.raises(InterruptedError):
+            inputs.prepare_update(config,DAYS[-1],directory,deadline=time.monotonic()+20)
+        assert json.loads(intent.read_bytes())['security_reference'] == published
+        monkeypatch.setattr(day_facts_capture,'capture_day_facts',fetch_facts)
+    original_intent = intent.read_bytes()
+    current['configuration'] = descriptor(later)
+    prepared = inputs.prepare_update(config,DAYS[-1],directory,deadline=time.monotonic()+20)
+    assert inputs._load(prepared)['security_reference'] == (old if legacy_intent else published)
+    assert intent.read_bytes() == original_intent
+
+
 @pytest.mark.parametrize('with_readback', [False, True])
 def test_same_day_revision_reuses_the_committed_analysis_capture(tmp_path, monkeypatch, with_readback):
     config, pool, facts, request = owner_fixture(tmp_path)
