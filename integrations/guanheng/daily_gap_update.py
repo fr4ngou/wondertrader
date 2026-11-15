@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 import hashlib
 import math
 from pathlib import Path
+from threading import Lock
 import time
 
 from ..guanheng_market_client import strict_json
@@ -255,10 +256,11 @@ def _gap_slot_metadata(slot, current, anchor, generations):
 
 class _GapTransport:
     """在原SDK实际构造新请求处核业务metadata；其余运输和关闭沿原owner。"""
-    def __init__(self, transport, anchor, generations):
+    def __init__(self, transport, anchor, generations, metadata_lock):
         self.transport = transport  # 原factory创建的单worker运输；SDK继续拥有I/O与关闭。
         self.anchor = anchor  # 原计划完整认证metadata；仅通信代字段允许变化。
         self.generations = generations  # 本任务不可变metadata目录，不存储新的业务请求。
+        self.metadata_lock = metadata_lock  # 同一工作组先固定代际证据，各来源请求仍并行。
 
     def __getattr__(self, name):
         return getattr(self.transport, name)
@@ -269,7 +271,8 @@ class _GapTransport:
         if _hpr_business_identity(metadata) != _hpr_business_identity(self.anchor):
             raise RetainedReadBindingChanged('daily_gap_hpr_business_identity_changed')
         path = self.generations / (hashlib.sha256(encode(metadata['binding'])).hexdigest() + '.json')
-        _original(path, metadata)  # 实际plan的完整metadata先保存，关闭预检与新槽准入间的限额变化窗口。
+        with self.metadata_lock:
+            _original(path, metadata)  # 同一代首次写入串行，完整证据先于SDK准入。
         return self.transport.plan(operation, arguments, metadata, deadline)
 
 
@@ -306,8 +309,9 @@ def advance_gap_plan(plan, directory, preparation_owner, *, deadline, max_tasks,
         if type(cursor) is not int or not 0 <= cursor < max(1, len(tasks)):
             raise ValueError('daily gap progress cursor invalid')
     metadata, anchor, generations = _gap_hpr_metadata(preparation_owner, directory, deadline)
+    metadata_lock = Lock()
     guarded_owner = MarketDailyPreparation(
-        lambda: _GapTransport(preparation_owner.factory(), anchor, generations),
+        lambda: _GapTransport(preparation_owner.factory(), anchor, generations, metadata_lock),
         preparation_owner.batch.client.transport, concurrency=preparation_owner.concurrency)
     scope = metadata['profile']['operation_profiles'][OPERATION]['limits']
     observations = directory / 'observations'

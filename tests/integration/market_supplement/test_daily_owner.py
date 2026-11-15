@@ -52,7 +52,7 @@ def owner_fixture(root):
     capture=root/'seed';capture.mkdir()
     original_request=dict(universe=universe,start_date='20261104',end_date='20261105',
                           source_kind='sdk-synthetic', symbols=['600000.SH'], max_rows=40)
-    manifest=write(capture/'manifest.json',dict(request=original_request,source_kind='sdk-synthetic', batches=[dict(requested_at='2026-11-06T00:00:00+00:00')], generated_at='2026-11-06T00:01:00+00:00'))
+    manifest=write(capture/'manifest.json',dict(request=original_request,source_kind='sdk-synthetic', batches=[dict(requested_at='2026-11-06T00:00:00+00:00',symbols=['600000.SH'])], generated_at='2026-11-06T00:01:00+00:00'))
     metadata=capture_metadata()
     binding=metadata['binding']
     write(capture/'BINDING.json',metadata)
@@ -114,7 +114,7 @@ def test_same_day_revision_reuses_the_committed_analysis_capture(tmp_path, monke
     capture = inputs._load(original)['cache']
     stages = {}
     if with_readback:
-        manifest = write(tmp_path/'readback'/'manifest.json', dict(request=request, source_kind='sdk-synthetic', batches=[dict(requested_at='2026-11-06T00:00:00+00:00')], generated_at='2026-11-06T00:01:00+00:00'))
+        manifest = write(tmp_path/'readback'/'manifest.json', dict(request=request, source_kind='sdk-synthetic', batches=[dict(requested_at='2026-11-06T00:00:00+00:00',symbols=['600000.SH'])], generated_at='2026-11-06T00:01:00+00:00'))
         capture = dict(directory=str(Path(manifest['path']).parent), sha256=manifest['sha256'])
         stages['readback'] = capture
     write(tmp_path/'first'/'work'/'STATE.json', dict(status='published', stages=stages))
@@ -138,7 +138,11 @@ def test_same_day_revision_reuses_the_committed_analysis_capture(tmp_path, monke
     from datetime import datetime
     assert inputs.reusable_analysis_capture([capture], DAYS[-1], request['symbols'], bound,
         config['inputs'], 40, check=lambda: None,
-        read_after=datetime.fromisoformat('2026-11-06T00:00:01+00:00')) == (None, None)
+        read_after={'600000.SH':datetime.fromisoformat('2026-11-06T00:00:01+00:00')}) == (None, None)
+    adopted, _ = inputs.reusable_analysis_capture([capture], DAYS[-1], request['symbols'], bound,
+        config['inputs'], 40, check=lambda: None,
+        read_after={'000001.SZ':datetime.fromisoformat('2026-11-06T00:00:01+00:00')})
+    assert adopted == capture
 
 
 def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypatch):

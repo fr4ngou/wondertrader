@@ -85,14 +85,14 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
     earliest=min(bounds.values());last=target.strftime('%Y%m%d');capture_from=authorized.strftime('%Y%m%d')
     calendar=_load(request['calendar'])
     from guanheng_app.observation.calendars import official_calendar
-    from .daily_batch_source import DailyBatchAnalysisSource
+    from .daily_batch_source import DailyBatchAnalysisSource, seed_unaffected_readback_batches
     from guanheng_qmt_shm.market_daily_preparation import MarketDailyPreparation
     from .source_history_transport import BoundHistorySource
     rows,_=official_calendar(calendar)
     needed=sum(r['is_open']==1 and capture_from<=r['date'].replace('-','')<=last for r in rows)
     if not 1<=needed<=2000:raise ValueError('daily price cache window exceeds capacity')
     reference=SecurityReference(request['reference'],request['calendar'])
-    def capture(name):
+    def capture(name, *, previous=None, changed_symbols=None):
         check();seed=request.get('cache_seed')if name=='cache'else None
         if seed is not None:
             original=load_price_capture(seed);selection=original['request']
@@ -115,6 +115,13 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
         capture_request=strict_json(read_fixed(request_file,maximum=16777216))
         output=root/name
         if not(output/'manifest.json').exists():
+            if previous is not None:
+                captured = load_price_capture(previous)
+                actual = captured['request']
+                # 只有原QMT参数相同的批次沿用已核slot；本轮股票池元数据不参与。
+                keys = ('source_kind','symbols','start_date','end_date','max_rows')
+                if all(actual[key] == capture_request[key] for key in keys):
+                    seed_unaffected_readback_batches(output,previous['directory'],captured,changed_symbols,check=check)
             from .daily_price_capture import capture_price_window
             capture_price_window(capture_request,output,request['connections']['batch'],deadline=deadline,
                 cancelled=cancelled,environ=environ)
@@ -147,7 +154,7 @@ def prepare_price_inputs(request,directory,*,deadline,cancelled=lambda:False,env
                 _save(readback_progress,freeze_gap_progress(plan,progress,root/'gap-work'/'observations',
                     deadline=deadline,cancelled=cancelled))
             progress=_load(_descriptor(readback_progress))  # 与原readback共同恢复，完整SDK记录仍在原gap-work。
-            selected=capture('readback')
+            selected=capture('readback',previous=initial,changed_symbols={task['symbol'] for task in plan_value['tasks']})
         manifest=load_price_capture(selected);data={}
         for _,items in price_batches(selected,manifest,deadline=deadline,cancelled=cancelled):
             for symbol,item in items.items():data[symbol]=item

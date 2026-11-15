@@ -145,7 +145,7 @@ def read_protected_request(path, *, deadline, cancelled=lambda: False, on_return
                         ('admitted_binding', 'dispatch_binding', 'result_binding'))):
             state = 'call_returned'
             if on_returned is not None:
-                on_returned(slot['received_at'])
+                on_returned(slot['received_at'], original['arguments']['symbol'])
         elif (reply is not None and reply['ok'] is False and reply.get('error_code') == 'preparation_not_executed'
                 and slot['result']['admitted_binding'] == slot['binding']
                 and slot['result']['dispatch_binding'] is None and slot['result']['result_binding'] is None):

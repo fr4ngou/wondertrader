@@ -39,3 +39,65 @@ def test_daily_readback_uses_new_slot_only_after_verified_retryable_result(
                             lambda record: None if record.get('pending') else reply)
         selected.write_text(json.dumps(dict(metadata, request=request, pending=True)), encoding='ascii')
         assert source._slot(tmp_path, '0000-none', arguments, time.monotonic() + 5) == selected
+
+
+def test_readback_prepares_only_batches_with_hpr_symbols(tmp_path):
+    from hashlib import sha256
+    from pathlib import Path
+    from integrations.guanheng.daily_batch_source import seed_unaffected_readback_batches
+
+    prior = tmp_path/'original'
+    (prior/'slots').mkdir(parents=True)
+    binding = {'host_instance_id': 'fixture'}
+    body = b'{"binding":{"host_instance_id":"fixture"}}'
+    (prior/'BINDING.json').write_bytes(body)
+    batches = []
+    for index, symbol in enumerate(('600000.SH','000001.SZ','000002.SZ')):
+        for adjustment in ('none','front_ratio'):
+            batch_id = f'{index:04d}-{adjustment}'
+            path = Path('slots')/(batch_id+'.json')
+            payload = batch_id.encode()
+            (prior/path).write_bytes(payload)
+            batches.append(dict(batch_id=batch_id, slot=path.as_posix(), binding=binding,
+                                symbols=[symbol], sha256=sha256(payload).hexdigest()))
+    readback = tmp_path/'readback'
+    changed = {'000001.SZ'}
+    seed_unaffected_readback_batches(readback,prior,dict(batches=batches),changed,check=lambda: None)
+    assert (readback/'BINDING.json').read_bytes() == body
+    copied = {path.name:path.read_bytes() for path in (readback/'slots').iterdir()}
+    assert copied == {f'{i:04d}-{a}.json':f'{i:04d}-{a}'.encode() for i in (0,2) for a in ('none','front_ratio')}
+
+    last = readback/'slots'/'0001-none.json'
+    last.write_bytes(b'existing-resume-slot')
+    seed_unaffected_readback_batches(readback,prior,dict(batches=batches),changed,check=lambda: None)
+    assert last.read_bytes() == b'existing-resume-slot'
+    assert (prior/'slots'/'0001-none.json').read_bytes() == b'0001-none'
+
+def test_parallel_hpr_planning_shares_only_the_metadata_publication_lock(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, Lock
+    from time import sleep
+    from integrations.guanheng import daily_gap_update
+
+    planning = Barrier(4)
+    active = 0
+    def publish(*args):
+        nonlocal active
+        active += 1
+        assert active == 1
+        sleep(.02)
+        active -= 1
+
+    class Transport:
+        def plan(self, operation, arguments, metadata, deadline):
+            planning.wait(timeout=3)
+            return arguments
+
+    monkeypatch.setattr('guanheng_qmt_shm.market_daily_preparation._original', publish)
+    monkeypatch.setattr(daily_gap_update, '_hpr_business_identity', lambda value: 'same provider')
+    lock = Lock()
+    clients = [daily_gap_update._GapTransport(Transport(), {}, tmp_path, lock) for _ in range(4)]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = [pool.submit(client.plan,'market.history_prepare',i,{'binding':{}},None)
+                   for i,client in enumerate(clients)]
+        assert [future.result(timeout=5) for future in results] == [0,1,2,3]

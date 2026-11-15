@@ -1,7 +1,9 @@
 """闭合日日线批读的通信代接续；原SDK继续拥有请求、结果和消费确认。"""
 import hashlib
+import os
 from pathlib import Path
 import time
+from uuid import uuid4
 
 from guanheng_qmt_shm.analysis_batch_source import BatchAnalysisSource
 from guanheng_qmt_shm.read_retention_client import RetainedReadClient, RetainedReadBindingChanged
@@ -122,6 +124,54 @@ class _DailyBatchClient(RetainedReadClient):
                                 expected_binding=expected, **kwargs)
         finally:
             self._capture_context = None
+
+
+def seed_unaffected_readback_batches(directory, original, manifest, changed_symbols, *, check):
+    """同次补数只重读受影响的批次；其余批次沿原本地只读回包及绑定。"""
+    root, prior = Path(directory), Path(original)
+    if (root/'manifest.json').exists():
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    binding = read_fixed(prior/'BINDING.json', maximum=1048576)
+    anchor = root/'BINDING.json'
+    if anchor.exists() and read_fixed(anchor, maximum=1048576) != binding:
+        return  # 已开始的旧回读保留原绑定和所有原槽。
+    def publish(path, body, *, source=None):
+        if path.exists():
+            return  # 恢复沿目标目录已存在的原身份。
+        path.parent.mkdir(exist_ok=True)
+        if source is not None and source.drive.upper() == path.drive.upper():
+            try:
+                os.link(source,path)  # 原已消费slot保持不可变；续核按另名读取。
+                return
+            except OSError:
+                pass
+        staged = path.with_name('.'+uuid4().hex+'.tmp')
+        try:
+            with staged.open('xb') as output:
+                output.write(body)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(staged,path)
+        finally:
+            staged.unlink(missing_ok=True)
+    publish(anchor,binding)
+    original_binding = strict_json(binding)['binding']
+    for batch in manifest['batches']:
+        check()
+        if not changed_symbols.isdisjoint(batch['symbols']):
+            continue
+        relative = Path(batch['slot'])
+        target = root/'slots'/(batch['batch_id']+'.json')
+        if target.exists():
+            continue
+        # read_capture已核原slot路径；复制前再次核其摘要并保留原字节。
+        body = read_fixed(prior/relative, maximum=16777216, identity=batch['sha256'])
+        if batch['binding'] != original_binding:
+            name = hashlib.sha256(encode(batch['binding'])).hexdigest()+'.json'
+            generation = Path('read-generations')/name
+            publish(root/generation,read_fixed(prior/generation, maximum=1048576))
+        publish(target,body,source=prior/relative)
 
 
 class DailyBatchAnalysisSource(BatchAnalysisSource):

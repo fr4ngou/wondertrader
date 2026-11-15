@@ -57,8 +57,9 @@ def reusable_analysis_capture(candidates, day, symbols, universe_sha256, inputs,
                 and selection['universe']['sha256'] == universe_sha256
                 and selection['symbols'] == symbols
                 and selection['max_rows'] >= required_rows
-                and (read_after is None or all(datetime.fromisoformat(batch['requested_at']) >= read_after
-                                               for batch in manifest['batches']))
+                and (not read_after or all(datetime.fromisoformat(batch['requested_at']) >= read_after[symbol]
+                                           for batch in manifest['batches'] for symbol in batch['symbols']
+                                           if symbol in read_after))
                 and manifest['source_kind'] == inputs['source_kind']):
             read_capture(candidate['directory'])
             check()
@@ -200,12 +201,11 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     protected.update(strategy_slots((*previous_requests,*prior_price_requests)))
     plans = [];scope_history=[]
     committed_captures = []  # 原INDEX已发布的同日归档，沿原请求固定身份。
-    latest_download = None  # 可能补过本窗口的最新原HPR接收时刻；更早的行情回包须重新读取。
+    latest_download = {}  # 证券的最新原HPR接收时刻；只淘汰该证券更早的行情回包。
 
-    def returned_download(clock):
-        nonlocal latest_download
+    def returned_download(clock,symbol):
         received = datetime.fromisoformat(clock)
-        latest_download = received if latest_download is None else max(latest_download, received)
+        latest_download[symbol] = max(latest_download.get(symbol, received), received)
     # 独立价格阶段属于同owner的原责任；不改已有INPUTS原意图，另从持久INDEX引用恢复保护。
     for request_path in (*previous_requests,*prior_price_requests):
         request_path = Path(request_path)
@@ -243,7 +243,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                 if value['authorized_to'] >= inputs['cache_from']:
                     clock = (row.get('record') or {}).get('received_at') if row.get('state')=='call_returned' else None
                     if clock is not None:
-                        returned_download(clock)
+                        returned_download(clock,task['symbol'])
                     else:
                         # HPR先持久写原slot才写观察；跨进程恢复也能看到已完成的补齐时点。
                         read_protected_request(slot,deadline=deadline,cancelled=cancelled,on_returned=returned_download)
@@ -259,7 +259,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         batch = BoundHistorySource(inputs['connections']['batch'], environ=environ, reuse_connections=True)
         try:
             owner = MarketDailyPreparation(lambda: BoundHistorySource(inputs['connections']['hpr'], environ=environ,
-                reuse_connections=True), batch, concurrency=1)
+                reuse_connections=True), batch)
             prior_observations=observe_prior_plans(plans,owner,deadline=deadline,cancelled=cancelled)
             for _, gap_work, indices in plans:
                 for index in indices:

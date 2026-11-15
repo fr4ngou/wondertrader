@@ -90,7 +90,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
     from .market_snapshot_prepare import prepare_market_snapshot, load_snapshot_basics, _catalog
     from .daily_data_stages import prepare_directory
     from guanheng_qmt_shm.analysis_batch_source import read_capture
-    from .daily_batch_source import DailyBatchAnalysisSource
+    from .daily_batch_source import DailyBatchAnalysisSource, seed_unaffected_readback_batches
     from guanheng_qmt_shm.market_daily_preparation import MarketDailyPreparation
     from guanheng_qmt_shm.market_daily_cache import assess
 
@@ -196,7 +196,7 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                 connections = request['connections']
                 transport = BoundHistorySource(connections['batch'], environ=environ, reuse_connections=True)
                 owner = MarketDailyPreparation(lambda: BoundHistorySource(connections['hpr'], environ=environ,
-                    reuse_connections=True), transport, concurrency=1)
+                    reuse_connections=True), transport)
                 # 本阶段每次恢复都续核原slot；call_returned在advance内跳过，不重新派发。
                 if 'readback' not in state['stages']:
                     on_stage('gap_requests')
@@ -210,7 +210,12 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
                     state['gap_readback_progress']=freeze_gap_progress(plan,progress,root/'gap-work'/'observations',
                         deadline=deadline,cancelled=cancelled)  # 此次回读前完整责任，随阶段恢复保持。
                     _save(journal,state)
-                reread = stage('readback', lambda: _capture(source, manifest['request'], root / 'readback', deadline,check))
+                def readback():
+                    directory = root/'readback'
+                    changed = {task['symbol'] for task in plan_value['tasks']}
+                    seed_unaffected_readback_batches(directory,capture,manifest,changed,check=check)
+                    return _capture(source,manifest['request'],directory,deadline,check)
+                reread = stage('readback',readback)
                 capture = Path(reread['directory'])
                 read_fixed(capture / 'manifest.json', maximum=16777216, identity=reread['sha256'])
             else:
