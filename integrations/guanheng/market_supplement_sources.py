@@ -187,7 +187,7 @@ def _fact(value, unit, source, receipts):
         _fail('source_value_invalid')
     return {
         'value': text,  # 非负有限十进制原精度值；单位缩放后无指数形式。
-        'unit': unit,  # 基金份额 share 或人民币元 CNY。
+        'unit': unit,  # 基金份额 share、人民币元 CNY 或年化百分数 pct。
         'source': source,  # 具体供应商；双市场合成保留两个原件身份。
         'parents': [item[0] for item in receipts],  # 原始字节 SHA256，顺序为实际依赖顺序。
         'received_at': max((item[1] for item in receipts), key=_utc),  # 全部输入收到后的 UTC 时刻。
@@ -351,6 +351,20 @@ def _margin_rows(first, last, get, field):
             amount = _number(row.get(field)) * 100_000_000
         selected[day]=_fact(amount,'CNY','Eastmoney',[(parent,received)])
     return selected
+
+
+def gov10y_history(first, last, get):
+    """把中债原日表的年化百分数和返回的同一原件绑定。"""
+    from guanheng_app.observation.gov10y_source import REFERER, URL, parse_yields, query_params
+    from guanheng_app.observation.source_fetch import SourceFailure
+
+    receipt = get(URL, query_params(first, last), REFERER)
+    try:
+        values = parse_yields(receipt['body'], first, last)
+    except SourceFailure as error:
+        raise SourceUnavailable(error.code) from None
+    return {day: _fact(value, 'pct', 'ChinaBond', [(receipt['sha256'], receipt['received_at'])])
+            for day, value in values.items()}
 
 
 def margin_purchase_history(first, last, get):

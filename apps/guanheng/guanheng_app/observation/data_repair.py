@@ -6,11 +6,12 @@ from time import monotonic
 from .contracts import ObservationError
 from .collection_config import WT_DERIVED
 from .etf_flow import CAP_KIND, ETF_KINDS, cap_row_complete
+from .gov10y_source import WT_KIND as WT_GOV10Y
 from .market_structure_source import WT_INDEX_KIND, WT_STOCK_KIND, index_row_complete
 from .schedule_policy import closed_market_day, source_as_of
 from .source_fetch import SourceFailure
 
-WT_SOURCES = frozenset(('wondertrader', 'wt_breadth', 'wt_t2108', *ETF_KINDS, WT_INDEX_KIND, WT_STOCK_KIND, *WT_DERIVED))
+WT_SOURCES = frozenset(('wondertrader', 'wt_breadth', 'wt_t2108', WT_GOV10Y, *ETF_KINDS, WT_INDEX_KIND, WT_STOCK_KIND, *WT_DERIVED))
 
 
 def _coverage_by_input(reader, manifest, source, target, check):

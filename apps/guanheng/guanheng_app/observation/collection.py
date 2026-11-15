@@ -37,6 +37,8 @@ from . import market_structure, market_structure_source
 from . import etf_flow
 from .collection_config import WT_DERIVED
 from .data_repair import WT_SOURCES
+from .gov10y_source import TABLE as GOV10Y_TABLE, WT_KIND as WT_GOV10Y
+from .wt_gov10y_source import history as wt_gov10y_history
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,
@@ -187,7 +189,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             receipt.update(requested_start=start,requested_end=end,
                 effective_as_of=effective,  # YYYY-MM-DD：本来源按窗口时点及所选日历得到的有效查询截止。
                 date_policy=source.get('date_policy','legacy'))  # 本来源日期口径；legacy表示沿调用者原as_of。
-            if source['kind'] in (market_structure_source.WT_INDEX_KIND,market_structure_source.WT_STOCK_KIND,
+            if source['kind'] in (market_structure_source.WT_INDEX_KIND,market_structure_source.WT_STOCK_KIND,WT_GOV10Y,
                                   *etf_flow.ETF_KINDS,*WT_DERIVED,'wt_breadth','wt_t2108'):
                 calendar=config['models']['calendars']['cn']
                 producer_day=last_open_day(calendar,closed_day_cutoff(observed_now),check=budget.remaining)
@@ -196,6 +198,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             if source['kind']=='wondertrader':
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=market_history(fetch,source,start,end,market_client_factory)
+            elif source['kind']==WT_GOV10Y:
+                if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                start=max(start,source['history_from'])
+                updates=wt_gov10y_history(fetch,start,end,market_client_factory,snapshot_dates=versions)
             elif source['kind'] in (market_structure_source.CSI_KIND, market_structure_source.STOCK_KIND):
                 stock_rows=tables.get(market_structure_source.STOCK_TABLE,[])
                 updates=market_structure_source.history(fetch,source,start,end,calendar,
@@ -399,6 +405,8 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             if universe_table in tables:
                 definition['universe_version']=reader.objects.put(parquet_bytes(tables[universe_table]),kind='standard')
             context_parents=table_parents.get('market.'+mapping[key]['symbol'],[]) if key in mapping else []
+            if key in ('spread_sw', 'bond.erp_rank756'):
+                context_parents=[*context_parents, *table_parents.get(GOV10Y_TABLE, [])]
             if key in structure_inputs:
                 context_parents=[reader.objects.put(parquet_bytes(tables[name]),kind='standard')
                                  for name in structure_inputs[key]]

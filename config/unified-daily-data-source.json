@@ -89,6 +89,10 @@
       "sha256": "e36c83c67a25d4549f77580875c08111bc12756d419a7ac3ba073cd95f6d2cbf",
       "source": "apps/guanheng/guanheng_app/observation/financial_universe.py"
     },
+    "guanheng_app/observation/gov10y_source.py": {
+      "sha256": "2cbe76956a76c2a5f14b8ef66d93f9854748e38f938bf7d8714d01f5072fabe1",
+      "source": "apps/guanheng/guanheng_app/observation/gov10y_source.py"
+    },
     "guanheng_app/observation/http_transport.py": {
       "sha256": "b1d3f2d243a6bcb2785dd787f7a886e3cbc028e25e98e2a96700d3e57eb60c70",
       "source": "apps/guanheng/guanheng_app/observation/http_transport.py"
@@ -186,7 +190,7 @@
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/market_daily_preparation_cli.py"
     },
     "guanheng_qmt_shm/private_files.py": {
-      "sha256": "f1dd16701df393142031fcfae93434a505b4bf042a0bd4299a8fa37c5750f2f1",
+      "sha256": "12bd7e99ae67390290043bfd266635bd0518199a29fb70e4148649f8fa2eb0e8",
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/private_files.py"
     },
     "guanheng_qmt_shm/quote_stream.py": {
@@ -534,7 +538,7 @@
       "source": "integrations/guanheng/market_snapshot_prepare.py"
     },
     "integrations/guanheng/market_supplement_capture.py": {
-      "sha256": "b531a829745ec5f6c60f6879d91ace9a76bcf50a072c01c2b901855aebab36dd",
+      "sha256": "089594fc61071fdf64f09f7e1d537562df63ead15a7162c5a656dbae8a890ddf",
       "source": "integrations/guanheng/market_supplement_capture.py"
     },
     "integrations/guanheng/market_buyback_disclosures.py": {
@@ -542,7 +546,7 @@
       "source": "integrations/guanheng/market_buyback_disclosures.py"
     },
     "integrations/guanheng/market_supplement_sources.py": {
-      "sha256": "6b003c5a1f5f39185f45ed2fab99979409a7b4dea70db2b5f7f144086696cab0",
+      "sha256": "4bab0cb744c279198ba87322ca62c4fd4b562d9117e30c8637295111ddb1c472",
       "source": "integrations/guanheng/market_supplement_sources.py"
     },
     "integrations/guanheng/_process_job.py": {
@@ -742,7 +746,7 @@
       "source": "integrations/guanheng_market_client/strategy_market.py"
     },
     "integrations/guanheng_market_client/supplement_facts.py": {
-      "sha256": "042eb672fe26ba457e9132205d13f4cc7b1d90a9e5eaf19278a5c4456c42fb16",
+      "sha256": "9ec8e877909fc9393efefbd085bbd7c6adb1bf2f84227e2d5b5f78fd227ed491",
       "source": "integrations/guanheng_market_client/supplement_facts.py"
     }
   },
@@ -778,5 +782,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.38"
+  "version": "0.2.0a1+unified.39"
 }

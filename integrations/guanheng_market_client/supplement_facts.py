@@ -17,23 +17,25 @@ MARGIN_REPORT = 'CN.MARGIN_REPORT'
 IPO_PROCEEDS = 'ipo_gross_proceeds'
 SHAREHOLDER_REDUCTION = 'shareholder_reduction_gross'
 BUYBACK_EXECUTION = 'buyback_execution_disclosed'
+GOV10Y_YIELD = 'government_bond_10y_yield'
+GOV10Y_SCOPE = 'CN.GOV10Y'
 SH_SZ_SCOPE = 'CN.SH_SZ'
 LEGACY_METRICS = ('etf_total_shares', 'margin_balance', 'market_turnover', 'market_turnover_proxy')
 INDEX_SCOPES = {
     INDEX_TURNOVER: (SMALL_CAP_INDEX, 'BigQuant'),
     INDEX_FREE_FLOAT_CAP: (CSI300_INDEX, 'CSI'),
 }
-METRICS = LEGACY_METRICS + tuple(INDEX_SCOPES) + (MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, BUYBACK_EXECUTION)
+METRICS = LEGACY_METRICS + tuple(INDEX_SCOPES) + (MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, BUYBACK_EXECUTION, GOV10Y_YIELD)
 MAX_CELLS = 60000
 MAX_CATALOG_BYTES = 32 * 1024 * 1024
-SOURCES = ('QMT', 'SSE', 'SZSE', 'SSE+SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO')
+SOURCES = ('QMT', 'SSE', 'SZSE', 'SSE+SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO', 'ChinaBond')
 # 以下字段是MSF03的公开模型，原单位和来源时间逐项保留。
 ROW_FIELDS = (
     'date',  # 原事实交易日期，ISO日历日，不表示该日开盘已知。
-    'symbol',  # ETF或指数的WT标识、CN.MARGIN_REPORT报表或CN.SH_SZ成交额范围。
+    'symbol',  # ETF或指数的WT标识，或市场报表及CN.GOV10Y国债收益率范围。
     'metric',  # 补充事实类别；官方、指数及双指数代理各有身份。
     'value',  # 有限非负十进制字符串，保留原精度；零表示已知零。
-    'unit',  # share/CNY/unknown，unknown不能获得单位资格。
+    'unit',  # share/CNY/pct/unknown。pct为年化百分数，unknown不能获得单位资格。
     'source',  # 实际来源标识；SSE+SZSE显式保留两市合并归属。
     'source_sha256',  # 源proof清单SHA，清单字段同本行并引用父原始字节。
     'received_at',  # 本次实收UTC带时区时刻，与历史首次可知分别保存。
@@ -79,6 +81,8 @@ def _scope(metric, symbol):
               'supplement ETF identity invalid')
     elif metric in INDEX_SCOPES:
         _need(symbol == INDEX_SCOPES[metric][0], 'supplement index identity invalid')
+    elif metric == GOV10Y_YIELD:
+        _need(symbol == GOV10Y_SCOPE, 'supplement bond yield scope invalid')
     else:
         expected = MARGIN_REPORT if metric in ('margin_balance',MARGIN_PURCHASE) else SH_SZ_SCOPE
         _need(symbol == expected, 'supplement market scope invalid')
@@ -112,7 +116,7 @@ def _value_fields(row):
           and re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', value) is not None, 'supplement decimal invalid')
     number = Decimal(value)
     _need(number.is_finite() and number >= 0, 'supplement decimal invalid')
-    expected_unit = 'share' if row['metric'] == 'etf_total_shares' else 'CNY'
+    expected_unit = {'etf_total_shares': 'share', GOV10Y_YIELD: 'pct'}.get(row['metric'], 'CNY')
     _need(row['unit'] in (expected_unit, 'unknown'), 'supplement unit invalid')
     _need(type(row['source']) is str and row['source'] in SOURCES, 'supplement source invalid')
     if row['metric'] in INDEX_SCOPES:
@@ -123,8 +127,11 @@ def _value_fields(row):
         _need(row['source']=='Eastmoney' and row['unit']=='CNY','supplement public report value invalid')
     elif row['metric'] == BUYBACK_EXECUTION:
         _need(row['source']=='CNINFO' and row['unit']=='CNY','supplement public report value invalid')
+    elif row['metric'] == GOV10Y_YIELD:
+        _need(row['source'] == 'ChinaBond' and row['unit'] == 'pct' and number < 20,
+              'supplement bond yield invalid')
     else:
-        _need(row['source'] not in ('BigQuant', 'CSI', 'CNINFO'), 'supplement source invalid for metric')
+        _need(row['source'] not in ('BigQuant', 'CSI', 'CNINFO', 'ChinaBond'), 'supplement source invalid for metric')
 
 
 def validate_source_proof(value, row=None):

@@ -36,7 +36,9 @@
 
 ETF份额标准单位为share，市场金额为CNY。官方成交额、双指数代理、指数成交额、指数自由流通市值、融资余额和融资买入额各有独立事实身份。源单位未知时保持unknown。
 
-policy固定qmt_preferred。external_fallback为`SSE/SZSE/Eastmoney/BigQuant/CSI/CNINFO`的显式子集。启用BigQuant时，`bigquant.bigquant_python`指定隔离解释器的绝对路径，`bigquant.timeout_seconds`指定1至60秒的单次查询截止。required为bool。required=true时缺事实在UPDATE固定前保持pending并保留原件/缺口，同任务恢复只补缺。required=false允许发布带gaps的不完整目录。已发布partial在下一个北京时间自然日09:00后最多创建一次同市场日修订，仍沿原INDEX/REQUEST及失败重试节拍。新的闭合交易日继续补既往要求窗口的缺项。
+policy固定qmt_preferred。external_fallback为`SSE/SZSE/Eastmoney/BigQuant/CSI/CNINFO/ChinaBond`的显式子集。启用BigQuant时，`bigquant.bigquant_python`指定隔离解释器的绝对路径，`bigquant.timeout_seconds`指定1至60秒的单次查询截止。required为bool。required=true时缺事实在UPDATE固定前保持pending并保留原件/缺口，同任务恢复只补缺。required=false允许发布带gaps的不完整目录。已发布partial在下一个北京时间自然日09:00后最多创建一次同市场日修订，仍沿原INDEX/REQUEST及失败重试节拍。新的闭合交易日继续补既往要求窗口的缺项。
+
+`government_bond_10y_yield/CN.GOV10Y` 读取中债历史收益率表的国债曲线 10 年期列。来源为 `ChinaBond`，单位为 `pct`，数值以百分数归档并保留原 HTML 摘要。WT 按同一任务的实际闭合交易日核对，缺日留在目录。观察侧仅消费同版本补充目录，并继续使用原股债差和债券仓位公式。
 
 plan可选`max_requests`为1..512的整数，省略沿原公共总额度。该值分配本阶段单轮HTTP＋SDK份额，所有实际重试/请求仍从同一CollectionBudget扣账；进入阶段临时收紧max_requests，退出恢复原总上限，字节、总D、单请求D及取消保持。额度用尽登记gaps，required=false仍可发布已取得部分；它不取消后继轮次。原定日股票事实先取得，补充最新日优先，再用余量补较早缺口。正式有限日更可显式配置24次，历史补齐与来源资格分别登记。
 

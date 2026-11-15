@@ -11,7 +11,7 @@ import time
 from .daily_data_update import _save, _descriptor, _load
 from .market_generation import encode
 from ..guanheng_market_client.supplement_facts import (
-    BUYBACK_EXECUTION, INDEX_SCOPES, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS,
+    BUYBACK_EXECUTION, GOV10Y_SCOPE, GOV10Y_YIELD, INDEX_SCOPES, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS,
     MARGIN_PURCHASE, MARGIN_REPORT, SHAREHOLDER_REDUCTION, SH_SZ_SCOPE, SMALL_CAP_INDEX,
 )
 
@@ -20,7 +20,7 @@ PLAN_FIELDS = (
     'schema',  # 固定QMT优先补充采集配置版本。
     'targets',  # 最多64个唯一metric/symbol，逐项from声明历史要求。
     'policy',  # qmt_preferred，未知请求继续核原身份。
-    'external_fallback',  # 显式准入的SSE/SZSE/Eastmoney/BigQuant/CSI/CNINFO子集。
+    'external_fallback',  # 显式准入的交易所、报告及行情供应商。
     'required',  # 缺事实时等待，false允许带缺口发布且不自动同日重入。
 )
 TARGET_FIELDS = (
@@ -47,7 +47,7 @@ def validate_plan(value):
     if 'max_requests' in value and (type(value['max_requests']) is not int or not 1 <= value['max_requests'] <= 512):
         raise ValueError('supplement request share invalid')
     fallback = value['external_fallback']
-    if (type(fallback) is not list or any(type(s) is not str or s not in ('SSE', 'SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO') for s in fallback)
+    if (type(fallback) is not list or any(type(s) is not str or s not in ('SSE', 'SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO', 'ChinaBond') for s in fallback)
             or len(fallback) != len(set(fallback))):
         raise ValueError('supplement external source policy invalid')
     if 'BigQuant' in fallback:
@@ -72,7 +72,7 @@ def validate_plan(value):
             raise ValueError('supplement target date invalid')
         valid_symbol = (re.fullmatch(r'(SSE|SZSE)\.[0-9]{6}', symbol) is not None if metric == 'etf_total_shares'
                         else symbol == INDEX_SCOPES.get(metric, (MARGIN_REPORT if metric in ('margin_balance', MARGIN_PURCHASE)
-                                                                 else SH_SZ_SCOPE,))[0])
+                                                                 else GOV10Y_SCOPE if metric == GOV10Y_YIELD else SH_SZ_SCOPE,))[0])
         if not valid_symbol or (metric, symbol) in seen:
             raise ValueError('supplement target identity invalid')
         seen.add((metric, symbol))
@@ -84,6 +84,8 @@ def _key(day, metric, symbol):
 
 
 def _fallback_sources(metric, symbol):
+    if metric == GOV10Y_YIELD:
+        return {'ChinaBond'}
     if metric == BUYBACK_EXECUTION:
         return {'CNINFO'}
     if metric == INDEX_FREE_FLOAT_CAP:
@@ -314,7 +316,8 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
     from guanheng_app.observation.source_fetch import SourceFailure
     from ..guanheng_market_client.supplement_facts import validate_supplement_catalog, validate_source_proof
     from .market_supplement_sources import (
-        collect_external, ipo_proceeds_history, margin_purchase_history, shareholder_reduction_history, SourceUnavailable,
+        collect_external, gov10y_history, ipo_proceeds_history, margin_purchase_history, shareholder_reduction_history,
+        SourceUnavailable,
     )
 
     validate_plan(plan)
@@ -568,6 +571,8 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
         IPO_PROCEEDS: lambda days: ipo_proceeds_history(days, get),
         SHAREHOLDER_REDUCTION: lambda days: shareholder_reduction_history(days, calendar_dates, get),
     } if 'Eastmoney' in plan['external_fallback'] else {}
+    if 'ChinaBond' in plan['external_fallback']:
+        report_readers[GOV10Y_YIELD] = lambda days: gov10y_history(days[0], days[-1], get)
     report_days = {metric: [(d,s) for d,m,s in cells if m==metric and d<day and _key(d,m,s) not in state['rows']]
                    for metric in report_readers}
 

@@ -14,8 +14,13 @@ from integrations.guanheng import stock_cross_section
 from integrations.guanheng import market_supplement_sources as public_sources
 from integrations.guanheng.market_supplement_store import MarketSupplementStore
 from integrations.guanheng_market_client import MarketProtocolError
+from integrations.guanheng_market_client.supplement_facts import GOV10Y_SCOPE,GOV10Y_YIELD
 from guanheng_qmt_shm.read_retention_client import RetainedReadPending
 from guanheng_app.observation.source_fetch import SourceFailure
+from guanheng_app.observation.gov10y_source import TABLE,URL
+from guanheng_app.observation.wt_gov10y_source import history as read_gov10y
+from guanheng_app.observation.refresh_models import spread_and_bond
+from types import SimpleNamespace
 
 
 def collect(root,targets,fetch,transport,**kwargs):
@@ -71,6 +76,55 @@ def test_margin_purchase_keeps_provider_scope_and_distinct_value(tmp_path):
         assert {r['value'] for r in balance['rows']}=={'12345678900'}
         assert [row['metric'] for row in balance['qmt_evidence']['decisions']]==['margin_balance']
     finally:store.close()
+
+
+def test_gov10y_published_facts_feed_spread_and_keep_missing_day(tmp_path):
+    class ChinaBondFetch(FrozenFetch):
+        def get(self, url, params, referer):
+            assert url == URL
+            self.budget.request()
+            self.calls.append((params['startDate'], params['endDate']))
+            day = params['endDate']
+            # 最后一日缺国债行，仅有同日政策性金融债。前一日两个期限数值不同。
+            curve = '中债国开债收益率曲线' if day == DAYS[-1] else '中债国债收益率曲线'
+            body = (f'<table><tr><th>曲线</th><th>日期</th><th>5年</th><th>10年</th></tr>'
+                    f'<tr><td>{curve}</td><td>{day}</td><td>1.50</td><td>1.7200</td></tr></table>').encode()
+            self.budget.consume(len(body))
+            return body
+
+    targets = plan((GOV10Y_YIELD, GOV10Y_SCOPE), required=False)
+    targets['external_fallback'] = ['ChinaBond']
+    fetch = ChinaBondFetch()
+    descriptor = collect(tmp_path, targets, fetch, QmtTransport())
+    store = MarketSupplementStore(descriptor)
+    identity = '1' * 64
+    requested = []
+
+    class WTClient:
+        def source_market_snapshot_query(self, day):
+            return dict(status={'code': 'Ok'}, data=dict(observation_date=day, snapshot_id=identity,
+                provenance={'supplement_facts_sha256': descriptor['sha256']}))
+
+        def source_supplement_query(self, request):
+            requested.append(request)
+            return dict(status={'code': 'Ok'}, data=store.query(request))
+
+    try:
+        store.verify_sources()
+        found = store.query(query(metric=GOV10Y_YIELD, symbols=[GOV10Y_SCOPE]))
+        assert [(row['date'], row['value'], row['unit'], row['source']) for row in found['rows']] == [
+            (DAYS[0], '1.72', 'pct', 'ChinaBond')]
+        assert [gap['date'] for gap in found['gaps']] == [DAYS[-1]]
+        reader = SimpleNamespace(budget=fetch.budget, timeout=5, records=[], objects=ContentStore(tmp_path/'observer'))
+        tables = read_gov10y(reader, DAYS[0], DAYS[-1], lambda _: WTClient(), snapshot_dates=[DAYS[-1]])
+        assert tables == {TABLE: [{'date': DAYS[0], 'gov10y_pct': 1.72}]}
+        assert requested == [query(metric=GOV10Y_YIELD, symbols=[GOV10Y_SCOPE])]
+        assert [record['kind'] for record in reader.records] == ['wt_market_snapshot', 'wt_supplement_gov10y']
+        datasets = {'spread_sw': [dict(date=DAYS[0], pe=10)]}
+        spread_and_bond(tables, datasets, {})
+        assert datasets['spread_sw'][0]['spread'] == pytest.approx(8.28)
+    finally:
+        store.close()
 
 
 def test_margin_purchase_recovers_omitted_day_from_range(tmp_path):
