@@ -319,7 +319,7 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
     from ..guanheng_market_client.supplement_facts import validate_supplement_catalog, validate_source_proof
     from .market_supplement_sources import (
         collect_external, gov10y_history, ipo_proceeds_history, margin_purchase_history, margin_summary_history,
-        shareholder_reduction_history, SourceUnavailable,
+        margin_summary_regional, MARGIN_REGIONAL_HOST, shareholder_reduction_history, SourceUnavailable,
     )
 
     validate_plan(plan)
@@ -647,8 +647,18 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                     state['requests'].pop(cached,None)
                 _save(state_path,state)
 
+    regional_available = MARGIN_REGIONAL_HOST in getattr(fetch, 'allowed_hosts', ())
+
     def fill_margin_summary(*, latest):
+        nonlocal regional_available
         pending = {}
+
+        def discard_requests(keys):
+            if keys:
+                for key in keys:
+                    state['requests'].pop(key, None)
+                _save(state_path, state)
+
         for d, metric, symbol in cells:
             if metric in margin_summary and (d == day) == latest and _key(d, metric, symbol) not in state['rows']:
                 pending.setdefault(d, []).append(metric)
@@ -664,20 +674,41 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                 for d in part:
                     reasons.update({_key(d, m, MARGIN_DAILY_SUMMARY): error.code for m in pending[d]})
                 break
-            accepted = []
-            has_gap = False
-            for d in part:
-                for metric in pending[d]:
-                    if (d, metric) in report:
-                        accepted.append((d, metric, MARGIN_DAILY_SUMMARY, report[d, metric]))
-                    else:
-                        reasons[_key(d, metric, MARGIN_DAILY_SUMMARY)] = invalid.get((d, metric), missing)
-                        has_gap = True
-            if has_gap:
-                for cached in requested_keys:
-                    state['requests'].pop(cached, None)
-                _save(state_path, state)
-            record_batch(accepted)
+            record_batch([(d, m, MARGIN_DAILY_SUMMARY, report[d, m]) for d in part for m in pending[d]
+                          if (d, m) in report])
+            unreported = {d: [m for m in pending[d] if (d, m) not in report] for d in part}
+            if any(unreported.values()):
+                discard_requests(requested_keys)
+
+            for d in reversed(part):
+                metrics = unreported[d]
+                for m in metrics:
+                    reasons[_key(d, m, MARGIN_DAILY_SUMMARY)] = invalid.get((d, m), missing)
+                if regional_available and metrics:
+                    all_regional_keys = set()
+                    requested_keys.clear()
+
+                    def regional_get(url, params, referer):
+                        all_regional_keys.update(requested_keys)
+                        requested_keys.clear()
+                        return get(url, params, referer)
+
+                    try:
+                        regional, unavailable = margin_summary_regional(d, regional_get)
+                    except (SourceUnavailable, SourceFailure) as error:
+                        if isinstance(error, SourceUnavailable):
+                            discard_requests(requested_keys)  # 只重新抓取校验失败的市场。
+                        else:
+                            regional_available = False  # HTTP 已耗尽退避或预算，本轮保留给其他来源。
+                        for m in metrics:
+                            reasons[_key(d, m, MARGIN_DAILY_SUMMARY)] = invalid.get((d, m), error.code)
+                        continue
+                    record_batch([(d, m, MARGIN_DAILY_SUMMARY, regional[m]) for m in metrics if m in regional])
+                    for m in metrics:
+                        if m in unavailable:
+                            reasons[_key(d, m, MARGIN_DAILY_SUMMARY)] = unavailable[m]
+                    if any(m not in regional for m in metrics):
+                        discard_requests(all_regional_keys | requested_keys)
 
     if margin_summary:
         fill_margin_summary(latest=True)

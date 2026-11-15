@@ -373,6 +373,13 @@ _MARGIN_SUMMARY_COLUMNS = {
     'total_balance': 'RZRQYE',  # 两融余额，原报表人民币元。
 }
 
+MARGIN_REGIONAL_HOST = 'datapc.eastmoney.com'
+_MARGIN_REGIONS = (
+    ('sh', '007', '融资融券_沪证'),
+    ('sz', '001', '融资融券_深证'),
+    ('bj', '002', '融资融券_京证'),
+)
+
 
 def margin_summary_history(first, last, get):
     """一次读回原两融历史汇总，按交易日和指标返回合格事实及无效字段原因。"""
@@ -389,6 +396,48 @@ def margin_summary_history(first, last, get):
                 except SourceUnavailable as error:
                     invalid[day, metric] = error.code
     return result, invalid
+
+
+def margin_summary_regional(day, get):
+    """仅合并三个交易所同日已发布的、与原全国历史汇总同口径的字段。"""
+    rows, receipts = [], []
+    for market, code, label in _MARGIN_REGIONS:
+        base = f'https://{MARGIN_REGIONAL_HOST}/emdatacenter/rzrq'
+        data, parent, received = _read(get, base + '/details2', dict(mkt=market, fd=day),
+                                       base + '/index?market=' + market)
+        if (type(data) is dict and data.get('success') is False
+                and type(data.get('code')) is int and data['code'] == 9201
+                and 'result' in data and data['result'] is None):
+            _fail('margin_regional_report_missing')
+        if (type(data) is not dict or data.get('success') is not True or type(data.get('code')) is not int
+                or data['code'] != 0 or type(data.get('result')) is not dict):
+            _fail('source_schema_invalid')
+        result = data['result']
+        records = result.get('data')
+        if (type(records) is not list or len(records) != 1
+                or _integer(result.get('count')) != 1 or _integer(result.get('pages'), _MAX_PAGES) != 1):
+            _fail('source_pagination_incomplete')
+        row = records[0]
+        _report_day(row, 'DIM_DATE', day, day)
+        if row.get('SCDM') != code or row.get('XOB_MARKET_0001') != label:
+            _fail('margin_regional_identity_invalid')
+        rows.append(row)
+        receipts.append((parent, received))
+    facts, invalid = {}, {}
+    for metric, field in MARGIN_SUMMARY_FIELDS.items():
+        column = _MARGIN_SUMMARY_COLUMNS[field]
+        if any(row.get(column) is None for row in rows):
+            invalid[metric] = 'source_record_missing'
+            continue
+        signed = metric == SIGNED_MARGIN_SUMMARY
+        try:
+            with localcontext() as context:
+                context.prec = 300
+                value = sum(_number(row[column], signed=signed) for row in rows)
+            facts[metric] = _fact(value, 'CNY', 'Eastmoney', receipts, signed=signed)
+        except SourceUnavailable as error:
+            invalid[metric] = error.code
+    return facts, invalid
 
 
 def gov10y_history(first, last, get):
