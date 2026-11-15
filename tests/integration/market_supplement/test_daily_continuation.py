@@ -176,6 +176,176 @@ def test_observation_request_wakes_published_daily_service_and_reuses_index(tmp_
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize('input_stage', ['fresh', 'started', 'request_frozen'])
+def test_manual_http_request_during_price_phase_gets_a_single_qualified_receipt(tmp_path, monkeypatch, input_stage):
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import timezone
+    from fastapi.testclient import TestClient
+    from guanheng_app.app import create_app
+    from guanheng_app.observation import data_repair
+    from guanheng_app.observation.runtime import build_reader
+    from guanheng_app.settings import ConsoleSettings
+
+    config, *_ = owner_fixture(tmp_path)
+    config['inputs'].pop('supplement_facts')
+    config['price_scope'] = dict(baseline_reference={}, reference_connection=None, scope={},
+                                 authorized_from='20261104', maximum_history_rows=2000)
+    reader = build_reader(tmp_path/'observation')
+    repo = reader.repository
+    repo.initialize()
+    config['observation_repair_root'] = str(repo.root)
+    descriptor = write(tmp_path/'daily.json', config)
+    producer = Path(config['template']['publication_directory'])
+    producer.mkdir()
+    write(producer/'CURRENT.json', {})  # Native, prices and publication are deterministic stand-ins.
+    day = DAYS[-1]
+    now = datetime.fromisoformat(day+'T16:00:00+08:00')
+    attach = input_stage == 'fresh'
+    task = Path(config['directory'])/day
+    if input_stage == 'started':
+        (task/'inputs').mkdir(parents=True)
+        write(task/'inputs'/'INPUTS.json', dict(day=day))
+    elif input_stage == 'request_frozen':
+        task.mkdir(parents=True)
+        write(task/'REQUEST.json', dict(day=day))
+    repo.publish(dict(source_tables={'source.cn_official_calendar':'calendar','market.sample':'market'},
+                      datasets={}), None)
+    rows = {'calendar':[dict(date=day,is_open=1)], 'market':[]}
+    monkeypatch.setattr(reader, 'rows', rows.__getitem__)
+    monkeypatch.setattr(data_repair, 'closed_market_day', lambda *args, **kwargs: day)
+    monkeypatch.setattr(service, 'observe_input_reads', lambda *args, **kwargs: {})
+    observation_config = dict(models={}, schedule=dict(wt_repair_enabled=True),
+                              sources=[dict(id='wt',kind='wondertrader',tables=['market.sample'])])
+    with repo.scheduler_lease() as lease:
+        previous = repo.request_data_repair('startup')
+        repo.record_data_repair(dict(previous,state='complete'), lease=lease)
+        repo.record_scheduler(dict(enabled=True,state='running',phase='waiting',
+            last_heartbeat=datetime.now(timezone.utc).isoformat(),heartbeat_max_age_seconds=60,
+            schedule=dict(timezone='Asia/Shanghai',times=['09:00']),error_code=None), lease=lease)
+
+    def repair_once():
+        with repo.scheduler_lease() as lease:
+            data_repair.repair(reader,observation_config,repo.data_repair(),now,lease=lease,
+                deadline=time.monotonic()+10,cancelled=lambda:False,
+                refresh=lambda *args, **kwargs:dict(status='success'),market_client_factory=None)
+
+    app = create_app(settings=ConsoleSettings(observation_root=str(repo.root)))
+    with TestClient(app,client=('127.0.0.1',1234),base_url='http://127.0.0.1') as client:
+        path = '/v1/ui/market-observation'
+        headers = {'origin':'http://127.0.0.1','sec-fetch-site':'same-origin'}
+        manual = []
+
+        def prices(*args, **kwargs):
+            assert client.get(path+'/updates').json()['data_repair']['state'] == 'complete'
+            response = client.post(path+'/data-repair',headers=headers)
+            assert response.status_code == 202
+            job = response.json()
+            assert job['trigger'] == 'manual' and job['id'] != previous['id']
+            manual.append(job['id'])
+            assert client.post(path+'/data-repair',headers=headers).json()['id'] == job['id']
+            repair_once()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                assert pool.submit(kwargs['cancelled']).result(timeout=5) is False
+            assert 'wt_receipt' not in repo.data_repair()
+            assert kwargs['cancelled']() is False
+            receipt = client.get(path+'/updates').json()['data_repair'].get('wt_receipt')
+            if attach:
+                assert receipt['state'] == 'running' and receipt['phase'] == 'price_first'
+            else:
+                assert receipt is None
+            return dict(current_sha256='a'*64,price_result=dict(path='synthetic',sha256='b'*64),
+                        continuation_required=False,auxiliary_observation_date=DAYS[0])
+
+        def prepare(_configuration, date, directory, **kwargs):
+            assert input_stage != 'request_frozen'
+            assert repo.data_repair().get('wt_receipt',{}).get('phase') == ('inputs' if attach else None)
+            return write(Path(directory)/'UPDATE.json',dict(day=date))
+
+        def publish(*args, **kwargs):
+            kwargs['on_stage']('snapshot')
+            assert repo.data_repair().get('wt_receipt',{}).get('phase') == ('snapshot' if attach else None)
+            if attach:
+                rows['market'].append(dict(date=day))
+            return dict(current_sha256='e'*64)
+
+        monkeypatch.setattr('integrations.guanheng.daily_price_refresh.price_refresh', prices)
+        monkeypatch.setattr(service, 'prepare_update', prepare)
+        monkeypatch.setattr(service, 'run_update', publish)
+        control = str(uuid4())
+        service.serve(descriptor,tmp_path/control,control,once=True,as_of=day,clock=lambda:now)
+        if attach:
+            repair_once()
+        settled = client.get(path+'/updates').json()['data_repair']
+        assert settled['id'] == manual[0]
+        if attach:
+            assert settled['state'] == 'complete' and settled['items'][0]['missing_count'] == 0
+            assert settled['wt_receipt']['state'] == 'published' and 'phase' not in settled['wt_receipt']
+        else:
+            assert settled['state'] == 'running' and 'wt_receipt' not in settled
+
+
+def test_new_observation_request_waits_through_failed_frozen_update(tmp_path, monkeypatch):
+    from guanheng_app.observation.storage import SnapshotRepository
+
+    config, *_ = owner_fixture(tmp_path)
+    config['inputs'].pop('supplement_facts')
+    repo = SnapshotRepository(tmp_path/'observation')
+    repo.initialize()
+    config['observation_repair_root'] = str(repo.root)
+    descriptor = write(tmp_path/'daily.json',config)
+    day = DAYS[-1]
+    now = datetime.fromisoformat(day+'T16:00:00+08:00')
+    completed = []
+    fail = True
+    monkeypatch.setattr(service,'observe_input_reads',lambda *args, **kwargs:{})
+
+    def prepare(_configuration, date, directory, **kwargs):
+        return write(Path(directory)/'UPDATE.json',dict(day=date, revision=len(completed)))
+
+    def publish(request, work, **kwargs):
+        if fail:
+            raise OSError('retained input needs retry')
+        assert repo.data_repair().get('wt_receipt') is None or request['revision'] == 1
+        completed.append(request['revision'])
+        return dict(current_sha256='e'*64)
+
+    monkeypatch.setattr(service,'prepare_update',prepare)
+    monkeypatch.setattr(service,'run_update',publish)
+
+    def run():
+        control = str(uuid4())
+        service.serve(descriptor,tmp_path/control,control,once=True,as_of=day,clock=lambda:now)
+
+    with pytest.raises(RuntimeError,match='one cycle failed'):
+        run()
+    with repo.scheduler_lease() as lease:
+        manual = repo.request_data_repair('manual')
+        manual.update(state='running',wt_request=dict(dates=[day],requested_at=now.isoformat()))
+        repo.record_data_repair(manual,lease=lease)
+    fail = False
+    run()
+    assert completed == [0] and repo.data_repair().get('wt_receipt') is None
+    run()
+    assert completed == [0,1]
+    assert repo.data_repair()['wt_receipt']['state'] == 'published'
+
+
+def test_price_attach_does_not_bind_when_observation_read_consumes_deadline(tmp_path, monkeypatch):
+    day = DAYS[-1]
+    task = {day:{}}
+    path = tmp_path/'INDEX.json'
+    calls = []
+    def pending(repository,index,day,now,*,deadline,cancelled):
+        calls.append((deadline,cancelled))
+        return str(uuid4()),day
+    monkeypatch.setattr(service,'pending_observation_repair',pending)
+    monkeypatch.setattr(service.time,'monotonic',lambda:100)
+    stopped = lambda: False
+    assert service.attach_observation_during_prices(None,task,path,day,None,
+        deadline=100,cancelled=stopped) is None
+    assert calls == [(100,stopped)] and task == {day:{}} and not path.exists()
+
+
 @pytest.mark.parametrize('prior_state', ['published', 'failed'])
 def test_overtaken_observation_receipt_retires_its_running_phase(tmp_path, monkeypatch, prior_state):
     from guanheng_app.observation.storage import SnapshotRepository

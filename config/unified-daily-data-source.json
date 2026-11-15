@@ -150,7 +150,7 @@
       "source": "apps/guanheng/guanheng_app/observation/stock_universe.py"
     },
     "guanheng_app/observation/storage.py": {
-      "sha256": "c0649d6d60d06c95f98d367d894f4b60683615effa6d0aece60103f7241cf93d",
+      "sha256": "7dffe9ac451017d530c174403a02c4a649c0e5e7b7e792459526ed4a4cf1ab8f",
       "source": "apps/guanheng/guanheng_app/observation/storage.py"
     },
     "guanheng_app/strategy_job.py": {
@@ -426,7 +426,7 @@
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "c69531f73009a80ab85cc2596ae8766440c46b3a318c5855c9e8be08d01d17d0",
+      "sha256": "9a8b8cb8ed9c51b6524a7778f7fd7a7bc418f325009776888a9f26cac2a8af4e",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -782,5 +782,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.44"
+  "version": "0.2.0a1+unified.45"
 }

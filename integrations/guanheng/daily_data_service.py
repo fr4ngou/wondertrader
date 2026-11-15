@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 import math
 import os
 import re
+from threading import get_ident
 import time
 from uuid import UUID,uuid4
 
@@ -119,11 +120,11 @@ def validate_configuration(value):
     return value
 
 
-def pending_observation_repair(repository, index, day, now):
+def pending_observation_repair(repository, index, day, now, *, deadline=None, cancelled=None):
     """只接当前活动任务和日更覆盖范围。从 INDEX 重发同一发布回执。"""
     from guanheng_app.observation.contracts import ObservationError
     try:
-        job = repository.data_repair()
+        job = repository.data_repair(deadline=deadline, cancelled=cancelled)
         if not job or job.get('state') != 'running' or not job.get('wt_request'):
             return None
         job_id = job['id']
@@ -139,7 +140,8 @@ def pending_observation_repair(repository, index, day, now):
             repair = entry.get('observation_repair', {})
             if repair.get('id') == job_id and repair.get('state') in ('published', 'failed'):
                 repository.record_wt_repair_receipt(job_id, repair['state'], observation_date=target,
-                                                    current_sha256=repair.get('current_sha256'))
+                                                    current_sha256=repair.get('current_sha256'),
+                                                    deadline=deadline, cancelled=cancelled)
                 return None
             if repair.get('id') == job_id and repair.get('state') == 'running':
                 return job_id, target
@@ -149,24 +151,54 @@ def pending_observation_repair(repository, index, day, now):
             return None
         return job_id, day
     except ObservationError as error:
-        if error.code not in ('catalog_unavailable', 'write_outcome_unknown'):
+        if error.code not in ('catalog_unavailable', 'write_outcome_unknown', 'observation_timeout', 'observation_stopped'):
             raise
         return None
     except (ValueError, TypeError, KeyError, AttributeError):
         return None
 
 
-def report_observation_repair(repository, repair, day):
+def report_observation_repair(repository, repair, day, *, deadline=None, cancelled=None):
     """观察目录暂不可写时由下次轮询沿 INDEX 原回执继续。"""
     from guanheng_app.observation.contracts import ObservationError
     state = repair['state']
     try:
         repository.record_wt_repair_receipt(repair['id'], state, observation_date=day,
                                             current_sha256=repair.get('current_sha256'),
-                                            phase=repair.get('phase') if state == 'running' else None)
+                                            phase=repair.get('phase') if state == 'running' else None,
+                                            deadline=deadline, cancelled=cancelled)
     except ObservationError as error:
-        if error.code not in ('catalog_unavailable', 'write_outcome_unknown'):
+        if error.code not in ('catalog_unavailable', 'write_outcome_unknown', 'observation_timeout', 'observation_stopped'):
             raise
+
+
+def fresh_observation_inputs(request_file):
+    """已落盘的输入意图或完整请求沿旧责任结束，新请求等后继。"""
+    return not request_file.exists() and not (request_file.parent / 'inputs' / 'INPUTS.json').exists()
+
+
+def attach_observation_during_prices(repository, index, index_path, day, now, *, deadline, cancelled):
+    """同一数据线程先登记可共用的补齐身份，再向观衡发布当前价格阶段。"""
+    pending = pending_observation_repair(repository, index, day, now, deadline=deadline, cancelled=cancelled)
+    if pending is None or pending[1] != day or time.monotonic() >= deadline or cancelled():
+        return None
+    entry = index[day]
+    receipt = dict(
+        id=pending[0],  # 观衡当前活动补齐任务的持久身份。
+        state='running',  # 本轮尚未发布完整日更。
+        phase='price_first')  # 已执行的当前阶段，完整日更输入仍未固定。
+    old = entry.get('observation_repair')
+    entry['observation_repair'] = receipt
+    try:
+        _save(index_path, index)
+    except OSError:
+        if old is None:
+            entry.pop('observation_repair', None)
+        else:
+            entry['observation_repair'] = old
+        return None
+    report_observation_repair(repository, receipt, day, deadline=deadline, cancelled=cancelled)
+    return receipt['id']
 
 
 def serve(configuration, directory, control_id, *, once=False, as_of=None, clock=None):
@@ -189,6 +221,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
     daily_timeout = config['inputs']['public_facts'].pop('baostock_daily_timeout_seconds', None)
     public_request_options = {} if daily_timeout is None else {'baostock_daily_timeout_seconds': daily_timeout}
     root = Path(config['directory'])
+    owner_thread = get_ident()
     directory.mkdir(parents=False, exist_ok=False)
     close_deadline = None
 
@@ -264,6 +297,11 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             observation_id = None
                         else:
                             day = requested_day
+                            retained = index.get(day, {})
+                            retained_request = Path(retained.get('request') or root / day / 'REQUEST.json')
+                            bound = retained.get('observation_repair', {}).get('id') == observation_id
+                            if not bound and retained.get('state') != 'published' and not fresh_observation_inputs(retained_request):
+                                observation_id = None
                 observed_inputs = False
                 try:
                     registered = registered_requests(index)  # 创建输入和已有REQUEST恢复共用同一原件损坏准入。
@@ -351,7 +389,7 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         report_observation_repair(observation_repository, entry['observation_repair'], day)
 
                     def report_phase(phase):
-                        if observation_id:
+                        if observation_id and time.monotonic() < deadline and not stopped():
                             repair = entry['observation_repair']
                             if repair.get('phase') != phase:
                                 repair['phase'] = phase  # 原任务当前阶段，写入 INDEX 后再转报。
@@ -359,7 +397,8 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                                     _save(index_path, index)
                                 except OSError:
                                     return  # 进度提示晚到时仍继续实际采集；原业务提交边界照常校验。
-                                report_observation_repair(observation_repository, repair, day)
+                                report_observation_repair(observation_repository, repair, day,
+                                                          deadline=deadline, cancelled=stopped)
                     deadline = time.monotonic() + config['cycle_seconds']
                     status.update(state='updating', active_date=day)
                     _save(directory / 'status.json', status)
@@ -384,10 +423,35 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             prior_prices=[p for d,row in index.items()for p in
                                 [*row.get('price_history_requests',[]),*([row['price_request']]if row.get('price_request')else[])]
                                 if p!=price_entry['price_request']and Path(p).is_file()]
+                            can_attach = observation_repository is not None and fresh_observation_inputs(request_file)
+                            next_repair_poll = 0
+
+                            def attach_new_repair(*, closing_price_stage=False):
+                                nonlocal observation_id, next_repair_poll
+                                if not can_attach or observation_id or get_ident() != owner_thread:
+                                    return
+                                check_time = time.monotonic()
+                                if check_time >= deadline or (not closing_price_stage and check_time < next_repair_poll):
+                                    return
+                                next_repair_poll = check_time + config['schedule']['poll_seconds']
+                                actual_now = datetime.now(timezone.utc) if clock is None else clock()
+                                observation_id = attach_observation_during_prices(
+                                    observation_repository, index, index_path, day, actual_now,
+                                    deadline=deadline, cancelled=stopped)
+
+                            def price_cancelled():
+                                # 价格处理的可协作检查点沿原owner读取请求，批读工作线程只检查停止。
+                                if stopped():
+                                    return True
+                                attach_new_repair()
+                                return False
+
                             report_phase('price_first')
                             price_result=price_refresh(config,day,Path(price_entry['price_request']).parent,
-                                publisher=publisher,deadline=deadline,cancelled=stopped,
+                                publisher=publisher,deadline=deadline,cancelled=price_cancelled,
                                 previous_requests=[*registered,*prior_prices])
+                            if not stopped():
+                                attach_new_repair(closing_price_stage=True)
                             price_entry.update(price_state='published',price_current_sha256=price_result['current_sha256'],
                                 price_result=price_result['price_result'],price_continuation_required=price_result['continuation_required'])
                             status.update(last_price_success=day,price_state='published',

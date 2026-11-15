@@ -393,9 +393,9 @@ class SnapshotRepository:
         except OSError:
             raise ObservationError('scheduler_status_unavailable','观察调度状态暂不可用，请重新读取',503) from None
 
-    def data_repair(self):
+    def data_repair(self, *, deadline=None, cancelled=None):
         """读取当前补齐任务，旧目录由调度器启动时创建任务表。"""
-        with self.connect() as db:
+        with self.connect(deadline=deadline, cancelled=cancelled) as db:
             exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='data_repair'").fetchone()
             row = db.execute('SELECT body FROM data_repair WHERE id=1').fetchone() if exists else None
         return json.loads(row[0]) if row else None
@@ -433,7 +433,8 @@ class SnapshotRepository:
                     saved['wt_receipt'] = current['wt_receipt']
                 db.execute('UPDATE data_repair SET body=? WHERE id=1', (encode(saved),))
 
-    def record_wt_repair_receipt(self, job_id, state, *, observation_date, current_sha256=None, phase=None):
+    def record_wt_repair_receipt(self, job_id, state, *, observation_date, current_sha256=None, phase=None,
+                                 deadline=None, cancelled=None):
         """WT 只更新同一活动任务的回执字段。观察调度器独占其余状态。"""
         if state not in ('running', 'published', 'failed'):
             raise ValueError('WT observation repair receipt state invalid')
@@ -448,7 +449,7 @@ class SnapshotRepository:
         )
         if phase is not None:
             receipt['phase'] = phase  # WT 已进入的实际阶段，终态和旧回执可省略。
-        with self.connect(writing=True) as db:
+        with self.connect(writing=True, deadline=deadline, cancelled=cancelled) as db:
             db.execute("""UPDATE data_repair
                 SET body=CAST(json_set(CAST(body AS TEXT), '$.wt_receipt', json(?)) AS BLOB)
                 WHERE id=1 AND json_extract(CAST(body AS TEXT), '$.id')=?
