@@ -725,11 +725,14 @@ class MarketClient(_JSONTransport):
         """同版本读取证券资料、实际首尾和窗口内日期缺口；最多366自然日。"""
         return self.call(dict(api_version=API_VERSION,action='market.source-security-query',request=request))
 
-    def source_day_facts_query(self, day, snapshot_id, *, include_stock_cross_section=False):
+    def source_day_facts_query(self, day, snapshot_id, *, include_stock_cross_section=False,
+                               include_shsz_valuation=False):
         """读取同一WT版本的定日前收盘、成交股数、换手及交易状态。"""
         request = dict(date=day, snapshot_id=snapshot_id)
         if include_stock_cross_section is not False:
             request['include_stock_cross_section'] = include_stock_cross_section  # 显式读取同日横截面投影。
+        if include_shsz_valuation is not False:
+            request['include_shsz_valuation'] = include_shsz_valuation  # 显式读取 BaoStock 沪深估值投影。
         return self.call(dict(api_version=API_VERSION, action='market.source-day-facts-query', request=request))
 
     def source_supplement_query(self, request):

@@ -5,7 +5,7 @@ from time import monotonic
 
 from guanheng_market_client.supplement_facts import MARGIN_SUMMARY_FIELDS
 
-from . import wt_margin_summary
+from . import wt_margin_summary, wt_shsz_pb
 from .contracts import ObservationError
 from .collection_config import WT_DERIVED
 from .etf_flow import CAP_KIND, ETF_KINDS, cap_row_complete
@@ -14,7 +14,7 @@ from .market_structure_source import WT_INDEX_KIND, WT_STOCK_KIND, index_row_com
 from .schedule_policy import closed_market_day, source_as_of
 from .source_fetch import SourceFailure
 
-WT_SOURCES = frozenset(('wondertrader', 'wt_breadth', 'wt_t2108', WT_GOV10Y, wt_margin_summary.KIND,
+WT_SOURCES = frozenset(('wondertrader', 'wt_breadth', 'wt_t2108', WT_GOV10Y, wt_margin_summary.KIND, wt_shsz_pb.KIND,
                         *ETF_KINDS, WT_INDEX_KIND, WT_STOCK_KIND, *WT_DERIVED))
 
 
@@ -28,6 +28,12 @@ def _coverage_by_input(reader, manifest, source, target, check):
                        if row['is_open'] and row['date'] <= target)
     if target not in open_days:
         raise SourceFailure('official_calendar_outside_coverage')
+    if source['kind'] == wt_shsz_pb.KIND:
+        check()
+        partition = tables.get(wt_shsz_pb.TABLE)
+        observed = {row['date'] for row in reader.rows(partition)} if partition else set()
+        missing = [day for day in open_days if day >= source['history_from'] and day not in observed]
+        return {wt_shsz_pb.TABLE: missing} if missing else {}
     if source['kind'] == wt_margin_summary.KIND:
         partition = tables.get(wt_margin_summary.TABLE)
         rows = reader.rows(partition) if partition else ()

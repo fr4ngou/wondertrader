@@ -22,6 +22,35 @@ def dates(start,end):
     while current<=last:
         yield current.isoformat(); current+=timedelta(days=1)
 
+
+def shsz_daily_pb(fields, rows, listings, day, *, check, minimum_universe=1):
+    """沪深估值沿 BaoStock 的完整日线与原上市证券表计算。"""
+    from .stock_universe import listed_codes
+
+    required = {'date', 'code', 'tradestatus', 'pbMRQ', 'peTTM'}
+    if not required <= set(fields):
+        raise SourceFailure('pb_day_schema')
+    if not rows:
+        raise SourceFailure('pb_day_not_published')
+    date_position, code_position, pb_position, pe_position = (
+        fields.index(field) for field in ('date', 'code', 'pbMRQ', 'peTTM'))
+    returned = set()
+    for row in rows:
+        check()
+        if row[date_position] != day:
+            raise SourceFailure('pb_date_mismatch')
+        number(row[pb_position])
+        number(row[pe_position])
+        returned.add(row[code_position])
+    active = listed_codes(listings, day, check=check)
+    if not active or active - returned:
+        raise SourceFailure('pb_missing_eligible_stocks')
+    value = equal_pb(fields, rows, set(listings))
+    if value['universe_count'] < minimum_universe:
+        raise SourceFailure('pb_day_incomplete')
+    return value, active
+
+
 def tencent(fetch, config, start, end):
     updates={}
     for symbol in config['symbols']:
@@ -40,7 +69,7 @@ def tencent(fetch, config, start, end):
 def baostock_daily(fetch, config, start, end):
     from .breadth_models import SHSZ_METRICS as METRICS,rows_for_metrics,universe_row
     from .market_breadth import stock_day
-    from .stock_universe import shsz_listings,listed_codes
+    from .stock_universe import shsz_listings
     selected=set(config.get('datasets',[])) & set(METRICS)
     derived={key:[] for key in sorted(selected)};universes=[]
     with BaostockClient(fetch,min(fetch.timeout,config.get('timeout_seconds',fetch.timeout))) as client:
@@ -62,23 +91,12 @@ def baostock_daily(fetch, config, start, end):
         result=[]
         for day in trade_dates:
             fields,rows=client.table('stock_daily_batch',day)
-            if not rows:
-                # A provider may publish after the scheduler's first window.
-                raise SourceFailure('pb_day_not_published')
-            if any(r[fields.index('date')]!=day for r in rows): raise SourceFailure('pb_date_mismatch')
-            for values in rows:
-                row=dict(zip(fields,values))
-                for field in ('pbMRQ','peTTM'):
-                    if field in row:number(row[field])
-            expected=listed_codes(listings,day,check=fetch.budget.remaining)
-            returned={r[fields.index('code')] for r in rows}
-            if expected-returned: raise SourceFailure('pb_missing_eligible_stocks')
+            value, expected = shsz_daily_pb(fields, rows, listings, day, check=fetch.budget.remaining,
+                                          minimum_universe=config['minimum_universe'])
             if selected:
                 calculated=stock_day(fields,rows,sorted(expected),day,check=fetch.budget.remaining)
                 for key,row in rows_for_metrics(calculated,selected).items():derived[key].append(row)
                 universes.append(universe_row(day,expected,basic_sha))
-            value=equal_pb(fields,rows,universe)
-            if value['universe_count']<config['minimum_universe']: raise SourceFailure('pb_day_incomplete')
             result.append(dict(date=day,**value,available_at=None,sse_reference=None))
         updates={'pb_shsz_daily':result,'source.cn_calendar':calendar,**derived}
         if selected:updates['source.shsz_universe']=universes

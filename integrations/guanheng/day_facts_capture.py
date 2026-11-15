@@ -3,7 +3,59 @@ from datetime import datetime, timezone
 import hashlib
 
 from ..guanheng_market_client.daily_facts import FIELDS, STATS, validate_day_facts
+from ..guanheng_market_client import strict_json
 from .market_generation import encode
+
+
+def restore_shsz_valuation(objects, facts, check):
+    """在原目录演进时补算既有日期，只接受该日定日事实的原件。"""
+    from guanheng_app.observation.contracts import ObservationError
+
+    if ('shsz_valuation' in facts
+            or facts.get('qualification', {}).get('membership_method') != 'same_day_public'):
+        return facts
+    check()
+    provenance = facts['provenance']
+    try:
+        manifest = strict_json(objects.get(provenance['packet_sha256']))
+        if (manifest['date'] != facts['date']
+                or manifest['universe']['sha256'] != provenance['universe_sha256']):
+            return facts
+    except (KeyError, ValueError, TypeError, ObservationError):
+        return facts
+    valuation = shsz_valuation(objects, manifest, check)
+    return facts if valuation is None else dict(facts, shsz_valuation=valuation)
+
+
+def shsz_valuation(objects, manifest, check):
+    """从 WT 市场原件库取出同一 BaoStock 证券表和日线，保留可追溯来源。"""
+    from guanheng_app.observation.ashare_source import validate_daily
+    from guanheng_app.observation.contracts import ObservationError
+    from guanheng_app.observation.providers import shsz_daily_pb
+    from guanheng_app.observation.source_fetch import SourceFailure
+    from guanheng_app.observation.stock_universe import shsz_listings
+
+    try:
+        check()
+        universe = strict_json(objects.get(manifest['universe']['sha256']))
+        basic_sha = universe.get('source_basic_sha256')
+        if basic_sha is None:
+            return None
+        basic = strict_json(objects.get(basic_sha))
+        daily_sha = manifest['shsz_daily']['sha256']
+        daily = strict_json(objects.get(daily_sha))
+        day = manifest['date']
+        validate_daily(daily, day, check)
+        listings = shsz_listings(basic['fields'], basic['rows'], check=check)
+        metrics, _ = shsz_daily_pb(daily['fields'], daily['rows'], listings, day, check=check)
+    except (KeyError, ValueError, TypeError, IndexError, ObservationError, SourceFailure) as exc:
+        if getattr(exc, 'code', None) in ('collection_stopped', 'collection_timeout'):
+            raise
+        return None
+    return dict(
+        **metrics,
+        stock_basic_sha256=basic_sha,  # BaoStock 证券表原件，确定原上市与退市资格。
+        stock_daily_sha256=daily_sha)  # 同交易日 BaoStock 估值日线原件。
 
 
 def normalize_day_facts(capture, manifest, start, end):

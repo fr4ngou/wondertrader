@@ -106,6 +106,10 @@ def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypa
     older = deepcopy(facts)
     older['date'] = DAYS[0]
     older['rows'][0][0] = DAYS[0]
+    valuation = dict(equal_pb=3, median_pb=3, sample_count=1, excluded_count=0, universe_count=1,
+        profitable_equal_pb=None, profitable_median_pb=None, profitable_sample_count=0,
+        profitable_excluded_count=1, stock_basic_sha256='6'*64, stock_daily_sha256='7'*64)
+    facts['shsz_valuation'] = valuation
     config['template']['daily_facts'] = prepare_facts_catalog([older, facts], tmp_path/'history-facts')
     config['inputs']['stock_cross_section'] = dict(bigquant_python=sys.executable, timeout_seconds=5,
         minimum_sample_count=1, history_from=DAYS[0], history_days_per_cycle=1)
@@ -173,6 +177,14 @@ def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypa
         client=MarketClient(f'http://127.0.0.1:{port}','synthetic-msf-http-token')
         legacy=client.source_day_facts_query(DAYS[-1],snapshot['snapshot_id'])
         assert legacy['status']['code']=='Ok' and 'stock_cross_section' not in legacy['data']
+        assert 'rows' in legacy['data'] and 'shsz_valuation' not in legacy['data']
+        pb = client.source_day_facts_query(DAYS[-1], snapshot['snapshot_id'],
+                                           include_shsz_valuation=True)['data']
+        assert set(pb) == {'date', 'source_snapshot_id', 'source_sha256', 'shsz_valuation'}
+        assert pb['shsz_valuation'] == valuation
+        previous = client.source_day_facts_query(DAYS[0], snapshot['snapshot_id'],
+                                                 include_shsz_valuation=True)['data']
+        assert 'shsz_valuation' not in previous
         section=client.source_day_facts_query(DAYS[-1],snapshot['snapshot_id'],
                                                include_stock_cross_section=True)['data']['stock_cross_section']
         assert section['provider']=='BigQuant' and section['sample_count']==1 and section['top5_pct']==100

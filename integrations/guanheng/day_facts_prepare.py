@@ -31,11 +31,13 @@ def prepare_facts_catalog(days,output,*,maximum_total_bytes=268435456,maximum_ro
     return dict(path=str(catalog.absolute()),sha256=hashlib.sha256(body).hexdigest())
 
 
-def extend_facts_catalog(previous, days, output, *, deadline, maximum_total_bytes=268435456, maximum_rows=2000000):
+def extend_facts_catalog(previous, days, output, *, deadline, maximum_total_bytes=268435456, maximum_rows=2000000,
+                         enrich_existing=None):
     """新根逐日扩充/修订；旧原件逐件核SHA并保留，峰值只编码/解析一个日期。
 
     days可为迭代器，同日最多一个新版本；旧目录和文件保持原样，最多366日。
-    更新同日文件以内容SHA命名，避免修改旧根的硬链接。成功后才写最终目录。
+    更新同日文件以内容SHA命名，避免修改旧根的硬链接。可在核验旧原件时补充来源事实。
+    成功后才写最终目录。
     """
     from .day_facts import DayFactsStore,_read
     if (type(maximum_total_bytes)is not int or not 8388608<=maximum_total_bytes<=1073741824
@@ -71,8 +73,12 @@ def extend_facts_catalog(previous, days, output, *, deadline, maximum_total_byte
             from ..guanheng_market_client import strict_json
             value=validate_day_facts(strict_json(body))
             if value['date']!=day:raise ValueError('daily facts extension date differs')
+            enriched = value if enrich_existing is None else enrich_existing(value)
+            if enriched is not value:
+                validate_day_facts(enriched)
+                body = encode(enriched)
             target=admit(day,body,len(value['rows']))
-            if path.drive.upper()==target.drive.upper():os.link(path,target)
+            if enriched is value and path.drive.upper()==target.drive.upper():os.link(path,target)
             else:target.write_bytes(body)
         if not entries:raise ValueError('daily facts extension empty')
         catalog=output/'catalog.json';body=encode(dict(schema='guanheng.daily-facts-catalog.v1',days=[entries[d]for d in sorted(entries)]))

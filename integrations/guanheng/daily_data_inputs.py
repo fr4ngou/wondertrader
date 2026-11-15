@@ -316,10 +316,16 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             raise ValueError('daily input adopted universe differs')
     check()
     section_policy = inputs.get('stock_cross_section')
+    from .day_facts_capture import restore_shsz_valuation
+
+    def enrich_existing(value):
+        return restore_shsz_valuation(reader.objects, value, check)
 
     def build_catalog(output):
+        current_facts = enrich_existing(facts)
         if section_policy is None:
-            return extend_facts_catalog(template['daily_facts'], [facts], output, deadline=deadline)
+            return extend_facts_catalog(template['daily_facts'], [current_facts], output, deadline=deadline,
+                                        enrich_existing=enrich_existing)
         from .day_facts import DayFactsStore
         from .stock_cross_section import prepare_section
         previous_facts = DayFactsStore(template['daily_facts'])
@@ -331,7 +337,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                 section = prepare_section(facts, cache, (configuration.get('price_scope') or {}).get('unit_evidence'),
                                           section_policy, reader.objects, deadline=deadline, cancelled=cancelled,
                                           environ=environ)
-            revisions = [dict(facts, stock_cross_section=section)]
+            revisions = [dict(current_facts, stock_cross_section=section)]
             if 'history_from' in section_policy:
                 remaining = section_policy['history_days_per_cycle']
                 # 先覆盖未处理日；当次不可用结果等自然日重试，保留精确档案日期。
@@ -352,9 +358,10 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                     original.pop('source_sha256')
                     section = prepare_section(original, cache, None, section_policy, reader.objects,
                                               deadline=deadline, cancelled=cancelled, environ=environ)
-                    revisions.append(dict(original, stock_cross_section=section))
+                    revisions.append(dict(enrich_existing(original), stock_cross_section=section))
                     remaining -= 1
-            return extend_facts_catalog(template['daily_facts'], revisions, output, deadline=deadline)
+            return extend_facts_catalog(template['daily_facts'], revisions, output, deadline=deadline,
+                                        enrich_existing=enrich_existing)
         finally:
             previous_facts.close()
 

@@ -88,10 +88,14 @@ class SnapshotSourceMarket:
                 code='Conflict';reason='market snapshot changed'
             elif self._facts is not None and query['date']<=self._snapshot['observation_date']:
                 try:
-                    data=self._facts.query(query['date'],query['snapshot_id'])
+                    valuation = query.get('include_shsz_valuation', False)
+                    read = self._facts.valuation if valuation else self._facts.query
+                    data=read(query['date'],query['snapshot_id'])
                     if data is not None:
-                        if not query.get('include_stock_cross_section', False):
-                            data.pop('stock_cross_section', None)
+                        from ..guanheng_market_client.daily_facts import OPTIONAL_PROJECTIONS
+                        for key in OPTIONAL_PROJECTIONS:
+                            if not query.get('include_' + key, False):
+                                data.pop(key, None)
                         code='Ok';reason=''
                     else:data={}
                 except (OSError,ValueError,KeyError,TypeError):

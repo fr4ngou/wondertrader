@@ -70,6 +70,19 @@ class DayFactsStore:
         result.update(source_snapshot_id=snapshot_id,source_sha256=entry['sha256'])
         return result
 
+    def valuation(self, day, snapshot_id):
+        """只投影已校验的沪深估值和定日事实身份，避免复制或传输全市场股票行。"""
+        value = self._load(day)
+        if value is None:
+            return None
+        result = dict(
+            date=day,  # 原事实交易日。
+            source_snapshot_id=snapshot_id,  # 请求固定的市场快照。
+            source_sha256=self._entries[day]['sha256'])  # 完整事实原件摘要。
+        if 'shsz_valuation' in value:
+            result['shsz_valuation'] = dict(value['shsz_valuation'])
+        return result
+
     def days(self):
         """当前冻结目录内全部定日事实日期，按交易日顺序返回。"""
         if self._closed:

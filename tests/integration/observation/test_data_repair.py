@@ -8,20 +8,56 @@ import pytest
 from fastapi.testclient import TestClient
 from guanheng_market_client import MarketHTTPError
 
-from guanheng_app.observation import collection, data_repair, etf_flow, wt_margin_summary
+from guanheng_app.observation import collection, data_repair, etf_flow, wt_margin_summary, wt_shsz_pb
 from guanheng_app.observation.metadata import validate_fields
 from guanheng_app.observation.query import ObservationReader
 from guanheng_app.observation.runtime import build_reader
+from guanheng_app.observation.storage import ContentStore, encode
 from guanheng_app.observation.source_fetch import CollectionBudget, SourceFailure
 from guanheng_app.app import create_app
 from guanheng_app.settings import ConsoleSettings
 from integrations.guanheng.stock_cross_section import project
 from integrations.guanheng.daily_data_service import pending_observation_repair, report_observation_repair
-from integrations.guanheng_market_client.daily_facts import FIELDS
+from integrations.guanheng.day_facts_capture import shsz_valuation
+from integrations.guanheng_market_client.daily_facts import FIELDS, validate_shsz_valuation
 
 DAY = '2026-11-13'
 NOW = datetime.fromisoformat('2026-11-14T09:00:00+08:00')
 DATES = ['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', DAY]
+
+
+def test_wt_shsz_pb_uses_original_listing_scope_and_rejects_missing_rows(tmp_path):
+    objects = ContentStore(tmp_path)
+    basic = objects.put(encode(dict(fields=['code', 'type', 'ipoDate', 'outDate'],
+        rows=[['sh.689009', '1', '2020-01-01', ''], ['sz.000001', '1', '1991-01-01', '']])))
+    pool = objects.put(encode(dict(members=['sz.000001'], source_basic_sha256=basic)))
+    fields = ['date', 'code', 'close', 'preclose', 'volume', 'turn', 'tradestatus', 'pbMRQ', 'peTTM']
+    rows = [[DAY, 'sh.689009', '3', '3', '10', '1', '1', '2', '1'],
+            [DAY, 'sz.000001', '4', '4', '10', '1', '1', '4', '-2']]
+    manifest = dict(date=DAY, universe=dict(sha256=pool),
+                    shsz_daily=dict(sha256=objects.put(encode(dict(fields=fields, rows=rows)))))
+    valuation = shsz_valuation(objects, manifest, lambda: None)
+    validate_shsz_valuation(valuation)
+    assert valuation['equal_pb'] == 3 and valuation['profitable_equal_pb'] == 2
+    assert valuation['universe_count'] == 2 and valuation['stock_basic_sha256'] == basic
+
+    manifest['shsz_daily']['sha256'] = objects.put(encode(dict(fields=fields, rows=rows[1:])))
+    assert shsz_valuation(objects, manifest, lambda: None) is None
+
+
+def test_wt_shsz_pb_repair_checks_missing_earlier_dates():
+    reader = ObservationReader(None, None)
+    reader.rows = {
+        'calendar': [dict(date=day, is_open=1) for day in DATES],
+        'valuation': [dict(date=day, equal_pb=2) for day in DATES],
+        'wt_facts': [dict(date=day) for day in DATES[1:] if day != DATES[2]],
+    }.__getitem__
+    manifest = dict(source_tables={'source.cn_official_calendar':'calendar', wt_shsz_pb.TABLE:'wt_facts'},
+                    datasets={wt_shsz_pb.METRIC: dict(partition='valuation')})
+    source = dict(kind=wt_shsz_pb.KIND, history_from=DATES[0], datasets=[wt_shsz_pb.METRIC])
+    assert data_repair._coverage_by_input(reader, manifest, source, DAY, lambda: None) == {
+        wt_shsz_pb.TABLE: [DATES[0], DATES[2]],
+    }
 
 
 def test_margin_summary_checks_wt_fields_instead_of_legacy_chart_dates():
