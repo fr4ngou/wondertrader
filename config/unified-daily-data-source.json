@@ -422,7 +422,7 @@
       "source": "integrations/guanheng/daily_batch_source.py"
     },
     "integrations/guanheng/daily_data_inputs.py": {
-      "sha256": "d22f068ce90e6905ccae75d665d4bd9bf231c5c82c103679169d8f5f66c0740a",
+      "sha256": "cc6d6c992769fd9754b56e4a1746489fa901e1fbe635ddbb278cd1fa5cdcf39a",
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
@@ -794,5 +794,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.49"
+  "version": "0.2.0a1+unified.50"
 }
