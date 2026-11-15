@@ -48,7 +48,7 @@ WT-D03/D05/D06拥有行情历史存储读取；独有宏观、利差、PCR及观
 
 指标定义的frequency描述稳定的采样频率；当前样本数量和日期范围由同一快照的coverage提供。初次导入的行数与日期不写入长期频率和限制文案。定义资料修订沿完整冻结版本校验及expected-current发布，保持原金融行值和历史快照；后继采集继续沿用已修订定义。
 
-依据[ADR-0015](../architecture/adr/0015-observation-snapshot-owner.md)，显式本地root拥有只增的SHA256内容对象和SQLite目录。空root关闭。导入校验完整冻结manifest及全部引用对象/分区/资产行数，保留原snapshot身份；校验失败保持current。发布在同一事务比较expected-current、写manifest、切current并记receipt；失败和冲突保持先前版本。显式restore重新验证，切指针与回退receipt同事务。读取核摘要，拒绝未知/损坏版本。
+依据[ADR-0015](../architecture/adr/0015-observation-snapshot-owner.md)，显式本地root拥有只增的SHA256内容对象和SQLite目录。空root关闭。导入校验完整冻结manifest及全部引用对象/分区/资产行数，保留原snapshot身份。领域校验读过的对象本轮直接沿用校验结果，其余独立对象最多四路并行读验长度和SHA256。读取沿原截止，全部核验通过才可发布。发布在同一事务比较expected-current、写manifest、切current并记receipt；失败和冲突保持先前版本。显式restore重新验证，切指针与回退receipt同事务。读取核摘要，拒绝未知/损坏版本。
 
 跨进程采集lease由单独SQLite事务持有，进程崩溃后OS释放；lease与目录事务分开，允许持lease的采集者发布。定时更新保留原两日有界扫描、窗口完成记录和同事务发布语义；普通读取请求只读取已发布事实。旧PG/MinIO只作迁入来源，不成为新App必需运行依赖。
 

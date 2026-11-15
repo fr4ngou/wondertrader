@@ -1,5 +1,6 @@
 """完整冻结版本准入；校验后只有目录事务能够切换current。"""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from time import monotonic
 from pydantic import ValidationError
@@ -12,6 +13,7 @@ from .stock_partitions import validate_stock_partitions
 from .asset_index import references as _references
 
 VALIDATION_CONTRACT = 'observation-manifest-validation/1'  # 领域规则变化时升级；既有原全量current继承版本1资格。
+_OBJECT_READ_WORKERS = 4  # 按正式库读延迟控制在途文件和正文内存。
 
 
 def check_deadline(deadline):
@@ -25,14 +27,36 @@ class _ValidationObjects:
         self.objects, self.sizes, self.deadline = objects, sizes, deadline
         self.lengths = {}
 
-    def get(self, sha):
+    def _read(self, sha):
         check_deadline(self.deadline)
         body = self.objects.get(sha)
         check_deadline(self.deadline)
         if self.sizes.get(sha, {len(body)}) != {len(body)}:
             raise ObservationError('asset_size_mismatch', '观察资产大小与目录不符', 503)
+        return body
+
+    def get(self, sha):
+        body = self._read(sha)
         self.lengths[sha] = len(body)
         return body
+
+    def verify_remaining(self, hashes):
+        """并行读验相互独立的对象，发布线程按摘要顺序记录结果。"""
+        if len(hashes) <= 1:
+            for sha in hashes:
+                self.get(sha)
+            return
+
+        def verified_size(sha):
+            return len(self._read(sha))
+
+        with ThreadPoolExecutor(max_workers=_OBJECT_READ_WORKERS) as executor:
+            # 一次只派发一批。等待在途读取退出后才释放发布租约。
+            for offset in range(0, len(hashes), _OBJECT_READ_WORKERS):
+                check_deadline(self.deadline)
+                batch = hashes[offset:offset + _OBJECT_READ_WORKERS]
+                for sha, size in zip(batch, executor.map(verified_size, batch)):
+                    self.lengths[sha] = size
 
 
 def _previous_validation(reader, previous_snapshot):
@@ -97,9 +121,7 @@ def validate_manifest(reader, manifest, deadline, *, previous_snapshot=None):
         count += len(rows)
     standard = validate_stock_partitions(objects, manifest.get('stock_pb_partitions'), manifest.get('assets', {}), deadline,
         validated_assets=previous['assets'] if previous is not None else None)
-    for sha in sorted(hashes):
-        if sha not in objects.lengths and sha not in reusable:
-            objects.get(sha)
+    objects.verify_remaining(sorted(hashes - objects.lengths.keys() - reusable))
     check_deadline(deadline)
     result=dict(datasets=len(manifest['datasets']), rows=count, verified_objects=len(hashes), **standard)
     if previous is not None:

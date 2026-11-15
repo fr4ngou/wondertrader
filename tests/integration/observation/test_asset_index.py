@@ -3,6 +3,7 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Barrier
 from time import monotonic
 from unittest.mock import patch
 
@@ -39,6 +40,44 @@ class AssetIndexTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_frozen_adoption_checks_independent_parents_concurrently(self):
+        reader = self.reader
+        manifest = fixture(reader)
+        previous = digest(encode(manifest))
+        adopt_snapshot(reader, manifest, previous, None, monotonic() + 10)
+        candidate = copy.deepcopy(manifest)
+        parents = {reader.objects.put(f'raw parent {index}'.encode()) for index in range(4)}
+        candidate['datasets']['fixture']['parents'] = sorted(parents)
+        opened = Barrier(len(parents))
+        original_get = reader.objects.get
+
+        def slow_storage(sha):
+            if sha in parents:
+                opened.wait(timeout=3)
+            return original_get(sha)
+
+        version = digest(encode(candidate))
+        with patch.object(reader.objects, 'get', slow_storage):
+            receipt = adopt_snapshot(reader, candidate, version, previous, monotonic() + 10)
+        self.assertEqual(receipt['verified_objects'], 5)
+        self.assertEqual(reader.repository.current(), version)
+
+    def test_frozen_adoption_keeps_current_when_parallel_parent_read_fails(self):
+        reader = self.reader
+        manifest = fixture(reader)
+        previous = digest(encode(manifest))
+        adopt_snapshot(reader, manifest, previous, None, monotonic() + 10)
+        candidate = copy.deepcopy(manifest)
+        parent = reader.objects.put(b'corrupt parent fixture')
+        other = reader.objects.put(b'valid parent fixture')
+        candidate['datasets']['fixture']['parents'] = [parent, other]
+        reader.objects.path(parent).write_bytes(b'damaged')
+
+        with self.assertRaises(ObservationError) as failure:
+            adopt_snapshot(reader, candidate, digest(encode(candidate)), previous, monotonic() + 10)
+        self.assertEqual(failure.exception.code, 'corrupt_object')
+        self.assertEqual(reader.repository.current(), previous)
 
     def test_refresh_keeps_direct_lineage_and_old_snapshot_download(self):
         reader = self.reader
