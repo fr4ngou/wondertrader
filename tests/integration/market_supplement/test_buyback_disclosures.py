@@ -65,6 +65,79 @@ def test_compact_notice_number_links_first_execution_to_same_plan(monkeypatch):
         parse_execution(b'invalid', 'SZSE.002008', '2026-11-05')
 
 
+@pytest.mark.parametrize(('symbol', 'header', 'notice_id'), [
+    ('SZSE.300347', '证券代码:300347证券简称:样本公告编码(2026)065号', '2026-065'),
+    ('SZSE.002270', '证券代码:002270证券简称:样本公告编号:〔2026〕060号', '2026-060'),
+    ('SZSE.000967', '证券代码:000967公告编号:2026-119号', '2026-119'),
+])
+def test_buyback_execution_accepts_confirmed_issuer_header_formats(monkeypatch, symbol, header, notice_id):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    text = (header + '关于首次回购公司股份的公告'
+            '《关于回购公司股份方案的公告》(公告编号:2026-044)。'
+            '公司首次回购股份100股,成交总金额为1,200元。')
+    monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
+    row = parse_execution(b'issuer', symbol, '2026-11-03')
+    assert row['notice_id'] == notice_id
+    assert row['plan_id'] == '2026-044'
+    assert row['cumulative_cny'] == Decimal('1200')
+    with pytest.raises(SourceUnavailable, match='buyback_security_mismatch'):
+        parse_execution(b'issuer', 'SZSE.002268', '2026-11-03')
+
+
+@pytest.mark.parametrize('header', [
+    '证券代码:000625(200625)证券简称:样本公告编号:2026-95',
+    '证券代码:200625证券简称:样本B证券代码:000625证券简称:样本公告编号:2026-95',
+    '证券代码:000625证券简称:样本公告编号:2026-95证券代码:200625证券简称:样本B',
+    '证券代码:000626证券简称:另一证券证券代码:000625证券简称:样本公告编号:2026-95',
+    '证券代码:000625公告编号:2026-95B股代码:200625',
+    '证券代码:000625公告编号:2026-95H股代码:00001',
+])
+def test_buyback_execution_still_requires_single_issuer_header(monkeypatch, header):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    text = (header + '关于首次回购公司股份的公告'
+            '《关于回购公司股份方案的公告》(公告编号:2026-044)。'
+            '公司首次回购股份100股,成交总金额为1,200元。')
+    monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
+    with pytest.raises(SourceUnavailable, match='buyback_security_mismatch'):
+        parse_execution(b'issuer', 'SZSE.000625', '2026-11-03')
+
+
+def test_buyback_rejects_self_reference_across_notice_number_formats(monkeypatch):
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    text = ('证券代码:300347证券简称:样本公告编码(2026)065号'
+            '关于首次回购公司股份的公告'
+            '《关于回购公司股份方案的公告》(公告编号:2026065)。'
+            '公司首次回购股份100股,成交总金额为1,200元。')
+    monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
+    with pytest.raises(SourceUnavailable, match='buyback_execution_value_invalid'):
+        parse_execution(b'issuer', 'SZSE.300347', '2026-11-03')
+
+
+def test_buyback_notice_separator_keeps_the_same_plan_and_rejects_duplicate_notices():
+    previous = dict(symbol='SZSE.300347', notice_date='2026-11-03', plan_id='2026-045',
+                    notice_id='2026-065', first_execution=True, cumulative_cny=Decimal('1200'))
+    later = dict(previous, notice_date='2026-11-04', plan_id='2026045', notice_id='2026066',
+                 first_execution=False, cumulative_cny=Decimal('1500'))
+    rows = disclosure_increments([previous, later])
+    assert [row['increment_cny'] for row in rows] == [Decimal('1200'), Decimal('300')]
+    with pytest.raises(SourceUnavailable, match='buyback_notice_order_ambiguous'):
+        disclosure_increments([previous, dict(later, notice_id='2026065')])
+
+
+def test_buyback_report_aliases_compare_equivalent_notice_ids():
+    from integrations.guanheng import market_buyback_disclosures as buybacks
+
+    plan = '《关于回购公司股份方案的公告》(公告编号:2026-045)'
+    report = '《回购股份报告书》(公告编号:2026045)'
+    assert not buybacks._plan_report_pairs(plan + report)
+    same_plan = plan.replace('2026-045', '2026045')
+    different_report = report.replace('2026045', '2026-046')
+    assert buybacks._plan_report_pairs(plan + same_plan + different_report) == {('2026045', '2026-046')}
+
+
 def test_board_plan_approval_uses_original_date_instead_of_price_adjustment(monkeypatch):
     from integrations.guanheng import market_buyback_disclosures as buybacks
 

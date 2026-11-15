@@ -542,7 +542,7 @@
       "source": "integrations/guanheng/market_supplement_capture.py"
     },
     "integrations/guanheng/market_buyback_disclosures.py": {
-      "sha256": "219de8a73426d108b3c6cc51b6f6830790a2c85aeb12aa265333530716b6bdad",
+      "sha256": "4aa108d16d324bb9905a15e9e491feb71e1df2460da762b76997357d16225a6e",
       "source": "integrations/guanheng/market_buyback_disclosures.py"
     },
     "integrations/guanheng/market_supplement_sources.py": {
@@ -782,5 +782,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.48"
+  "version": "0.2.0a1+unified.49"
 }

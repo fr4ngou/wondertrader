@@ -19,6 +19,12 @@ NON_MARKET_TITLE = re.compile(
     r'限制性股票|股票期权|专项贷款|债权人|前十[大名]|回购(?:A股|公司|的)?(?:股份)?注销'
     r'|(?:出售|减持)(?:已)?回购股份|(?:已)?回购股份(?:集中竞价)?(?:出售|减持)|合作方回购[^。]{0,60}权益')
 NOTICE_NUMBER = r'\d{4}-?\d{2,4}'
+# 发行人页眉可省略简称，编号年份可带括号。紧邻其他数字说明编号边界未核。
+WRAPPED_NOTICE_NUMBER = r'(?:\(\d{4}\)|〔\d{4}〕)\d{2,4}'
+NOTICE_HEADER = re.compile(
+    rf'(?:证券|股票)代码:(\d{{6}})(?:(?:证券|股票)简称:[^:]{{1,32}}?)?'
+    rf'公告(?:编号|编码):?(?:临)?({NOTICE_NUMBER}|{WRAPPED_NOTICE_NUMBER})(?![\d-])号?')
+HEADER_SECURITY = re.compile(r'(?:证券|股票|[ABH]股)代码:(\d{5,6})(?!\d)')
 PLAN_REFERENCE = re.compile(rf'《([^《》]{{0,140}}?回购[^《》]{{0,90}})》\((?:公告编号:?)?(?:临)?({NOTICE_NUMBER})\)')
 PLAN_TITLE = re.compile(r'回购.{0,30}(?:方案|预案)(?:的公告)?(?:暨回购(?:股份)?报告书)?$')
 REPORT_TITLE = re.compile(r'(?:关于)?(回购(?:股份)?报告书)(?:的?公告)?$')
@@ -125,13 +131,26 @@ def _pdf_text(raw):
 
 
 def _header(body, symbol):
-    # 页眉可能先重复公告标题，公告编号可能带交易所公告类别前缀。
-    header = re.search(rf'(?:证券|股票)代码:(\d{{6}})(?:证券|股票)简称:.{{1,32}}?公告编号:(?:临)?({NOTICE_NUMBER})(?![\d-])',
-                       body[:220])
-    security = re.fullmatch(r'(SSE\.(?:60|68)|SZSE\.(?:00|30))\d{4}', symbol)
-    if header is None or security is None or header[1] != symbol.split('.')[1]:
+    """核对首页的单一证券代码，返回正文起点和发行人公告编号。"""
+    front = body[:220]
+    header = NOTICE_HEADER.search(front)
+    security = re.fullmatch(r'(?:SSE\.(?:60|68)|SZSE\.(?:00|30))\d{4}', symbol)
+    if (header is None or security is None
+            or set(HEADER_SECURITY.findall(front)) != {symbol.split('.')[1]}):
         raise SourceUnavailable('buyback_security_mismatch')
-    return header
+    notice_id = header[2]
+    if notice_id[0] in '(〔':
+        notice_id = f'{notice_id[1:5]}-{notice_id[6:]}'
+    return header.end(), notice_id
+
+
+def _notice_key(notice_id):
+    """编号分隔符仅是展示格式，年份、序号和前导零共同确定身份。"""
+    return notice_id.replace('-', '', 1)
+
+
+def _distinct_notices(notice_ids):
+    return {_notice_key(notice): notice for notice in sorted(notice_ids)}
 
 
 def _proposal_kind(title):
@@ -169,12 +188,12 @@ def _plan_report_pairs(text):
     pairs = set()
     for sentence in re.split(r'[。；;]', text):
         references = _numbered_references(sentence)
-        plans = {number for title, number in references if _proposal_kind(title) == 'proposal'}
-        reports = {number for title, number in references if _proposal_kind(title) == 'report'}
+        plans = _distinct_notices(number for title, number in references if _proposal_kind(title) == 'proposal')
+        reports = _distinct_notices(number for title, number in references if _proposal_kind(title) == 'report')
         if len(plans) == len(reports) == 1:
-            plan, = plans
-            report, = reports
-            if plan != report:
+            plan_key, plan = next(iter(plans.items()))
+            report_key, report = next(iter(reports.items()))
+            if plan_key != report_key:
                 pairs.add((plan, report))
     return pairs
 
@@ -297,34 +316,34 @@ def parse_execution(raw, symbol, notice_date, *, resolve_plan=None):
     except (TypeError, ValueError) as error:
         raise SourceUnavailable('buyback_execution_value_invalid') from error
     body = _pdf_text(raw)
-    header = _header(body,symbol)
-    text = body[header.end():]
+    heading_end, notice_id = _header(body, symbol)
+    text = body[heading_end:]
     front = text.split('公告', 1)[0]
     if not EXECUTION_TITLE.search(front):
         raise SourceUnavailable('buyback_execution_title_unqualified')
     references = _numbered_references(text)
-    plans = {number for title, number in references if _proposal_kind(title) == 'proposal'}
+    plans = _distinct_notices(number for title, number in references if _proposal_kind(title) == 'proposal')
     if not plans:
-        plans = {number for title, number in references if _proposal_kind(title) == 'report'}
+        plans = _distinct_notices(number for title, number in references if _proposal_kind(title) == 'report')
     first_execution = '首次回购' in front
     amounts = _execution_amounts(text, notice_date, first_execution=first_execution)
     if len(amounts) != 1 or len(plans) > 1:
         raise SourceUnavailable('buyback_execution_ambiguous')
     if not plans and resolve_plan is not None:
-        plans = set(resolve_plan(_proposal_references(text)))
+        plans = _distinct_notices(resolve_plan(_proposal_references(text)))
     if len(plans) != 1:
         raise SourceUnavailable('buyback_plan_reference_missing' if not plans else 'buyback_execution_ambiguous')
     amount = amounts.pop()
-    if (len(amount.as_tuple().digits) > 24 or header[2] in plans
+    if (len(amount.as_tuple().digits) > 24 or _notice_key(notice_id) in plans
             or amount == 0 and first_execution):
         raise SourceUnavailable('buyback_execution_value_invalid')
-    plan_id = plans.pop()
+    plan_key, plan_id = next(iter(plans.items()))
     return dict(
         symbol=symbol,  # WT 沪深证券标识。
         plan_id=plan_id,  # 原方案公告编号，仅引用报告书时为报告书编号。
         plan_reports=tuple(sorted(report for plan, report in _plan_report_pairs(text)
-                                  if plan == plan_id and report != header[2])),  # 原件中与本方案并列的报告书编号。
-        notice_id=header[2],  # 当前执行进展公告编号。
+                                  if _notice_key(plan) == plan_key and _notice_key(report) != _notice_key(notice_id))),  # 原件中与本方案并列的报告书编号。
+        notice_id=notice_id,  # 当前执行进展公告编号。
         notice_date=notice_date,  # 公告索引的原披露日期。
         first_execution=first_execution,  # 标题明确为首次执行，不从最早样本猜测。
         cumulative_cny=amount,  # 本次披露的累计实际支付金额，元。
@@ -339,21 +358,22 @@ def disclosure_increments(rows):
     proposals = set()
     for row in rows:
         for report in row.get('plan_reports', ()):
-            proposals.add((row['symbol'], row['plan_id']))
-            aliases.setdefault((row['symbol'], report), set()).add(row['plan_id'])
+            plan = _notice_key(row['plan_id'])
+            proposals.add((row['symbol'], plan))
+            aliases.setdefault((row['symbol'], _notice_key(report)), set()).add(plan)
     conflicts = {key for key, plans in aliases.items() if len(plans) > 1 or key in proposals}
     conflicts.update((symbol, plan) for (symbol, report) in conflicts.copy()
                      for plan in aliases[(symbol, report)])
 
     def plan_key(row):
-        key = row['symbol'], row['plan_id']
+        key = row['symbol'], _notice_key(row['plan_id'])
         return (row['symbol'], next(iter(aliases[key]))) if key in aliases and key not in conflicts else key
 
     result, previous, notices, invalid = [], {}, set(), set()
     for row in sorted(rows, key=lambda row: (row['notice_date'], *plan_key(row),
-                                             not row['first_execution'], row['notice_id'])):
+                                             not row['first_execution'], _notice_key(row['notice_id']))):
         key = plan_key(row)
-        notice = row['symbol'], row['notice_id']
+        notice = row['symbol'], _notice_key(row['notice_id'])
         before = previous.get(key)
         if notice in notices:
             raise SourceUnavailable('buyback_notice_order_ambiguous')
@@ -412,13 +432,13 @@ def disclosure_window(days, calendar, get, post):
                     receipt = get(proposal['url'],{},None)
                     parents.append((receipt['sha256'],receipt['received_at']))
                     body = _pdf_text(receipt['body'])
-                    header = _header(body,candidate['symbol'])
-                    heading = body[header.end():header.end()+240].split('保证',1)[0]
+                    heading_end, notice_id = _header(body, candidate['symbol'])
+                    heading = body[heading_end:heading_end+240].split('保证',1)[0]
                     if phase and phase[1] not in {match[1] for match in PHASED_PLAN.finditer(body[:2200])}:
                         continue
                     if not phase and key not in heading:
                         raise SourceUnavailable('buyback_proposal_title_mismatch')
-                    plan_ids.add(header[2])
+                    plan_ids.add(notice_id)
             return plan_ids
 
         for is_report in (False, True):
