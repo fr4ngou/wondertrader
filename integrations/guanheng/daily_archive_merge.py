@@ -56,7 +56,7 @@ def read_price_history(market,symbol,adjustment,*,deadline,maximum_history_rows,
     return merged
 
 
-def _retains_proven_units(existing, incoming, source):
+def retains_proven_units(existing, incoming, source):
     """仅在同日六数值相同且已知量纲一致时，采用已核QMT原行来源。"""
     row, metadata = existing
     units = ('price_unit', 'volume_unit', 'amount_unit')
@@ -145,7 +145,7 @@ def merge_original_price_rows(market, additions, metadata, output, helper, helpe
                 raise ValueError('original price addition date repeated')
             seen.add(row['date'])
             existing = merged.get(row['date'])
-            if existing is None or _retains_proven_units(existing, row, original):
+            if existing is None or retains_proven_units(existing, row, original):
                 merged[row['date']] = (row, original)
                 inserted += 1
         if not merged or inserted == 0 and not retain_unchanged:

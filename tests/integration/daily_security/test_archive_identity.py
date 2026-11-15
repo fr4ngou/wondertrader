@@ -1,8 +1,11 @@
 """同一原Reader选源才复用核读事实；不连接Source，Native Codec另有普通包主链。"""
 import hashlib
 import threading
+from datetime import datetime
 from pathlib import Path
 from copy import deepcopy
+from time import monotonic
+from types import SimpleNamespace
 
 import pytest
 
@@ -156,3 +159,56 @@ def test_same_date_qmt_unit_proof_survives_compaction(tmp_path,monkeypatch,misma
     monkeypatch.setattr(merge,'prepare_daily_archive',archive)
     merge.merge_original_price_rows(object(),{'SSE.510300':[candidate]},prior,tmp_path/'out','helper','b'*64,
         deadline=__import__('time').monotonic()+5,retain_unchanged=True)
+
+
+@pytest.mark.parametrize("different_value", [False, True])
+def test_raw_archive_keeps_same_value_unit_upgrade_after_loading_old_archive(tmp_path, monkeypatch, different_value):
+    from integrations.guanheng import daily_price_archive as raw
+
+    descriptor, entry, old = fixture(tmp_path)
+    archive = Path(descriptor["path"])
+    archive.write_bytes(encode(dict(schema="guanheng.daily-native-archive.v1", entries=[entry])))
+    descriptor["sha256"] = digest(archive.read_bytes())
+    symbol = entry["symbol"]
+    market = layer(descriptor, entry)
+    row = dict(date=20261105, open=2., high=2., low=2., close=2., volume=3., amount=6.)
+    bar = SimpleNamespace(occurred_at=datetime(2026, 11, 5),
+                          **{key: value for key, value in row.items() if key != "date"})
+
+    class Reader:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def read_source_file(self, *args):
+            return SimpleNamespace(bars=[bar])
+
+        def close(self):
+            pass
+
+    proven = dict(old, dataset_version="qmt.batch-native-day.v2:qmt-contextinfo-day-etf-index.v1:" + "c"*64,
+                  price_unit="CNY", volume_unit="lot")
+    captured = {key: value for key, value in row.items() if key != "date"}
+    if different_value:
+        captured["amount"] = 7.
+    cache = dict(directory="cache", sha256="b"*64)
+    inputs = tmp_path/"inputs.json"
+    inputs.write_bytes(encode(dict(schema="guanheng.daily-price-input-result.v1", cache=cache)))
+    fixed_inputs = dict(path=str(inputs), sha256=digest(inputs.read_bytes()))
+    monkeypatch.setattr(raw, "NativeHistory", Reader)
+    monkeypatch.setattr(raw, "source_file_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(raw, "load_price_capture", lambda _: {})
+    monkeypatch.setattr(raw, "price_batches", lambda *args, **kwargs: iter(
+        [(None, {"510300.SH": {"data": {"20261105": captured}}})]))
+    monkeypatch.setattr(raw, "capture_metadata", lambda *args, **kwargs: proven if kwargs else old)
+
+    def prepare(rows, metadata, *args, provenance, **kwargs):
+        assert rows[symbol] == [row]
+        selected = provenance[symbol][0]["metadata"]
+        assert selected == (old if different_value else proven)
+        return {"completed": True}
+
+    monkeypatch.setattr(merge, "prepare_daily_archive", prepare)
+    completed = raw.materialize_price_archive(fixed_inputs, market, [descriptor], tmp_path/"out",
+        dict(path="helper", sha256="d"*64), dict(library="reader", sha256="e"*64),
+        deadline=monotonic()+5, unit_evidence_by_capture={cache["sha256"]: object()})
+    assert completed == {"completed": True}

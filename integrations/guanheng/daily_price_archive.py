@@ -4,7 +4,7 @@ import time
 
 from .analysis_price_capture import load_price_capture,price_batches,capture_metadata,original_price_quality
 from .daily_data_update import _load,_save,_descriptor
-from .daily_archive_merge import merge_original_price_rows
+from .daily_archive_merge import merge_original_price_rows, retains_proven_units
 from .daily_archive_prepare import price_rows_identity
 from .market_generation import read_fixed
 from .native_history import NativeHistory,source_file_metadata
@@ -88,8 +88,13 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                     code,exchange=qmt.split('.');symbol={'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[exchange]+'.'+code
                     values=additions.setdefault(symbol,{})
                     for day,bar in sorted(item['data'].items()):
-                        if original_price_quality(bar)!='qualified':continue  # 旧成功日及普通捕获优先，热窗口只填缺日。
-                        values.setdefault(int(day),(dict(date=int(day),**bar),metadata))
+                        if original_price_quality(bar)!='qualified':continue
+                        date=int(day)
+                        row=dict(date=date,**bar)
+                        existing=values.get(date)
+                        # 原值保留优先；同值且单位证据更完整时保留该来源供最终合并。
+                        if existing is None or retains_proven_units(existing,row,metadata):
+                            values[date]=(row,metadata)
         if prepared.get('supplemental_prices')is not None:
             from .official_index_prices import load_official_index_prices
             supplement=load_official_index_prices(prepared['supplemental_prices'])
