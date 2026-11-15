@@ -41,7 +41,7 @@ type UpdateStatus = {
 const repairActive = (job?: DataRepair | null) => job?.state === 'queued' || job?.state === 'running'
 const repairStates = { queued: '等待补齐', running: '正在补齐', complete: '补齐完成', partial: '仍有缺口', failed: '检查失败' }
 const repairItemStates = { pending: '等待检查', checking: '检查覆盖', repairing: '正在补齐',
-  complete: '覆盖通过', missing: '仍有缺口', waiting_for_wt: '待接入 WT', waiting_for_wt_repair: '等待 WT 数据' }
+  complete: '覆盖通过', missing: '仍有缺口', observer_scheduled: '观衡定时采集', waiting_for_wt: '观衡定时采集', waiting_for_wt_repair: '等待 WT 数据' }
 const wtRepairPhases: Record<WtRepairPhase, string> = {
   price_first: 'WT 正在更新日线价格',
   inputs: 'WT 正在准备定日原始数据',
@@ -76,7 +76,11 @@ function DataRepairControl({ status, pinned }: { status?: UpdateStatus; pinned?:
     }
   }, [client, jobId, jobState, pinned])
   if (!job && !status?.data_repair_available) return null
-  const checked = job?.items.filter(item => !['pending', 'checking', 'repairing', 'waiting_for_wt_repair'].includes(item.state)).length ?? 0
+  const wtItems = job?.items.filter(item => item.state !== 'observer_scheduled' && item.state !== 'waiting_for_wt') ?? []
+  const legacyDirectOnly = jobState === 'partial' && !!job?.items.some(item => item.state === 'waiting_for_wt')
+    && wtItems.every(item => item.state === 'complete')
+  const displayState = legacyDirectOnly ? 'complete' : jobState
+  const checked = wtItems.filter(item => item.state === 'complete' || item.state === 'missing').length
   const upstream = job?.wt_receipt?.state
   const phase = job?.wt_receipt?.phase
   return <div className="observation-repair">
@@ -87,10 +91,10 @@ function DataRepairControl({ status, pinned }: { status?: UpdateStatus; pinned?:
       if (event.key === 'Escape') { setOpened(false); setHovered(false) }
     }}>
       <button type="button" aria-expanded={hovered || opened} aria-controls="observation-repair-list"
-        onClick={() => setOpened(!opened)}>{job ? repairStates[job.state] : '补齐进度'}</button>
+        onClick={() => setOpened(!opened)}>{displayState ? repairStates[displayState] : '补齐进度'}</button>
       <div id="observation-repair-list" className="observation-repair-list" hidden={!hovered && !opened}>
-        {job && <><strong>{repairStates[job.state]} · {checked}/{job.items.length} 项</strong>
-          {job.items.length > 0 && <progress value={checked} max={job.items.length} aria-label="已检查来源" />}
+        {job && displayState && <><strong>{repairStates[displayState]} · {checked}/{wtItems.length} 项 WT 来源</strong>
+          {wtItems.length > 0 && <progress value={checked} max={wtItems.length} aria-label="已检查 WT 来源" />}
           {job.wt_request && <p role="status">{upstream === 'running' && jobActive ? (phase && wtRepairPhases[phase]) || 'WT 正在补采' : upstream === 'published' ? (jobActive ? 'WT 已发布，正在核对覆盖' : '已核对 WT 本轮发布') :
             upstream === 'failed' ? 'WT 补采失败，保留已发布数据' : jobActive ? '等待 WT 接收' : 'WT 回执已超时'}</p>}
           {job.reason && <p>{failureLabel(job.reason)}</p>}

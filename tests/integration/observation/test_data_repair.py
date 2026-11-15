@@ -179,7 +179,8 @@ def test_t2108_collection_timeout_keeps_the_unread_day_pending(tmp_path,monkeypa
     assert saved['scan']['t2108']['next']==DAY
 
 
-def test_running_job_resumes_and_checks_published_coverage(tmp_path, monkeypatch):
+@pytest.mark.parametrize('newly_adopted', [False, True])
+def test_running_job_resumes_and_checks_published_coverage(tmp_path, monkeypatch, newly_adopted):
     reader = build_reader(tmp_path)
     reader.repository.initialize()
     manifest = {'source_tables': {'source.cn_official_calendar': 'calendar', 'market.sample': 'market'},
@@ -205,16 +206,26 @@ def test_running_job_resumes_and_checks_published_coverage(tmp_path, monkeypatch
 
     with reader.repository.scheduler_lease() as lease:
         first['state'] = 'running'
+        if newly_adopted:
+            first['start_after'] = 'legacy'
+            first['items'] = [dict(source_id='wt', state='waiting_for_wt', missing_count=None, reason=None)]
+            first['scan'] = {'wt': dict(phase=None, first=DAY, next=None)}
         reader.repository.record_data_repair(first, lease=lease)
+    if newly_adopted:
+        with reader.repository.scheduler_lease() as lease:
+            resumed = reader.repository.request_data_repair('startup')
+            data_repair.repair(reader, config, resumed, NOW, lease=lease, deadline=monotonic()+10,
+                               cancelled=lambda: True, refresh=refresh, market_client_factory=None)
+        assert reader.repository.data_repair()['items'][0]['state'] == 'pending'
     with reader.repository.scheduler_lease() as lease:
         resumed = reader.repository.request_data_repair('startup')
         assert resumed['id'] == first['id']
         data_repair.repair(reader, config, resumed, NOW, lease=lease, deadline=monotonic()+10,
                            cancelled=lambda: False, refresh=refresh, market_client_factory=None)
     final = reader.repository.data_repair()
-    assert final['id'] == first['id'] and final['state'] == 'partial'
+    assert final['id'] == first['id'] and final['state'] == 'complete'
     assert [(item['state'], item['missing_count']) for item in final['items']] == [
-        ('complete', 0), ('waiting_for_wt', None)]
+        ('complete', 0), ('observer_scheduled', None)]
     assert final['items'][0]['inputs'] == []
     assert reader.repository.request_data_repair('manual')['id'] != first['id']
 

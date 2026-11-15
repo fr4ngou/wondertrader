@@ -93,7 +93,7 @@ const frequencies: Record<string, string> = { daily: '日度', weekly: '周度',
 export const frequencyLabel = (frequency: string) => frequencies[frequency] || frequency
 export function failureLabel(code?:string) {
   if (!code) return '检查记录已保存；实际末期见来源覆盖'
-  if (code === 'wt_source_not_registered') return '这一来源仍待接入 WT 数据模块'
+  if (code === 'wt_source_not_registered') return '由观衡定时采集，结果见更新与缺口'
   if (code === 'wt_history_incomplete') return 'WT 发布范围仍有缺失交易日'
   if (code === 'wt_t2108_historical_universe_missing') return 'WT 尚缺该日的历史股票池'
   if (code === 'wt_t2108_historical_universe_unqualified') return '该历史股票池的当日来源待核实'

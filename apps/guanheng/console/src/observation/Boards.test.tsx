@@ -64,6 +64,21 @@ it('补齐进度展开后按 ETF 显示缺日范围', async () => {
   expect(screen.getByText('披露回购执行增量 · 20 日窗口')).toBeVisible()
 })
 
+it('保留观衡定时采集标记且仅计算 WT 检查进度', async () => {
+  const {query}=await open()
+  act(()=>query.setQueryData<{ data_repair_available: boolean; data_repair: DataRepair }>(['observation','updates'], {
+    data_repair_available:true, data_repair:{id:'job',state:'partial',items:[
+      {source_id:'wt.etf_flow',state:'complete',missing_count:0,reason:null},
+      {source_id:'szse.options',state:'observer_scheduled',missing_count:null,reason:null},
+      {source_id:'sse.options',state:'waiting_for_wt',missing_count:null,reason:'wt_source_not_registered'},
+    ]},
+  }))
+  fireEvent.click(await screen.findByRole('button',{name:'补齐完成'}))
+  expect(screen.getAllByText('观衡定时采集')).toHaveLength(2)
+  expect(screen.getByText('补齐完成 · 1/1 项 WT 来源')).toBeVisible()
+  expect(screen.getByRole('progressbar',{name:'已检查 WT 来源'})).toHaveAttribute('max','1')
+})
+
 it('进度浮层随 WT 回执显示实际阶段、等待重试及发布后复核', async () => {
   const {query}=await open()
   const receipt=(wt_receipt: DataRepair['wt_receipt']) => act(()=>query.setQueryData(['observation','updates'], {

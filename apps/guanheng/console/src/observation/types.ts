@@ -49,7 +49,7 @@ export type DataRepair = {
     /** 现有来源登记 ID。 */
     source_id: string
     /** 逐项核对与补齐阶段。 */
-    state: 'pending' | 'checking' | 'repairing' | 'complete' | 'missing' | 'waiting_for_wt' | 'waiting_for_wt_repair'
+    state: 'pending' | 'checking' | 'repairing' | 'complete' | 'missing' | 'observer_scheduled' | 'waiting_for_wt' | 'waiting_for_wt_repair'
     /** 在已核覆盖范围内仍缺的交易日数。 */
     missing_count: number | null
     /** 仍有缺口的输入表或指标，沿实际覆盖检查。 */

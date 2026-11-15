@@ -142,6 +142,17 @@ def repair(reader, config, job, now, *, lease, deadline, cancelled, refresh, mar
     else:
         first = 0
     previous_items = {item['source_id']: item for item in job['items']}
+    for index, source in enumerate(config['sources']):
+        if source['kind'] not in WT_SOURCES:
+            continue
+        prior_state = previous_items.get(source['id'], {}).get('state')
+        if prior_state in (None, 'waiting_for_wt', 'observer_scheduled'):
+            # 配置换代后新增的 WT 来源未核覆盖，不能跨过原检查点。
+            first = min(first, index)
+            if 'scan' in job:
+                job['scan'].pop(source['id'], None)
+    if start_after:
+        job['start_after'] = config['sources'][first]['id'] if config['sources'] else None
     if 'scan_clock' not in job:
         job.setdefault('window', window)  # 旧活动任务保留原计划窗口。
         original = job.get('wt_request', {}).get('requested_at')
@@ -151,11 +162,17 @@ def repair(reader, config, job, now, *, lease, deadline, cancelled, refresh, mar
         job['scan_clock'] = scheduled or original or now.isoformat()
     scan_clock = datetime.fromisoformat(job['scan_clock'])
     job['state'] = 'running'
-    job['items'] = [
-        previous_items.get(source['id'], dict(source_id=source['id'], state='pending', missing_count=None, reason=None))
-        if index < first else dict(source_id=source['id'], state='pending', missing_count=None, reason=None)
-        for index, source in enumerate(config['sources'])
-    ]
+    job['items'] = []
+    for index, source in enumerate(config['sources']):
+        source_id = source['id']
+        if source['kind'] not in WT_SOURCES:
+            # 直采继续用观衡自己的计划回执；这里登记归属而不授予覆盖。
+            item = dict(source_id=source_id, state='observer_scheduled', missing_count=None, reason=None)
+        else:
+            item = previous_items.get(source_id) if index < first else None
+            if item is None:
+                item = dict(source_id=source_id, state='pending', missing_count=None, reason=None)
+        job['items'].append(item)
     repository.record_data_repair(job, lease=lease)
     try:
         as_of = closed_market_day(scan_clock, 'cn', config['models'], check=check)
@@ -175,7 +192,6 @@ def repair(reader, config, job, now, *, lease, deadline, cancelled, refresh, mar
             timed_out = True
             break
         if source['kind'] not in WT_SOURCES:
-            item.update(state='waiting_for_wt', reason='wt_source_not_registered')
             continue
         item['state'] = 'checking'
         repository.record_data_repair(job, lease=lease)
@@ -261,6 +277,6 @@ def repair(reader, config, job, now, *, lease, deadline, cancelled, refresh, mar
                     requested_at=now.isoformat(),  # 进入 WT 队列时间，供等待过期及恢复判定。
                 )
             else:
-                job['state'] = 'complete' if all(item['state'] == 'complete' for item in items) else 'partial'
+                job['state'] = 'complete' if all(item['state'] in ('complete', 'observer_scheduled') for item in items) else 'partial'
                 job.pop('scan', None)
         repository.record_data_repair(job, lease=lease)
