@@ -20,6 +20,10 @@ FIELDS = ('date', 'instrument', 'close', 'pre_close', 'amount')
 SUFFIXES = {'SSE': 'SH', 'SZSE': 'SZ', 'BSE': 'BJ'}
 
 
+class BigQuantWorkerExit(ValueError):
+    """SDK 已退出且进程树已回收，但查询进程返回失败。"""
+
+
 def _instrument(symbol):
     exchange, code = symbol.split('.')
     return f'{code}.{SUFFIXES[exchange]}'
@@ -193,8 +197,10 @@ def query_bigquant(policy, dataset, first, last, *, deadline, cancelled, environ
                 if primary is None:
                     raise
                 primary.add_note('BigQuant cleanup: ' + type(error).__name__)
+        if cancelled():
+            raise InterruptedError('WT stock cross section stopped')
         if process.returncode != 0:
-            raise ValueError('bigquant_unavailable')
+            raise BigQuantWorkerExit('bigquant_unavailable')
         stream.seek(0)
         raw = stream.read(output_budget + 1)
         if len(raw) > output_budget:
@@ -237,13 +243,29 @@ def prepare_section(facts, cache, unit_evidence, policy, objects, *, deadline, c
                     records = None
     if records is None:
         provider = 'BigQuant'
-        try:
-            records = acquire_bigquant(policy, day, deadline=deadline, cancelled=cancelled,
-                                       environ=os.environ if environ is None else environ)
-        except InterruptedError:
-            raise
-        except (ValueError, OSError):
-            return dict(reason='bigquant_unavailable')
+        environment = os.environ if environ is None else environ
+        query_deadline = min(deadline, monotonic() + policy['timeout_seconds'])
+        # SDK 早退时补一次同日只读查询，两个子进程共用本日原截止。
+        for attempt in range(2):
+            if cancelled():
+                raise InterruptedError('WT stock cross section stopped')
+            if monotonic() >= query_deadline:
+                return dict(reason='bigquant_unavailable')
+            try:
+                records = acquire_bigquant(policy, day, deadline=query_deadline, cancelled=cancelled,
+                                           environ=environment)
+                break
+            except BigQuantWorkerExit:
+                if cancelled():
+                    raise InterruptedError('WT stock cross section stopped') from None
+                if attempt:
+                    return dict(reason='bigquant_unavailable')
+            except InterruptedError:
+                raise
+            except (ValueError, OSError):
+                if cancelled():
+                    raise InterruptedError('WT stock cross section stopped') from None
+                return dict(reason='bigquant_unavailable')
         try:
             row = project(facts, records)
         except ValueError:

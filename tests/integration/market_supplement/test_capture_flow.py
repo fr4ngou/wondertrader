@@ -85,6 +85,62 @@ def test_bigquant_waits_for_the_interpreter_tree_before_releasing_its_output(mon
         assert events == ['terminate', 'wait', 'close']
 
 
+@pytest.mark.parametrize('failure', [
+    'early', 'deadline', 'stopped', 'no-credential', 'cleanup', 'terminal-cancellation',
+])
+def test_daily_stock_fallback_retries_under_one_query_deadline(tmp_path, monkeypatch, failure):
+    from integrations.guanheng_market_client.daily_facts import FIELDS, STATS
+
+    day = DAYS[-1]
+    facts = dict(schema='guanheng.daily-source-facts.v1', date=day, members=['SSE.600000'], fields=FIELDS,
+        rows=[[day, 'SSE.600000', '2', '1', '100', '1', '1', 'qualified']],
+        units=dict(close_reference='CNY', preclose='CNY', volume='share', turn='percent_of_float'),
+        stats={name: 0 for name in STATS},
+        provenance=dict(packet_sha256='a'*64, universe_sha256='b'*64, source_received_at='2026-11-06T00:00:00+00:00'))
+    clock = [0.]
+    stop_requested = [False]
+    calls = []
+
+    def acquire(policy, requested, *, deadline, cancelled, environ):
+        assert requested == day
+        calls.append(deadline)
+        if len(calls) == 1:
+            clock[0] = 15. if failure == 'deadline' else 3.
+            if failure == 'stopped':
+                raise InterruptedError('fixture cancellation')
+            if failure in ('early', 'terminal-cancellation'):
+                raise stock_cross_section.BigQuantWorkerExit('fixture SDK failure')
+            if failure == 'cleanup':
+                failure_with_cleanup = ValueError('fixture output cap')
+                failure_with_cleanup.add_note('BigQuant cleanup: OSError')
+                raise failure_with_cleanup
+            raise ValueError('bigquant_unavailable')
+        if failure == 'terminal-cancellation':
+            stop_requested[0] = True
+            raise stock_cross_section.BigQuantWorkerExit('fixture SDK failure')
+        return [dict(date=day, instrument='600000.SH', close=2, pre_close=1, amount=100)]
+
+    monkeypatch.setattr(stock_cross_section, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(stock_cross_section, 'acquire_bigquant', acquire)
+    env = {} if failure == 'no-credential' else {'GUANHENG_BIGQUANT_CREDENTIAL': 'fixture'}
+    arguments = dict(deadline=15., cancelled=lambda: stop_requested[0], environ=env)
+    policy = dict(timeout_seconds=30, minimum_sample_count=1)
+    cache = {'sha256': 'c'*64}
+    objects = ContentStore(tmp_path)
+    if failure in ('stopped', 'terminal-cancellation'):
+        with pytest.raises(InterruptedError):
+            stock_cross_section.prepare_section(facts, cache, None, policy, objects, **arguments)
+        assert calls == ([15.] if failure == 'stopped' else [15., 15.])
+        return
+    result = stock_cross_section.prepare_section(facts, cache, None, policy, objects, **arguments)
+    if failure == 'early':
+        assert calls == [15., 15.]
+        assert result['provider'] == 'BigQuant' and result['sample_count'] == 1
+        assert json.loads(objects.get(result['source_sha256']))['date'] == day
+    else:
+        assert calls == [15.] and result == {'reason': 'bigquant_unavailable'}
+
+
 def test_required_pending_recovers_only_missing_and_cache_extends(tmp_path):
     targets=plan(('etf_total_shares','SSE.510300'))
     fetch,transport=FrozenFetch(bad_day=DAYS[-1]),QmtTransport()
