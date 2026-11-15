@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import sys
+from threading import Event, get_ident
 import time
 from uuid import uuid4
 
@@ -536,11 +537,17 @@ def test_supplement_pending_read_slots_join_original_discovery(tmp_path):
     assert (slot,original['inputs']['connections']['batch']) in list(_slot_candidates(root,original))
 
 
-def test_price_first_current_survives_public_source_timeout(tmp_path,monkeypatch):
+@pytest.mark.parametrize('report_queue', [False, True])
+def test_price_first_current_survives_public_source_timeout(tmp_path,monkeypatch,report_queue):
     """原价格发布边界先成功，随后公共预算超时只使完整任务失败，价格CURRENT保持。"""
     from guanheng_app.observation.source_fetch import SourceFailure
     config,*_=owner_fixture(tmp_path)
     config['inputs']['supplement_facts']['required']=False
+    if report_queue:
+        config['inputs']['supplement_facts']=plan(('margin_purchase','CN.MARGIN_REPORT'),required=False)
+        def report_timeout(*args,**kwargs):
+            raise SourceFailure('collection_timeout')
+        monkeypatch.setattr(service,'prepare_report_inputs',report_timeout)
     config['price_scope']=dict(baseline_reference=config['template']['security_reference'],
         reference_connection={},scope={},authorized_from='20261104',maximum_history_rows=2000)
     descriptor=write(tmp_path/'daily.json',config)
@@ -562,7 +569,7 @@ def test_price_first_current_survives_public_source_timeout(tmp_path,monkeypatch
     monkeypatch.setattr(service,'prepare_update',source_timeout)
     with pytest.raises(RuntimeError,match='one cycle failed'):
         service.serve(descriptor,control,control_id,once=True,as_of=DAYS[-1])
-    assert order==['price_published','public_timeout']
+    assert order==(['price_published'] if report_queue else ['price_published','public_timeout'])
     assert current.read_bytes()==b'new verified price boundary'
     state=json.loads((Path(config['directory'])/'INDEX.json').read_bytes())[DAYS[-1]]
     assert state['price_state']=='published' and state['state']=='failed'
@@ -585,6 +592,66 @@ def test_stage_request_share_keeps_original_total_and_next_round_continues(tmp_p
     assert _load(result)['complete'] and len(_load(result)['rows'])==4
     assert first['rows'][0] in _load(result)['rows']
     assert fetch.budget.max_requests==original_max
+
+
+def test_report_preparation_survives_restart_without_qmt_or_repeat_fetch(tmp_path):
+    targets=plan(('margin_purchase','CN.MARGIN_REPORT'),('etf_total_shares','SSE.510300'))
+    objects=ContentStore(tmp_path/'raw')
+    work=tmp_path/'supplement'
+    fetch=FrozenFetch()
+    def prepare():
+        capture.collect_supplement(targets,DAYS[-1],DAYS,work,objects=objects,fetch=fetch,
+            qmt_transport=None,calendar_coverage=(DAYS[0],DAYS[-1]),deadline=time.monotonic()+20,reports_only=True)
+    prepare()
+    before=list(fetch.calls)
+    assert len(before)==2 and all(params['reportName']=='RPTA_WEB_MARGIN_DAILYTRADE' for _,params in before)
+    assert not (work/'QMT-EVIDENCE.json').exists() and not (work/'catalog.json').exists()
+    assert json.loads((work/'STATE.json').read_bytes())['report_preparation']['observed']==2
+    prepare()
+    assert fetch.calls==before
+    completed=collect_at(targets,DAYS[-1],DAYS,work,objects,fetch,QmtTransport())
+    assert _load(completed)['complete']
+    assert len(fetch.calls)==4
+    assert all('reportName' not in params for _,params in fetch.calls[len(before):])
+
+
+def test_report_prepares_while_price_is_in_flight_and_only_owner_publishes(tmp_path,monkeypatch):
+    from integrations.guanheng import daily_price_refresh as price
+    config,*_=owner_fixture(tmp_path)
+    config['inputs']['supplement_facts']=plan(('margin_purchase','CN.MARGIN_REPORT'))
+    config['price_scope']=dict(baseline_reference=config['template']['security_reference'],
+        reference_connection={},scope={},authorized_from='20261104',maximum_history_rows=2000)
+    descriptor=write(tmp_path/'daily.json',config)
+    current=Path(config['template']['publication_directory'])/'CURRENT.json'
+    current.parent.mkdir(exist_ok=True)
+    current.write_bytes(b'previous publication')
+    control_id=str(uuid4());(tmp_path/'controls').mkdir();control=tmp_path/'controls'/control_id
+    price_started=Event()
+    report_prepared=Event()
+    owner=get_ident()
+    def reports(configuration,day,directory,**kwargs):
+        assert get_ident()!=owner and price_started.wait(5)
+        write(directory/'proof.json',dict(day=day,phase='report_ready'))
+        assert current.read_bytes()==b'previous publication'
+        report_prepared.set()
+    def prices(configuration,day,directory,**kwargs):
+        price_started.set()
+        assert report_prepared.wait(5)
+        result=write(Path(directory)/'prices.json',{})
+        return dict(current_sha256='a'*64,price_result=result,continuation_required=False,auxiliary_observation_date=DAYS[0])
+    def prepare(configuration,day,directory,**kwargs):
+        assert json.loads((directory/'proof.json').read_bytes())==dict(day=day,phase='report_ready')
+        return write(directory/'UPDATE.json',dict(day=day))
+    def publish(request,*args,**kwargs):
+        assert get_ident()==owner and request['day']==DAYS[-1]
+        return dict(current_sha256='b'*64,supplement_complete=True)
+    monkeypatch.setattr(service,'prepare_report_inputs',reports)
+    monkeypatch.setattr(price,'price_refresh',prices)
+    monkeypatch.setattr(service,'prepare_update',prepare)
+    monkeypatch.setattr(service,'run_update',publish)
+    service.serve(descriptor,control,control_id,once=True,as_of=DAYS[-1])
+    state=json.loads((Path(config['directory'])/'INDEX.json').read_bytes())[DAYS[-1]]
+    assert state['state']=='published' and state['supplement_complete'] and state['current_sha256']=='b'*64
 
 
 def test_unmaterialized_request_keeps_original_input_slot_reference(tmp_path):

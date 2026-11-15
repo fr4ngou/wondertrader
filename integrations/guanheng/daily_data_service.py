@@ -7,6 +7,7 @@ if str(_RELEASE_ROOT) not in sys.path:
     sys.path.insert(0, str(_RELEASE_ROOT))
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import math
@@ -17,7 +18,7 @@ import time
 from uuid import UUID,uuid4
 
 from integrations.guanheng.daily_data_update import run_update, _save, _load
-from integrations.guanheng.daily_data_inputs import prepare_update
+from integrations.guanheng.daily_data_inputs import prepare_report_inputs, prepare_update
 from integrations.guanheng.daily_input_recovery import observe_input_reads, close_input_discovery, registered_requests
 from integrations.guanheng.market_generation import GenerationPublisher, read_fixed, read_generation
 from integrations.guanheng_market_client import strict_json
@@ -205,7 +206,7 @@ def attach_observation_during_prices(repository, index, index_path, day, now, *,
 
 
 def serve(configuration, directory, control_id, *, once=False, as_of=None, clock=None):
-    """本进程唯一线程拥有输入、更新和所有Reader；stop.json只请求本控制代关闭。
+    """本进程唯一发布线程拥有版本和Reader，报表线程只准备原件；停止归本控制代。
 
     外层Job负责启动/树退出/管道回收；closed.json仅表示本入口已退出owner上下文。
     数据根INDEX及阶段任务跨代保留，重新启动沿原REQUEST/slot/当前版本恢复。
@@ -244,6 +245,10 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
     error = None
     try:
         with GenerationPublisher(config['template']['publication_directory']) as publisher, ExitStack() as input_resources:
+            from integrations.guanheng.market_supplement_capture import REPORT_METRICS
+            report_targets = config['inputs'].get('supplement_facts',{}).get('targets',())
+            report_queue = (input_resources.enter_context(ThreadPoolExecutor(max_workers=1,thread_name_prefix='wt-report'))
+                            if any(target['metric'] in REPORT_METRICS for target in report_targets) else None)
             root.mkdir(parents=False, exist_ok=True)
             original = root / 'CONFIGURATION.json'
             if original.exists():
@@ -405,7 +410,11 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                     deadline = time.monotonic() + config['cycle_seconds']
                     status.update(state='updating', active_date=day)
                     _save(directory / 'status.json', status)
+                    reports = None
                     try:
+                        if report_queue is not None and not request_file.exists():
+                            reports = report_queue.submit(prepare_report_inputs,config,day,work/'inputs',
+                                                          deadline=deadline,cancelled=stopped)
                         transaction=work/'work'/'STATE.json'
                         parent_fixed=(transaction.exists()and'parent'in strict_json(
                             read_fixed(transaction,maximum=16777216))['stages'])  # 已提交完整事务拥有原父CURRENT，先沿原责任完成CAS。
@@ -461,6 +470,8 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                                           auxiliary_observation_date=price_result['auxiliary_observation_date'])
                             _save(index_path,index);_save(directory/'status.json',status)
                         if not request_file.exists():
+                            if reports is not None:
+                                reports.result()  # 报表归还采集日志后，原owner才领取、核对并发布。
                             report_phase('inputs')
                             previous=list(config['inputs'].get('previous_requests',[]))
                             previous.extend(path for path in registered if Path(path)!=request_file)
@@ -509,6 +520,9 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         retry_at = time.monotonic() + config['retry_seconds']
                         if observation_id:
                             entry['observation_repair']['phase'] = 'retry_wait'
+                    finally:
+                        if reports is not None:
+                            wait((reports,))  # 价格失败也保留并等待在途报表；同一任务不出现两个日志写者。
                     _save(index_path, index)
                     if observation_id:
                         report_observation_repair(observation_repository, entry['observation_repair'], day)

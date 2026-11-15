@@ -128,6 +128,44 @@ def _prepared_update_descriptor(path):
     return _descriptor(destination)
 
 
+def prepare_report_inputs(configuration, day, directory, *, deadline, cancelled):
+    """独立报表线程写原任务的准备日志，不接触行情连接、INDEX 或 CURRENT。"""
+    from guanheng_app.observation.calendars import official_calendar
+    from guanheng_app.observation.source_fetch import BoundedContentStore, CollectionBudget, Fetcher
+    from guanheng_app.observation.storage import ContentStore
+    from .market_supplement_capture import collect_supplement, prior_supplement_catalogs
+
+    root = Path(directory).absolute()
+    root.mkdir(exist_ok=True)
+    original = root / 'INPUTS.json'
+    if original.exists():
+        configuration = _load(_descriptor(original))['configuration']
+    template = configuration['template']
+    inputs = configuration['inputs']
+    public = inputs['public_facts']
+    budget = CollectionBudget(min(deadline,time.monotonic()+public['seconds']),max_requests=public['max_requests'],
+        max_bytes=public['max_bytes'],response_bytes=public['response_bytes'],cancelled=cancelled)
+    objects = ContentStore(configuration['raw_store'])
+    previous = template.get('supplement_facts')
+    current = Path(template['publication_directory'])/'CURRENT.json'
+    if current.exists():
+        generation,_ = read_generation(current)
+        previous = _load(generation['configuration'],1048576).get('supplement_facts',previous)
+    previous = prior_supplement_catalogs(previous,configuration['directory'],root,day,
+                                         objects=objects,check=budget.remaining)
+    calendar = _load(template['calendar'])
+    dates,_ = official_calendar(calendar,check=budget.remaining)
+    fetch = Fetcher(BoundedContentStore(objects,budget),public['allowed_hosts'],
+                    timeout=public['timeout_seconds'],budget=budget)
+    try:
+        collect_supplement(inputs['supplement_facts'],day,[row['date'] for row in dates if row['is_open']==1],
+            root/'supplement',objects=objects,fetch=fetch,qmt_transport=None,
+            calendar_coverage=(calendar['coverage_start'],calendar['coverage_end']),previous=previous,
+            deadline=deadline,cancelled=cancelled,reports_only=True)
+    finally:
+        fetch.close()
+
+
 def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda: False,
                    environ=None, previous_requests=(), prior_price_requests=(), baostock_daily_timeout_seconds=None):
     """调用方持publication锁；同目录输入请求及原slot固定，恢复不改capture_id。

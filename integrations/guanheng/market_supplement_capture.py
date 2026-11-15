@@ -203,6 +203,8 @@ def prior_supplement_catalogs(previous, task_directory, input_directory, day, *,
                     raise ValueError('supplement prior state identity differs')
                 if not state['rows'] and not state.get('buyback_attempts'):
                     continue
+                if state.get('status') in ('collecting_reports','reports_prepared') and not (work/'QMT-EVIDENCE.json').exists():
+                    continue  # 未完成合并的报表沿原任务日志恢复；跨任务种子需要原认证目录。
                 if intent['day'] != previous_day or any(d > day for d in intent['dates']):
                     raise ValueError('supplement prior state date differs')
                 validate_plan(intent['plan'])
@@ -286,8 +288,12 @@ def _validate_proxy_plan(parts, dates):
                 raise ValueError('supplement proxy original arguments differ')
 
 
+REPORT_METRICS = frozenset((MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, BUYBACK_EXECUTION,
+                            GOV10Y_YIELD, *MARGIN_SUMMARY_FIELDS, *SHENWAN_FIELDS))
+
+
 def collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, qmt_transport,
-                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ=None):
+                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ=None, reports_only=False):
     """原总预算内分配本阶段请求份额；串行调用结束后恢复原预算上限。
 
     max_requests省略时沿原预算。实际HTTP重试和SDK调用仍由同一个CollectionBudget
@@ -300,13 +306,14 @@ def collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, 
     try:
         return _collect_supplement(plan, day, calendar_dates, directory, objects=objects, fetch=fetch,
             qmt_transport=qmt_transport, calendar_coverage=calendar_coverage, previous=previous,
-            deadline=deadline, cancelled=cancelled, environ=os.environ if environ is None else environ)
+            deadline=deadline, cancelled=cancelled, environ=os.environ if environ is None else environ,
+            reports_only=reports_only)
     finally:
         fetch.budget.max_requests = original
 
 
 def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, qmt_transport,
-                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ):
+                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ, reports_only):
     """原data owner持发布租约调用；目录可恢复，不创建线程/调度/数据库。
 
     objects为原ContentStore，fetch为沿总预算创建的原Fetcher，qmt_transport复用原
@@ -423,27 +430,40 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
         if wants_buybacks:
             state['prior_catalogs_loaded'] = True  # 固定复用目录已读，恢复本轮不会重读原件。
     check()
-    client = RetainedReadClient(qmt_transport, lifetime_ms=30000)
-    # 本轮先取得实际绑定；失败/未知直接保持任务，不能解释为没有该QMT能力。
-    fetch.budget.request('sdk')
-    metadata = client.metadata(deadline=min(deadline, fetch.budget.deadline))
-    profile = metadata['profile']
-    operations = sorted(profile['read_operations'])
-    projection = dict(schema='guanheng.qmt-supplement-capability.v1',  # 无凭据的本轮能力原件投影。
-                      profile_version=profile['read_profile_version'],  # 当前认证能力协议版本。
-                      operations=operations,  # 当前实际开放的只读operation，升序。
-                      binding_sha256=metadata['binding_sha256'],  # 本次已核QMT绑定摘要。
-                      read_profile_body_sha256=metadata['read_profile_body_sha256'],  # 原能力正文摘要。
-                      order_ready=False)  # 本接入仅消费行情，未取得交易资格。
-    evidence_sha = objects.put(encode(projection))
-    metrics = sorted({t['metric'] for t in plan['targets']})
-    evidence = dict(source_sha256=evidence_sha, profile_version=profile['read_profile_version'],
-                    operations=operations, decisions=[dict(metric=m, reason=(
-                        'qmt_market_data_proxy' if m == 'market_turnover_proxy' and 'market.market_data' in operations
-                        else 'not_exposed_by_bound_profile')) for m in metrics])
-    _save(root / 'QMT-EVIDENCE.json', evidence)
-    state['status'] = 'collecting'
-    _save(state_path, state)
+    reports = state.get('report_preparation')
+    catalog_cells = cells
+    if reports_only:
+        if reports is not None:
+            return
+        cells = [cell for cell in cells if cell[1] in REPORT_METRICS]
+        operations = ()
+    else:
+        if reports is not None:
+            cells = [cell for cell in cells if cell[1] not in REPORT_METRICS]
+        client = RetainedReadClient(qmt_transport, lifetime_ms=30000)
+        # 本轮先取得实际绑定；失败/未知直接保持任务，不能解释为没有该QMT能力。
+        fetch.budget.request('sdk')
+        metadata = client.metadata(deadline=min(deadline, fetch.budget.deadline))
+        profile = metadata['profile']
+        operations = sorted(profile['read_operations'])
+        projection = dict(schema='guanheng.qmt-supplement-capability.v1',  # 无凭据的本轮能力原件投影。
+                          profile_version=profile['read_profile_version'],  # 当前认证能力协议版本。
+                          operations=operations,  # 当前实际开放的只读operation，升序。
+                          binding_sha256=metadata['binding_sha256'],  # 本次已核QMT绑定摘要。
+                          read_profile_body_sha256=metadata['read_profile_body_sha256'],  # 原能力正文摘要。
+                          order_ready=False)  # 本接入仅消费行情，未取得交易资格。
+        evidence_sha = objects.put(encode(projection))
+        all_metrics = sorted({t['metric'] for t in plan['targets']})
+        evidence = dict(source_sha256=evidence_sha, profile_version=profile['read_profile_version'],
+                        operations=operations, decisions=[dict(metric=m, reason=(
+                            'qmt_market_data_proxy' if m == 'market_turnover_proxy' and 'market.market_data' in operations
+                            else 'not_exposed_by_bound_profile')) for m in all_metrics])
+        _save(root / 'QMT-EVIDENCE.json', evidence)
+
+
+    metrics = sorted({metric for _,metric,_ in cells})
+    state['status'] = 'collecting_reports' if reports_only else 'collecting'
+    _save(state_path,state)
 
     requested_keys = set()  # 当前单元调用用到的原件，解析不合格时只清请求引用，原字节仍保留。
 
@@ -493,7 +513,7 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
             state['rows'].update(admitted)
             _save(state_path,state)
 
-    reasons = {}  # 逐单元固定缺口原因，不把来源未知提升为没有厂商能力。
+    reasons = dict(reports['gaps']) if reports else {}  # 报表实际缺因随同一任务交原发布者。
     # QMT当前唯一可用的市场事实是双指数amount代理，原持久请求和事实名保持。
     if 'market_turnover_proxy' in metrics and 'market.market_data' in operations:
         proxy_dates = [d for d, m, s in cells if m == 'market_turnover_proxy']
@@ -830,6 +850,17 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                     break
     if collect_buybacks:
         fill_buybacks()
+    if reports_only:
+        check()
+        state['report_preparation'] = dict(
+            observed=sum(_key(*cell) in state['rows'] for cell in cells),  # 已通过原件校验的报表单元数。
+            expected=len(cells),  # 本轮报表队列授权的全部单元数。
+            gaps={_key(*cell):reasons.get(_key(*cell),'cycle_budget_or_source_gap') for cell in cells
+                  if _key(*cell) not in state['rows']})  # 逐单元缺因，合并时保留原结论。
+        state['status']='reports_prepared'
+        _save(state_path,state)
+        return
+    cells = catalog_cells
     catalog = dict(
         schema='guanheng.market-supplement-catalog.v1',  # 独立于股票八字段事实。
         raw_store=str(Path(objects.root).absolute()),  # 原对象库位置，不另建第二套数据库。

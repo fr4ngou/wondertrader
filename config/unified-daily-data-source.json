@@ -422,11 +422,11 @@
       "source": "integrations/guanheng/daily_batch_source.py"
     },
     "integrations/guanheng/daily_data_inputs.py": {
-      "sha256": "73bea6002242dced7e59105068d54ae0c6e4059946f891138b06d25ce3fea491",
+      "sha256": "d22f068ce90e6905ccae75d665d4bd9bf231c5c82c103679169d8f5f66c0740a",
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "afa1a3a83e31dc083cede2f338ea8643e97fa15bfb479c546d65f9053b6b2d39",
+      "sha256": "578718583b149d14f6c739308ade1add616dfed63e7e352cbcb99d1545e11804",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -542,7 +542,7 @@
       "source": "integrations/guanheng/market_snapshot_prepare.py"
     },
     "integrations/guanheng/market_supplement_capture.py": {
-      "sha256": "08b45024cb8125860329d1ddc7e6c753d9c019653a751eb8421f76e295b60683",
+      "sha256": "77096ac4fe76993abbbfbf2f11e3cfac9b4478be7f2795b93e667f6a84ef9a2f",
       "source": "integrations/guanheng/market_supplement_capture.py"
     },
     "integrations/guanheng/market_buyback_disclosures.py": {
