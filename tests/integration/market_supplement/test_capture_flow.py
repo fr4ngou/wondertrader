@@ -28,6 +28,63 @@ def collect(root,targets,fetch,transport,**kwargs):
         fetch=fetch,qmt_transport=transport,calendar_coverage=(DAYS[0],DAYS[-1]),deadline=time.monotonic()+20,**kwargs)
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows Job owns the SDK process tree')
+@pytest.mark.parametrize('stopped', [False, True])
+@pytest.mark.parametrize('termination_fails', [False, True])
+def test_bigquant_waits_for_the_interpreter_tree_before_releasing_its_output(monkeypatch, stopped, termination_fails):
+    events = []
+    clock = [0.]
+
+    class Job:
+        assigned = False
+        active = 1
+
+        def attach_and_resume(self, process, *, deadline):
+            self.assigned = True
+            clock[0] = deadline
+
+        def terminate(self):
+            events.append('terminate')
+            if termination_fails:
+                raise OSError('fixture Job termination failed')
+
+        def active_processes(self):
+            return self.active
+
+        def close(self):
+            assert termination_fails or self.active == 0, 'SDK descendant can still hold the output file'
+            events.append('close')
+
+    job = Job()
+
+    class Process:
+        def poll(self):
+            return None if job.active else 1
+
+        def wait(self, timeout):
+            assert job.active == 0
+            events.append('wait')
+
+    def sleep(seconds):
+        assert events == ['terminate']
+        job.active = 0
+        clock[0] += seconds
+
+    monkeypatch.setitem(sys.modules, 'integrations.guanheng._process_job', SimpleNamespace(ProcessJob=lambda: job))
+    monkeypatch.setattr(stock_cross_section, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(stock_cross_section.subprocess, 'Popen', lambda *args, **kwargs: Process())
+    monkeypatch.setattr(stock_cross_section, 'sleep', sleep)
+    policy = dict(bigquant_python=sys.executable, timeout_seconds=1)
+    with pytest.raises(InterruptedError if stopped else ValueError) as result:
+        stock_cross_section.acquire_bigquant(policy, DAYS[-1], deadline=30, cancelled=lambda: stopped,
+                                            environ={'GUANHENG_BIGQUANT_CREDENTIAL':'fixture'})
+    if termination_fails:
+        assert events == ['terminate', 'close']
+        assert result.value.__notes__ == ['BigQuant cleanup: OSError']
+    else:
+        assert events == ['terminate', 'wait', 'close']
+
+
 def test_required_pending_recovers_only_missing_and_cache_extends(tmp_path):
     targets=plan(('etf_total_shares','SSE.510300'))
     fetch,transport=FrozenFetch(bad_day=DAYS[-1]),QmtTransport()

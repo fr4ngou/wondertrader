@@ -554,7 +554,7 @@
       "source": "scripts/native_support/process_job.py"
     },
     "integrations/guanheng/stock_cross_section.py": {
-      "sha256": "0f0a830462985925e2c67bf5176d42927afae3f8409810805554107a5d5f2130",
+      "sha256": "95fa171ec0942cf2df4c2f57bfdb6ef32e6c3656cb4e060ae4caaeaa0963171a",
       "source": "integrations/guanheng/stock_cross_section.py"
     },
     "integrations/guanheng/market_supplement_store.py": {
@@ -782,5 +782,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.40"
+  "version": "0.2.0a1+unified.41"
 }

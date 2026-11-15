@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from time import monotonic
+from time import monotonic, sleep
 
 from ..guanheng_market_client.daily_facts import validate_day_facts, validate_stock_cross_section
 from ..guanheng_market_client import strict_json
@@ -127,8 +127,6 @@ def acquire_bigquant(policy, day, *, deadline, cancelled, environ):
 def query_bigquant(policy, dataset, first, last, *, deadline, cancelled, environ):
     """隔离依赖，沿 WT 批次的绝对截止和停止信号回收 SDK 进程。"""
     import tempfile
-    from time import sleep
-    from .market_generation import read_fixed
     if not environ.get('GUANHENG_BIGQUANT_CREDENTIAL'):
         raise ValueError('bigquant_unavailable')
     end = min(deadline, monotonic() + policy['timeout_seconds'])
@@ -142,40 +140,66 @@ def query_bigquant(policy, dataset, first, last, *, deadline, cancelled, environ
                                       'USERPROFILE','LOCALAPPDATA','APPDATA','HTTPS_PROXY','HTTP_PROXY','NO_PROXY',
                                       'PATH','PROCESSOR_ARCHITECTURE','PROCESSOR_IDENTIFIER','PROCESSOR_LEVEL',
                                       'PROCESSOR_REVISION','NUMBER_OF_PROCESSORS','SYSTEMDRIVE'}}
-    with tempfile.TemporaryDirectory(prefix='wt-stock-cross-section-') as directory:
-        output = Path(directory) / 'result.json'
-        with output.open('wb') as stream:
-            job = None
-            process = None
+    output_budget = 8 * 1024 * 1024
+    # 使用固定文件描述符；Windows 的临时文件在最后一个句柄关闭后由系统清理。
+    with tempfile.TemporaryFile() as stream:
+        job = None
+        process = None
+        primary = None
+        try:
+            if os.name == 'nt':
+                try:
+                    from ._process_job import ProcessJob
+                except ModuleNotFoundError as error:
+                    if error.name != __package__ + '._process_job':
+                        raise
+                    from scripts.native_support.process_job import ProcessJob
+                job = ProcessJob()
+            process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.DEVNULL,
+                                       env=environment, creationflags=(0x08000004 if job is not None else 0))
+            if job is not None:
+                job.attach_and_resume(process, deadline=end)
+            while process.poll() is None:
+                if cancelled():
+                    raise InterruptedError('WT stock cross section stopped')
+                if monotonic() >= end or os.fstat(stream.fileno()).st_size > output_budget:
+                    raise ValueError('bigquant_unavailable')
+                sleep(.05)
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
             try:
-                if os.name == 'nt':
-                    try:
-                        from ._process_job import ProcessJob
-                    except ModuleNotFoundError as error:
-                        if error.name != __package__ + '._process_job':
-                            raise
-                        from scripts.native_support.process_job import ProcessJob
-                    job = ProcessJob()
-                process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.DEVNULL,
-                                           env=environment, creationflags=(0x08000004 if job is not None else 0))
-                if job is not None:
-                    job.attach_and_resume(process, deadline=end)
-                while process.poll() is None:
-                    if cancelled():
-                        raise InterruptedError('WT stock cross section stopped')
-                    if monotonic() >= end or output.stat().st_size > 8 * 1024 * 1024:
-                        raise ValueError('bigquant_unavailable')
-                    sleep(.05)
-            finally:
-                if job is not None:
-                    job.close()
-                if process is not None and process.poll() is None:
-                    if job is None or not job.assigned:
-                        process.kill()
-                    process.wait(timeout=1)
+                try:
+                    if process is not None:
+                        reap_by = monotonic() + 1
+                        if job is not None and job.assigned:
+                            # Windows venv 引导器和真实解释器可同时持有 stdout。先确认整树退出，
+                            # 再释放输出文件，避免临时目录共享冲突掩盖查询超时或取消。
+                            if job.active_processes():
+                                job.terminate()
+                            while job.active_processes():
+                                remaining = reap_by - monotonic()
+                                if remaining <= 0:
+                                    raise TimeoutError('BigQuant process tree did not exit')
+                                sleep(min(.01, remaining))
+                        elif process.poll() is None:
+                            process.kill()
+                        process.wait(timeout=max(0., reap_by - monotonic()))
+                finally:
+                    if job is not None:
+                        job.close()
+            except Exception as error:
+                if primary is None:
+                    raise
+                primary.add_note('BigQuant cleanup: ' + type(error).__name__)
         if process.returncode != 0:
             raise ValueError('bigquant_unavailable')
-        records = strict_json(read_fixed(output, maximum=8 * 1024 * 1024))
+        stream.seek(0)
+        raw = stream.read(output_budget + 1)
+        if len(raw) > output_budget:
+            raise ValueError('bigquant_unavailable')
+        records = strict_json(raw)
         if cancelled():
             raise InterruptedError('WT stock cross section stopped')
         if monotonic() >= end:
