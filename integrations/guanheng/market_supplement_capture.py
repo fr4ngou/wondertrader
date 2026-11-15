@@ -11,8 +11,9 @@ import time
 from .daily_data_update import _save, _descriptor, _load
 from .market_generation import encode
 from ..guanheng_market_client.supplement_facts import (
-    BUYBACK_EXECUTION, GOV10Y_SCOPE, GOV10Y_YIELD, INDEX_SCOPES, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS,
-    MARGIN_PURCHASE, MARGIN_REPORT, SHAREHOLDER_REDUCTION, SH_SZ_SCOPE, SMALL_CAP_INDEX,
+    BUYBACK_EXECUTION, GOV10Y_YIELD, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS,
+    MARGIN_DAILY_SUMMARY, MARGIN_PURCHASE, MARGIN_REPORT, MARGIN_SUMMARY_FIELDS, SHAREHOLDER_REDUCTION,
+    SMALL_CAP_INDEX, MarketProtocolError, validate_metric_scope,
 )
 
 
@@ -70,10 +71,11 @@ def validate_plan(value):
             raise ValueError('supplement target invalid')
         if date.fromisoformat(start).isoformat() != start:
             raise ValueError('supplement target date invalid')
-        valid_symbol = (re.fullmatch(r'(SSE|SZSE)\.[0-9]{6}', symbol) is not None if metric == 'etf_total_shares'
-                        else symbol == INDEX_SCOPES.get(metric, (MARGIN_REPORT if metric in ('margin_balance', MARGIN_PURCHASE)
-                                                                 else GOV10Y_SCOPE if metric == GOV10Y_YIELD else SH_SZ_SCOPE,))[0])
-        if not valid_symbol or (metric, symbol) in seen:
+        try:
+            validate_metric_scope(metric, symbol)
+        except MarketProtocolError as error:
+            raise ValueError('supplement target identity invalid') from error
+        if (metric, symbol) in seen:
             raise ValueError('supplement target identity invalid')
         seen.add((metric, symbol))
     return value
@@ -92,7 +94,7 @@ def _fallback_sources(metric, symbol):
         return {'CSI'}
     if metric == 'etf_total_shares':
         return {'SSE' if symbol.startswith('SSE.') else 'SZSE'}
-    if metric in ('margin_balance', MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION):
+    if metric in ('margin_balance', MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, *MARGIN_SUMMARY_FIELDS):
         return {'Eastmoney'}
     if metric == 'market_turnover':
         return {'SSE', 'SZSE'}
@@ -316,8 +318,8 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
     from guanheng_app.observation.source_fetch import SourceFailure
     from ..guanheng_market_client.supplement_facts import validate_supplement_catalog, validate_source_proof
     from .market_supplement_sources import (
-        collect_external, gov10y_history, ipo_proceeds_history, margin_purchase_history, shareholder_reduction_history,
-        SourceUnavailable,
+        collect_external, gov10y_history, ipo_proceeds_history, margin_purchase_history, margin_summary_history,
+        shareholder_reduction_history, SourceUnavailable,
     )
 
     validate_plan(plan)
@@ -575,6 +577,7 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
         report_readers[GOV10Y_YIELD] = lambda days: gov10y_history(days[0], days[-1], get)
     report_days = {metric: [(d,s) for d,m,s in cells if m==metric and d<day and _key(d,m,s) not in state['rows']]
                    for metric in report_readers}
+    margin_summary = set(metrics) & MARGIN_SUMMARY_FIELDS.keys() if 'Eastmoney' in plan['external_fallback'] else set()
 
     attempted_buybacks = set()  # 同一轮已进入采集的单元，历史阶段不重复请求。
 
@@ -644,6 +647,40 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                     state['requests'].pop(cached,None)
                 _save(state_path,state)
 
+    def fill_margin_summary(*, latest):
+        pending = {}
+        for d, metric, symbol in cells:
+            if metric in margin_summary and (d == day) == latest and _key(d, metric, symbol) not in state['rows']:
+                pending.setdefault(d, []).append(metric)
+        for part in reversed(_proxy_partitions(sorted(pending), dict(max_rows=366, max_calendar_days=366))):
+            requested_keys.clear()
+            try:
+                report, invalid = margin_summary_history(part[0], part[-1], get)
+                missing = 'source_record_missing'
+            except SourceUnavailable as error:
+                report, invalid = {}, {}
+                missing = error.code
+            except SourceFailure as error:
+                for d in part:
+                    reasons.update({_key(d, m, MARGIN_DAILY_SUMMARY): error.code for m in pending[d]})
+                break
+            accepted = []
+            has_gap = False
+            for d in part:
+                for metric in pending[d]:
+                    if (d, metric) in report:
+                        accepted.append((d, metric, MARGIN_DAILY_SUMMARY, report[d, metric]))
+                    else:
+                        reasons[_key(d, metric, MARGIN_DAILY_SUMMARY)] = invalid.get((d, metric), missing)
+                        has_gap = True
+            if has_gap:
+                for cached in requested_keys:
+                    state['requests'].pop(cached, None)
+                _save(state_path, state)
+            record_batch(accepted)
+
+    if margin_summary:
+        fill_margin_summary(latest=True)
     historical=False
     collect_buybacks = BUYBACK_EXECUTION in metrics and 'CNINFO' in plan['external_fallback']
     # 本轮最新份额、融资与市场成交先走原路径，旧日缺口只占剩余窗口。
@@ -670,6 +707,8 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                             else 'qmt_fact_not_exposed_external_not_allowed')
             continue
         if metric == BUYBACK_EXECUTION and 'CNINFO' in plan['external_fallback']:
+            continue
+        if metric in margin_summary:
             continue
         if metric in report_readers and d < day:
             continue
@@ -701,6 +740,8 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
             if error.code in ('collection_stopped', 'collection_timeout', 'request_budget_exceeded', 'capture_budget_exceeded'):
                 break
     fill_index([d for d in index_days if d < day] + current)
+    if margin_summary:
+        fill_margin_summary(latest=False)
     if 'CSI' in plan['external_fallback']:
         for missing_day in reversed(index_days):
             key = _key(missing_day,INDEX_TURNOVER,SMALL_CAP_INDEX)

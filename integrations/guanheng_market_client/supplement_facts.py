@@ -14,6 +14,16 @@ INDEX_FREE_FLOAT_CAP = 'index_free_float_market_cap'
 CSI300_INDEX = 'SSE.000300'
 MARGIN_PURCHASE = 'margin_purchase'
 MARGIN_REPORT = 'CN.MARGIN_REPORT'
+MARGIN_DAILY_SUMMARY = 'CN.MARGIN_DAILY_SUMMARY'  # 东方财富历史汇总原报表范围。
+MARGIN_SUMMARY_FIELDS = {
+    'margin_summary_fin_balance': 'fin_balance',  # 融资余额，人民币元。
+    'margin_summary_fin_buy': 'fin_buy',  # 融资买入额，人民币元。
+    'margin_summary_fin_net_reported': 'fin_net_reported',  # 报表披露的融资净买入额，人民币元，可为负。
+    'margin_summary_fin_repay': 'fin_repay',  # 融资偿还额，人民币元。
+    'margin_summary_short_balance': 'short_balance',  # 融券余额，人民币元。
+    'margin_summary_total_balance': 'total_balance',  # 两融余额，人民币元。
+}
+SIGNED_MARGIN_SUMMARY = 'margin_summary_fin_net_reported'
 IPO_PROCEEDS = 'ipo_gross_proceeds'
 SHAREHOLDER_REDUCTION = 'shareholder_reduction_gross'
 BUYBACK_EXECUTION = 'buyback_execution_disclosed'
@@ -25,7 +35,9 @@ INDEX_SCOPES = {
     INDEX_TURNOVER: (SMALL_CAP_INDEX, 'BigQuant'),
     INDEX_FREE_FLOAT_CAP: (CSI300_INDEX, 'CSI'),
 }
-METRICS = LEGACY_METRICS + tuple(INDEX_SCOPES) + (MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, BUYBACK_EXECUTION, GOV10Y_YIELD)
+METRICS = LEGACY_METRICS + tuple(INDEX_SCOPES) + (
+    MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, BUYBACK_EXECUTION, GOV10Y_YIELD, *MARGIN_SUMMARY_FIELDS,
+)
 MAX_CELLS = 60000
 MAX_CATALOG_BYTES = 32 * 1024 * 1024
 SOURCES = ('QMT', 'SSE', 'SZSE', 'SSE+SZSE', 'Eastmoney', 'BigQuant', 'CSI', 'CNINFO', 'ChinaBond')
@@ -34,7 +46,7 @@ ROW_FIELDS = (
     'date',  # 原事实交易日期，ISO日历日，不表示该日开盘已知。
     'symbol',  # ETF或指数的WT标识，或市场报表及CN.GOV10Y国债收益率范围。
     'metric',  # 补充事实类别；官方、指数及双指数代理各有身份。
-    'value',  # 有限非负十进制字符串，保留原精度；零表示已知零。
+    'value',  # 有限十进制字符串，保留原精度；融资净买入额允许负数，零表示已知零。
     'unit',  # share/CNY/pct/unknown。pct为年化百分数，unknown不能获得单位资格。
     'source',  # 实际来源标识；SSE+SZSE显式保留两市合并归属。
     'source_sha256',  # 源proof清单SHA，清单字段同本行并引用父原始字节。
@@ -74,7 +86,8 @@ def _need(condition, reason):
         raise MarketProtocolError(reason)
 
 
-def _scope(metric, symbol):
+def validate_metric_scope(metric, symbol):
+    """同一组事实类型和范围同时约束采集计划及公开查询。"""
     _need(type(metric) is str and metric in METRICS, 'supplement metric invalid')
     if metric == 'etf_total_shares':
         _need(type(symbol) is str and re.fullmatch(r'(SSE|SZSE)\.[0-9]{6}', symbol) is not None,
@@ -83,6 +96,8 @@ def _scope(metric, symbol):
         _need(symbol == INDEX_SCOPES[metric][0], 'supplement index identity invalid')
     elif metric == GOV10Y_YIELD:
         _need(symbol == GOV10Y_SCOPE, 'supplement bond yield scope invalid')
+    elif metric in MARGIN_SUMMARY_FIELDS:
+        _need(symbol == MARGIN_DAILY_SUMMARY, 'supplement margin summary scope invalid')
     else:
         expected = MARGIN_REPORT if metric in ('margin_balance',MARGIN_PURCHASE) else SH_SZ_SCOPE
         _need(symbol == expected, 'supplement market scope invalid')
@@ -112,10 +127,12 @@ def _utc(value):
 
 def _value_fields(row):
     value = row['value']
+    signed = row['metric'] == SIGNED_MARGIN_SUMMARY
+    pattern = r'-?[0-9]+(?:\.[0-9]+)?' if signed else r'[0-9]+(?:\.[0-9]+)?'
     _need(type(value) is str and len(value) <= 128
-          and re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', value) is not None, 'supplement decimal invalid')
+          and re.fullmatch(pattern, value) is not None, 'supplement decimal invalid')
     number = Decimal(value)
-    _need(number.is_finite() and number >= 0, 'supplement decimal invalid')
+    _need(number.is_finite() and (signed or number >= 0), 'supplement decimal invalid')
     expected_unit = {'etf_total_shares': 'share', GOV10Y_YIELD: 'pct'}.get(row['metric'], 'CNY')
     _need(row['unit'] in (expected_unit, 'unknown'), 'supplement unit invalid')
     _need(type(row['source']) is str and row['source'] in SOURCES, 'supplement source invalid')
@@ -123,7 +140,7 @@ def _value_fields(row):
         allowed_sources = (INDEX_SCOPES[row['metric']][1], 'CSI') if row['metric'] == INDEX_TURNOVER else ('CSI',)
         _need(row['source'] in allowed_sources and row['unit'] == 'CNY' and number > 0,
               'supplement index value invalid')
-    elif row['metric'] in (MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION):
+    elif row['metric'] in (MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION, *MARGIN_SUMMARY_FIELDS):
         _need(row['source']=='Eastmoney' and row['unit']=='CNY','supplement public report value invalid')
     elif row['metric'] == BUYBACK_EXECUTION:
         _need(row['source']=='CNINFO' and row['unit']=='CNY','supplement public report value invalid')
@@ -140,14 +157,14 @@ def validate_source_proof(value, row=None):
         'date',  # 此原件证明的事实交易日。
         'symbol',  # ETF证券或明确市场报告范围。
         'metric',  # 此原件证明的事实枚举。
-        'value',  # 与目录行完全一致的非负十进制值。
+        'value',  # 与目录行完全一致的十进制值；融资净买入额允许负数。
         'unit',  # 与目录行一致的已知单位或unknown。
         'source',  # 实际来源，合计保留SSE+SZSE标识。
     )
     _object(value, ('schema', 'parents') + fields)
     _need(value['schema'] == 'guanheng.supplement-source-proof.v1', 'supplement proof schema invalid')
     _day(value['date'])
-    _scope(value['metric'], value['symbol'])
+    validate_metric_scope(value['metric'], value['symbol'])
     _value_fields(value)
     parents = _list(value['parents'], 4)  # 1..4个父原始字节SHA，原件对象由原ContentStore拥有。
     _need(bool(parents), 'supplement proof parents empty')
@@ -197,7 +214,7 @@ def _cells(rows, *, gaps=False):
     for row in _list(rows, MAX_CELLS):
         _object(row, GAP_FIELDS if gaps else ROW_FIELDS)
         _day(row['date'])
-        _scope(row['metric'], row['symbol'])
+        validate_metric_scope(row['metric'], row['symbol'])
         key = cell_key(row)
         _need(previous is None or previous < key, 'supplement cells repeated or unordered')
         previous = key
@@ -225,7 +242,7 @@ def validate_supplement_catalog(value):
     scopes = {}
     for target in targets:
         _object(target, ('metric', 'symbol', 'from'))  # 事实类别、证券/市场、显式历史起日。
-        _scope(target['metric'], target['symbol'])
+        validate_metric_scope(target['metric'], target['symbol'])
         first = _day(target['from'])
         key = target['metric'], target['symbol']
         _need(key not in scopes, 'supplement target repeated')
@@ -261,7 +278,7 @@ def validate_supplement_request(value):
     symbols = _list(value['symbols'], 64)
     _need(bool(symbols), 'supplement symbols empty')
     for symbol in symbols:
-        _scope(value['metric'], symbol)
+        validate_metric_scope(value['metric'], symbol)
     _need(symbols == sorted(set(symbols)), 'supplement symbols repeated or unordered')
     _need(_day(value['from']) <= _day(value['to']), 'supplement request range invalid')
     _integer(value['offset'], 0, MAX_CELLS)

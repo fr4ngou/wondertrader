@@ -8,11 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 from guanheng_market_client import MarketHTTPError
 
-from guanheng_app.observation import data_repair, etf_flow
+from guanheng_app.observation import collection, data_repair, etf_flow, wt_margin_summary
 from guanheng_app.observation.metadata import validate_fields
 from guanheng_app.observation.query import ObservationReader
 from guanheng_app.observation.runtime import build_reader
-from guanheng_app.observation.source_fetch import CollectionBudget
+from guanheng_app.observation.source_fetch import CollectionBudget, SourceFailure
 from guanheng_app.app import create_app
 from guanheng_app.settings import ConsoleSettings
 from integrations.guanheng.stock_cross_section import project
@@ -22,6 +22,48 @@ from integrations.guanheng_market_client.daily_facts import FIELDS
 DAY = '2026-11-13'
 NOW = datetime.fromisoformat('2026-11-14T09:00:00+08:00')
 DATES = ['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', DAY]
+
+
+def test_margin_summary_checks_wt_fields_instead_of_legacy_chart_dates():
+    reader = ObservationReader(None, None)
+    reader.rows = {
+        'calendar': [dict(date=day, is_open=1) for day in DATES],
+        'margin': [dict(date=day, fin_balance=0, fin_buy=1, fin_net_reported=-1,
+                        fin_repay=2, short_balance=None if day == DAY else 0, total_balance=0) for day in DATES],
+        'legacy': [dict(date=day, short_balance=9) for day in DATES],
+    }.__getitem__
+    manifest = dict(source_tables={'source.cn_official_calendar':'calendar', wt_margin_summary.TABLE:'margin'},
+                    datasets={'leverage_margin':dict(partition='legacy')})
+    source = dict(kind=wt_margin_summary.KIND, history_from=DATES[0])
+    assert data_repair._coverage_by_input(reader, manifest, source, DAY, lambda: None) == {
+        'margin_summary_short_balance': [DAY],
+    }
+
+
+def test_margin_backfill_window_does_not_follow_recent_legacy_chart(tmp_path, monkeypatch):
+    reader = build_reader(tmp_path)
+    reader.repository.initialize()
+    legacy = dict(datasets={'leverage_margin':dict(definition={'primary_field':'fin_balance'}, partition='legacy')})
+    monkeypatch.setattr(ObservationReader, 'snapshot', lambda *args: (None, legacy))
+    monkeypatch.setattr(ObservationReader, 'rows', lambda *args: [dict(date=DAY, fin_balance=1234)])
+    monkeypatch.setattr(collection, 'last_open_day', lambda *args, **kwargs: DAY)
+    requests = []
+
+    def history(fetch, start, end, client_factory, *, snapshot_dates):
+        requests.append((start, end))
+        raise SourceFailure('wt_margin_summary_unavailable')
+
+    monkeypatch.setattr(wt_margin_summary, 'history', history)
+    config = dict(timeout_seconds=1, max_days_per_batch=2, allowed_hosts=[],
+                  models={'calendars':{'cn':{'coverage_start':DATES[0]}}},
+                  budget=dict(seconds=3, max_requests=10, max_bytes=1024, response_bytes=1024),
+                  sources=[dict(id='eastmoney.margin', kind=wt_margin_summary.KIND, history_from=DATES[0],
+                                overlap_days=1, tables=[wt_margin_summary.TABLE], datasets=['leverage_margin'])])
+    receipt = collection.refresh(reader, config, as_of=DAY, now=NOW, deadline=monotonic()+5,
+                                 source_ids=['eastmoney.margin'], repair_history_start=DATES[0],
+                                 market_client_factory=lambda _: None)['sources'][0]
+    assert requests == [(DATES[0], DATES[1])]
+    assert receipt['requested_start'] == DATES[0] and receipt['requested_end'] == DATES[1]
 
 
 @pytest.mark.parametrize('later',['metric','universe'])

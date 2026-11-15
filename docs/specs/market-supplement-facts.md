@@ -22,6 +22,10 @@
 
 `margin_purchase` 沿 `CN.MARGIN_REPORT` 的原供应商覆盖，从东方财富综合统计 `RPTA_WEB_MARGIN_DAILYTRADE` 读取 `FIN_BUY_AMT`，原亿单位转人民币元。余额继续使用 `margin_balance`。2026-11-12 实取 173379043429 元，2026-11-13 当次查询为待披露。旧指标查询继续返回原支持范围内的能力字段。
 
+「两融」看板沿东方财富历史汇总 `RPTA_RZRQ_LSHJ` 取得原有六个字段。WT 在 `CN.MARGIN_DAILY_SUMMARY` 保存融资余额 `margin_summary_fin_balance`、融资买入额 `margin_summary_fin_buy`、供应商披露的融资净买入额 `margin_summary_fin_net_reported`、融资偿还额 `margin_summary_fin_repay`、融券余额 `margin_summary_short_balance` 和两融余额 `margin_summary_total_balance`。六项为人民币元，净买入额允许负数。报告范围沿原汇总表，历史首次可知时间保持未知。`CN.MARGIN_REPORT` 继续代表综合统计表，两个报表各有独立事实身份。
+
+同一范围内一次获取这六个字段，检查实际交易日、分页完整性和日期唯一性，保留响应原件。独立字段缺失时保留对应事实缺口。同一任务恢复只补缺项；观衡负责亿元展示及原指标派生，从同一 WT 快照核对六个字段的覆盖。WT 的原生日线及证券资料接口不表达这组外部报表金额，复用现有补充事实的归档、查询和恢复机制。
+
 融资买入额历史缺口按最多 366 个自然日发起区间查询。WT 校验报表日期、分页和重复记录，仅接纳官方交易日历目标日，并归档区间原响应。尚未披露的行留缺口，可在后续任务重试。任务优先采集最新交易日。
 
 `ipo_gross_proceeds` 的范围为 `CN.SH_SZ`。东方财富新股报表 `RPTA_APP_IPOAPPLY` 以实际上市日归集 `TOTAL_RAISE_FUNDS`，从亿元换算到人民币元。只接纳沪深 A 股。接口查询在已闭合交易日范围内，完整查询无沪深上市记录的交易日为已观察零。已有沪深上市记录但实际募资字段缺失时，该日留缺口。按区间归档原响应，历史首次可知时间保持未知。北交所另行核对来源覆盖和募资口径。

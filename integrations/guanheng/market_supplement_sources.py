@@ -13,7 +13,8 @@ import zipfile
 import zlib
 
 from ..guanheng_market_client.supplement_facts import (
-    CSI300_INDEX, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS, MARGIN_PURCHASE, MARGIN_REPORT, SH_SZ_SCOPE, SMALL_CAP_INDEX,
+    CSI300_INDEX, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS, MARGIN_PURCHASE, MARGIN_REPORT,
+    MARGIN_SUMMARY_FIELDS, SH_SZ_SCOPE, SIGNED_MARGIN_SUMMARY, SMALL_CAP_INDEX,
 )
 
 class SourceUnavailable(RuntimeError):
@@ -54,14 +55,14 @@ def _integer(value, maximum=_MAX_ROWS):
     return result
 
 
-def _number(value):
+def _number(value, *, signed=False):
     if type(value) not in (str, int, Decimal):
         _fail('source_value_invalid')
     text = str(value)
     if len(text) > 256:
         _fail('source_value_invalid')
     if ',' in text:
-        if not re.fullmatch(r'[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?', text):
+        if not re.fullmatch(r'-?[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?', text):
             _fail('source_value_invalid')
         text = text.replace(',', '')
     try:
@@ -69,7 +70,7 @@ def _number(value):
     except InvalidOperation:
         _fail('source_value_invalid')
     # 原字段解析有界，避免有限但极端指数被展开为无界的目录字符串。
-    if not result.is_finite() or result < 0 or abs(result.adjusted()) > 128:
+    if not result.is_finite() or (not signed and result < 0) or abs(result.adjusted()) > 128:
         _fail('source_value_invalid')
     return result
 
@@ -174,7 +175,7 @@ def _xlsx_table(raw):
         _fail('source_xlsx_invalid')
 
 
-def _fact(value, unit, source, receipts):
+def _fact(value, unit, source, receipts, *, signed=False):
     with localcontext() as context:
         context.prec = 300
         text = format(value, 'f')
@@ -183,10 +184,11 @@ def _fact(value, unit, source, receipts):
     if value == 0:
         text = '0'
     # 缩放后的标准值必须在持久化前满足目录容量；超界原件保留为可重取缺口。
-    if len(text) > 128 or re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', text) is None:
+    pattern = r'-?[0-9]+(?:\.[0-9]+)?' if signed else r'[0-9]+(?:\.[0-9]+)?'
+    if len(text) > 128 or re.fullmatch(pattern, text) is None:
         _fail('source_value_invalid')
     return {
-        'value': text,  # 非负有限十进制原精度值；单位缩放后无指数形式。
+        'value': text,  # 有限十进制原精度值；只对已声明允许负数的金额保留负号。
         'unit': unit,  # 基金份额 share、人民币元 CNY 或年化百分数 pct。
         'source': source,  # 具体供应商；双市场合成保留两个原件身份。
         'parents': [item[0] for item in receipts],  # 原始字节 SHA256，顺序为实际依赖顺序。
@@ -318,13 +320,12 @@ def _turnover(day, get):
     return _fact(value, 'CNY', 'SSE+SZSE', [(sh_parent, sh_time), (sz_parent, sz_time)])
 
 
-def _margin_rows(first, last, get, field):
-    # 原报表统计覆盖未知，以 CN.MARGIN_REPORT 标识；不拼接另一报表 RZYE。
-    date_filter = (f"(STATISTICS_DATE='{first}')" if first == last else
-                   f"(STATISTICS_DATE>='{first}')(STATISTICS_DATE<='{last}')")
-    params = dict(reportName='RPTA_WEB_MARGIN_DAILYTRADE', columns='STATISTICS_DATE,'+field,
-                  pageNumber='1', pageSize='10' if first==last else '500',
-                  sortColumns='STATISTICS_DATE', sortTypes='-1',filter=date_filter)
+def _daily_margin_report(first, last, get, *, report, day_field, columns):
+    date_filter = (f"({day_field}='{first}')" if first == last else
+                   f"({day_field}>='{first}')({day_field}<='{last}')")
+    params = dict(reportName=report, columns=','.join((day_field, *columns)),
+                  pageNumber='1', pageSize='10' if first == last else '500',
+                  sortColumns=day_field, sortTypes='-1', filter=date_filter)
     data, parent, received = _read(get, _EM, params, 'https://data.eastmoney.com/rzrq/zhtjday.html')
     # 原报表按目标日尚无数据时返回9201/null；缺事实与协议损坏保持独立。
     if (type(data) is dict and data.get('success') is False
@@ -343,14 +344,51 @@ def _margin_rows(first, last, get, field):
         _fail('source_pagination_invalid')
     selected = {}
     for row in rows:
-        day = _report_day(row, 'STATISTICS_DATE', first, last)
+        day = _report_day(row, day_field, first, last)
         if day in selected:
             _fail('source_duplicate_record')
+        selected[day] = row
+    return selected, (parent, received)
+
+
+def _margin_rows(first, last, get, field):
+    # 原报表统计覆盖未知，以 CN.MARGIN_REPORT 标识；历史汇总另有事实身份。
+    selected, receipt = _daily_margin_report(first, last, get, report='RPTA_WEB_MARGIN_DAILYTRADE',
+                                             day_field='STATISTICS_DATE', columns=(field,))
+    result = {}
+    for day, row in selected.items():
         with localcontext() as context:
             context.prec = 300
             amount = _number(row.get(field)) * 100_000_000
-        selected[day]=_fact(amount,'CNY','Eastmoney',[(parent,received)])
-    return selected
+        result[day] = _fact(amount, 'CNY', 'Eastmoney', [receipt])
+    return result
+
+
+_MARGIN_SUMMARY_COLUMNS = {
+    'fin_balance': 'RZYE',  # 融资余额，原报表人民币元。
+    'fin_buy': 'RZMRE',  # 融资买入额，原报表人民币元。
+    'fin_net_reported': 'RZJME',  # 披露的融资净买入额，原报表人民币元，可为负。
+    'fin_repay': 'RZCHE',  # 融资偿还额，原报表人民币元。
+    'short_balance': 'RQYE',  # 融券余额，原报表人民币元。
+    'total_balance': 'RZRQYE',  # 两融余额，原报表人民币元。
+}
+
+
+def margin_summary_history(first, last, get):
+    """一次读回原两融历史汇总，按交易日和指标返回合格事实及无效字段原因。"""
+    selected, receipt = _daily_margin_report(first, last, get, report='RPTA_RZRQ_LSHJ',
+                                             day_field='DIM_DATE', columns=_MARGIN_SUMMARY_COLUMNS.values())
+    result, invalid = {}, {}
+    for day, row in selected.items():
+        for metric, field in MARGIN_SUMMARY_FIELDS.items():
+            value = row.get(_MARGIN_SUMMARY_COLUMNS[field])
+            if value is not None:
+                signed = metric == SIGNED_MARGIN_SUMMARY
+                try:
+                    result[day, metric] = _fact(_number(value, signed=signed), 'CNY', 'Eastmoney', [receipt], signed=signed)
+                except SourceUnavailable as error:
+                    invalid[day, metric] = error.code
+    return result, invalid
 
 
 def gov10y_history(first, last, get):

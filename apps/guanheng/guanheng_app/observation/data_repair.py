@@ -3,6 +3,9 @@
 from datetime import date, datetime, timedelta
 from time import monotonic
 
+from guanheng_market_client.supplement_facts import MARGIN_SUMMARY_FIELDS
+
+from . import wt_margin_summary
 from .contracts import ObservationError
 from .collection_config import WT_DERIVED
 from .etf_flow import CAP_KIND, ETF_KINDS, cap_row_complete
@@ -11,7 +14,8 @@ from .market_structure_source import WT_INDEX_KIND, WT_STOCK_KIND, index_row_com
 from .schedule_policy import closed_market_day, source_as_of
 from .source_fetch import SourceFailure
 
-WT_SOURCES = frozenset(('wondertrader', 'wt_breadth', 'wt_t2108', WT_GOV10Y, *ETF_KINDS, WT_INDEX_KIND, WT_STOCK_KIND, *WT_DERIVED))
+WT_SOURCES = frozenset(('wondertrader', 'wt_breadth', 'wt_t2108', WT_GOV10Y, wt_margin_summary.KIND,
+                        *ETF_KINDS, WT_INDEX_KIND, WT_STOCK_KIND, *WT_DERIVED))
 
 
 def _coverage_by_input(reader, manifest, source, target, check):
@@ -24,6 +28,13 @@ def _coverage_by_input(reader, manifest, source, target, check):
                        if row['is_open'] and row['date'] <= target)
     if target not in open_days:
         raise SourceFailure('official_calendar_outside_coverage')
+    if source['kind'] == wt_margin_summary.KIND:
+        partition = tables.get(wt_margin_summary.TABLE)
+        rows = reader.rows(partition) if partition else ()
+        by_day = {row['date']: row for row in rows}
+        expected = [day for day in open_days if day >= source['history_from']]
+        return {metric: missing for metric, field in MARGIN_SUMMARY_FIELDS.items()
+                if (missing := [day for day in expected if by_day.get(day, {}).get(field) is None])}
     if source['kind']=='wt_t2108':
         # 同一指标及其定日股池须在同一历史区间内均有归档。
         inputs={}

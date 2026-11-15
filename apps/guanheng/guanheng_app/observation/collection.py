@@ -34,7 +34,7 @@ from .nfra_source import history as nfra_history
 from . import legulegu_gdp
 from . import institution_reports, bond_mtm, shareholder_source
 from . import market_structure, market_structure_source
-from . import etf_flow
+from . import etf_flow, wt_margin_summary
 from .collection_config import WT_DERIVED
 from .data_repair import WT_SOURCES
 from .gov10y_source import TABLE as GOV10Y_TABLE, WT_KIND as WT_GOV10Y
@@ -157,7 +157,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 if source['kind']=='wt_t2108':
                     # 每批只检查一个缺日，避免把尚未读取的股池日期标成已查。
                     start=end=repair_history_start
-            if source['kind'] in (*etf_flow.ETF_KINDS,*WT_DERIVED):
+            if source['kind'] in (*etf_flow.ETF_KINDS,*WT_DERIVED,wt_margin_summary.KIND):
                 calendar=config['models']['calendars']['cn']
                 latest=(date.fromisoformat(effective)-timedelta(days=source['overlap_days'])).isoformat()
                 start=max(repair_history_start or latest,source['history_from'],calendar['coverage_start'])
@@ -189,7 +189,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             receipt.update(requested_start=start,requested_end=end,
                 effective_as_of=effective,  # YYYY-MM-DD：本来源按窗口时点及所选日历得到的有效查询截止。
                 date_policy=source.get('date_policy','legacy'))  # 本来源日期口径；legacy表示沿调用者原as_of。
-            if source['kind'] in (market_structure_source.WT_INDEX_KIND,market_structure_source.WT_STOCK_KIND,WT_GOV10Y,
+            if source['kind'] in (market_structure_source.WT_INDEX_KIND,market_structure_source.WT_STOCK_KIND,WT_GOV10Y,wt_margin_summary.KIND,
                                   *etf_flow.ETF_KINDS,*WT_DERIVED,'wt_breadth','wt_t2108'):
                 calendar=config['models']['calendars']['cn']
                 producer_day=last_open_day(calendar,closed_day_cutoff(observed_now),check=budget.remaining)
@@ -202,6 +202,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 start=max(start,source['history_from'])
                 updates=wt_gov10y_history(fetch,start,end,market_client_factory,snapshot_dates=versions)
+            elif source['kind']==wt_margin_summary.KIND:
+                if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                updates=wt_margin_summary.history(fetch,start,end,market_client_factory,snapshot_dates=versions)
             elif source['kind'] in (market_structure_source.CSI_KIND, market_structure_source.STOCK_KIND):
                 stock_rows=tables.get(market_structure_source.STOCK_TABLE,[])
                 updates=market_structure_source.history(fetch,source,start,end,calendar,
@@ -341,6 +344,14 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 receipt.update(latest_period=max(received,default=None),loaded_period=max(loaded,default=None))
                 if any(start<=day<=end and day not in loaded for day in index_days):
                     receipt.update(status='partial',error_code='wt_history_incomplete')
+            if source['kind']==wt_margin_summary.KIND:
+                sessions,_=official_calendar(calendar,check=budget.remaining)
+                loaded={row['date'] for row in tables[wt_margin_summary.TABLE] if wt_margin_summary.row_complete(row)}
+                receipt.update(latest_period=max((row['date'] for row in updates[wt_margin_summary.TABLE]
+                                                  if wt_margin_summary.row_complete(row)),default=None),
+                               loaded_period=max(loaded,default=None))
+                if any(row['is_open'] and start<=row['date']<=end and row['date'] not in loaded for row in sessions):
+                    receipt.update(status='partial',error_code='wt_history_incomplete')
             # 表ID→ISO交易日：原参考表已接纳、本次原生日线未返回而继续保留的日期。
             # 字段缺省表示无需保留；不将旧观察重标成本次新采集。
             if retained_dates:receipt['retained_dates']=retained_dates
@@ -375,6 +386,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         attach_trends(datasets,definitions,tables,check=finalization.remaining)
         attach_benchmark(datasets,definitions,tables)
         structure_inputs=market_structure.derive(tables,datasets,definitions,check=finalization.remaining)
+        margin_rows=tables.get(wt_margin_summary.TABLE, [])
+        if margin_rows and 'leverage_margin' in datasets:
+            datasets['leverage_margin']=merge(datasets['leverage_margin'],margin_rows)[0]
         for row in datasets.get('leverage_margin',[]):
             if row.get('fin_buy') is not None and row.get('fin_repay') is not None:row['fin_net_arithmetic']=row['fin_buy']-row['fin_repay']
         if 'leverage_margin' in datasets:datasets['margin.short']=[dict(r) for r in datasets['leverage_margin']]
@@ -407,6 +421,8 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             context_parents=table_parents.get('market.'+mapping[key]['symbol'],[]) if key in mapping else []
             if key in ('spread_sw', 'bond.erp_rank756'):
                 context_parents=[*context_parents, *table_parents.get(GOV10Y_TABLE, [])]
+            if key in wt_margin_summary.DATASETS and wt_margin_summary.TABLE in tables:
+                context_parents=[*context_parents,*table_parents.get(wt_margin_summary.TABLE, [])]
             if key in structure_inputs:
                 context_parents=[reader.objects.put(parquet_bytes(tables[name]),kind='standard')
                                  for name in structure_inputs[key]]
