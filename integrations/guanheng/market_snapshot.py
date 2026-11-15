@@ -5,6 +5,7 @@ from pathlib import Path
 import threading
 
 from ..guanheng_market_client import API_VERSION,MarketUnavailable,strict_json,encode_json,validate_request,validate_response
+from ..guanheng_market_client.daily_facts import OPTIONAL_PROJECTIONS, SHSZ_PROJECTIONS
 from ..guanheng_market_client.market_snapshot import validate_market_snapshot,project_market_snapshot
 
 
@@ -88,11 +89,10 @@ class SnapshotSourceMarket:
                 code='Conflict';reason='market snapshot changed'
             elif self._facts is not None and query['date']<=self._snapshot['observation_date']:
                 try:
-                    valuation = query.get('include_shsz_valuation', False)
-                    read = self._facts.valuation if valuation else self._facts.query
+                    compact = any(query.get('include_' + key) for key in SHSZ_PROJECTIONS)
+                    read = self._facts.shsz if compact else self._facts.query
                     data=read(query['date'],query['snapshot_id'])
                     if data is not None:
-                        from ..guanheng_market_client.daily_facts import OPTIONAL_PROJECTIONS
                         for key in OPTIONAL_PROJECTIONS:
                             if not query.get('include_' + key, False):
                                 data.pop(key, None)

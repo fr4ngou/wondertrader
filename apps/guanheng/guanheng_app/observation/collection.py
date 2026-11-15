@@ -367,8 +367,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                     receipt.update(status='partial',error_code='wt_history_incomplete')
             if source['kind']==wt_shsz_pb.KIND:
                 sessions,_=official_calendar(calendar,check=budget.remaining)
-                loaded={row['date'] for row in tables[wt_shsz_pb.TABLE]}
-                receipt['loaded_period']=max(loaded,default=None)
+                evidence=wt_shsz_pb.coverage_tables(source)
+                loaded=set.intersection(*({row['date'] for row in tables[key]} for key in evidence))
+                fresh=set.intersection(*({row['date'] for row in updates[key]} for key in evidence))
+                receipt.update(loaded_period=max(loaded,default=None),latest_period=max(fresh,default=None))
                 if any(row['is_open'] and start<=row['date']<=end and row['date'] not in loaded for row in sessions):
                     receipt.update(status='partial',error_code='wt_history_incomplete')
             if source['kind']==WT_GOV10Y:
@@ -458,8 +460,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 context_parents=[*context_parents,*table_parents.get(wt_shenwan_source.TABLE, [])]
             if key in wt_margin_summary.DATASETS and wt_margin_summary.TABLE in tables:
                 context_parents=[*context_parents,*table_parents.get(wt_margin_summary.TABLE, [])]
-            if key==wt_shsz_pb.METRIC and wt_shsz_pb.TABLE in tables:
+            if key==wt_shsz_pb.METRIC:
                 context_parents=[*context_parents,*table_parents.get(wt_shsz_pb.TABLE, [])]
+            if key in wt_shsz_pb.FULL_DATASETS and key!=wt_shsz_pb.METRIC:
+                context_parents=[*context_parents,*table_parents.get(wt_shsz_pb.BREADTH_TABLE, [])]
             if key in structure_inputs:
                 context_parents=[reader.objects.put(parquet_bytes(tables[name]),kind='standard')
                                  for name in structure_inputs[key]]

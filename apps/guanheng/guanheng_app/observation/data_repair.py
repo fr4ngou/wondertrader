@@ -30,11 +30,15 @@ def _coverage_by_input(reader, manifest, source, target, check):
     if target not in open_days:
         raise SourceFailure('official_calendar_outside_coverage')
     if source['kind'] == wt_shsz_pb.KIND:
-        check()
-        partition = tables.get(wt_shsz_pb.TABLE)
-        observed = {row['date'] for row in reader.rows(partition)} if partition else set()
-        missing = [day for day in open_days if day >= source['history_from'] and day not in observed]
-        return {wt_shsz_pb.TABLE: missing} if missing else {}
+        gaps = {}
+        for key in wt_shsz_pb.coverage_tables(source):
+            check()
+            partition = tables.get(key)
+            observed = {row['date'] for row in reader.rows(partition)} if partition else set()
+            missing = [day for day in open_days if day >= source['history_from'] and day not in observed]
+            if missing:
+                gaps[key] = missing
+        return gaps
     if source['kind'] in (wt_margin_summary.KIND, wt_shenwan_source.KIND):
         check()
         margin = source['kind'] == wt_margin_summary.KIND

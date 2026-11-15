@@ -30,7 +30,13 @@ def _ratio(numerator, denominator, scale=100):
 
 
 def stock_day(fields, rows, universe, day, *, scope='shsz', check=lambda: None):
-    """按已声明股票池计算日终观察；缺行/缺值保留未知，停牌单列。
+    """按已声明股票池计算日终观察。"""
+    counts = stock_day_counts(fields, rows, universe, day, scope=scope, check=check)
+    return stock_day_from_counts(day, counts)
+
+
+def stock_day_counts(fields, rows, universe, day, *, scope='shsz', check=lambda: None):
+    """统计已声明股票池的原始数量；缺行/缺值保留未知，停牌单列。
 
     universe来自同源证券类型及上市/退市日期准入，volume单位为原始股数，
     turn单位为流通股换手百分数。函数不推导财务指标或40日均线资格。
@@ -102,16 +108,40 @@ def stock_day(fields, rows, universe, day, *, scope='shsz', check=lambda: None):
             down += 1
             if volume is not None:
                 down_volume += volume
-    count = len(eligible)
+    check()
+    return dict(
+        market_count=len(eligible),  # 当日证券池总数，包含未知数值或缺行。
+        reported_count=len(seen),  # 原行情中有一条有效身份的池内证券数。
+        excluded_count=excluded,  # 原行情中位于池外的行数。
+        suspended_count=suspended,  # 明确标记停牌的证券数。
+        missing_price_count=missing_prices,  # 正常交易但涨跌比较价缺失次数。
+        advancing_count=up,  # 收盘价严格高于前收的股票数。
+        declining_count=down,  # 收盘价严格低于前收的股票数。
+        flat_count=flat,  # 收盘价与前收相同的股票数。
+        advancing_volume=int(up_volume),  # 上涨组已知成交的原始股数。
+        declining_volume=int(down_volume),  # 下跌组已知成交的原始股数。
+        missing_volume_count=missing_volume,  # 涨跌组缺少原成交股数的股票数。
+        turnover_known_count=known_turn,  # 已能确认换手分类的股票数。
+        turnover_gt5_count=hot)  # 换手率严格大于 5% 的股票数。
+
+
+def stock_day_from_counts(day, counts):
+    """同一基础事实投影为原指标，全部比例沿原 Decimal 公式。"""
+    count, up, down, flat, suspended = (
+        counts[key] for key in ('market_count', 'advancing_count', 'declining_count', 'flat_count', 'suspended_count'))
+    up_volume = Decimal(counts['advancing_volume'])
+    down_volume = Decimal(counts['declining_volume'])
+    missing_volume = counts['missing_volume_count']
+    known_turn, hot = counts['turnover_known_count'], counts['turnover_gt5_count']
     classified = up + down + flat
     unclassified = count - classified - suspended
     trin = None
     if not unclassified and not missing_volume and up and down and up_volume and down_volume:
         trin = _ratio(Decimal(up) * down_volume, Decimal(down) * up_volume, 1)
-    check()
-    return dict(date=day, available_at=None, market_count=count, reported_count=len(seen),
-                excluded_count=excluded, suspended_count=suspended, missing_stock_count=count-len(seen),
-                missing_price_count=missing_prices, classified_count=classified, unclassified_count=unclassified,
+    return dict(date=day, available_at=None, market_count=count, reported_count=counts['reported_count'],
+                excluded_count=counts['excluded_count'], suspended_count=suspended,
+                missing_stock_count=count-counts['reported_count'],
+                missing_price_count=counts['missing_price_count'], classified_count=classified, unclassified_count=unclassified,
                 advancing_count=up, declining_count=down, flat_count=flat, net_advances=up-down,
                 advancing_pct=_ratio(up, classified), rana=_ratio(up-down, up+down, 1000),
                 advancing_volume=float(up_volume), declining_volume=float(down_volume),

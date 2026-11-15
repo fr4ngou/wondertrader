@@ -316,10 +316,10 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             raise ValueError('daily input adopted universe differs')
     check()
     section_policy = inputs.get('stock_cross_section')
-    from .day_facts_capture import restore_shsz_valuation
+    from .day_facts_capture import restore_shsz_facts
 
     def enrich_existing(value):
-        return restore_shsz_valuation(reader.objects, value, check)
+        return restore_shsz_facts(reader.objects, value, check)
 
     def build_catalog(output):
         current_facts = enrich_existing(facts)

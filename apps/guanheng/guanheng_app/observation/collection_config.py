@@ -184,15 +184,19 @@ def validate_configuration(value):
                 and sum(item['kind'] in ('shenwan', wt_shenwan_source.KIND)
                         for item in value['sources']) == 1)
         elif source['kind'] == wt_shsz_pb.KIND:
-            _need(set(source) == {'id','kind','tables','datasets','date_policy','history_from','overlap_days','minimum_universe'}
-                and source['tables'] == [wt_shsz_pb.TABLE]
-                and source['datasets'] == [wt_shsz_pb.METRIC]
+            full = source.get('tables') == wt_shsz_pb.FULL_TABLES
+            fields = {'id','kind','tables','datasets','date_policy','history_from','overlap_days','minimum_universe'}
+            _need(set(source)-{'derived_metrics'} == fields
+                and (full or source['tables'] == [wt_shsz_pb.TABLE])
+                and source['datasets'] == (wt_shsz_pb.FULL_DATASETS if full else [wt_shsz_pb.METRIC])
                 and source['date_policy'] == 'cn-closed-day'
                 and date.fromisoformat(source['history_from']).isoformat() == source['history_from']
                 and 0 <= source['overlap_days'] < value['max_days_per_batch']
                 and type(source['minimum_universe']) is int and 1 <= source['minimum_universe'] <= 20000
-                and sum(wt_shsz_pb.METRIC in item.get('datasets', []) for item in value['sources']) == 1
-                and sum(wt_shsz_pb.TABLE in item.get('tables', []) for item in value['sources']) == 1)
+                and all(sum(key in item.get('datasets', []) for item in value['sources']) == 1
+                        for key in source['datasets'])
+                and all(sum(key in item.get('tables', []) for item in value['sources']) == 1
+                        for key in source['tables']))
         elif source['kind'] == wt_margin_summary.KIND:
             _need(set(source) == {'id','kind','tables','datasets','date_policy','history_from','overlap_days'}
                 and source['tables'] == [wt_margin_summary.TABLE]

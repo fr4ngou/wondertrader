@@ -7,7 +7,13 @@ from .market_snapshot import _day,_hash,_clock
 
 FIELDS=['date','symbol','close_reference','preclose','volume','turn','tradestatus','qualification']
 STATS=('identity_unverified_count','state_unverified_count','missing_float_count','special_reference_count','halted_with_trades_count')
-OPTIONAL_PROJECTIONS = ('stock_cross_section', 'shsz_valuation')
+SHSZ_PROJECTIONS = ('shsz_valuation', 'shsz_breadth')
+OPTIONAL_PROJECTIONS = ('stock_cross_section', *SHSZ_PROJECTIONS)
+SHSZ_BREADTH_COUNTS = (
+    'market_count', 'reported_count', 'excluded_count', 'suspended_count', 'missing_price_count',
+    'advancing_count', 'declining_count', 'flat_count', 'advancing_volume', 'declining_volume',
+    'missing_volume_count', 'turnover_known_count', 'turnover_gt5_count',
+)
 
 def validate_facts_request(value):
     """date精确选择已归档事实，snapshot_id绑定同一WT资料及价格目录。"""
@@ -17,7 +23,7 @@ def validate_facts_request(value):
     _day(value['date']);_hash(value['snapshot_id'])
     if any(type(value.get(flag, False)) is not bool for flag in flags):
         raise MarketProtocolError('daily facts projection flag invalid')
-    if value.get('include_stock_cross_section') and value.get('include_shsz_valuation'):
+    if value.get('include_stock_cross_section') and any(value.get('include_' + key) for key in SHSZ_PROJECTIONS):
         raise MarketProtocolError('daily facts projections cannot be combined')
     return value
 
@@ -63,8 +69,7 @@ def validate_day_facts(value,*,response=False):
     if response:_hash(value['source_snapshot_id']);_hash(value['source_sha256'])
     if 'stock_cross_section' in value:
         validate_stock_cross_section(value['stock_cross_section'], len(members))
-    if 'shsz_valuation' in value:
-        validate_shsz_valuation(value['shsz_valuation'])
+    _validate_shsz_projections(value)
     return value
 
 
@@ -123,15 +128,50 @@ def validate_shsz_valuation(value):
     _hash(value['stock_daily_sha256'])
 
 
-def validate_facts_data(value,request):
-    if request.get('include_shsz_valuation', False):
+def _validate_shsz_projections(value):
+    if 'shsz_valuation' in value:
+        validate_shsz_valuation(value['shsz_valuation'])
+    if 'shsz_breadth' in value:
+        validate_shsz_breadth(value['shsz_breadth'])
+    if all(key in value for key in SHSZ_PROJECTIONS):
+        for key in ('stock_basic_sha256', 'stock_daily_sha256'):
+            if value['shsz_breadth'][key] != value['shsz_valuation'][key]:
+                raise MarketProtocolError('SH/SZ projections disagree on original source identity')
+
+
+def validate_shsz_breadth(value):
+    """核验原沪深股票池计数及原始股数，维持独立于普通 A 股池的事实口径。"""
+    keys = (
+        'universe_version',  # 日期和原沪深股票池代码集合的规范摘要。
+        'stock_basic_sha256',  # 确定上市区间的 BaoStock 证券表原件。
+        'stock_daily_sha256',  # 提供原前收、收盘、成交股数、换手和状态的日线原件。
+    )
+    _object(value, keys + SHSZ_BREADTH_COUNTS)
+    for key in keys:
+        _hash(value[key])
+    volumes = ('advancing_volume', 'declining_volume')
+    for key in SHSZ_BREADTH_COUNTS:
+        limit = 20000 * 10**30 if key in volumes else 20000
+        if type(value[key]) is not int or not 0 <= value[key] <= limit:
+            raise MarketProtocolError('SH/SZ breadth count invalid')
+    advancing, declining, flat, suspended = (
+        value[key] for key in ('advancing_count', 'declining_count', 'flat_count', 'suspended_count'))
+    reported = value['reported_count']
+    if (not 1 <= value['market_count'] or reported > value['market_count']
+            or advancing + declining + flat + suspended + value['missing_price_count'] > reported
+            or value['missing_volume_count'] > advancing + declining
+            or not value['turnover_gt5_count'] <= value['turnover_known_count'] <= reported):
+        raise MarketProtocolError('SH/SZ breadth coverage invalid')
+
+
+def validate_facts_data(value, request):
+    if any(request.get('include_' + key) for key in SHSZ_PROJECTIONS):
         fields = ('date', 'source_snapshot_id', 'source_sha256')
-        _object(value, fields + ('shsz_valuation',), fields)
+        _object(value, fields + SHSZ_PROJECTIONS, fields)
         _day(value['date'])
         _hash(value['source_snapshot_id'])
         _hash(value['source_sha256'])
-        if 'shsz_valuation' in value:
-            validate_shsz_valuation(value['shsz_valuation'])
+        _validate_shsz_projections(value)
     else:
         validate_day_facts(value,response=True)
     if (value['date']!=request['date'] or value['source_snapshot_id']!=request['snapshot_id']

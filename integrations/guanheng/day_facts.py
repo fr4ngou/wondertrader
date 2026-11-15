@@ -4,7 +4,7 @@ from copy import deepcopy
 import hashlib
 from pathlib import Path
 from ..guanheng_market_client import strict_json
-from ..guanheng_market_client.daily_facts import validate_day_facts
+from ..guanheng_market_client.daily_facts import SHSZ_PROJECTIONS, validate_day_facts
 from ..guanheng_market_client.market_snapshot import _day,_hash
 
 
@@ -70,8 +70,8 @@ class DayFactsStore:
         result.update(source_snapshot_id=snapshot_id,source_sha256=entry['sha256'])
         return result
 
-    def valuation(self, day, snapshot_id):
-        """只投影已校验的沪深估值和定日事实身份，避免复制或传输全市场股票行。"""
+    def shsz(self, day, snapshot_id):
+        """只投影已校验的沪深汇总和定日事实身份，避免复制或传输全市场股票行。"""
         value = self._load(day)
         if value is None:
             return None
@@ -79,8 +79,9 @@ class DayFactsStore:
             date=day,  # 原事实交易日。
             source_snapshot_id=snapshot_id,  # 请求固定的市场快照。
             source_sha256=self._entries[day]['sha256'])  # 完整事实原件摘要。
-        if 'shsz_valuation' in value:
-            result['shsz_valuation'] = dict(value['shsz_valuation'])
+        for key in SHSZ_PROJECTIONS:
+            if key in value:
+                result[key] = dict(value[key])
         return result
 
     def days(self):

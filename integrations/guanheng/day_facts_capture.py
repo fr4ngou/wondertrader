@@ -2,16 +2,16 @@
 from datetime import datetime, timezone
 import hashlib
 
-from ..guanheng_market_client.daily_facts import FIELDS, STATS, validate_day_facts
+from ..guanheng_market_client.daily_facts import FIELDS, SHSZ_PROJECTIONS, STATS, validate_day_facts
 from ..guanheng_market_client import strict_json
 from .market_generation import encode
 
 
-def restore_shsz_valuation(objects, facts, check):
-    """在原目录演进时补算既有日期，只接受该日定日事实的原件。"""
+def restore_shsz_facts(objects, facts, check):
+    """在 WT 目录发布时补齐沪深专用事实，只接受该日的原件。"""
     from guanheng_app.observation.contracts import ObservationError
 
-    if ('shsz_valuation' in facts
+    if (all(key in facts for key in SHSZ_PROJECTIONS)
             or facts.get('qualification', {}).get('membership_method') != 'same_day_public'):
         return facts
     check()
@@ -23,39 +23,62 @@ def restore_shsz_valuation(objects, facts, check):
             return facts
     except (KeyError, ValueError, TypeError, ObservationError):
         return facts
-    valuation = shsz_valuation(objects, manifest, check)
-    return facts if valuation is None else dict(facts, shsz_valuation=valuation)
+    restored = shsz_facts(objects, manifest, check)
+    additions = {key: value for key, value in restored.items() if key not in facts}
+    for key in SHSZ_PROJECTIONS:
+        if key in facts and key in restored and facts[key] != restored[key]:
+            return facts
+    return dict(facts, **additions) if additions else facts
 
 
-def shsz_valuation(objects, manifest, check):
+def shsz_facts(objects, manifest, check):
     """从 WT 市场原件库取出同一 BaoStock 证券表和日线，保留可追溯来源。"""
     from guanheng_app.observation.ashare_source import validate_daily
     from guanheng_app.observation.contracts import ObservationError
+    from guanheng_app.observation.breadth_models import universe_row
+    from guanheng_app.observation.market_breadth import stock_day_counts
     from guanheng_app.observation.providers import shsz_daily_pb
     from guanheng_app.observation.source_fetch import SourceFailure
-    from guanheng_app.observation.stock_universe import shsz_listings
+    from guanheng_app.observation.stock_universe import listed_codes, shsz_listings
 
     try:
         check()
         universe = strict_json(objects.get(manifest['universe']['sha256']))
         basic_sha = universe.get('source_basic_sha256')
         if basic_sha is None:
-            return None
+            return {}
         basic = strict_json(objects.get(basic_sha))
         daily_sha = manifest['shsz_daily']['sha256']
         daily = strict_json(objects.get(daily_sha))
         day = manifest['date']
         validate_daily(daily, day, check)
         listings = shsz_listings(basic['fields'], basic['rows'], check=check)
-        metrics, _ = shsz_daily_pb(daily['fields'], daily['rows'], listings, day, check=check)
+        members = listed_codes(listings, day, check=check)
+        code_position = daily['fields'].index('code')
+        if not members or not members.issubset(row[code_position] for row in daily['rows']):
+            return {}
     except (KeyError, ValueError, TypeError, IndexError, ObservationError, SourceFailure) as exc:
         if getattr(exc, 'code', None) in ('collection_stopped', 'collection_timeout'):
             raise
-        return None
-    return dict(
-        **metrics,
+        return {}
+    originals = dict(
         stock_basic_sha256=basic_sha,  # BaoStock 证券表原件，确定原上市与退市资格。
-        stock_daily_sha256=daily_sha)  # 同交易日 BaoStock 估值日线原件。
+        stock_daily_sha256=daily_sha)  # 同交易日 BaoStock 日线原件。
+    result = {}
+    try:
+        metrics, _ = shsz_daily_pb(daily['fields'], daily['rows'], listings, day, check=check)
+    except (ValueError, SourceFailure) as exc:
+        if getattr(exc, 'code', None) in ('collection_stopped', 'collection_timeout'):
+            raise
+    else:
+        result['shsz_valuation'] = dict(metrics, **originals)
+    try:
+        counts = stock_day_counts(daily['fields'], daily['rows'], sorted(members), day, check=check)
+    except ValueError:
+        return result
+    universe_version = universe_row(day, members, basic_sha)['universe_version']
+    result['shsz_breadth'] = dict(counts, universe_version=universe_version, **originals)
+    return result
 
 
 def normalize_day_facts(capture, manifest, start, end):

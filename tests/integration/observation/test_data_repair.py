@@ -19,8 +19,8 @@ from guanheng_app.app import create_app
 from guanheng_app.settings import ConsoleSettings
 from integrations.guanheng.stock_cross_section import project
 from integrations.guanheng.daily_data_service import pending_observation_repair, report_observation_repair
-from integrations.guanheng.day_facts_capture import shsz_valuation
-from integrations.guanheng_market_client.daily_facts import FIELDS, validate_shsz_valuation
+from integrations.guanheng.day_facts_capture import shsz_facts
+from integrations.guanheng_market_client.daily_facts import FIELDS, validate_shsz_breadth, validate_shsz_valuation
 
 DAY = '2026-11-13'
 NOW = datetime.fromisoformat('2026-11-14T09:00:00+08:00')
@@ -37,13 +37,22 @@ def test_wt_shsz_pb_uses_original_listing_scope_and_rejects_missing_rows(tmp_pat
             [DAY, 'sz.000001', '4', '4', '10', '1', '1', '4', '-2']]
     manifest = dict(date=DAY, universe=dict(sha256=pool),
                     shsz_daily=dict(sha256=objects.put(encode(dict(fields=fields, rows=rows)))))
-    valuation = shsz_valuation(objects, manifest, lambda: None)
+    summaries = shsz_facts(objects, manifest, lambda: None)
+    valuation = summaries['shsz_valuation']
+    breadth = summaries['shsz_breadth']
+    validate_shsz_breadth(breadth)
+    assert breadth['market_count'] == breadth['flat_count'] == 2
+    assert breadth['stock_basic_sha256'] == basic
     validate_shsz_valuation(valuation)
     assert valuation['equal_pb'] == 3 and valuation['profitable_equal_pb'] == 2
     assert valuation['universe_count'] == 2 and valuation['stock_basic_sha256'] == basic
 
+    no_price_book = [row[:-2] + ['', row[-1]] for row in rows]
+    manifest['shsz_daily']['sha256'] = objects.put(encode(dict(fields=fields, rows=no_price_book)))
+    assert set(shsz_facts(objects, manifest, lambda: None)) == {'shsz_breadth'}
+
     manifest['shsz_daily']['sha256'] = objects.put(encode(dict(fields=fields, rows=rows[1:])))
-    assert shsz_valuation(objects, manifest, lambda: None) is None
+    assert shsz_facts(objects, manifest, lambda: None) == {}
 
 
 def test_wt_shsz_pb_repair_checks_missing_earlier_dates():
@@ -58,6 +67,25 @@ def test_wt_shsz_pb_repair_checks_missing_earlier_dates():
     source = dict(kind=wt_shsz_pb.KIND, history_from=DATES[0], datasets=[wt_shsz_pb.METRIC])
     assert data_repair._coverage_by_input(reader, manifest, source, DAY, lambda: None) == {
         wt_shsz_pb.TABLE: [DATES[0], DATES[2]],
+    }
+
+
+def test_wt_shsz_breadth_requires_own_wt_receipt_even_when_legacy_chart_is_full():
+    reader = ObservationReader(None, None)
+    reader.rows = {
+        'calendar': [dict(date=day, is_open=1) for day in DATES],
+        'wt_pb': [dict(date=day) for day in DATES],
+        'wt_breadth': [dict(date=day) for day in DATES if day != DATES[1]],
+        'legacy_breadth': [dict(date=day, advancing_pct=75) for day in DATES],
+    }.__getitem__
+    manifest = dict(source_tables={
+        'source.cn_official_calendar': 'calendar',
+        wt_shsz_pb.TABLE: 'wt_pb', wt_shsz_pb.BREADTH_TABLE: 'wt_breadth',
+    }, datasets={'breadth.shsz': dict(partition='legacy_breadth')})
+    source = dict(kind=wt_shsz_pb.KIND, history_from=DATES[0],
+                  tables=wt_shsz_pb.FULL_TABLES, datasets=wt_shsz_pb.FULL_DATASETS)
+    assert data_repair._coverage_by_input(reader, manifest, source, DAY, lambda: None) == {
+        wt_shsz_pb.BREADTH_TABLE: [DATES[1]],
     }
 
 

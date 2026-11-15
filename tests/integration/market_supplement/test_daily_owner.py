@@ -109,7 +109,12 @@ def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypa
     valuation = dict(equal_pb=3, median_pb=3, sample_count=1, excluded_count=0, universe_count=1,
         profitable_equal_pb=None, profitable_median_pb=None, profitable_sample_count=0,
         profitable_excluded_count=1, stock_basic_sha256='6'*64, stock_daily_sha256='7'*64)
+    breadth = dict(market_count=2, reported_count=2, excluded_count=0, suspended_count=0, missing_price_count=0,
+        advancing_count=1, declining_count=1, flat_count=0, advancing_volume=150, declining_volume=100,
+        missing_volume_count=0, turnover_known_count=2, turnover_gt5_count=1,
+        universe_version='8'*64, stock_basic_sha256='6'*64, stock_daily_sha256='7'*64)
     facts['shsz_valuation'] = valuation
+    facts['shsz_breadth'] = breadth
     config['template']['daily_facts'] = prepare_facts_catalog([older, facts], tmp_path/'history-facts')
     config['inputs']['stock_cross_section'] = dict(bigquant_python=sys.executable, timeout_seconds=5,
         minimum_sample_count=1, history_from=DAYS[0], history_days_per_cycle=1)
@@ -177,21 +182,41 @@ def test_required_pending_then_real_owner_publish_and_http_sdk(tmp_path,monkeypa
         client=MarketClient(f'http://127.0.0.1:{port}','synthetic-msf-http-token')
         legacy=client.source_day_facts_query(DAYS[-1],snapshot['snapshot_id'])
         assert legacy['status']['code']=='Ok' and 'stock_cross_section' not in legacy['data']
-        assert 'rows' in legacy['data'] and 'shsz_valuation' not in legacy['data']
+        assert 'rows' in legacy['data'] and not {'shsz_valuation', 'shsz_breadth'} & legacy['data'].keys()
         pb = client.source_day_facts_query(DAYS[-1], snapshot['snapshot_id'],
                                            include_shsz_valuation=True)['data']
         assert set(pb) == {'date', 'source_snapshot_id', 'source_sha256', 'shsz_valuation'}
         assert pb['shsz_valuation'] == valuation
+        combined = client.source_day_facts_query(DAYS[-1], snapshot['snapshot_id'],
+            include_shsz_valuation=True, include_shsz_breadth=True)['data']
+        assert combined == dict(pb, shsz_breadth=breadth)
         previous = client.source_day_facts_query(DAYS[0], snapshot['snapshot_id'],
                                                  include_shsz_valuation=True)['data']
         assert 'shsz_valuation' not in previous
+        from guanheng_app.observation import wt_shsz_pb
+        from guanheng_app.observation.source_fetch import CollectionBudget
+        from guanheng_app.observation.runtime import build_reader
+        from types import SimpleNamespace
+        monkeypatch.setattr('guanheng_app.observation.wt_shsz_pb.official_calendar',
+                            lambda *_args, **_kwargs: ([dict(date=d, is_open=1) for d in DAYS], None))
+        target = build_reader(tmp_path/'breadth-observation')
+        target.repository.initialize()
+        breadth_fetch = SimpleNamespace(objects=target.objects, budget=CollectionBudget(time.monotonic()+5),
+                                        records=[], timeout=2)
+        shsz = wt_shsz_pb.history(breadth_fetch, dict(tables=wt_shsz_pb.FULL_TABLES, minimum_universe=1),
+            DAYS[0], DAYS[-1], lambda _: client, calendar=dict(coverage_start=DAYS[0], coverage_end=DAYS[-1]),
+            snapshot_dates=[DAYS[-1]])
+        assert shsz['breadth.shsz'][0]['advancing_pct'] == 50
+        assert shsz['trin.shsz'][0]['trin'] == 2/3
+        assert shsz['rana.shsz'][0]['rana'] == 0
+        assert shsz['turnover.gt5.shsz'][0]['turnover_gt5_pct'] == 50
+        assert [row['date'] for row in shsz[wt_shsz_pb.BREADTH_TABLE]] == [DAYS[-1]]
+        assert shsz[wt_shsz_pb.UNIVERSE_TABLE][0]['market_count'] == 2
+        assert len(shsz[wt_shsz_pb.CALENDAR_TABLE]) == len(DAYS)
         section=client.source_day_facts_query(DAYS[-1],snapshot['snapshot_id'],
                                                include_stock_cross_section=True)['data']['stock_cross_section']
         assert section['provider']=='BigQuant' and section['sample_count']==1 and section['top5_pct']==100
         from guanheng_app.observation.market_structure_source import STOCK_TABLE, wt_stock_history
-        from guanheng_app.observation.source_fetch import CollectionBudget
-        from guanheng_app.observation.runtime import build_reader
-        from types import SimpleNamespace
         monkeypatch.setattr('guanheng_app.observation.market_structure_source.official_calendar',
                             lambda *_args, **_kwargs: ([dict(date=day, is_open=1) for day in DAYS], None))
         observer = build_reader(tmp_path/'observation')

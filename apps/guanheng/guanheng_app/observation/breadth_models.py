@@ -157,7 +157,7 @@ def universe_row(day, codes, basic_sha256):
 
 
 def prepare_definitions(definitions, datasets, sources):
-    requested={metric for source in sources if source['kind'] in ('baostock','ashare_snapshot','ashare_public')
+    requested={metric for source in sources if source['kind'] in ('baostock','ashare_snapshot','ashare_public','wt_shsz_pb')
                for metric in source.get('datasets',[]) if metric in METRICS}
     for metric in sorted(requested):
         if metric not in definitions:
