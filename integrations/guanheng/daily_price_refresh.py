@@ -8,6 +8,7 @@ from .daily_data_update import _save,_load,_descriptor,price_maintenance_with_sl
 from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .daily_price_scope import prepare_price_scope
 from .daily_data_inputs import fixed_unit_evidence_configuration
+from .daily_gap_plan import committed_gap_plans, load_gap_plan, terminal_hpr_paths
 from .daily_price_update import prepare_price_update,compact_price_base
 from .market_generation import GenerationPublisher,encode,read_fixed,read_generation
 from .market_snapshot_prepare import compose_static_archive,_catalog
@@ -53,15 +54,32 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
         bound=dict(bound,configuration=configuration)
         if original!=bound:raise ValueError('daily price refresh input differs')
     else:_save(intent,bound)
+    request_path=root/'REQUEST.json'
+    fixed_request=None
+    if request_path.exists():
+        fixed_request=strict_json(read_fixed(request_path,maximum=16777216))
+        if type(fixed_request) is not dict:
+            raise ValueError('daily price refresh request differs')
     protected=set(configuration['template']['protected_slots']);previous_archives=[];retired_archives=[]
+    terminal_paths=set()  # 新修订只保留未确认终态的原HPR引用。
+    known_plans=set()  # 本轮同一固定计划只准入一次，避免重复读取同一原件。
     for path in previous_requests:
         request=strict_json(read_fixed(path,maximum=16777216));protected.update(request['protected_slots'])
         if request.get('price_maintenance')is not None:
             protected.update(price_maintenance_with_slots(request)['protected_slots'])
         # 已发出的价格HPR责任保持原slot；新缓存未确认覆盖前，后继缺口计划沿原保护区间。
-        prior=Path(path).parent/'work'/'prices'/'inputs'/'gap-work'/'preparation'
+        work=Path(path).parent/'work'
+        prior=work/'prices'/'inputs'/'gap-work'/'preparation'
         protected.update(str(slot)for slot in prior.glob('*.json'))
-        completed=Path(path).parent/'work'/'prices'/'RESULT.json'
+        if fixed_request is None:
+            state_file=work/'STATE.json'
+            stages=strict_json(read_fixed(state_file,maximum=16777216))['stages'] if state_file.exists() else {}
+            for plan,_ in committed_gap_plans(work,stages):
+                key=(plan['path'],plan['sha256'])
+                if key not in known_plans:
+                    terminal_paths.update(terminal_hpr_paths(load_gap_plan(plan,deadline=deadline,cancelled=cancelled)))
+                    known_plans.add(key)
+        completed=work/'prices'/'RESULT.json'
         if completed.exists():
             # 完成的同owner结果记录被后继整档合并的补充层；只收敛这些已知层，不猜原生基础档。
             retired_archives.extend(strict_json(read_fixed(completed,maximum=16777216))['additional_archives'])
@@ -80,7 +98,10 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
     retired_archives=list({(item['path'],item['sha256']):item for item in retired_archives}.values())
     scope=prepare_price_scope(configuration['price_scope'],day,None,current,inputs/'prices',
         deadline=deadline,cancelled=cancelled,environ=environ)
-    request_path=root/'REQUEST.json'
+    if fixed_request is None:
+        protected.difference_update(terminal_paths)
+    else:
+        protected=set(fixed_request['protected_slots'])  # 已固定原请求沿其原保护集合恢复。
     maintenance=dict(scope=scope,current_configuration=current['configuration'],snapshot_id=current['snapshot_id'],
         calendar=configuration['template']['calendar'],connections=configuration['inputs']['connections'],
         authorized_from=configuration['price_scope']['authorized_from'],
@@ -95,14 +116,16 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
         maintenance['strategy_history']=configuration['price_scope']['strategy_history']
         maintenance['strategy_history_previous_requests']=list(previous_requests)
         from .daily_strategy_history import strategy_slots
-        strategy_only = strategy_slots(previous_requests) - protected
+        strategy_protected = (strategy_slots(previous_requests) - terminal_paths if fixed_request is None
+                              else set(price_maintenance_with_slots(fixed_request)['protected_slots']))
+        strategy_only = strategy_protected - protected
         if strategy_only:
             maintenance['additional_protected_slots'] = sorted(strategy_only)
     request=dict(schema='guanheng.daily-price-refresh.v1',day=day,protected_slots=sorted(protected),
                  price_maintenance=maintenance)  # 原公共日事实任务可发现此请求的HPR/批读责任。
     maintenance = price_maintenance_with_slots(request)
-    if request_path.exists():
-        original = strict_json(read_fixed(request_path,maximum=16777216))
+    if fixed_request is not None:
+        original = fixed_request
         if dict(original,price_maintenance=price_maintenance_with_slots(original)) != dict(request,price_maintenance=maintenance):
             raise ValueError('daily price refresh request differs')
     else:_save(request_path,request)

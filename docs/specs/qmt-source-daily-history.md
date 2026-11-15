@@ -287,6 +287,8 @@ captured状态中的合法unsupported类别、详情空值或正常无新证券�
 
 v1历史保护记录：同一v1的原writer曾只保存slot、request_id、operation_id、arguments、request_sha256五项，没有执行结果字段。唯一typed读取入口只对这组精确五字段在内存补为execution_state=unknown，向所有消费者提供一致六字段视图；原文件字节、描述符SHA、请求UUID、参数和槽保持，后到结果不改旧计划的保守结论。该unknown继续阻止重叠HPR派发；恢复仍逐项核原槽和请求身份，坏SHA、缺原槽、身份变化及其它缺项/额外字段继续失败。新writer必须显式保存合法execution_state，写前拒绝五字段输入，不能因历史读取规则产生新省略状态的计划。
 
+新修订从旧已固定计划的摘要核验视图接续保护。原计划已经核实为 `call_returned` 或 `not_executed` 的 HPR 槽留存在旧计划和原任务目录，退出新计划的保护清单。旧未知状态和缺少已确认终态证据的槽继续按原身份核验。旧阶段的已固定请求及保护清单继续原样恢复。此变更只收敛保护责任，已返回仍须通过行情回读确认数据覆盖。
+
 纯本地缺口计划可显式采用既存尝试中的合法完成marker；同冻结capture、snapshot、授权日期、必需价格窗口及全部保护路径须一致，并重新核每个原slot的请求UUID/operation/arguments/规范请求SHA。原`call_returned`和`not_executed`仍由原`inspect_saved_result`及原binding证明，已知状态不能降级；原unknown保持冻结保守状态。缺失/改变的原责任单独失败，不作为可重建半份计划吞掉。此恢复不重做QAB缺口计算，不创建或搬迁原Source请求槽。原槽核验与新计划采集共用相同只读函数，至多四项本地文件/纯资格核验并行、有界提交，保持输入顺序；Source/HPR执行并发沿原执行器。主线程观察原取消/截止，异常取消未启动项并join全部在途读取后返回。
 
 `daily-immutable-stage.v1`在显式纯本地恢复选择较早marker时，以可选`result_attempt`记录该原尝试UUID，`attempts`完整顺序及全部旧目录保持；旧无字段状态仍沿原最后尝试解释。其它阶段默认只恢复最后尝试，保留更晚可能拥有的Source/未知责任。已提交结果继续核其固定描述符，损坏不能回退另一结果。旧程序尚未获消费128MiB计划及`result_attempt`的资格；回滚读取已发布版本与待完成任务的程序恢复资格分别验收，继续此任务须保留支持该typed合同的owner。

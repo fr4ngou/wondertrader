@@ -12,7 +12,8 @@ import uuid
 from .daily_data_update import DAILY_UPDATE_REQUEST_BYTES, _save, _load, _descriptor, price_maintenance_with_slots
 from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .market_generation import encode, read_fixed, read_generation
-from .daily_gap_plan import load_gap_plan, read_protected_request, MAX_PROTECTED_SLOTS
+from .daily_gap_plan import (committed_gap_plans, load_gap_plan, read_protected_request,
+                             terminal_hpr_paths, MAX_PROTECTED_SLOTS)
 from ..guanheng_market_client import strict_json
 
 
@@ -132,7 +133,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
 
     configuration.template为单轮更新静态配置，inputs为公开事实/原批读的有限预算。
     日事实、股票池、原缓存都实际保存后才写UPDATE.json；其摘要供单轮owner固定。
-    旧任务的原HPR槽全部加入保护；只有已有未返回槽由原执行器续核。
+    旧任务的未决HPR槽继续保护及续核。已固定计划已证明的HPR终态沿原目录留证。
     """
     from .day_facts_capture import capture_day_facts
     from .day_facts_prepare import extend_facts_catalog
@@ -200,6 +201,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     from .daily_strategy_history import strategy_slots
     protected.update(strategy_slots((*previous_requests,*prior_price_requests)))
     plans = [];scope_history=[]
+    terminal_paths = set()  # 从已准入原PLAN读取的不可变HPR终态引用。
     committed_captures = []  # 原INDEX已发布的同日归档，沿原请求固定身份。
     latest_download = {}  # 证券的最新原HPR接收时刻；只淘汰该证券更早的行情回包。
 
@@ -223,18 +225,12 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             committed_captures.append(previous['cache'])
             if 'readback' in state['stages']:
                 committed_captures.append(state['stages']['readback'])
-        prior_plans=[]
-        if state['stages'].get('gap_plan')is not None:
-            prior_plans.append((state['stages']['gap_plan'],state_path.parent/'gap-work'))
-        price_root=state_path.parent/'prices'/'inputs'
-        phase=price_root/'PHASE-gap-plan.json'
-        if phase.exists():
-            price_plan=strict_json(read_fixed(phase,maximum=65536))['result']
-            if price_plan is not None:prior_plans.append((price_plan,price_root/'gap-work'))
+        prior_plans=list(committed_gap_plans(state_path.parent,state['stages']))
         from .daily_strategy_history import strategy_prior_plans
         prior_plans.extend(strategy_prior_plans((request_path,)))  # hot原HPR跨日也沿同一owner续核，后继计划保护其区间。
         for plan,gap_work in prior_plans:
             value=load_gap_plan(plan,deadline=deadline,cancelled=cancelled);pending=[]
+            terminal_paths.update(terminal_hpr_paths(value))
             for task in value['tasks']:
                 slot=gap_work/'preparation'/('%06d.json'%task['index'])
                 if not slot.exists():continue
@@ -251,6 +247,7 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                     continue
                 pending.append(task['index'])
             if pending:plans.append((plan,gap_work,pending))
+    protected.difference_update(terminal_paths)
     if len(protected) > MAX_PROTECTED_SLOTS:
         raise ValueError('daily protected request capacity')
     # 先观察原未知身份；所有非原槽的计划项交本日缓存计划判定，不在旧计划里重派。

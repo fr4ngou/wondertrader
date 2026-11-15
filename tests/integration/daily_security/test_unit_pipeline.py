@@ -11,6 +11,7 @@ from integrations.guanheng import daily_data_inputs as inputs
 from integrations.guanheng import daily_price_update as update
 from integrations.guanheng import daily_price_refresh as refresh
 from integrations.guanheng.daily_data_update import _descriptor, _load, _save
+from integrations.guanheng.daily_gap_plan import write_gap_plan
 from integrations.guanheng.market_generation import GenerationPublisher, encode
 
 
@@ -88,8 +89,24 @@ def test_price_first_binds_new_selection_and_retains_old_choice(tmp_path, monkey
     config["price_scope"]["unit_evidence"]=unit_descriptor(tmp_path)
     old_config=write(tmp_path/"old-source.json",dict(mode="source-market-snapshot",base=dict(mode="source-catalog")))
     write(root/"PARENT.json",dict(generation=dict(configuration=old_config,snapshot_id="a"*64),sha256="b"*64))
+    prior=tmp_path/"previous"
+    returned=str(prior/"returned.json")
+    pending=str(prior/"pending.json")
+    unclassified=str(prior/"unclassified.json")
+    previous_requests=[write(prior/"REQUEST.json",dict(protected_slots=[returned,pending,unclassified]))["path"]]
+    def committed_states(pending_state, leaf):
+        records=[dict(slot=path,request_id=f"request-{index}",operation_id="market.history_prepare",
+            arguments=dict(symbol="510300.SH",period="1d",start_time="20261106",end_time="20261106"),
+            request_sha256="d"*64,execution_state=state)
+            for index,(path,state) in enumerate(((returned,"call_returned"),(pending,pending_state)))]
+        plan=write_gap_plan(prior/leaf,dict(schema="guanheng.daily-gap-plan.v1",
+            capture=dict(directory=str(prior/"capture"),sha256="a"*64),snapshot_id="b"*64,
+            authorized_from="20261106",authorized_to="20261106",
+            tasks=[],exclusions=[],protected_requests=records),deadline=time.monotonic()+5)
+        write(prior/"work"/"STATE.json",dict(stages=dict(gap_plan=plan)))
+    committed_states("unknown","first")
     if resuming:
-        write(root/"inputs"/"INPUTS.json",dict(configuration=original,day="2026-11-06",previous_requests=[]))
+        write(root/"inputs"/"INPUTS.json",dict(configuration=original,day="2026-11-06",previous_requests=previous_requests))
     before=(root/"inputs"/"INPUTS.json").read_bytes()if resuming else None
     publisher=object.__new__(GenerationPublisher)
     publisher.directory=tmp_path/"publication";publisher._lock=object()  # 只替代原租约边界，不启动发布。
@@ -101,8 +118,16 @@ def test_price_first_binds_new_selection_and_retains_old_choice(tmp_path, monkey
     monkeypatch.setattr(refresh,"prepare_price_update",capture)
     with pytest.raises(StopBeforeNative):
         refresh.price_refresh(config,"2026-11-06",root,publisher=publisher,
-            deadline=time.monotonic()+5,cancelled=lambda:False)
+            deadline=time.monotonic()+5,cancelled=lambda:False,previous_requests=previous_requests)
     saved=json.loads((root/"REQUEST.json").read_bytes())["price_maintenance"]
+    assert seen["request"]["protected_slots"]==[pending,unclassified]
+    original_request=(root/"REQUEST.json").read_bytes()
+    committed_states("not_executed","second")
+    with pytest.raises(StopBeforeNative):
+        refresh.price_refresh(config,"2026-11-06",root,publisher=publisher,
+            deadline=time.monotonic()+5,cancelled=lambda:False,previous_requests=previous_requests)
+    assert seen["request"]["protected_slots"]==[pending,unclassified]
+    assert (root/"REQUEST.json").read_bytes()==original_request
     if resuming:
         assert "unit_evidence"not in seen["request"] and "unit_evidence"not in saved
         assert (root/"inputs"/"INPUTS.json").read_bytes()==before

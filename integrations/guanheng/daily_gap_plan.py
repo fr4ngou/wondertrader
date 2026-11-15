@@ -215,6 +215,25 @@ def load_gap_plan(descriptor, *, deadline=None, cancelled=lambda: False):
                             deadline=deadline, cancelled=cancelled)[1]
 
 
+def committed_gap_plans(work, stages):
+    """发现日线及独立价格的已提交计划，保留各自原HPR工作目录。"""
+    if stages.get('gap_plan') is not None:
+        yield stages['gap_plan'], work/'gap-work'
+    price_inputs = work/'prices'/'inputs'
+    phase = price_inputs/'PHASE-gap-plan.json'
+    if phase.exists():
+        result = strict_json(read_fixed(phase, maximum=65536))['result']
+        if result is not None:
+            yield result, price_inputs/'gap-work'
+
+
+def terminal_hpr_paths(plan):
+    """只消费 load_gap_plan 已核摘要的视图；原终态仍由原计划和槽归档。"""
+    return {row['slot'] for row in plan['protected_requests']
+            if row['operation_id']=='market.history_prepare'
+            and row['execution_state'] in ('call_returned','not_executed')}
+
+
 def restore_gap_plan(path, *, capture, snapshot_id, authorized_from, authorized_to,
                      protected_slots, deadline=None, cancelled=lambda: False,
                      required_adjustments=None, required_from=None, legacy_window=None):
