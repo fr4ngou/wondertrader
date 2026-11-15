@@ -7,6 +7,8 @@ from .providers import SourceFailure
 from .weekly import continue_weekly
 from .pcr_context import attach_pcr_context
 from .calendars import comparison_calendars
+from .gov10y_source import TABLE as LEGACY_GOV10Y_TABLE
+from .wt_gov10y_source import TABLE as WT_GOV10Y_TABLE
 from .wt_shenwan_source import combined_rows as shenwan_rows
 
 def merge(old, new, *, tenor=False):
@@ -127,7 +129,8 @@ def market_models(tables, datasets, definitions, config,as_of):
         continue_weekly(markets,datasets,definitions,ema,as_of)
 
 def spread_and_bond(tables,datasets,config):
-    yields={r['date']:r['gov10y_pct'] for r in tables.get('source.gov10y',[])}
+    yields={row['date']:row['gov10y_pct'] for table in (LEGACY_GOV10Y_TABLE, WT_GOV10Y_TABLE)
+            for row in tables.get(table, []) if row.get('gov10y_pct') is not None}
     spread={r['date']:dict(r) for r in datasets.get('spread_sw',[])}
     weighted={r['date']:dict(r) for r in datasets.get('pb_sw_daily',[])}
     for day,row in spread.items():

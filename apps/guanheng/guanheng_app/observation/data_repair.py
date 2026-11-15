@@ -65,6 +65,7 @@ def _coverage_by_input(reader, manifest, source, target, check):
         check()
         rows = reader.rows(tables[key]) if key in tables else ()
         observed = {row['date'] for row in rows if row['date'] <= target
+                    and (source['kind'] != WT_GOV10Y or row.get('gov10y_pct') is not None)
                     and (source['kind'] != WT_STOCK_KIND or row.get('sample_count') is not None)
                     and (source['kind'] != WT_INDEX_KIND or index_row_complete(key, row))}
         lower = source.get('history_from', min(observed, default=target))

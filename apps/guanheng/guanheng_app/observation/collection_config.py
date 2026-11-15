@@ -9,7 +9,8 @@ from urllib.parse import urlsplit,parse_qsl
 from .contracts import ObservationError
 from .market_structure_source import CSI_KIND, CSI_URL, FIRST_DAY, INDEX_TABLES, STOCK_KIND, STOCK_TABLE, TUSHARE_URL, WT_INDEX_KIND, WT_STOCK_KIND
 from . import broker_heat, etf_flow, ipo_supply, wt_margin_summary, wt_shenwan_source, wt_shsz_pb
-from .gov10y_source import TABLE as GOV10Y_TABLE, WT_KIND as WT_GOV10Y
+from .gov10y_source import WT_KIND as WT_GOV10Y
+from .wt_gov10y_source import TABLE as WT_GOV10Y_TABLE
 
 WT_DERIVED = {broker_heat.KIND:broker_heat, ipo_supply.KIND:ipo_supply}
 
@@ -168,10 +169,11 @@ def validate_configuration(value):
                 and 0<=source['overlap_days']<value['max_days_per_batch'])
         elif source['kind'] == WT_GOV10Y:
             _need(set(source)=={'id','kind','tables','date_policy','history_from','overlap_days'}
-                and source['tables']==[GOV10Y_TABLE] and source['date_policy']=='cn-closed-day'
+                and source['tables']==[WT_GOV10Y_TABLE] and source['date_policy']=='cn-closed-day'
                 and date.fromisoformat(source['history_from']).isoformat()==source['history_from']
                 and 0<=source['overlap_days']<value['max_days_per_batch']
-                and sum(GOV10Y_TABLE in item.get('tables', []) for item in value['sources'] if type(item) is dict) == 1)
+                and sum(item['kind'] in ('gov10y', WT_GOV10Y) for item in value['sources']) == 1
+                and sum(WT_GOV10Y_TABLE in item.get('tables', []) for item in value['sources']) == 1)
         elif source['kind'] == wt_shenwan_source.KIND:
             _need(set(source) == {'id','kind','tables','datasets','date_policy','history_from','overlap_days'}
                 and source['tables'] == [wt_shenwan_source.TABLE]

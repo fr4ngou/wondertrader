@@ -38,7 +38,7 @@ from . import etf_flow, wt_margin_summary, wt_shenwan_source, wt_shsz_pb
 from .collection_config import WT_DERIVED
 from .data_repair import WT_SOURCES
 from .gov10y_source import TABLE as GOV10Y_TABLE, WT_KIND as WT_GOV10Y
-from .wt_gov10y_source import history as wt_gov10y_history
+from .wt_gov10y_source import TABLE as WT_GOV10Y_TABLE, history as wt_gov10y_history
 
 PARSERS = dict(ADAPTERS,gov10y=gov10y,repo_fixing=repo_fixing,northbound=northbound,
     marketcap_gdp=marketcap_gdp,fund_allocation=fund_allocation,pbc_bank=pbc_bank,
@@ -157,7 +157,8 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 if source['kind']=='wt_t2108':
                     # 每批只检查一个缺日，避免把尚未读取的股池日期标成已查。
                     start=end=repair_history_start
-            if source['kind'] in (*etf_flow.ETF_KINDS,*WT_DERIVED,wt_margin_summary.KIND,wt_shenwan_source.KIND,wt_shsz_pb.KIND):
+            if source['kind'] in (*etf_flow.ETF_KINDS,*WT_DERIVED,WT_GOV10Y,wt_margin_summary.KIND,
+                                  wt_shenwan_source.KIND,wt_shsz_pb.KIND):
                 calendar=config['models']['calendars']['cn']
                 latest=(date.fromisoformat(effective)-timedelta(days=source['overlap_days'])).isoformat()
                 start=max(repair_history_start or latest,source['history_from'],calendar['coverage_start'])
@@ -201,7 +202,6 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 updates=market_history(fetch,source,start,end,market_client_factory)
             elif source['kind']==WT_GOV10Y:
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
-                start=max(start,source['history_from'])
                 updates=wt_gov10y_history(fetch,start,end,market_client_factory,snapshot_dates=versions)
             elif source['kind']==wt_margin_summary.KIND:
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
@@ -371,6 +371,12 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 receipt['loaded_period']=max(loaded,default=None)
                 if any(row['is_open'] and start<=row['date']<=end and row['date'] not in loaded for row in sessions):
                     receipt.update(status='partial',error_code='wt_history_incomplete')
+            if source['kind']==WT_GOV10Y:
+                sessions,_=official_calendar(calendar,check=budget.remaining)
+                loaded={row['date'] for row in tables[WT_GOV10Y_TABLE] if row.get('gov10y_pct') is not None}
+                receipt['loaded_period']=max(loaded,default=None)
+                if any(row['is_open'] and start<=row['date']<=end and row['date'] not in loaded for row in sessions):
+                    receipt.update(status='partial',error_code='wt_history_incomplete')
             if source['kind']==wt_shenwan_source.KIND:
                 sessions,_=official_calendar(calendar,check=budget.remaining)
                 loaded={row['date'] for row in tables[wt_shenwan_source.TABLE]
@@ -446,7 +452,8 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 definition['universe_version']=reader.objects.put(parquet_bytes(tables[universe_table]),kind='standard')
             context_parents=table_parents.get('market.'+mapping[key]['symbol'],[]) if key in mapping else []
             if key in ('spread_sw', 'bond.erp_rank756'):
-                context_parents=[*context_parents, *table_parents.get(GOV10Y_TABLE, [])]
+                context_parents=[*context_parents,*table_parents.get(GOV10Y_TABLE, []),
+                                 *table_parents.get(WT_GOV10Y_TABLE, [])]
             if key in (*wt_shenwan_source.DATASETS,'bond.erp_rank756','system_c.research'):
                 context_parents=[*context_parents,*table_parents.get(wt_shenwan_source.TABLE, [])]
             if key in wt_margin_summary.DATASETS and wt_margin_summary.TABLE in tables:

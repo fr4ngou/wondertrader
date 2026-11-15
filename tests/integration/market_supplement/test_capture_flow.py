@@ -18,7 +18,7 @@ from integrations.guanheng_market_client.supplement_facts import GOV10Y_SCOPE,GO
 from guanheng_qmt_shm.read_retention_client import RetainedReadPending
 from guanheng_app.observation.source_fetch import SourceFailure
 from guanheng_app.observation.gov10y_source import TABLE,URL
-from guanheng_app.observation.wt_gov10y_source import history as read_gov10y
+from guanheng_app.observation.wt_gov10y_source import TABLE as WT_GOV10Y_TABLE, history as read_gov10y
 from guanheng_app.observation.refresh_models import spread_and_bond
 from types import SimpleNamespace
 
@@ -174,12 +174,16 @@ def test_gov10y_published_facts_feed_spread_and_keep_missing_day(tmp_path):
         assert [gap['date'] for gap in found['gaps']] == [DAYS[-1]]
         reader = SimpleNamespace(budget=fetch.budget, timeout=5, records=[], objects=ContentStore(tmp_path/'observer'))
         tables = read_gov10y(reader, DAYS[0], DAYS[-1], lambda _: WTClient(), snapshot_dates=[DAYS[-1]])
-        assert tables == {TABLE: [{'date': DAYS[0], 'gov10y_pct': 1.72}]}
+        assert tables == {WT_GOV10Y_TABLE: [{'date': DAYS[0], 'gov10y_pct': 1.72}]}
         assert requested == [query(metric=GOV10Y_YIELD, symbols=[GOV10Y_SCOPE])]
         assert [record['kind'] for record in reader.records] == ['wt_market_snapshot', 'wt_supplement_gov10y']
-        datasets = {'spread_sw': [dict(date=DAYS[0], pe=10)]}
+        tables[TABLE] = [dict(date=DAYS[0], gov10y_pct=1.5), dict(date=DAYS[-1], gov10y_pct=1.6)]
+        datasets = {'spread_sw': [dict(date=day, pe=10) for day in DAYS]}
         spread_and_bond(tables, datasets, {})
         assert datasets['spread_sw'][0]['spread'] == pytest.approx(8.28)
+        assert datasets['spread_sw'][-1]['spread'] == pytest.approx(8.4)
+        assert read_gov10y(reader, DAYS[-1], DAYS[-1], lambda _: WTClient(),
+                           snapshot_dates=[DAYS[-1]]) == {WT_GOV10Y_TABLE: []}
     finally:
         store.close()
 

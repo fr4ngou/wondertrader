@@ -3,8 +3,9 @@
 from guanheng_market_client.supplement_facts import GOV10Y_SCOPE, GOV10Y_YIELD
 
 from .etf_flow import snapshot_reader
-from .gov10y_source import TABLE
 from .source_fetch import SourceFailure
+
+TABLE = 'source.wt_gov10y'
 
 
 def history(fetch, start, end, client_factory, *, snapshot_dates):
@@ -27,6 +28,4 @@ def history(fetch, start, end, client_factory, *, snapshot_dates):
             raise SourceFailure('wt_market_snapshot_input_differs')
         rows.extend(dict(date=row['date'], gov10y_pct=float(row['value'])) for row in data['rows'])
         offset = data['selection']['next_offset']
-    if not rows:
-        raise SourceFailure('wt_gov10y_unavailable')
     return {TABLE: rows}

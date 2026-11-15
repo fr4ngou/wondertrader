@@ -8,7 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 from guanheng_market_client import MarketHTTPError
 
-from guanheng_app.observation import collection, data_repair, etf_flow, wt_margin_summary, wt_shsz_pb
+from guanheng_app.observation import collection, data_repair, etf_flow, wt_gov10y_source, wt_margin_summary, wt_shsz_pb
+from guanheng_app.observation.gov10y_source import TABLE as LEGACY_GOV10Y, WT_KIND as WT_GOV10Y
 from guanheng_app.observation.metadata import validate_fields
 from guanheng_app.observation.query import ObservationReader
 from guanheng_app.observation.runtime import build_reader
@@ -58,6 +59,20 @@ def test_wt_shsz_pb_repair_checks_missing_earlier_dates():
     assert data_repair._coverage_by_input(reader, manifest, source, DAY, lambda: None) == {
         wt_shsz_pb.TABLE: [DATES[0], DATES[2]],
     }
+
+
+def test_gov10y_wt_coverage_ignores_legacy_rows_and_empty_wt_values():
+    reader = ObservationReader(None, None)
+    reader.rows = {
+        'calendar': [dict(date=day, is_open=1) for day in DATES],
+        'legacy': [dict(date=day, gov10y_pct=1.6) for day in DATES],
+        'wt': [dict(date=DATES[0], gov10y_pct=1.7), dict(date=DAY, gov10y_pct=None)],
+    }.__getitem__
+    manifest = dict(source_tables={'source.cn_official_calendar':'calendar',
+                                   LEGACY_GOV10Y:'legacy', wt_gov10y_source.TABLE:'wt'},datasets={})
+    source = dict(kind=WT_GOV10Y, tables=[wt_gov10y_source.TABLE], history_from=DATES[0])
+    assert data_repair._coverage_by_input(reader,manifest,source,DAY,lambda:None) == {
+        wt_gov10y_source.TABLE: DATES[1:]}
 
 
 def test_margin_summary_checks_wt_fields_instead_of_legacy_chart_dates():
