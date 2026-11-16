@@ -139,6 +139,43 @@ def test_front_same_count_new_first_layer_uses_current_rows_without_old_file_hin
     assert seen['hints']=={}  # 同条数不授旧DSB复用；正常Helper编码当前9元数据。
 
 
+@pytest.mark.parametrize('complete', [True, False])
+def test_published_front_gap_uses_complete_same_day_stock_reference(tmp_path, monkeypatch, complete):
+    from integrations.guanheng import daily_front_archive as front
+
+    descriptor, entry, metadata = fixture(tmp_path, 'front_ratio')
+    market = layer(descriptor, entry)
+    stock_market = object()
+    inputs = tmp_path/'inputs.json'
+    inputs.write_bytes(encode(dict(cache=dict(directory='unused', sha256='a'*64))))
+    prepared = dict(path=str(inputs), sha256=digest(inputs.read_bytes()))
+    monkeypatch.setattr(front, 'load_price_capture', lambda _: {})
+    monkeypatch.setattr(front, 'capture_metadata', lambda *a, **kw: metadata)
+    monkeypatch.setattr(front, 'price_batches', lambda *a, **kw: iter(()))
+    row = dict(date=20261105, open=9., high=9., low=9., close=9., volume=3., amount=10.)
+    prior = {20261105: (row, metadata)}
+    today = {20261106: (dict(row, date=20261106), dict(metadata, factor_version='fresh-reference'))}
+    fresh = dict(today)
+    if complete:
+        fresh[20261105] = (row, today[20261106][1])
+    monkeypatch.setattr(front, 'read_price_history',
+        lambda source, *a, **kw: fresh if source is stock_market else prior)
+    seen = {}
+
+    def save_archive(rows, _, out, *_args, **_kwargs):
+        seen.update(rows)
+        out.mkdir(parents=True)
+        path = out/'archive.json'
+        path.write_bytes(encode(dict(entries=[])))
+        return dict(path=str(path), sha256=digest(path.read_bytes()))
+
+    monkeypatch.setattr(front, 'prepare_daily_archive', save_archive)
+    front.prepare_front_archive(prepared, market, [descriptor], tmp_path/'front',
+        dict(path='helper', sha256='b'*64), deadline=__import__('time').monotonic()+5,
+        maximum_history_rows=10000, cancelled=lambda: False, stock_market=stock_market, closed_day=20261106)
+    assert [bar['date'] for bar in seen['SSE.510300']] == ([20261105, 20261106] if complete else [20261105])
+
+
 @pytest.mark.parametrize('mismatch', [None, 'amount', 'close', 'provider', 'known-unit'])
 def test_same_date_qmt_unit_proof_survives_compaction(tmp_path,monkeypatch,mismatch):
     _,_,old=fixture(tmp_path)

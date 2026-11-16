@@ -166,13 +166,30 @@ def prepare_report_inputs(configuration, day, directory, *, deadline, cancelled)
         fetch.close()
 
 
+def _published_price_result(receipt, previous_publication, day, current, current_sha):
+    """按实际活动父版本选取同日已采用的价格结果。"""
+    if (receipt is not None and receipt.get('schema') == 'guanheng.daily-price-refresh-result.v1'
+            and receipt['price_date'] == day and receipt['current_sha256'] == current_sha):
+        return receipt['price_result']
+    if previous_publication is not None and current.get('observation_date') == day:
+        state_path = Path(previous_publication).parent / 'work' / 'STATE.json'
+        if state_path.exists():
+            state = strict_json(read_fixed(state_path, maximum=DAILY_UPDATE_REQUEST_BYTES))
+            if state['status'] == 'published' and state['current_sha256'] == current_sha:
+                return state['stages'].get('prices')
+    return None
+
+
 def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda: False,
-                   environ=None, previous_requests=(), prior_price_requests=(), baostock_daily_timeout_seconds=None):
+                   environ=None, previous_requests=(), prior_price_requests=(), baostock_daily_timeout_seconds=None,
+                   published_price_receipt=None, previous_publication=None):
     """调用方持publication锁；同目录输入请求及原slot固定，恢复不改capture_id。
 
     configuration.template为单轮更新静态配置，inputs为公开事实/原批读的有限预算。
     日事实、股票池、原缓存都实际保存后才写UPDATE.json；其摘要供单轮owner固定。
     旧任务的未决HPR槽继续保护及续核。已固定计划已证明的HPR终态沿原目录留证。
+    published_price_receipt由同一租约内的独立价格阶段提供，previous_publication为上轮同日完整请求。
+    新意图按实际父CURRENT固定可复用结果。
     """
     from .day_facts_capture import capture_day_facts
     from .day_facts_prepare import extend_facts_catalog
@@ -199,14 +216,21 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         original=strict_json(read_fixed(intent, maximum=16777216))
         configuration=fixed_price_input_configuration(configuration,original.get('configuration')if type(original)is dict else None)
         bound=dict(bound,configuration=configuration)
-        if 'security_reference' in original:
-            bound['security_reference'] = original['security_reference']
+        for field in ('security_reference', 'published_prices'):
+            if field in original:
+                bound[field] = original[field]
         if original != bound:
             raise ValueError('daily input original configuration differs')
     else:
         if current.exists():
-            current_value, _ = read_generation(current)
+            current_value, current_sha = read_generation(current)
             current_config = _load(current_value['configuration'], 1048576)
+            price_result = _published_price_result(published_price_receipt, previous_publication,
+                day, current_value, current_sha)
+            if price_result is not None:
+                bound['published_prices'] = dict(
+                    current_sha256=current_sha,  # 已包含这些价格归档的父CURRENT身份。
+                    result=price_result)  # 原价格结果描述符，包含捕获、证券资料及归档。
             reference = current_config.get('security_reference')
             if reference is not None:
                 bound['security_reference'] = reference  # 固定价格阶段已发布的证券资料，恢复沿本轮原件。
@@ -504,8 +528,13 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
     if configuration.get('price_scope')is not None:
         from .daily_price_scope import prepare_price_scope
         current_value,current_sha=read_generation(current)
-        scope=prepare_price_scope(configuration['price_scope'],day,selected_universe,current_value,root/'prices',
-            deadline=deadline,cancelled=cancelled,environ=environ,previous_scopes=scope_history)
+        published_prices = bound.get('published_prices')
+        if published_prices is not None and published_prices['current_sha256'] == current_sha:
+            scope = _load(published_prices['result'])['scope']
+        else:
+            published_prices = None
+            scope = prepare_price_scope(configuration['price_scope'],day,selected_universe,current_value,root/'prices',
+                deadline=deadline,cancelled=cancelled,environ=environ,previous_scopes=scope_history)
         template['price_maintenance']=dict(
             scope=scope,  # 全类别动态/保留价格池，普通A股指标池保持独立。
             current_configuration=current_value['configuration'],  # 固定旧价格读版本，恢复不跟随后继指针。
@@ -518,6 +547,8 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
             maximum_history_rows=configuration['price_scope']['maximum_history_rows'],  # 每证券完整历史预算。
             previous_archives=template['additional_archives'],  # 最新完整补充原价，保留原独立来源。
             helper=template['helper'])  # 同一固定原Helper，未引入独立导入owner。
+        if published_prices is not None:
+            template['price_maintenance']['published_prices'] = published_prices  # 本地合并沿已验证的捕获和归档。
         if inputs.get('price_cache_seed')is not None and not plans:
             template['price_maintenance']['cache_seed']=inputs['price_cache_seed']  # 同名单/闭合日的已完成原缓存，目录及原UUID保持。
         if configuration['price_scope'].get('index_fallback')is not None:

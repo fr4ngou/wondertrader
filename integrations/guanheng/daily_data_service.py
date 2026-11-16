@@ -418,12 +418,13 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                         transaction=work/'work'/'STATE.json'
                         parent_fixed=(transaction.exists()and'parent'in strict_json(
                             read_fixed(transaction,maximum=16777216))['stages'])  # 已提交完整事务拥有原父CURRENT，先沿原责任完成CAS。
+                        price_result = None
                         if config.get('price_scope')is not None and publisher.current_file.exists()and not parent_fixed:
                             # 价格与公共辅助事实共用owner/租约，先更新所有已知证券价格；旧事实时间保持原值。
                             from integrations.guanheng.daily_price_refresh import price_refresh
                             price_entry=index[day]
                             # 完整REQUEST已固定父CURRENT时先完成该事务；后继完整修订再推进独立价格，保持单一CAS链。
-                            if (not request_file.exists()and price_entry.get('price_state')=='published'
+                            if (fresh_observation_inputs(request_file) and price_entry.get('price_state')=='published'
                                     and price_entry.get('price_continuation_required',False)):
                                 price_entry['price_history_requests']=[*price_entry.get('price_history_requests',[]),price_entry['price_request']]
                                 price_entry['price_revision']=price_entry.get('price_revision',0)+1
@@ -476,8 +477,11 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             previous=list(config['inputs'].get('previous_requests',[]))
                             previous.extend(path for path in registered if Path(path)!=request_file)
                             previous=list(dict.fromkeys(previous))
+                            history_requests = entry.get('history_requests', ())
+                            previous_publication = history_requests[-1] if history_requests else None
                             prepared = prepare_update(config, day, work / 'inputs', deadline=deadline,
-                                cancelled=stopped, previous_requests=previous,
+                                cancelled=stopped, previous_requests=previous, published_price_receipt=price_result,
+                                previous_publication=previous_publication,
                                 prior_price_requests=[p for row in index.values()for p in
                                     [*row.get('price_history_requests',[]),*([row['price_request']]if row.get('price_request')else[])]
                                     if Path(p).is_file()], **public_request_options)

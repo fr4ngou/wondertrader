@@ -151,6 +151,10 @@ def run_update(request, directory, *, deadline, cancelled=lambda: False, environ
             parent = stage('parent', lambda: dict(
                 current_sha256=read_generation(publisher.current_file)[1]
                 if publisher.current_file.exists() else None))  # 首次原指针SHA；空仅用于首次发布，恢复不重取父版本。
+            if 'price_maintenance' in request:
+                published_prices = request['price_maintenance'].get('published_prices')
+                if published_prices is not None and published_prices['current_sha256'] != parent['current_sha256']:
+                    raise ValueError('published prices do not match daily update parent')
             cache = request['cache']
             if type(cache) is not dict or set(cache) != {'directory', 'sha256'}:
                 raise ValueError('daily update cache invalid')

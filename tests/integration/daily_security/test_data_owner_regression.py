@@ -76,6 +76,69 @@ class DataOwnerRegressionTests(unittest.TestCase):
         self.assertFalse(value['securities'][symbol]['target_readable'])
         self.assertEqual(value['securities'][symbol]['reason'],'source_unavailable')
 
+    def test_published_price_capture_is_reused_for_full_native_merge(self):
+        prices = daily_price_update
+        root = self.root()
+        day = '2026-11-03'
+        symbol = 'SSE.510300'
+        identity = security(symbol, 'etf')
+        universe = write(root/'universe.json', dict(securities={symbol: identity}))
+        scope = write(root/'scope.json', dict(universe=universe, source_members=[], reference=None,
+            observation_date=day, securities={symbol: identity}, groups=[]))
+        captured = write(root/'inputs.json', dict(securities={symbol: dict(reason='available', source_state='qualified')}))
+        raw = write(root/'prior-raw.json', {'entries': []})
+        front = write(root/'prior-front.json', {'entries': []})
+        strategy_capture = dict(directory=str(root/'strategy'), sha256='d'*64)
+        strategy = write(root/'strategy.json', dict(cache=strategy_capture, coverage={}))
+        result = write(root/'price-result.json', dict(schema='guanheng.daily-price-update.v1', scope=scope,
+            inputs=captured, additional_archives=[front, raw], strategy_history=strategy))
+        native = write(root/'native.json', {'observation_date': day.replace('-', '')})
+        base = write(root/'base.json', {})
+        request = dict(scope=scope, calendar=None, previous_archives=[], maximum_history_rows=2000, helper={},
+            strategy_history={'symbols': [symbol]}, published_prices=dict(current_sha256='a'*64, result=result))
+
+        class Market:
+            def call(self, *_args):
+                return dict(status=dict(code='Ok'), data=dict(bars=[dict(date=20261103)]))
+
+            def close(self):
+                pass
+
+        def merge_raw(inputs, market, previous, output, helper, reader, **options):
+            self.assertEqual(inputs, captured)
+            self.assertEqual(previous, [front, raw])
+            self.assertEqual(options['additional_captures'], (strategy_capture,))
+            return write(Path(output)/'archive.json', {'entries': []})
+
+        def merge_front(inputs, market, previous, output, helper, **options):
+            self.assertEqual(inputs, captured)
+            self.assertEqual(previous, [front, raw])
+            self.assertEqual(options['strategy_capture'], strategy_capture)
+            return write(Path(output)/'RESULT.json', dict(archive=front))
+
+        with ExitStack() as stack:
+            dependency = AssertionError('published prices must not call a Source collector')
+            stack.enter_context(patch.object(prices, 'prepare_price_inputs', side_effect=dependency))
+            stack.enter_context(patch('integrations.guanheng.daily_strategy_history.prepare_strategy_history',
+                side_effect=dependency))
+            compose = stack.enter_context(patch.object(prices, 'compose_native_import', return_value={}))
+            stack.enter_context(patch.object(prices, '_catalog', return_value=dict(native_reader={})))
+            stack.enter_context(patch.object(prices, 'create_native_source_market', side_effect=lambda *_: Market()))
+            stack.enter_context(patch.object(prices, 'compose_static_archive', side_effect=lambda base, *a, **kw: base))
+            merge = stack.enter_context(patch.object(prices, 'materialize_price_archive', side_effect=merge_raw))
+            stack.enter_context(patch.object(prices, 'prepare_front_archive', side_effect=merge_front))
+            arguments = dict(deadline=time.monotonic()+10, cancelled=lambda: False)
+            prepared = prices.prepare_price_update(request, native, base, root/'work', **arguments)
+            resumed = prices.prepare_price_update(request, native, base, root/'work', **arguments)
+            self.assertEqual(prepared, resumed)
+            compose.assert_called_once_with({}, update._load(native))
+            merge.assert_called_once()
+
+        merged = update._load(prepared)
+        self.assertEqual(merged['inputs'], captured)
+        self.assertEqual(merged['strategy_history'], strategy)
+        self.assertTrue(merged['securities'][symbol]['target_readable'])
+
     def test_source_binding_change_rejects_old_cursor_before_new_slot(self):
         from integrations.guanheng.source_reference_capture import capture_reference
         from guanheng_qmt_shm import security_reference_source as seam
@@ -148,9 +211,12 @@ class DataOwnerRegressionTests(unittest.TestCase):
             previous_archives=[],protected_slots=[],authorized_from='20261103',authorized_to='20261103',
             additional_archives=[],connections=dict(batch={},hpr={}),prepared_native=prepared,price_maintenance={})
         def plan(capture,reference,snapshot,output,**kwargs):
+            symbols = ['600000.SH', '600001.SH'] if unadvanced else ['600000.SH']
+            tasks = [dict(index=index, symbol=symbol, start_date='20261103', end_date='20261103',
+                dates=['20261103'], reason='calendar_expected_cache_gap') for index, symbol in enumerate(symbols)]
             return write(output/'PLAN.json',dict(schema='guanheng.daily-gap-plan.v1',
                 snapshot_id=snapshot['snapshot_id'],capture=capture,authorized_from='20261103',
-                authorized_to='20261103',tasks=[dict(index=0,symbol='600000.SH')]+([dict(index=1,symbol='600001.SH')]if unadvanced else[])))
+                authorized_to='20261103',protected_requests=[],exclusions=[],tasks=tasks))
         advances=[]
         def advance(descriptor,output,owner,**kwargs):
             output=Path(output);observations=output/'observations'
@@ -185,7 +251,8 @@ class DataOwnerRegressionTests(unittest.TestCase):
             'integrations.guanheng.market_snapshot_prepare.load_snapshot_basics':lambda *a:({},'a'*64),
             'integrations.guanheng.market_snapshot_prepare.prepare_market_snapshot':snapshot,
             'guanheng_qmt_shm.analysis_batch_source.read_capture':lambda *a:manifest,
-            'guanheng_qmt_shm.analysis_batch_source.BatchAnalysisSource':Closed,
+            'integrations.guanheng.daily_batch_source.DailyBatchAnalysisSource':Closed,
+            'integrations.guanheng.daily_batch_source.seed_unaffected_readback_batches':lambda *a,**kw:None,
             'guanheng_qmt_shm.market_daily_preparation.MarketDailyPreparation':Closed,
             'guanheng_qmt_shm.market_daily_cache.assess':lambda *a:dict(full_coverage=False),
             'integrations.guanheng.daily_price_update.prepare_price_update':lambda *a,**kw:price,

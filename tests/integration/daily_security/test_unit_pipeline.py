@@ -55,7 +55,7 @@ def test_service_and_scope_accept_only_explicit_descriptor_shape(tmp_path, monke
 
 @pytest.mark.parametrize("original_selection", [None, "old"])
 def test_full_input_resume_preserves_original_optional_choice_and_source_bytes(tmp_path, original_selection):
-    original=dict(price_scope={}, template={})
+    original=dict(price_scope={}, template=dict(publication_directory=str(tmp_path/'publication')))
     if original_selection:
         original["price_scope"]["unit_evidence"]=unit_descriptor(tmp_path/"old")
     work=tmp_path/"inputs";work.mkdir()

@@ -139,6 +139,63 @@ def test_complete_update_uses_published_security_reference_and_keeps_input_bindi
     assert intent.read_bytes() == original_intent
 
 
+@pytest.mark.parametrize('matching_day,matching_parent,previous_is_parent', [
+    (True, True, False), (False, True, False), (True, False, False), (True, False, True)])
+def test_full_input_binds_only_published_prices_for_its_day_and_parent(
+        tmp_path, monkeypatch, matching_day, matching_parent, previous_is_parent):
+    from integrations.guanheng import daily_price_scope, day_facts_capture
+
+    config, pool, facts, request = owner_fixture(tmp_path)
+    _, _, healthy = patch_owner_dependencies(monkeypatch, config, pool, facts, request)
+    healthy['value'] = True
+    config['price_scope'] = dict(authorized_from='20261104', maximum_history_rows=2000)
+    publication = Path(config['template']['publication_directory'])
+    publication.mkdir()
+    (publication/'CURRENT.json').touch()
+    source = write(tmp_path/'current.json', dict(daily_facts=config['template']['daily_facts'], base={},
+        security_reference=config['template']['security_reference']))
+    parent = '1'*64
+    current = dict(configuration=source, snapshot_id='2'*64, observation_date=DAYS[-1])
+    monkeypatch.setattr(inputs, 'read_generation', lambda *_: (current, parent))
+    original_scope = write(tmp_path/'published-scope.json', {})
+    fallback_scope = write(tmp_path/'fallback-scope.json', {})
+    result = write(tmp_path/'published-prices.json', dict(scope=original_scope))
+    receipt = dict(schema='guanheng.daily-price-refresh-result.v1', price_result=result,
+        price_date=DAYS[-1] if matching_day else DAYS[0], current_sha256=parent if matching_parent else '3'*64)
+    previous = tmp_path/'previous'/'REQUEST.json'
+    write(previous.parent/'work'/'STATE.json', dict(status='published', current_sha256=parent if previous_is_parent else '4'*64,
+        stages=dict(prices=result)))
+    new_scopes = []
+
+    def new_scope(*_args, **_kwargs):
+        new_scopes.append(fallback_scope)
+        return fallback_scope
+
+    monkeypatch.setattr(daily_price_scope, 'prepare_price_scope', new_scope)
+    directory = tmp_path/'inputs'
+    arguments = dict(deadline=time.monotonic()+20)
+    with monkeypatch.context() as scoped:
+        def interrupt(*_args, **_kwargs):
+            raise InterruptedError('before building inputs')
+        scoped.setattr(day_facts_capture, 'capture_day_facts', interrupt)
+        with pytest.raises(InterruptedError):
+            inputs.prepare_update(config, DAYS[-1], directory, published_price_receipt=receipt,
+                previous_publication=str(previous), **arguments)
+    intent = (directory/'INPUTS.json').read_bytes()
+    # 模拟重启仅沿已写入的输入绑定恢复。
+    prepared = inputs.prepare_update(config, DAYS[-1], directory, **arguments)
+    assert (directory/'INPUTS.json').read_bytes() == intent
+    maintenance = inputs._load(prepared)['price_maintenance']
+    if (matching_day and matching_parent) or previous_is_parent:
+        assert maintenance['published_prices'] == dict(current_sha256=parent, result=result)
+        assert maintenance['scope'] == original_scope
+        assert not new_scopes
+    else:
+        assert 'published_prices' not in maintenance
+        assert maintenance['scope'] == fallback_scope
+        assert new_scopes == [fallback_scope]
+
+
 @pytest.mark.parametrize('with_readback', [False, True])
 def test_same_day_revision_reuses_the_committed_analysis_capture(tmp_path, monkeypatch, with_readback):
     config, pool, facts, request = owner_fixture(tmp_path)

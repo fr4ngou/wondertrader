@@ -278,7 +278,8 @@ def test_raw_hot_only_fills_missing_dates_and_preserves_ordinary_values(tmp_path
     ordinary={'510300.SH':{'data':{'20261106':bar(2)}}}
     hot={'510300.SH':{'data':{'20261105':bar(3),'20261106':bar(4)}}}
     monkeypatch.setattr(raw,'load_price_capture',lambda c:c)
-    monkeypatch.setattr(raw,'capture_metadata',lambda m,sha,b:{'reference':sha})
+    monkeypatch.setattr(raw,'capture_metadata',lambda m,sha,b:
+        dict(reference=sha, source=dict(provider='Qmt'), dataset_version='synthetic'))
     monkeypatch.setattr(raw,'price_batches',lambda c,m,**k:iter([(None,hot if c['sha256']=='b'*64 else ordinary)]))
     got={}
     def merge(market,rows,metadata,out,*args,**kwargs):

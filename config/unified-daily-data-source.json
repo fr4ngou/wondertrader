@@ -422,11 +422,11 @@
       "source": "integrations/guanheng/daily_batch_source.py"
     },
     "integrations/guanheng/daily_data_inputs.py": {
-      "sha256": "cc6d6c992769fd9754b56e4a1746489fa901e1fbe635ddbb278cd1fa5cdcf39a",
+      "sha256": "4e5ed97a61ade65566c71eeca5eef0df652e4324a39ba3400f0bca9d79d587e9",
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
-      "sha256": "578718583b149d14f6c739308ade1add616dfed63e7e352cbcb99d1545e11804",
+      "sha256": "ba5dada46f7c48c7ad54fdb9ddffd682e8f0bc644aaa59ee043bd1af6e9aa0dc",
       "source": "integrations/guanheng/daily_data_service.py"
     },
     "integrations/guanheng/daily_data_stages.py": {
@@ -434,11 +434,11 @@
       "source": "integrations/guanheng/daily_data_stages.py"
     },
     "integrations/guanheng/daily_data_update.py": {
-      "sha256": "8bd0ca66d50e1984d2246c164ffa6a6ffbb64f1aea404dc72ac96c2500248f9a",
+      "sha256": "51cdd1e69e7ea49e02cbd7c7a5a07ba8500c3d4460fb51370b0e263a3ce25f27",
       "source": "integrations/guanheng/daily_data_update.py"
     },
     "integrations/guanheng/daily_front_archive.py": {
-      "sha256": "2f4c03b0f8ee471bb9baa8e004a7c73adc7cd2acc58bb52bd2505d8d2c9fb3e4",
+      "sha256": "2025cad3d993d4160f03ccd6d5e44e4380c76b2ffa014f1ff4de7929205674da",
       "source": "integrations/guanheng/daily_front_archive.py"
     },
     "integrations/guanheng/daily_gap_plan.py": {
@@ -490,7 +490,7 @@
       "source": "integrations/guanheng/daily_price_scope.py"
     },
     "integrations/guanheng/daily_price_update.py": {
-      "sha256": "8c5b45f2634bd41eb48cc97b1e8cf513a158a845b206d0da9e8dda9ac84b4e3a",
+      "sha256": "f41a147c5da7fbf805abb9f95b59afc3053c802f011ad371b91c5f91646aa740",
       "source": "integrations/guanheng/daily_price_update.py"
     },
     "integrations/guanheng/daily_strategy_history.py": {
@@ -794,5 +794,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.50"
+  "version": "0.2.0a1+unified.51"
 }

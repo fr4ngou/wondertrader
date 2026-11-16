@@ -13,13 +13,14 @@ from .source_archive_identity import archive_entry_identity
 
 def prepare_front_archive(inputs,market,previous_archives,output,helper,*,deadline,
                           maximum_history_rows,cancelled,strategy_capture=None,strategy_coverage=None,
-                          unit_evidence_by_capture=None):
+                          unit_evidence_by_capture=None,stock_market=None,closed_day=None):
     """调用方持原租约并关闭market；本函数不触发HPR，原价完成独立于可选前复权。
 
     每证券采用同一当前供应商参考的完整实读日期，或完整保留其旧价格/参考。
     新捕获缺少旧日期时保留旧档并说明原因；不同参考的价格不按日期拼接。
     Native文件沿原Helper写读，价格键和factor_version供原Reader分别选择。
     unit_evidence_by_capture仅复用本次按capture SHA核过的来源资格；证券映射仍归唯一单位解析器。
+    stock_market与closed_day由同一调用方成对提供，尝试以闭合日的新股票前复权整体补齐旧参考。
     """
     root=Path(output);root.mkdir(exist_ok=False)
     prepared=_load(inputs);cache=prepared['cache'];manifest=load_price_capture(cache)
@@ -77,6 +78,14 @@ def prepare_front_archive(inputs,market,previous_archives,output,helper,*,deadli
             if not current:current=proposed
         complete=bool(current)and origin!='retained'
         selected=current if complete else old
+        if stock_market is not None and closed_day not in selected:
+            fresh = read_price_history(stock_market, symbol, 'front_ratio', deadline=deadline,
+                maximum_history_rows=maximum_history_rows, cancelled=cancelled)
+            if (closed_day in fresh and old.keys() <= fresh.keys()
+                    and len({metadata['factor_version'] for _, metadata in fresh.values()}) == 1):
+                current = selected = fresh
+                complete = True
+                origin = 'stock_native'
         states[symbol]=dict(
             source_state=item['status']if item is not None else'not_in_current_capture',  # 原SDK状态，未出现旧证券另列。
             captured_rows=len(current),  # 当前参考下实际合格行数，原零量不改变。

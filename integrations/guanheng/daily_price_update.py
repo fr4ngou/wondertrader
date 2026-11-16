@@ -1,4 +1,5 @@
 """原更新事务中的全类别价格阶段；同一owner、同一写租约、同一CURRENT。"""
+from contextlib import ExitStack
 from copy import deepcopy
 from pathlib import Path
 import time
@@ -69,8 +70,18 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         from .analysis_price_units import load_unit_evidence
         unit_evidence=load_unit_evidence(request['unit_evidence'],deadline=deadline,cancelled=cancelled)
     check();scope=_load(request['scope']);universe=_load(scope['universe'])
-    inputs=None
-    if universe['securities']:
+    published_prices = request.get('published_prices')
+    published_result = _load(published_prices['result']) if published_prices is not None else None
+    previous_archives = request['previous_archives']
+    inputs = None
+    if published_result is not None:
+        if (published_result['schema'] != 'guanheng.daily-price-update.v1'
+                or published_result['scope'] != request['scope']):
+            raise ValueError('published prices do not match daily price scope')
+        inputs = published_result['inputs']
+        archives = (*published_result['additional_archives'], *previous_archives)
+        previous_archives = list({(item['path'], item['sha256']): item for item in archives}.values())
+    elif universe['securities']:
         price_request=dict(schema='guanheng.daily-price-inputs.v1',
             universe=scope['universe'],current_configuration=request['current_configuration'],
             snapshot_id=request['snapshot_id'],reference=scope['reference'],calendar=request['calendar'],
@@ -91,7 +102,9 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
     base=compact_price_base(base,request.get('replaced_archives',()))
     reader=_catalog(base)['native_reader'];limit=request['maximum_history_rows'];archive=None
     strategy_history=None;strategy_capture=None;strategy_coverage=None
-    if request.get('strategy_history')is not None:
+    if published_result is not None:
+        strategy_history = published_result.get('strategy_history')
+    elif request.get('strategy_history')is not None:
         if not set(request['strategy_history']['symbols'])<=set(scope['securities']):
             raise ValueError('strategy history outside declared price identities')
         from .daily_strategy_history import prepare_strategy_history
@@ -100,6 +113,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
             protected_slots=request['protected_slots'],source_kind=request['source_kind'],snapshot_id=request['snapshot_id'],
             previous_requests=request.get('strategy_history_previous_requests',())),root/'sh',
             deadline=deadline,cancelled=cancelled,environ=environ)
+    if strategy_history is not None:
         strategy_observation=_load(strategy_history)
         strategy_capture=strategy_observation['cache'];strategy_coverage=strategy_observation['coverage']
     unit_options={}
@@ -118,32 +132,40 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
                 result=_descriptor(output/'archive.json',DAILY_ARCHIVE_MANIFEST_BYTES);_load(result,DAILY_ARCHIVE_MANIFEST_BYTES)
                 return result
             archive=prepare_directory(root,'price-archive','archive.json',lambda output:
-                materialize_price_archive(inputs,market,request['previous_archives'],output,request['helper'],reader,
+                materialize_price_archive(inputs,market,previous_archives,output,request['helper'],reader,
                     deadline=deadline,maximum_history_rows=limit,cancelled=cancelled,
                     additional_captures=(strategy_capture,)if strategy_capture is not None else(),**unit_options),restore,recover_prior=True)
         finally:market.close()
     # 即使本次无额外证券，也保持已有补充价格；旧整档遮蔽股票新尾日的情况在有补充输入时统一收敛。
-    additional=[archive]if archive is not None else request['previous_archives']
+    additional=[archive]if archive is not None else previous_archives
     front=None
     if inputs is not None:
         previous_view=base
-        for item in request['previous_archives']:
+        archives = reversed(previous_archives) if published_result is not None else previous_archives
+        for item in archives:
             previous_view=compose_static_archive(previous_view,item,reader,max_bars=limit)
-        market=create_native_source_market(previous_view)
-        try:
+        with ExitStack() as views:
+            market = create_native_source_market(previous_view)
+            views.callback(market.close)
+            front_options = {}
+            if published_result is not None and native is not None:
+                stock_market = create_native_source_market(base)
+                views.callback(stock_market.close)
+                front_options = dict(
+                    stock_market=stock_market,  # 本轮新股票Native的只读视图，可进一步补齐已发布的前复权缺口。
+                    closed_day=int(scope['observation_date'].replace('-', '')))  # 需要更新的闭合交易日YYYYMMDD。
             def restore_front(output):
                 descriptor=_descriptor(output/'RESULT.json');value=_load(descriptor)
                 if value['archive']is not None:_load(value['archive'],DAILY_ARCHIVE_MANIFEST_BYTES)
                 return descriptor
             def build_front(output):
-                prepare_front_archive(inputs,market,request['previous_archives'],output,request['helper'],
+                prepare_front_archive(inputs,market,previous_archives,output,request['helper'],
                     deadline=deadline,maximum_history_rows=limit,cancelled=cancelled,strategy_capture=strategy_capture,
-                    strategy_coverage=strategy_coverage,**unit_options)
+                    strategy_coverage=strategy_coverage,**unit_options,**front_options)
                 return restore_front(output)
             front=prepare_directory(root,'price-front','RESULT.json',build_front,restore_front)
             front_value=_load(front)
             if front_value['archive']is not None:additional=[front_value['archive']]+additional
-        finally:market.close()
     for item in additional:base=compose_static_archive(base,item,reader,max_bars=limit)
     input_values=_load(inputs)if inputs is not None else None
     supplement=None
