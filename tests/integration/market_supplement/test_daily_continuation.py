@@ -477,6 +477,35 @@ def test_manual_observation_request_revises_partial_wt_snapshot_and_fills_gap(tm
     assert final['id']==job['id'] and final['state']=='complete' and final['items'][0]['missing_count']==0
 
 
+def test_report_prior_index_uses_one_snapshot_during_owner_replacement(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from integrations.guanheng import market_generation
+
+    task = tmp_path/'tasks'
+    index = task/'INDEX.json'
+    day = DAYS[-1]
+    write(index, {day: dict(state='published')})
+    current = task/day/'inputs'
+    current.mkdir(parents=True)
+    original_open = market_generation._read_stream
+    replaced = False
+
+    @contextmanager
+    def replace_after_open(path):
+        nonlocal replaced
+        with original_open(path) as stream:
+            yield stream
+        if Path(path) == index and not replaced:
+            replaced = True
+            capture._save(index, {day: dict(state='preparing')})
+
+    monkeypatch.setattr(market_generation, '_read_stream', replace_after_open)
+    assert capture.prior_supplement_catalogs(None, task, current, day,
+        objects=ContentStore(tmp_path/'raw'), check=lambda: None) == []
+    assert replaced
+    assert json.loads(index.read_bytes())[day]['state'] == 'preparing'
+
+
 def test_prior_success_proof_damage_blocks_reuse_before_new_source(tmp_path):
     objects=ContentStore(tmp_path/'raw');fetch=FrozenFetch(bad_day=DAYS[0]);transport=QmtTransport()
     targets=plan(('etf_total_shares','SSE.510300'),('margin_balance','CN.MARGIN_REPORT'))

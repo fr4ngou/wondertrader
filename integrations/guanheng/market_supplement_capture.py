@@ -8,8 +8,9 @@ from pathlib import Path
 import re
 import time
 
-from .daily_data_update import _save, _descriptor, _load
-from .market_generation import encode
+from .daily_data_update import DAILY_UPDATE_REQUEST_BYTES, _save, _descriptor, _load
+from .market_generation import encode, read_fixed
+from ..guanheng_market_client import strict_json
 from ..guanheng_market_client.supplement_facts import (
     BUYBACK_EXECUTION, GOV10Y_YIELD, INDEX_FREE_FLOAT_CAP, INDEX_TURNOVER, IPO_PROCEEDS,
     MARGIN_DAILY_SUMMARY, MARGIN_PURCHASE, MARGIN_REPORT, MARGIN_SUMMARY_FIELDS, SHAREHOLDER_REDUCTION,
@@ -178,7 +179,8 @@ def prior_supplement_catalogs(previous, task_directory, input_directory, day, *,
     task_root = Path(task_directory).absolute()
     index_path = task_root / 'INDEX.json'
     if index_path.exists():
-        index = _load(_descriptor(index_path))
+        # 行情线程可原子替换索引。读取同一个打开的版本，避免两次打开之间换版。
+        index = strict_json(read_fixed(index_path, maximum=DAILY_UPDATE_REQUEST_BYTES))
         seen = set()
         for previous_day, entry in sorted(index.items(), reverse=True):
             check()

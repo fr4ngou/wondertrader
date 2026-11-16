@@ -542,7 +542,7 @@
       "source": "integrations/guanheng/market_snapshot_prepare.py"
     },
     "integrations/guanheng/market_supplement_capture.py": {
-      "sha256": "77096ac4fe76993abbbfbf2f11e3cfac9b4478be7f2795b93e667f6a84ef9a2f",
+      "sha256": "07756439776a202142f552e0754300bea308cd53b37d2379061ea60df9550435",
       "source": "integrations/guanheng/market_supplement_capture.py"
     },
     "integrations/guanheng/market_buyback_disclosures.py": {
