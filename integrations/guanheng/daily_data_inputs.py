@@ -170,14 +170,14 @@ def _published_price_result(receipt, previous_publication, day, current, current
     """按实际活动父版本选取同日已采用的价格结果。"""
     if (receipt is not None and receipt.get('schema') == 'guanheng.daily-price-refresh-result.v1'
             and receipt['price_date'] == day and receipt['current_sha256'] == current_sha):
-        return receipt['price_result']
+        return receipt['price_result'], False
     if previous_publication is not None and current.get('observation_date') == day:
         state_path = Path(previous_publication).parent / 'work' / 'STATE.json'
         if state_path.exists():
             state = strict_json(read_fixed(state_path, maximum=DAILY_UPDATE_REQUEST_BYTES))
             if state['status'] == 'published' and state['current_sha256'] == current_sha:
-                return state['stages'].get('prices')
-    return None
+                return state['stages'].get('prices'), True
+    return None, False
 
 
 def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda: False,
@@ -225,12 +225,15 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         if current.exists():
             current_value, current_sha = read_generation(current)
             current_config = _load(current_value['configuration'], 1048576)
-            price_result = _published_price_result(published_price_receipt, previous_publication,
+            price_result, retry_pending = _published_price_result(published_price_receipt, previous_publication,
                 day, current_value, current_sha)
             if price_result is not None:
                 bound['published_prices'] = dict(
                     current_sha256=current_sha,  # 已包含这些价格归档的父CURRENT身份。
                     result=price_result)  # 原价格结果描述符，包含捕获、证券资料及归档。
+                if retry_pending:
+                    # 从上一完整修订接续时保留仍待核的额外证券，本轮新价格发布则直接复用。
+                    bound['published_prices']['retry_pending'] = True
             reference = current_config.get('security_reference')
             if reference is not None:
                 bound['security_reference'] = reference  # 固定价格阶段已发布的证券资料，恢复沿本轮原件。
@@ -568,6 +571,9 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                 qmt=by_plan[observation['plan_sha256']]['tasks'][index]['symbol'];code,market=qmt.split('.')
                 pending.add({'SH':'SSE','SZ':'SZSE','BJ':'BSE'}[market]+'.'+code)
         template['prior_pending_symbols']=sorted(pending)  # 原身份仍待核的证券集合，已可读Native不因此失去价格资格。
+        if published_prices is not None and published_prices.get('retry_pending') and pending:
+            template['price_maintenance']['published_prices'] = dict(published_prices,
+                prior_pending_symbols=sorted(pending))  # 原保护槽可能使继任计划不创建新HPR，保留旧证券的续核责任。
     if supplement is not None:
         template['supplement_facts'] = supplement  # 同一固定快照发布新增市场事实。
     if 'prepared_native' in template and _load(template['prepared_native'])['capture_sha256'] != cache['sha256']:

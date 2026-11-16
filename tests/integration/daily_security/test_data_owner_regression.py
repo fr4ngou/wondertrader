@@ -139,6 +139,63 @@ class DataOwnerRegressionTests(unittest.TestCase):
         self.assertEqual(merged['strategy_history'], strategy)
         self.assertTrue(merged['securities'][symbol]['target_readable'])
 
+    def test_same_day_published_prices_retry_only_the_unresolved_symbol(self):
+        prices = daily_price_update
+        root = self.root()
+        day = '2026-11-13'
+        pending = 'SSE.000979'
+        settled = 'SSE.510300'
+        identities = {pending: security(pending, 'index'), settled: security(settled, 'etf')}
+        universe = write(root/'universe.json', dict(securities=identities, observation_date=day))
+        scope = write(root/'scope.json', dict(universe=universe, securities=identities,
+            observation_date=day, source_members=list(identities), reference=None, groups=[]))
+        original_plan = write(root/'gap.json', dict(schema='guanheng.daily-gap-plan.v1',
+            capture=dict(directory=str(root/'original'), sha256='a'*64), snapshot_id='b'*64,
+            authorized_from='20261113', authorized_to='20261113', protected_requests=[], exclusions=[],
+            tasks=[dict(index=0, symbol='000979.SH', start_date='20261113', end_date='20261113',
+                dates=['20261113'], reason='calendar_expected_cache_gap')]))
+        captured = write(root/'captured.json', dict(plan=original_plan, preparation=None, securities={}))
+        archive = write(root/'prior.json', {'entries': []})
+        published = write(root/'published.json', dict(schema='guanheng.daily-price-update.v1', scope=scope,
+            inputs=captured, additional_archives=[archive], securities={
+                pending: dict(target_readable=False, reason='target_not_in_cache', source_attempts=[]),
+                settled: dict(target_readable=True, reason='available', source_attempts=[])}))
+        base = write(root/'base.json', {})
+        request = dict(scope=scope, current_configuration=base, snapshot_id='b'*64, calendar=None,
+            connections={}, authorized_from='20261113', source_kind='sdk-synthetic', protected_slots=['old-slot'],
+            previous_archives=[], maximum_history_rows=2000, helper={},
+            published_prices=dict(current_sha256='c'*64, result=published, retry_pending=True))
+        refreshed = write(root/'refreshed.json', {'securities': {}})
+
+        class Market:
+            def call(self, *_args):
+                return dict(status=dict(code='Ok'), data=dict(bars=[dict(date=20261113)]))
+
+            def close(self):
+                pass
+
+        def capture_selected(price_request, output, **_options):
+            self.assertEqual(update._load(price_request['universe'])['securities'], {pending: identities[pending]})
+            self.assertEqual(price_request['protected_slots'], ['old-slot'])
+            return refreshed
+
+        with ExitStack() as stack:
+            capture = stack.enter_context(patch.object(prices, 'prepare_price_inputs', side_effect=capture_selected))
+            stack.enter_context(patch.object(prices, '_catalog', return_value=dict(native_reader={})))
+            stack.enter_context(patch.object(prices, 'create_native_source_market', side_effect=lambda *_: Market()))
+            stack.enter_context(patch.object(prices, 'compose_static_archive', side_effect=lambda base, *a, **kw: base))
+            stack.enter_context(patch.object(prices, 'materialize_price_archive', side_effect=lambda *args, **kw:
+                write(Path(args[3])/'archive.json', {'entries': []})))
+            stack.enter_context(patch.object(prices, 'prepare_front_archive', side_effect=lambda *args, **kw:
+                write(Path(args[3])/'RESULT.json', {'archive': None})))
+            result = prices.prepare_price_update(request, None, base, root/'work',
+                deadline=time.monotonic()+10, cancelled=lambda: False)
+            capture.assert_called_once()
+        final = update._load(result)
+        self.assertEqual(final['inputs'], refreshed)
+        self.assertTrue(final['securities'][pending]['target_readable'])
+        self.assertTrue(final['securities'][settled]['target_readable'])
+
     def test_source_binding_change_rejects_old_cursor_before_new_slot(self):
         from integrations.guanheng.source_reference_capture import capture_reference
         from guanheng_qmt_shm import security_reference_source as seam

@@ -422,7 +422,7 @@
       "source": "integrations/guanheng/daily_batch_source.py"
     },
     "integrations/guanheng/daily_data_inputs.py": {
-      "sha256": "4e5ed97a61ade65566c71eeca5eef0df652e4324a39ba3400f0bca9d79d587e9",
+      "sha256": "3fb1bacb6c4728bf41cce8c4540d792e60f08cfafdbd5e24a45950d70c8e5dca",
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
@@ -474,7 +474,7 @@
       "source": "integrations/guanheng/daily_price_capture.py"
     },
     "integrations/guanheng/daily_price_continuation.py": {
-      "sha256": "9b48c8b577550e5387d1a473551d80cc9ea06cc55ef8826d9c50cf51a80f5ffd",
+      "sha256": "9a308eb2ae966d3f20742583b6ca288a7f7cf668483e59fca113384cfb53c149",
       "source": "integrations/guanheng/daily_price_continuation.py"
     },
     "integrations/guanheng/daily_price_inputs.py": {
@@ -490,7 +490,7 @@
       "source": "integrations/guanheng/daily_price_scope.py"
     },
     "integrations/guanheng/daily_price_update.py": {
-      "sha256": "f41a147c5da7fbf805abb9f95b59afc3053c802f011ad371b91c5f91646aa740",
+      "sha256": "0d47b2bbbf6f9e4c8d630e439a231226882a07cd884662289b611c482cce11ee",
       "source": "integrations/guanheng/daily_price_update.py"
     },
     "integrations/guanheng/daily_strategy_history.py": {
@@ -794,5 +794,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.51"
+  "version": "0.2.0a1+unified.52"
 }

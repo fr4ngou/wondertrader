@@ -74,6 +74,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
     published_result = _load(published_prices['result']) if published_prices is not None else None
     previous_archives = request['previous_archives']
     inputs = None
+    capture_universe = scope['universe']
     if published_result is not None:
         if (published_result['schema'] != 'guanheng.daily-price-update.v1'
                 or published_result['scope'] != request['scope']):
@@ -81,13 +82,28 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
         inputs = published_result['inputs']
         archives = (*published_result['additional_archives'], *previous_archives)
         previous_archives = list({(item['path'], item['sha256']): item for item in archives}.values())
-    elif universe['securities']:
+        capture_universe = None
+        if published_prices.get('retry_pending'):
+            from .daily_price_continuation import pending_price_targets
+            pending = pending_price_targets(published_result, published_prices.get('prior_pending_symbols', ()),
+                deadline=deadline, cancelled=cancelled)
+            members = {symbol: identity for symbol, identity in universe['securities'].items() if symbol in pending}
+            if members:
+                pending_universe = dict(universe, securities=members)
+                path = root/'PENDING-UNIVERSE.json'
+                if not path.exists():
+                    _save(path, pending_universe)
+                capture_universe = _descriptor(path)
+                if _load(capture_universe) != pending_universe:
+                    raise ValueError('daily price retry universe differs')
+    if capture_universe is not None and universe['securities']:
         price_request=dict(schema='guanheng.daily-price-inputs.v1',
-            universe=scope['universe'],current_configuration=request['current_configuration'],
+            universe=capture_universe,current_configuration=request['current_configuration'],
             snapshot_id=request['snapshot_id'],reference=scope['reference'],calendar=request['calendar'],
             connections=request['connections'],protected_slots=request['protected_slots'],
             authorized_from=request['authorized_from'],source_kind=request['source_kind'])
-        if request.get('cache_seed')is not None:price_request['cache_seed']=request['cache_seed']
+        if published_result is None and request.get('cache_seed')is not None:
+            price_request['cache_seed']=request['cache_seed']
         if request.get('index_fallback')is not None:price_request['index_fallback']=request['index_fallback']
         if 'local_qmt_dat_root' in request:
             price_request.update(local_qmt_dat_root=request['local_qmt_dat_root'],local_helper=request['helper'])
@@ -196,8 +212,10 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
             count['source_price_excluded_count']+=symbol in source_members and excluded
             label=str(last)if last is not None else'unknown';count['tails'][label]=count['tails'].get(label,0)+1
             detail=input_values['securities'].get(symbol)if input_values is not None else None
-            reason=('available'if present else detail['reason']if detail is not None and detail['reason']!='available'
-                    else'native_target_unavailable')
+            prior = published_result.get('securities', {}).get(symbol, {}) if published_result is not None else {}
+            observed_reason = detail['reason'] if detail is not None else prior.get('reason')
+            reason = ('available' if present else observed_reason if observed_reason not in (None, 'available')
+                      else 'native_target_unavailable')
             if excluded:reason='not_price_instrument'
             assessment=reference.assess(dict(symbol=symbol,**{'from':target,'to':target}),identity,
                 [bar['date']for bar in data.get('bars',[])],daily_facts)
@@ -210,7 +228,7 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
                     status=trade_day_state(daily_facts.security_state(scope['observation_date'],symbol))
                     if status in('source_halted_quantity_unknown','source_trade_state_inconsistent'):reason=status
             if not present:count['gap_reasons'][reason]=count['gap_reasons'].get(reason,0)+1
-            attempts=[]
+            attempts = list(prior.get('source_attempts', ())) if detail is None else []
             if detail is not None:attempts.append(dict(provider='Qmt',state=detail['source_state'],reason=detail.get('source_error_code')))
             if supplement is not None and symbol in supplement['securities']:
                 extra=supplement['securities'][symbol]

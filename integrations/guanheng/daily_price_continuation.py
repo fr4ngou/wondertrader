@@ -20,6 +20,21 @@ def _pending_symbols(descriptor,progress,*,deadline=None,cancelled=lambda:False)
     return pending
 
 
+def pending_price_targets(price_result, prior_pending_symbols=(), *, stock_plan=None,
+                          stock_progress=None, deadline=None, cancelled=lambda: False):
+    """原补采责任尚未确认且目标日仍不可读的证券，已知无需价格的日期退出续补。"""
+    pending = set(prior_pending_symbols)
+    if stock_plan is not None:
+        pending.update(_pending_symbols(stock_plan, stock_progress, deadline=deadline, cancelled=cancelled))
+    if price_result['inputs'] is not None:
+        inputs = _load(price_result['inputs'])
+        pending.update(_pending_symbols(inputs['plan'], inputs['preparation'], deadline=deadline, cancelled=cancelled))
+    coverage = price_result['securities']
+    return {symbol for symbol in pending if symbol in coverage and not coverage[symbol]['target_readable']
+            and coverage[symbol].get('reason') not in
+                ('source_halted_no_trade', 'before_listing', 'after_expiry', 'not_price_instrument')}
+
+
 def requires_price_continuation(price_result,prior_pending_symbols=(),*,stock_plan=None,
                                 stock_progress=None,deadline=None,cancelled=lambda:False):
     """股票和额外价格共用责任判断；stock_progress固定于股票回读前，不随恢复的新观察覆盖。"""
@@ -32,12 +47,6 @@ def requires_price_continuation(price_result,prior_pending_symbols=(),*,stock_pl
         reference=_load(scope).get('reference_state',{})
         # 价格完成只证明已知名单；名册暂缺仍归原owner接续。captured的合法unsupported不触发空转。
         reference_pending=reference.get('state')in('waiting_reference_capability','reference_source_unavailable')
-    pending=set(prior_pending_symbols)
-    if stock_plan is not None:
-        pending.update(_pending_symbols(stock_plan,stock_progress,deadline=deadline,cancelled=cancelled))
-    if price_result['inputs']is not None:
-        inputs=_load(price_result['inputs'])
-        pending.update(_pending_symbols(inputs['plan'],inputs['preparation'],deadline=deadline,cancelled=cancelled))
-    return reference_pending or any(symbol in price_result['securities']and not price_result['securities'][symbol]['target_readable']
-               and price_result['securities'][symbol].get('reason')not in('source_halted_no_trade','before_listing','after_expiry','not_price_instrument')
-               for symbol in pending)
+    targets = pending_price_targets(price_result, prior_pending_symbols, stock_plan=stock_plan,
+        stock_progress=stock_progress, deadline=deadline, cancelled=cancelled)
+    return reference_pending or bool(targets)

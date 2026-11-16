@@ -187,7 +187,10 @@ def test_full_input_binds_only_published_prices_for_its_day_and_parent(
     assert (directory/'INPUTS.json').read_bytes() == intent
     maintenance = inputs._load(prepared)['price_maintenance']
     if (matching_day and matching_parent) or previous_is_parent:
-        assert maintenance['published_prices'] == dict(current_sha256=parent, result=result)
+        binding = dict(current_sha256=parent, result=result)
+        if previous_is_parent:
+            binding['retry_pending'] = True
+        assert maintenance['published_prices'] == binding
         assert maintenance['scope'] == original_scope
         assert not new_scopes
     else:
