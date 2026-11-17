@@ -17,10 +17,10 @@ def example():
                 pnl_cny='0.0',capital_source='synthetic-explicit-capital',cash_source='synthetic-native-NAV-minus-position',
                 price_basis='synthetic-OHLC')))
     return dict(schema=contracts.REPORT_SCHEMA,session_id=identity,input_sha256='2'*64,configuration_sha256='3'*64,
-        strategy_id=contracts.STRATEGY_ID,strategy_version=contracts.STRATEGY_VERSION,signal_algorithm_id=contracts.ALGORITHM_ID,
+        strategy_id=contracts.STRATEGY_ID,strategy_version=contracts.LEGACY_VERSION,signal_algorithm_id=contracts.ALGORITHM_ID,
         reference_report_sha256='4'*64,source_snapshot_sha256='5'*64,scope=contracts.REPORT_SCOPE,status='holding',
         policy=dict(initial_capital_cny='1000000',capital_source='synthetic-explicit-capital',currency='CNY',quantity_unit='share',multiplier=1,lot=100),
-        historical_model=deepcopy(contracts.MODEL),execution_model=deepcopy(contracts.MODEL),
+        historical_model=deepcopy(contracts.LEGACY_MODEL),execution_model=deepcopy(contracts.LEGACY_MODEL),
         evaluation_window={'warmup_date':'2026-01-02','from':'2026-01-05','to':'2026-01-05'},
         native_files=[[name,str(index)*64] for index,name in enumerate(['sessions','commodities','contracts','holidays','fees'])],
         native_outputs=[['trades.csv','6'*64]],callback_counts=[['init',1],['calculate',1]],records=[row],
@@ -92,7 +92,7 @@ def bound_input(report):
     history={'510300':[dict(date=d,open=1.,high=1.,low=1.,close=1.,volume=10.,amount=10.)
                        for d in ('2026-01-02','2026-01-05')]}
     value=dict(schema=contracts.INPUT_SCHEMA,strategy=dict(strategy_id=contracts.STRATEGY_ID,
-        strategy_version=contracts.STRATEGY_VERSION,algorithm_id=contracts.ALGORITHM_ID),
+        strategy_version=report['strategy_version'],algorithm_id=contracts.ALGORITHM_ID),
         reference_report=reference,reference_report_sha256=contracts._digest(reference,original=True),
         source_snapshot_sha256=report['source_snapshot_sha256'],history=history,calendar=['2026-01-02','2026-01-05'],
         evaluation_window=deepcopy(report['evaluation_window']),policy=deepcopy(report['policy']),fee_reserve_cny='5000',
@@ -114,3 +114,40 @@ def test_original_report_must_bind_the_same_frozen_input_and_signal_rows():
     # 两份纯值报告分别都合法，跨原件绑定仍须拒绝不同原信号。
     assert app_reports.validate_report_dict(wrong).record_count==1
     with pytest.raises(ValueError):app_reports.verify_original_native_input(wrong,value)
+
+
+
+def test_kc50_report_binds_confirmed_input_to_its_own_strategy():
+    report = example()
+    value = bound_input(report)
+    value['strategy'].update(strategy_id=contracts.CONFIRM_ID, strategy_version=contracts.CONFIRM_VERSION)
+    reference = value['reference_report']
+    reference[contracts.CONFIRM_FIELD] = True
+    reference['trades_by_code'] = {code: [] for code in contracts.CONFIRM_CODES}
+    value['history'] = {code: deepcopy(value['history']['510300']) for code in contracts.CONFIRM_CODES}
+    value['reference_report_sha256'] = contracts._digest(reference, original=True)
+    report.update(
+        strategy_id=contracts.CONFIRM_ID,
+        strategy_version=contracts.CONFIRM_VERSION,
+        reference_report_sha256=value['reference_report_sha256'],
+        input_sha256=contracts._digest(value),
+        configuration_sha256=contracts.configuration_id(value),
+        historical_model=contracts.model_for_version(contracts.CONFIRM_VERSION),
+        execution_model=contracts.model_for_version(contracts.CONFIRM_VERSION),
+    )
+    row = report['records'][0]
+    row['cash_control'] = dict(available_cash_cny='999999', reserved_buy_cost_cny='0', orders=[])
+    capture = row['capture']
+    capture['basis']['input_sha256'] = report['input_sha256']
+    position = capture['positions'][0]
+    symbols = sorted(contracts._native(code) for code in contracts.CONFIRM_CODES)
+    capture['positions'] = [dict(position, symbol=symbol) for symbol in symbols]
+    capture['prices'] = [[symbol, 1.0] for symbol in symbols]
+
+    checked = app_reports.verify_original_native_input(report, value)
+    assert checked['strategy'] == value['strategy']
+    assert app_reports.validate_report_dict(report).record_count == 1
+
+    report['strategy_id'] = contracts.STRATEGY_ID
+    with pytest.raises(ValueError):
+        app_reports.validate_report_dict(report)

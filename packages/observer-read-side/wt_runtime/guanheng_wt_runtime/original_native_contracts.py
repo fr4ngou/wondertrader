@@ -30,6 +30,10 @@ OPEN_MAP = {code: '588230' if code == '589680' else code for code in OPEN_CODES}
 OPEN_INPUT_FIELDS = {'opening_bars', 'execution_map', 'fee_mode'}
 ALGORITHM_ID='resonance-original-351f9d5-stable'
 UPSTREAM_COMMIT='351f9d58152e10efd2447c997b8ee4db66b5ac6a'
+CONFIRM_ID='resonance-kc50-pullback-confirm'
+CONFIRM_VERSION='0.3.0a1'
+CONFIRM_FIELD='kc50_pullback_confirmation'
+CONFIRM_CODES=('159352','159780','510050','510300','512100','515080','588000')
 REPORT_SCOPE='WT-native-original-signals; daily-OHLC-next-tick; historical/PIT/broker/production-unqualified'
 MAX_BYTES=16*1024*1024
 INPUT_FIELDS=(
@@ -79,9 +83,14 @@ OPEN_MODEL={
 
 
 def model_for_version(version):
-    models={STRATEGY_VERSION:MODEL, LEGACY_VERSION:LEGACY_MODEL, OPEN_VERSION:OPEN_MODEL}
+    models={STRATEGY_VERSION:MODEL, LEGACY_VERSION:LEGACY_MODEL, OPEN_VERSION:OPEN_MODEL,
+            CONFIRM_VERSION:dict(MODEL, strategy_variant=CONFIRM_ID)}
     _need(type(version) is str and version in models)
     return models[version]
+
+
+def strategy_id_for_version(version):
+    return CONFIRM_ID if version == CONFIRM_VERSION else STRATEGY_ID
 
 
 def scope_for_version(version):
@@ -136,9 +145,10 @@ def _normalize_input(value):
     _need(type(value) is dict and value.get('schema')==INPUT_SCHEMA)
     opening=type(value.get('strategy')) is dict and value['strategy'].get('strategy_version')==OPEN_VERSION
     _need(set(value)==set(INPUT_FIELDS)|(OPEN_INPUT_FIELDS if opening else set()))
-    _need(type(value['strategy']) is dict and value['strategy']==dict(strategy_id=STRATEGY_ID,
-          strategy_version=value['strategy'].get('strategy_version'),algorithm_id=ALGORITHM_ID))
-    model_for_version(value['strategy']['strategy_version'])
+    _need(type(value['strategy']) is dict)
+    version=value['strategy'].get('strategy_version')
+    _need(value['strategy']==dict(strategy_id=strategy_id_for_version(version),strategy_version=version,algorithm_id=ALGORITHM_ID))
+    model_for_version(version)
     report=value['reference_report']
     _need(type(report) is dict and report.get('schema')=='guanheng.resonance-original-report.v1'
           and report.get('upstream_commit')==UPSTREAM_COMMIT and report.get('algorithm_id')==ALGORITHM_ID)
@@ -155,6 +165,10 @@ def _normalize_input(value):
     else:
         _need(original_days==calendar[1:])
     codes=sorted(history)
+    if version==CONFIRM_VERSION:
+        _need(tuple(codes)==CONFIRM_CODES and report.get(CONFIRM_FIELD) is True)
+    else:
+        _need(CONFIRM_FIELD not in report)
     _need(all(type(code) is str and re.fullmatch('[0-9]{6}',code) is not None for code in codes))
     trades=report.get('trades_by_code')
     _need(type(trades) is dict and set(trades)==set(OPEN_CODES if opening else codes))
@@ -238,7 +252,7 @@ def normalize_input(value):
         raise SessionError('原版WT输入嵌套结构或数值无效') from None
 
 
-def build_input(snapshot,report,*,fee_reserve_cny='5000',fee_source='explicit-WT-bound-fees',market_manifest_source='frozen-original-input'):
+def build_input(snapshot,report,*,fee_reserve_cny='5000',fee_source='explicit-WT-bound-fees',market_manifest_source='frozen-original-input', execution_history=None):
     """固定原报告与输入核同后提取OHLC；默认5000元为显式模型缓冲，可由调用者选择。"""
     _need(type(snapshot) is dict and type(report) is dict and report.get('input_sha256')==_digest(snapshot,original=True))
     codes=sorted(report['trades_by_code']);history={}
@@ -251,8 +265,14 @@ def build_input(snapshot,report,*,fee_reserve_cny='5000',fee_source='explicit-WT
     for code in codes:
         history[code]=[dict(date=row['date'],open=row['open_price'],high=row['high_price'],low=row['low_price'],
             close=row['close_price'],volume=row['volume'],amount=row.get('amount',0)) for row in snapshot['daily'][code] if row['date'] in wanted]
+    version=CONFIRM_VERSION if report.get(CONFIRM_FIELD) is True else STRATEGY_VERSION
+    if version==CONFIRM_VERSION:
+        _need(type(execution_history) is dict and set(execution_history)==set(CONFIRM_CODES))
+        history={code:[dict(row,amount=row.get('amount',0)) for row in execution_history[code] if row['date'] in wanted]
+                 for code in codes}
+        fee_reserve_cny='0.01'
     return normalize_input(dict(schema=INPUT_SCHEMA,
-        strategy=dict(strategy_id=STRATEGY_ID,strategy_version=STRATEGY_VERSION,algorithm_id=ALGORITHM_ID),
+        strategy=dict(strategy_id=strategy_id_for_version(version),strategy_version=version,algorithm_id=ALGORITHM_ID),
         reference_report=report,reference_report_sha256=_digest(report,original=True),source_snapshot_sha256=report['input_sha256'],
         history=history,calendar=calendar,evaluation_window=dict(warmup_date=calendar[0],**{'from':calendar[1],'to':calendar[-1]}),
         policy=dict(initial_capital_cny='1000000',capital_source='explicit-original-WT-model',
@@ -343,7 +363,8 @@ def validate_report(value,*,check=None):
             'reference_report_sha256','source_snapshot_sha256','status','native_files','native_outputs',
             'callback_counts','records','source_qualified','execution_qualified','point_in_time_qualified',
             'execution_model','evaluation_window'} and report.get('schema')==REPORT_SCHEMA
-            and report.get('strategy_id')==STRATEGY_ID and report.get('strategy_version') in (STRATEGY_VERSION,LEGACY_VERSION,OPEN_VERSION)
+            and report.get('strategy_id')==strategy_id_for_version(report.get('strategy_version'))
+            and report.get('strategy_version') in (STRATEGY_VERSION,LEGACY_VERSION,OPEN_VERSION,CONFIRM_VERSION)
             and report.get('signal_algorithm_id')==ALGORITHM_ID
             and report.get('scope')==scope_for_version(report['strategy_version']))
         for name in ('session_id','input_sha256','configuration_sha256','reference_report_sha256','source_snapshot_sha256'):_hash(report.get(name))
