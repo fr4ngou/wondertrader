@@ -261,15 +261,12 @@ def test_first_execution_uses_current_deal_after_explicit_month_end_zero(monkeyp
             '公司于2026年11月2日通过集中竞价首次回购公司股份,支付的总金额为3,370,823.19元('
             + fees + ')。')
     monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
-    if fees == '含交易费用':
-        with pytest.raises(SourceUnavailable, match='buyback_execution_net_amount_missing'):
-            parse_execution(b'issuer', 'SZSE.002024', '2026-11-04')
-    else:
-        row = parse_execution(b'issuer', 'SZSE.002024', '2026-11-04')
-        assert disclosure_increments([row])[0]['increment_cny'] == Decimal('3370823.19')
+    row = parse_execution(b'issuer', 'SZSE.002024', '2026-11-04')
+    assert disclosure_increments([row])[0]['increment_cny'] == Decimal('3370823.19')
+    assert row['amount_basis'] == ('includes_fees' if fees == '含交易费用' else 'excludes_fees')
 
 
-def test_including_fees_only_reports_missing_net_execution_amount(monkeypatch):
+def test_including_fees_only_reports_disclosed_execution_amount(monkeypatch):
     from integrations.guanheng import market_buyback_disclosures as buybacks
 
     text = ('证券代码:301656证券简称:样本公告编号:2026-055关于首次回购公司股份的公告'
@@ -277,15 +274,16 @@ def test_including_fees_only_reports_missing_net_execution_amount(monkeypatch):
             '2026年11月10日,公司首次回购公司股份389,800股,'
             '已使用资金总额为人民币5,308,047.97元(含交易费用)。')
     monkeypatch.setattr(buybacks, '_pdf_text', lambda raw: text)
-    with pytest.raises(SourceUnavailable, match='buyback_execution_net_amount_missing'):
-        parse_execution(b'issuer', 'SZSE.301656', '2026-11-11')
+    row = parse_execution(b'issuer', 'SZSE.301656', '2026-11-11')
+    assert row['cumulative_cny'] == Decimal('5308047.97')
+    assert row['amount_basis'] == 'includes_fees'
 
 
 @pytest.mark.parametrize(('phrase', 'amount', 'expected'), [
     ('回购总金额', '33,869.65万元', Decimal('338696500')),
     ('资金发生总额', '13,406,996.00元', Decimal('13406996')),
 ])
-def test_dated_execution_total_variants_exclude_budgets_and_fees(monkeypatch, phrase, amount, expected):
+def test_dated_execution_total_variants_prefer_net_and_exclude_budgets(monkeypatch, phrase, amount, expected):
     from integrations.guanheng import market_buyback_disclosures as buybacks
 
     prefix = ('证券代码:002468证券简称:样本公告编号:2026-097关于回购公司股份的进展公告'
@@ -299,8 +297,9 @@ def test_dated_execution_total_variants_exclude_budgets_and_fees(monkeypatch, ph
     }
     monkeypatch.setattr(buybacks, '_pdf_text', texts.__getitem__)
     assert parse_execution(b'net', 'SZSE.002468', '2026-11-05')['cumulative_cny'] == expected
-    with pytest.raises(SourceUnavailable, match='buyback_execution_net_amount_missing'):
-        parse_execution(b'gross', 'SZSE.002468', '2026-11-05')
+    gross = parse_execution(b'gross', 'SZSE.002468', '2026-11-05')
+    assert gross['cumulative_cny'] == expected
+    assert gross['amount_basis'] == 'includes_fees'
     with pytest.raises(SourceUnavailable, match='buyback_execution_ambiguous'):
         parse_execution(b'budget_only', 'SZSE.002468', '2026-11-05')
 
@@ -497,8 +496,11 @@ def test_wt_buyback_fact_preserves_index_and_pdfs(tmp_path,monkeypatch):
     objects = ContentStore(tmp_path/'raw')
     pdfs = [objects.put(b'%PDF-one'),objects.put(b'%PDF-two')]
 
+    fee_notes = [dict(symbol='SZSE.301656',source_sha256=pdfs[0],amount_basis='includes_fees',
+                      prior_source_sha256=None,prior_amount_basis=None,increment_cny='100')]
+
     def disclosure(*args):
-        return {day:dict(amount=Decimal('100'),gap=None)},[(sha,day+'T15:00:00+00:00') for sha in pdfs]
+        return {day:dict(amount=Decimal('100'),gap=None,fee_basis_notes=fee_notes)},[(sha,day+'T15:00:00+00:00') for sha in pdfs]
 
     monkeypatch.setattr(buybacks,'disclosure_window',disclosure)
     descriptor = collect_supplement(targets,day,['2026-11-12',day],tmp_path/'work',objects=objects,
@@ -506,7 +508,12 @@ def test_wt_buyback_fact_preserves_index_and_pdfs(tmp_path,monkeypatch):
     store = MarketSupplementStore(descriptor)
     try:
         args = query(metric='buyback_execution_disclosed',symbols=['CN.SH_SZ'],**{'from':day,'to':day})
-        assert store.query(args)['rows'][0]['value']=='100'
+        row = store.query(args)['rows'][0]
+        assert row['value']=='100'
+        proof = json.loads(objects.get(row['source_sha256']))
+        index = json.loads(objects.get(proof['parents'][0]))
+        notes, = set(index['parents']) - set(pdfs)
+        assert json.loads(objects.get(notes)) == {'date':day,'fee_basis_notes':fee_notes}
         path = objects.root/'objects'/'sha256'/pdfs[0][:2]/pdfs[0]
         assert Path(path).is_file()
         path.unlink()

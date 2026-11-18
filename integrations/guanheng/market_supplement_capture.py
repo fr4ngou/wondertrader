@@ -626,8 +626,14 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
                 entry = result[date_]
                 if entry['gap']:
                     raise SourceUnavailable(entry['gap'])
+                parents = {sha for sha,_ in receipts}
+                if 'fee_basis_notes' in entry:
+                    parents.add(objects.put(encode(dict(
+                        date=date_,  # 回购汇总归属的交易日。
+                        fee_basis_notes=entry['fee_basis_notes'],  # 使用含费公告金额的逐笔凭据。
+                    ))))
                 index = objects.put(encode(dict(schema='guanheng.buyback-disclosure-proof.v1',
-                    date=date_, parents=sorted({sha for sha,_ in receipts}))))
+                    date=date_, parents=sorted(parents))))
                 record_row(date_,metric,scope,_fact(entry['amount'],'CNY','CNINFO',
                     [(index,max(clock for _,clock in receipts))]))
                 attempts.pop(key,None)

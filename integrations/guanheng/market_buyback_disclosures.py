@@ -43,7 +43,8 @@ ACTUAL_AMOUNT = re.compile(r'(?:支付(?:的)?(?:资金总额|总金额)|(?:累�
 DATED_EXECUTION_AMOUNT = re.compile(
     r'(?<!拟)(?<!计划)(?<!预计)(?:回购总金额|资金发生总额|成交金额合计|已回购金额|支付的金额)' + MONEY)
 RESULT_SUMMARY_AMOUNT = re.compile(r'实际回购金额' + MONEY)
-INCLUDING_FEES = re.compile(r'\(含(?:交易|相关交易)?费用')
+FEE_BASIS = re.compile(r'\((不?含)(?:相关)?(?:交易费用|手续费|费用)')
+AMOUNT_BASES = ('excludes_fees', 'unspecified', 'includes_fees')
 DATED_REPURCHASE = re.compile(
     r'(?:截至?|本次首次回购至|实际回购期间为20\d{2}年\d{1,2}月\d{1,2}日至)'
     r'(20\d{2})[年/](\d{1,2})[月/](\d{1,2})日?[,，:]([^。]{1,360})')
@@ -261,16 +262,21 @@ def _execution_amounts(text, notice_date, *, first_execution=False):
     def amounts(section, pattern=ACTUAL_AMOUNT):
         values = set()
         for match in pattern.finditer(section):
-            if INCLUDING_FEES.match(section, match.end()):
-                continue  # 按未含费用的实付额差分，避免把同笔含费总额当成另一笔成交。
+            fees = FEE_BASIS.match(section, match.end())
+            basis = ('excludes_fees' if fees[1] == '不含' else 'includes_fees') if fees else 'unspecified'
             integral, fraction, multiplier = match.groups()
             value = Decimal(integral.replace(',', '')+(fraction or '')) * {None: 1, '万': 10_000, '亿': 100_000_000}[multiplier]
             if value*100 == (value*100).to_integral_value():
-                values.add(value)
+                values.add((value, basis))
         return values
 
+    def preferred(values):
+        if not values:
+            return set(), 'unspecified'
+        basis = min((basis for _, basis in values), key=AMOUNT_BASES.index)
+        return {value for value, kind in values if kind == basis}, basis
+
     dated = {}
-    dated_gross = False
     for match in DATED_REPURCHASE.finditer(text):
         section = match[4]
         if '回购' not in section:
@@ -279,12 +285,9 @@ def _execution_amounts(text, notice_date, *, first_execution=False):
         # 两种金额表述同时用于执行期间和计划说明，只在定日执行段核算。
         committed = re.search(r'回购(?:公司)?股份(?:数量)?(?:为)?[0-9,]+(?:\.[0-9]+)?万?股', section)
         if committed:
-            actual = section[committed.end():]
-            dated_gross |= any(INCLUDING_FEES.match(actual, item.end())
-                               for item in DATED_EXECUTION_AMOUNT.finditer(actual))
-            values.update(amounts(actual, DATED_EXECUTION_AMOUNT))
+            values.update(amounts(section[committed.end():], DATED_EXECUTION_AMOUNT))
         if ZERO_EXECUTION.search(section):
-            values.add(Decimal(0))
+            values.add((Decimal(0), 'unspecified'))
         if values:
             try:
                 cutoff = date(*map(int, match.groups()[:3]))
@@ -294,18 +297,15 @@ def _execution_amounts(text, notice_date, *, first_execution=False):
                 raise SourceUnavailable('buyback_execution_value_invalid')
             dated.setdefault(cutoff, set()).update(values)
     if dated:
-        latest = dated[max(dated)]
+        latest, basis = preferred(dated[max(dated)])
         if not first_execution or latest != {Decimal(0)}:
-            return latest
+            return latest, basis
         # 首次执行暨月报可同时披露上月底零回购和本月首笔成交。
     # 公告结果表可能四舍五入，正文无实付额时才采用表内实际金额。
     paid = amounts(text) or amounts(text, RESULT_SUMMARY_AMOUNT)
     if not paid and BEFORE_EXECUTION.search(text):
-        return {Decimal(0)}
-    if not paid and (dated_gross or any(INCLUDING_FEES.match(text, item.end())
-                                       for item in ACTUAL_AMOUNT.finditer(text))):
-        raise SourceUnavailable('buyback_execution_net_amount_missing')
-    return paid
+        return {Decimal(0)}, 'unspecified'
+    return preferred(paid)
 
 
 def parse_execution(raw, symbol, notice_date, *, resolve_plan=None):
@@ -326,7 +326,7 @@ def parse_execution(raw, symbol, notice_date, *, resolve_plan=None):
     if not plans:
         plans = _distinct_notices(number for title, number in references if _proposal_kind(title) == 'report')
     first_execution = '首次回购' in front
-    amounts = _execution_amounts(text, notice_date, first_execution=first_execution)
+    amounts, basis = _execution_amounts(text, notice_date, first_execution=first_execution)
     if len(amounts) != 1 or len(plans) > 1:
         raise SourceUnavailable('buyback_execution_ambiguous')
     if not plans and resolve_plan is not None:
@@ -347,6 +347,7 @@ def parse_execution(raw, symbol, notice_date, *, resolve_plan=None):
         notice_date=notice_date,  # 公告索引的原披露日期。
         first_execution=first_execution,  # 标题明确为首次执行，不从最早样本猜测。
         cumulative_cny=amount,  # 本次披露的累计实际支付金额，元。
+        amount_basis=basis,  # 当前金额含费、不含费或公告未说明。
         source_sha256=sha256(raw).hexdigest(),  # 发行人原 PDF 摘要。
     )
 
@@ -393,7 +394,9 @@ def disclosure_increments(rows):
                                      or amount < before['cumulative_cny']):
             reason = 'buyback_plan_sequence_conflict'
             invalid.add(key)
-        result.append(dict(row, increment_cny=None if reason else amount-(before['cumulative_cny'] if before else 0), gap=reason))
+        result.append(dict(row, increment_cny=None if reason else amount-(before['cumulative_cny'] if before else 0),
+                           prior_amount_basis=before.get('amount_basis') if before else None,
+                           prior_source_sha256=before.get('source_sha256') if before else None, gap=reason))
         previous[key] = row
     return result
 
@@ -501,4 +504,14 @@ def disclosure_window(days, calendar, get, post):
             values[session]['gap'] = values[session]['gap'] or row['gap'] or 'buyback_execution_ambiguous'
         else:
             values[session]['amount'] += row['increment_cny']
+            if 'includes_fees' in (row.get('amount_basis'), row.get('prior_amount_basis')):
+                notes = values[session].setdefault('fee_basis_notes', [])
+                notes.append(dict(
+                    symbol=row['symbol'],  # 含费披露对应的证券。
+                    source_sha256=row['source_sha256'],  # 本期公告原件。
+                    amount_basis=row['amount_basis'],  # 本期累计金额的费用口径。
+                    prior_source_sha256=row['prior_source_sha256'],  # 前序公告原件，首笔为空。
+                    prior_amount_basis=row['prior_amount_basis'],  # 前序累计金额的费用口径。
+                    increment_cny=str(row['increment_cny']),  # 本次纳入日汇总的增量，元。
+                ))
     return values, list(dict.fromkeys(parents))
