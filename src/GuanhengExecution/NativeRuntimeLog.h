@@ -170,6 +170,7 @@ public:
         } catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
     }
     void request_rejection(const char* message) noexcept { handleLogAppend(wtp::LL_WARN,message); }
+    void failure(const char* message) noexcept { handleLogAppend(wtp::LL_ERROR,message); }
     NativeRuntimeLogStatus status() const noexcept {
         return {initialized_, file_opened_, first_error_saved_.load(std::memory_order_acquire),
             attempted_.load(std::memory_order_relaxed),

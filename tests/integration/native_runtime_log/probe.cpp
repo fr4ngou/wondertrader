@@ -39,7 +39,12 @@ int main(int argc, char** argv) {
         } else {
             log.start(directory);
             require(log.status().initialized && log.status().file_opened, "logger ready");
-            if (mode == "first-error-failure") {
+            if (mode == "runtime-failure") {
+                log.failure("CTA failure stage=configuration_permission exception=synthetic_business_mismatch");
+                require(log.status().first_error_saved, "native exceptions must preserve first error");
+                require(read(directory / "native-first-error.log").find("synthetic_business_mismatch") != std::string::npos,
+                    "native failure reason must be durable");
+            } else if (mode == "first-error-failure") {
                 const auto blocked = directory / "native-first-error.log";
                 fs::create_directory(blocked);
                 WTSLogger::log_raw(wtp::LL_ERROR, "first-copy-unavailable");

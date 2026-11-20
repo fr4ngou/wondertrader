@@ -50,6 +50,14 @@ def main():
         assert run.returncode != 0
         failure = json.loads((control / "failure.json").read_bytes())
         assert failure["stage"] == expected, (name, failure["stage"])
+        assert failure['private_exception'] and len(failure['private_exception'].encode('utf-8')) <= 512
+        first_error = (control / 'native-first-error.log').read_text(encoding='utf-8')
+        assert 'CTA failure stage=' + expected in first_error
+        assert failure['private_exception'] in first_error
+        logging = json.loads((control / 'native-log-status.json').read_bytes())
+        assert logging['first_error_saved'] is True and logging['closed'] is True
+        closed = json.loads((control / 'close-prepared.json').read_bytes())
+        assert closed['closed'] is True and closed['ok'] is False
         assert not any((control / file).exists() for file in ("ready.json", "reconciled.json", "lifecycle-started.json"))
         assert config.read_bytes() == raw
     assert template_sentinel.read_bytes() == b"old generation"

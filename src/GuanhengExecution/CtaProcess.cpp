@@ -57,7 +57,7 @@ void log_request_rejection(const char* line) noexcept {
 }
 using Clock=std::chrono::steady_clock;
 namespace {
-void need(bool value){if(!value)throw std::runtime_error("execution_host_configuration");}
+void need(bool value,const char* reason="execution_host_configuration"){if(!value)throw std::runtime_error(reason);}
 struct PublishedBroker {
     GhCtaBrokerFacts facts{};
     std::vector<GhCtaBrokerPosition> positions;
@@ -453,15 +453,16 @@ bool same_business(const rj::Value& left,const rj::Value& right){
     }
     return before==after;
 }
+rj::Document storage_model(const rj::Value& config);
 // 自有恢复准入归一化显式开关与运输引用；原账户、模型、账根继续逐项核验。
 rj::Document permission_model(const rj::Value& config,unsigned depth=0){
-    rj::Document current;current.CopyFrom(config,current.GetAllocator());current.RemoveMember("recovery");
+    auto current=storage_model(config);current.RemoveMember("recovery");
     if(!current.HasMember("execution_permission_origin"))return current;
     need(depth<16);const auto& marker=member(config,"execution_permission_origin");keys(marker,{"schema","file","sha256"});
     need(text(marker,"schema")=="guanheng.execution-permission-origin.v1");
     const auto path=absolute(text(marker,"file"));need(path.filename()=="execution.json");
     const auto raw=read(path,256*1024);need(sha(raw)==text(marker,"sha256",64));auto original=parse(raw);
-    rj::Document before;before.CopyFrom(original,before.GetAllocator());before.RemoveMember("recovery");
+    auto before=storage_model(original);before.RemoveMember("recovery");
     before.RemoveMember("execution_permission_origin");current.RemoveMember("execution_permission_origin");
     before.RemoveMember("shared_account_storage");current.RemoveMember("shared_account_storage");
     // 换代可更新当前安装引用；固定证券、原安装和Source交接材料仍逐项相同。
@@ -506,12 +507,12 @@ rj::Document permission_model(const rj::Value& config,unsigned depth=0){
     need(member(before,"trader").IsObject()&&member(current,"trader").IsObject());
     const auto& old=before["trader"];auto& selected=current["trader"];
     const auto& enabled=member(selected,"writes_enabled");const auto& prior=member(old,"writes_enabled");
-    need(enabled.IsBool()&&prior.IsBool()&&enabled.GetBool()!=prior.GetBool());
+    need(enabled.IsBool()&&prior.IsBool()&&enabled.GetBool()!=prior.GetBool(),"execution_permission_change_required");
     for(const char* key:{"writes_enabled","base_url","binding_id","binding_sha256","instance_id","key_id_env","hmac_secret_env"}){
         need(selected.HasMember(key)==old.HasMember(key));
         if(old.HasMember(key))selected[key].CopyFrom(old[key],current.GetAllocator());
     }
-    need(same_business(current,before));
+    need(same_business(current,before),"execution_permission_business_mismatch");
     if(config.HasMember("strategy_extension_origin"))return original;
     return permission_model(original,depth+1);
 }
@@ -894,15 +895,21 @@ rj::Document private_storage_copy(const rj::Value& config){
         &&allocation.parent_path()==absolute(text(member(config,"shared_account_storage"),"allocation_root")));
     return proof;
 }
+// 每份配置先核自己的迁移原件，再比较同一原业务目录，和 Python _storage_model 保持一致。
+rj::Document storage_model(const rj::Value& config){
+    rj::Document projected;projected.CopyFrom(config,projected.GetAllocator());
+    if(config.HasMember("private_storage_origin")){
+        const auto proof=private_storage_copy(config);
+        projected["output_directory"].CopyFrom(member(proof,"original_output"),projected.GetAllocator());
+        projected.RemoveMember("private_storage_origin");
+    }
+    return projected;
+}
 // 准入调用点持有原输出租约，券商O/P/A及原委托责任已沿原流程核查。
 rj::Document market_model(const rj::Value& config,unsigned depth=0){
     need(depth<16);
     if(config.HasMember("private_storage_origin")){
-        const auto proof=private_storage_copy(config);
-        rj::Document projected;projected.CopyFrom(config,projected.GetAllocator());
-        projected["output_directory"].CopyFrom(member(proof,"original_output"),projected.GetAllocator());
-        projected.RemoveMember("private_storage_origin");
-        return market_model(projected,depth+1);
+        return market_model(storage_model(config),depth+1);
     }
     if(!config.HasMember("strategy_extension_origin")){
         auto model=legacy_market_model(config);
@@ -1455,20 +1462,25 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             stage="configuration";
         }
         if(cfg.HasMember("private_storage_origin")){
+            stage="configuration_storage";
             need(text(member(cfg,"recovery"),"mode")=="resume_reconciled");
             private_storage_copy(cfg);
         }
         if(cfg.HasMember("execution_permission_origin")){
+            stage="configuration_permission";
             need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
         }
         if(cfg.HasMember("market_input_origin")){
+            stage="configuration_market";
             need(text(member(cfg,"recovery"),"mode")!="record_clean");market_model(cfg);
         }
         if(cfg.HasMember("strategy_extension_origin")){
+            stage="configuration_strategy";
             const auto mode=text(member(cfg,"recovery"),"mode");
             need(mode=="resume_clean"||mode=="resume_reconciled");market_model(cfg);
         }
         unsigned observation_refresh_ms=0;
+        stage="configuration";
         const auto& trader_config=member(cfg,"trader");
         need(trader_config.IsObject()&&!trader_config.HasMember("observation_refresh_ms"));
         if(cfg.HasMember("observation_refresh")){
@@ -1806,7 +1818,18 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         success=true;
     }catch(...){
         std::string failed_file;
-        try{throw;}catch(const ReadError& error){native_error=error.code;failed_file=error.filename;}catch(...){}
+        std::string private_exception="native_unknown_exception"; // 有界异常原因仅进入本代私有诊断，不发布到账户或公开状态。
+        try{throw;}
+        catch(const ReadError& error){native_error=error.code;failed_file=error.filename;private_exception="native_read_error";}
+        catch(const std::exception& error){
+            auto size=strnlen_s(error.what(),513);if(size>512){size=512;
+                while(size&&(static_cast<unsigned char>(error.what()[size])&0xc0)==0x80)--size;}
+            private_exception.assign(error.what(),size);
+        }catch(...){}
+        if(native_log_attempted)try{
+            const auto text=std::string("CTA failure stage=")+stage+" exception="+private_exception;
+            native_log.failure(text.c_str());
+        }catch(...){}
         {guanheng::ExecutionHostStatus observed;if(execution)observed=execution->status();
             // 固定阶段/枚举及原因摘要供私有诊断；不向输出复制来源正文或账户字段。
             const auto reason=sha(observed.plugin.reason);
@@ -1826,6 +1849,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                     diagnostic.AddMember("reason_sha256",rj::Value(reason.c_str(),a),a);
                     // 原插件的有界错误原因只保留在受控Native收据，供定位真实读取失败；不进入公开状态。
                     diagnostic.AddMember("private_reason",rj::Value(observed.plugin.reason,a),a);
+                    diagnostic.AddMember("private_exception",rj::Value(private_exception.c_str(),a),a);
                     // 固定枚举/计数区分提交等待与owner队列首错，不复制账户、订单或来源正文。
                     rj::Value plugin_state(rj::kObjectType);
                     plugin_state.AddMember("phase",observed.plugin.phase,a); // 原Standard生命周期枚举。

@@ -23,7 +23,7 @@ def main():
     commands.append([link,'/nologo','/out:'+str(work/'probe.exe'),str(obj)]+[str(x) for x in libraries]+['synchronization.lib','ws2_32.lib','psapi.lib','dbghelp.lib','version.lib','user32.lib','shell32.lib','advapi32.lib'])
     with contextlib.redirect_stdout(io.StringIO()):native.run(commands[-1],env=env,cwd=work,log=work/'link.log',timeout=60,private_console=True)
     modes = ('normal','rotation','utf8','open-failure','write-failure','batch',
-             'first-error-failure','first-error-concurrent','first-error-utf8')
+             'first-error-failure','first-error-concurrent','first-error-utf8','runtime-failure')
     for mode in modes:
         commands.append([str(work/'probe.exe'),mode,str(work/mode)])
         native.run(commands[-1],env=env,cwd=work,log=work/(mode+'.log'),timeout=20,private_console=True)

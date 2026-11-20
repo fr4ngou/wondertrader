@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import shutil
 import sys
 from uuid import uuid4
@@ -69,10 +70,10 @@ def main():
     helper_sha256 = hashlib.sha256((helper / 'standard_probe.cpp').read_bytes()).hexdigest()
     build = workspace / 'cmake'
 
-    def run(argv, label, seconds=300):
+    def run(argv, label, seconds=300, *, environment=None):
         print('execution CI: ' + label, flush=True)
         with contextlib.redirect_stdout(io.StringIO()):
-            native.run(argv, cwd=ROOT, env=env, timeout=seconds,
+            native.run(argv, cwd=ROOT, env=env if environment is None else environment, timeout=seconds,
                        log=output / (label + '.log'), private_console=True)
 
     run([cmake, '-S', owned / recipe['source_cmake'], '-B', build, '-G', 'Ninja',
@@ -108,6 +109,30 @@ def main():
     run([compiler.with_name('link.exe'), '/nologo', '/MACHINE:X64', '/OUT:' + str(probe), workspace / 'probe.obj',
          *libraries, 'winhttp.lib', 'bcrypt.lib', 'synchronization.lib', 'ws2_32.lib', 'psapi.lib',
          'dbghelp.lib', 'version.lib', 'user32.lib', 'shell32.lib', 'advapi32.lib', 'ole32.lib'], 'probe-link')
+    model_source = helper / 'strategy_extension.cpp'
+    shutil.copyfile(ROOT / 'tests/integration/strategy_extension/native_probe.cpp', model_source)
+    model_source_sha = hashlib.sha256(model_source.read_bytes()).hexdigest()
+    model_probe = workspace / 'strategy_extension.exe'
+    model_object = workspace / 'strategy_extension.obj'
+    run([compiler, '/nologo', '/std:c++17', '/EHsc', '/MD', '/O2', '/utf-8',
+         '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/DBOOST_ALL_NO_LIB', '/D_CRT_SECURE_NO_WARNINGS',
+         '/D_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS', '/FIobjbase.h',
+         *['/I' + str(p) for p in includes], '/c', model_source, '/Fo' + str(model_object)], 'model-compile')
+    # 复用本次真实运行库的链接依赖，仅用探针对象替换其 CtaProcess 对象。
+    link_inputs = (build / 'link-inputs/GuanhengCtaRuntime.rsp').read_text(encoding='utf-16').splitlines()
+    if not link_inputs or not link_inputs[0].strip('"').endswith('CtaProcess.cpp.obj'):
+        raise ValueError('Native 模型探针需要本次运行库的固定链接清单')
+    run([compiler.with_name('link.exe'), '/nologo', '/MACHINE:X64', '/OUT:' + str(model_probe),
+         model_object, *[item.strip('"') for item in link_inputs[1:]]], 'model-link')
+    model_env = dict(env)
+    model_env['GH_STRATEGY_EXTENSION_PROBE'] = str(model_probe)
+    model_env['PYTHONIOENCODING'] = 'utf-8'
+    model_env['PYTHONPATH'] = os.pathsep.join(str(ROOT / path) for path in (
+        'apps/wt_runtime', 'connectors/qmt_shm/host', 'connectors/qmt_shm/agent', 'integrations'))
+    run([sys.executable, '-B', '-m', 'pytest', ROOT / 'tests/integration/strategy_extension/test_permission_storage.py',
+         '-q', '-o', 'cache_dir=' + str(output / 'model-pytest-cache'),
+         '--basetemp', workspace / 'model-pytest-temp', '--junitxml', output / 'model-junit.xml'],
+        'model-regression', 90, environment=model_env)
     results = []
     for scenario in ('cancel-false', 'cancel-error', 'partial', 'missing-current', 'account-rejected',
                      'account-result-unavailable', 'account-frontend', 'event-rejected'):
@@ -123,9 +148,13 @@ def main():
     verify_snapshot(upstream)
     if hashlib.sha256((helper / 'standard_probe.cpp').read_bytes()).hexdigest() != helper_sha256:
         raise ValueError('冻结的C++测试夹具在编译或运行期间发生变化')
+    if hashlib.sha256(model_source.read_bytes()).hexdigest() != model_source_sha:
+        raise ValueError('Native 模型探针源码在验证期间发生变化')
     (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'workspace': str(workspace),
         'native_state_save': {'passed': True, 'log': str(output / 'native-state-save.log')},
         'native_runtime_log': {'passed': True, 'receipt': str(log_receipt / 'RESULT.json')},
+        'permission_storage': {'passed': True, 'source_sha256': model_source_sha,
+                               'log': str(output / 'model-regression.log')},
         'cache_startup': {'passed': True, 'log': str(output / 'cache-startup.log')},
         'cpp_fixture': {'path': str(helper / 'standard_probe.cpp'), 'sha256': helper_sha256},
         'standard_source_sha256': hashlib.sha256((owned / 'src/TraderQMT/StandardQmtTrader.cpp').read_bytes()).hexdigest(),
