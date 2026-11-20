@@ -28,3 +28,7 @@
 正式库只读备份验证记录：`D:/wt-build/trading-recovery-20261121-001/journal-copies-001/RESULT.json`。v3 从 114 条回收到 13 条，原 13 条未知结果逐字保持；HTTP-v4 从 31 条回收到 20 条，18 条未知与 2 条金融引用证明保持，10 张金融相关表摘要一致。原库保持。
 
 发布入口原先在带执行服务中仅允许替换 execution/trade_host，正常关闭后也无法更新只读账户查询依赖。通用修复按现有只读角色集合允许同 kind 描述符采用，保留原组件集合、完整退出核查和金融恢复验证；故障代依赖仍固定。回归入口为 `test_trading_adoption_updates_read_only_dependency_after_normal_close`。一次性副本、补数和部署材料保留在受控运维目录，不进入业务代码。
+
+账户回收与采用规则已以单提交 `ebf19c30` 合入本地 master。最终 CI `D:/wt-build/trading-recovery-20261121-001/account-ci-003/RESULT.json` 通过：494 项软件回归及原生执行链，包括读取失败、委托拒绝与回报等恢复场景。Host/Agent/Core 和五个运行/策略 wheel 在主干重建后与候选字节一致。
+
+整组构造预检发现新运行环境还需携带原分析窗口生产者。该包精确依赖旧 Runtime 版本，需要同步发行依赖版本；这里只更新包元数据，原计算代码保持。正式停止前完成整组配置、包依赖及逐角色构造检查。此阶段线上尚未切换。
