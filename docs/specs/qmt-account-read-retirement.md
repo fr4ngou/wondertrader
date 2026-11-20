@@ -16,7 +16,7 @@ Native仍由原QmtBoundReadCore/QmtHostAccountClient负责四查询；原move-on
 
 ## AAR3 Host回收与金融隔离
 
-Host复用原独占SQLite owner、原read_operations及RR事务。仅消费者已确认、确定terminal且原票据结束或epoch结束的只读记录可回收；queued/executing/operation_interrupted及其他未知保留原ID/原结果和逻辑额度。确定分类继续由RR result_confirmed唯一公共规则定义。ACK丢失/重读不得生成替代请求。
+Host复用原独占SQLite owner、原read_operations及RR事务。显式v3/v4的account.trade_detail确定terminal结果，在原票据结束或epoch结束、且无金融proof引用时回收，包括消费确认丢失的情况；原期限内仍保留结果与消费确认状态。queued/executing/operation_interrupted及其他未知保留原ID/原结果和逻辑额度。确定分类继续由RR result_confirmed唯一公共规则定义。期限回收表达观察交付窗口结束，沿原lookup返回410；不虚构消费确认。原ID不得重派；原活进程退出后新观察沿AAR2开始。普通读取、HPR和其他操作继续要求消费确认。决策见[ADR0031](../architecture/adr/0031-account-observation-expiry.md)。
 
 原金融order link仍引用的ORDER结果属于金融proof闭包；即使消费者已确认，也保留该原读行及票据，直到原金融算法自然更新引用。状态以held_financial_proof单列真实占用；金融proof占满时保持原责任并报告等待，不能扩大额度或删除引用来推进。历史proof的能力身份仅沿下述精确旧profile关系准入，当前查询仍核当前完整来源。
 
@@ -30,7 +30,7 @@ v4复用同一金融Journal文件，新增的读取责任元数据与read_operat
 
 先跑普通安装与原Native真实主链：正式v3/v4 Host+实际3.6.8/WinSHM账户SDK替身→原QmtHostAccountClient及Scan/标准Factory，固定原容量跨过连续扫描上限，记录实际四查询数量和占用高水位；成功确认后Host读责任保持有界。v4同时保留原金融命令/事件原件，读取回收前后逐行/摘要一致，金融SDK不因回收新增。
 
-主链后只做必要默认、unknown/同ID无重发、确认前/后失败、截止/停止及Host重开/既有金融Journal保留回归。新Native组件、账户工具、Host/Agent普通wheel和完整依赖同批形成可由SRI消费的固定交接。真实QMT、生产、跨日/Source冷重启及整个系统资格分别验收。
+主链后覆盖消费确认丢失后原期限回收和Host重开、期限内结果可读、unknown/同ID无重发、金融proof引用释放前后、确认前/后失败及截止/停止。新Native组件、账户工具、Host/Agent普通wheel和完整依赖同批形成可由SRI消费的固定交接。真实QMT、生产、跨日/Source冷重启及整个系统资格分别验收。
 
 ## AAR6 Host HTTP拥有的读取消费模式
 

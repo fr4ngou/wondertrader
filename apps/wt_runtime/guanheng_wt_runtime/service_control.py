@@ -751,8 +751,13 @@ class ServiceController:
         components = status.get("components")
         _require(type(components) is dict and components.keys() == old_components.keys())
         if "execution" in old_components:
-            _require(all(new_components[name] == old for name, old in old_components.items()
-                         if name not in {"execution", "trade_host"}))
+            # 正常关闭后，只读依赖可沿其既有角色采用后继描述符。
+            # 金融组件仍由下游同账恢复校验；故障代的依赖保持原件用于退出核查。
+            _require(all(new_components[name] == old
+                         or name in {"execution", "trade_host"}
+                         or closed is not None and old.kind in _READ_ONLY_PROCESSES
+                            and new_components[name].kind == old.kind
+                         for name, old in old_components.items()))
         else:
             # 只读运行代在原owner完整关闭后，按既有角色工厂采用固定描述符。
             _require(closed is not None and all(old.kind in _READ_ONLY_PROCESSES

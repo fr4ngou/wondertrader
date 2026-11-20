@@ -20,6 +20,8 @@ ticket 恰有 `schema,epoch,expires_ms`；schema=`qmt.read-ticket.v1`，epoch �
 
 ## RR3 持久消费确认与回收
 
+下述通用消费确认规则适用于独立读取/HPR。显式v3/v4中的账户观察另沿[AAR3](qmt-account-read-retirement.md#aar3-host回收与金融隔离)：确定完成、无金融引用且原票据结束的结果可回收，包括消费确认丢失的情况。
+
 `POST /internal/v1/read-results/{id}/consumed` 正文恰为 `schema,request_body_sha256,result_body_sha256`，schema=`qmt.read-consumed.v1`。外部消费者先原子持久保存完整原结果和 `requested_at/received_at`，再发送 ACK；Host 不把 HTTP GET 或运输 ACK 当作消费者持久保存。Host 在原独占 SQLite 同一事务确认 body/result SHA 和 terminal，然后写消费确认；不请求来源。
 
 仅已消费、确定完成的 terminal 责任，在原 ticket 到期或原 epoch 已结束后回收，事务删除对应 read_operations 与其一对一 retention 行并释放逻辑预算。queued、dispatching、`operation_interrupted`、`preparation_unknown` 及其他执行结果未知责任持续保留，ACK 也不能释放。原交易/撤单记录不进入此表。容量保持配置原值，状态明确统计 `queued_or_running,held_unknown,awaiting_consumer,awaiting_ticket_end`；无法回收时按真实原因拒绝新任务。

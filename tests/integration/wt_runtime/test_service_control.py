@@ -626,6 +626,12 @@ class ServiceControlTests(unittest.TestCase):
     def test_trading_adoption_preserves_runtime_fault_and_records_missing_native_exit(self):
         self._check_trading_adoption(faulted=True)
 
+    def test_trading_adoption_updates_read_only_dependency_after_normal_close(self):
+        self._check_trading_adoption(update_read_only=True)
+
+    def test_trading_adoption_keeps_faulted_dependency_descriptor_for_exit_verification(self):
+        self._check_trading_adoption(faulted=True, update_read_only=True)
+
     def test_normal_start_records_missing_native_exit_after_runtime_fault(self):
         from guanheng_wt_runtime import __main__ as runtime_cli
 
@@ -782,7 +788,7 @@ class ServiceControlTests(unittest.TestCase):
             with patch.object(service_control, "require_process_exited"), self.assertRaises(ValueError):
                 controller._pre_native_execution_origin(current, status)
 
-    def _check_trading_adoption(self, *, faulted=False):
+    def _check_trading_adoption(self, *, faulted=False, update_read_only=False):
         from guanheng_wt_runtime import __main__ as runtime_cli
         from guanheng_wt_runtime.runtime import RuntimeConfig
 
@@ -834,6 +840,9 @@ class ServiceControlTests(unittest.TestCase):
         origin_identity = self.root / "source-origin.json"
         handoff = self.root / "source-handoff.json"
         runtime = json.loads(self.runtime.read_bytes())
+        if update_read_only:
+            dependency = _write(self.root / 'candidate-analysis-host.json', {'fixture': 'new read host'})
+            runtime['components']['analysis_host'].update(descriptor=str(dependency), sha256=_sha(dependency))
         bootstrap = self.root / "candidate-runtime.json"
         service = json.loads(self.service_path.read_bytes())
         service_path = self.root / "candidate-service.json"
@@ -874,6 +883,11 @@ class ServiceControlTests(unittest.TestCase):
         with patch.object(controller, "_runtime_owner_active", return_value=False), \
                 patch("guanheng_wt_runtime.service_control.require_process_exited"), \
                 patch.object(controller, "_trade_deployment_identity", return_value=(old_identity, endpoint)) as identity:
+            if faulted and update_read_only:
+                self._assert_adoption_rejected(controller)
+                self.assertEqual(ledger.read_bytes(), ledger_raw)
+                identity.assert_not_called()
+                return
             with patch("guanheng_wt_runtime.service_control.prepare_transition") as forbidden:
                 with self.assertRaises(ValueError):
                     controller.adopt_bootstrap()

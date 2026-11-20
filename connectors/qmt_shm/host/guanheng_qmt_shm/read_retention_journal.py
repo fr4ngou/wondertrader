@@ -1,4 +1,4 @@
-"""已确认读责任回收；独占原事务，只删除本显式 schema 的已消费终态。"""
+"""已确认读责任回收；账户观察原期限结束后释放交付额度，未知及金融证明保留。"""
 from contextlib import contextmanager
 import threading
 from guanheng_qmt_shm_agent.protocol import canonical, decode
@@ -17,6 +17,9 @@ recyclable = result_confirmed
 class _RetainedJournal:
     schema_tables = BoundReadJournal.schema_tables | {'read_retention_identity', 'read_retention'}
     _allow_legacy_initialization = False
+    # 只有账户观察 owner 允许丢失消费确认的确定结果在原期限结束后回收。
+    # 普通读取、HPR 和其他操作继续要求消费确认，金融引用另行阻止回收。
+    _expire_account_observations = False
 
     def __init__(self, *args, clock, http_retention=None, **kwargs):
         profile = kwargs['read_profile']
@@ -122,8 +125,11 @@ class _RetainedJournal:
 
     def _reap(self, db, epoch):
         count = 0
-        rows = db.execute('''SELECT o.request_id,o.result,r.ticket FROM read_operations o
-            JOIN read_retention r USING(request_id) WHERE o.state='terminal' AND r.consumed=1''')
+        # 在 SQL 中限定候选，避免其他通道每轮加载全部未消费终态的结果正文。
+        rows = db.execute('''SELECT o.request_id,o.result,r.ticket
+            FROM read_operations o JOIN read_retention r USING(request_id)
+            WHERE o.state='terminal' AND (r.consumed=1
+                OR (? AND o.operation_id='account.trade_detail'))''', (self._expire_account_observations,))
         for rid, raw, value in rows.fetchall():
             if (raw is not None and recyclable(decode(bytes(raw)))
                     and not self._read_held_by_financial_proof(db, rid)
@@ -210,6 +216,7 @@ class RetainedPreparationJournal(_RetainedJournal, HistoryPreparationJournal):
 class RetainedAccountJournal(_RetainedJournal, BoundReadJournal):
     """显式 v3；旧账户读责任保留，元数据在原身份验证后附加。"""
     _allow_legacy_initialization = True
+    _expire_account_observations = True
 
     def __init__(self, *args, **kwargs):
         if kwargs.get('read_profile', {}).get('read_profile_version') != 'qmt.read-profile.v3':
@@ -221,6 +228,7 @@ class RetainedTradingJournal(_RetainedJournal, HostTradingJournal):
     """显式 v4；金融 Journal、事件、原预算及其事务继续由原 owner 管理。"""
     schema_tables = HostTradingJournal.schema_tables | {'read_retention_identity', 'read_retention'}
     _allow_legacy_initialization = True
+    _expire_account_observations = True
 
     def __init__(self, *args, clock, retention_clock, **kwargs):
         if kwargs.get('read_profile', {}).get('read_profile_version') != 'qmt.read-profile.v4':
