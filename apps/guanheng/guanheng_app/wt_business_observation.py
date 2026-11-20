@@ -2,17 +2,14 @@
 from datetime import datetime,timezone
 import hashlib
 import math
-from pathlib import Path
 import re
 from time import monotonic
-from uuid import UUID
 
-from guanheng_market_client.runtime_status import read_status_snapshot
 from .contracts.account import AccountOverviewV3,AccountGroupV3,NativeAccountSource,AccountRow,AccountField
 from .account_projection import FIELD_MAP,unknown
-from .wt_runtime_observation import RuntimeObservationConfig,read_runtime_snapshot,resolve_runtime_configuration
+from .wt_runtime_observation import RuntimeObservationConfig,read_runtime_snapshot,resolve_runtime_configuration,read_execution_reference
 from .strategy_runtime_projection import project_strategy, project_strategies
-from .managed_local_process import _read,_json,_inspect
+from .managed_local_process import _read,_json
 
 
 def _need(value):
@@ -32,29 +29,14 @@ def read_business(configuration,deadline):
     configuration=resolve_runtime_configuration(configuration,deadline)
     if configuration is None:return None,None,'unconfigured'
     before=read_runtime_snapshot(configuration,deadline).value
-    execution=before['components'].get('execution')
-    reference=execution.get('business_observation') if execution else None
+    reference,path=read_execution_reference(before,deadline)
     if reference is None:return None,None,before['state']
-    _need(type(reference) is dict and set(reference)=={'schema','control_id','config_sha256','pid','path','ready_path'}
-          and reference['schema']=='guanheng.execution-observation-reference.v1')
     control,digest,pid=reference['control_id'],reference['config_sha256'],reference['pid']
-    _need(type(control) is str and str(UUID(control))==control and type(digest) is str
-          and re.fullmatch('[a-f0-9]{64}',digest) is not None and type(pid) is int and 0<pid<2**32
-          and execution.get('pid')==pid)
-    _need(type(reference['path']) is str and type(reference['ready_path']) is str)
-    path,ready_path=Path(reference['path']),Path(reference['ready_path'])
-    _need(path.is_absolute() and ready_path.is_absolute() and path.name=='strategies.json'
-          and ready_path.name=='ready.json' and path.parent==ready_path.parent and path.parent.name==control)
-    _inspect(path.parent,directory=True)
-    _check(deadline);ready=read_status_snapshot(ready_path,4096).value;_check(deadline)
-    _need(set(ready)=={'schema','control_id','config_sha256','pid','closed'}
-          and ready['schema']=='guanheng.execution.ready.v1' and ready['closed'] is False)
     value=_json(_read(path,4*1024*1024,clock=monotonic,deadline=deadline));_check(deadline)
     _need(set(value)=={'schema','control_id','config_sha256','pid','strategies'}
           and value['schema']=='guanheng.configured-cta-observation.v2')
-    for item in (ready,value):
-        _need(item.get('control_id')==control and item.get('config_sha256')==digest
-              and type(item.get('pid')) is int and item['pid']==pid)
+    _need(value.get('control_id')==control and value.get('config_sha256')==digest
+          and type(value.get('pid')) is int and value['pid']==pid)
     strategies=value['strategies']
     _need(type(strategies) is dict and len(strategies)<=32 and all(type(s)is str and re.fullmatch(r'[A-Za-z0-9_.+@-]{1,64}',s) for s in strategies))
     after=read_runtime_snapshot(configuration,deadline).value

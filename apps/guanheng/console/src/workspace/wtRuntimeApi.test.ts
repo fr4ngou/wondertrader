@@ -79,3 +79,26 @@ test.each(['runtime','component'])('拒绝%s问题说明中的非文本关系和
   await expect(fetchWtRuntime(new AbortController().signal)).rejects.toThrow('WT运行状态格式无效')
  }
 })
+
+
+test.each([
+ {state:'available',writes_enabled:true,label:'WT下单开关已开启'},
+ {state:'available',writes_enabled:false,label:'WT下单开关已关闭'},
+ {state:'unavailable',writes_enabled:null,label:'WT下单开关暂不可核实'},
+])('读取执行开关并区分关闭和未知：$label',async control=>{
+ const value=fixture();Object.assign(value.runtime.components[0],{name:'execution',execution_control:control})
+ respond(value)
+ expect((await fetchWtRuntime(new AbortController().signal)).runtime?.components[0].execution_control).toEqual(control)
+})
+
+test.each([
+ {state:'available',writes_enabled:null,label:'错误已知'},
+ {state:'unavailable',writes_enabled:false,label:'错误关闭'},
+ {state:'available',writes_enabled:1,label:'错误布尔'},
+ {state:'ready',writes_enabled:true,label:'混用生命周期'},
+ {state:'available',writes_enabled:true,label:42},
+])('拒绝矛盾或非布尔的执行开关 $state',async control=>{
+ const value=fixture();Object.assign(value.runtime.components[0],{name:'execution',execution_control:control})
+ respond(value)
+ await expect(fetchWtRuntime(new AbortController().signal)).rejects.toThrow('WT运行状态格式无效')
+})

@@ -5,11 +5,22 @@ type PublishedState = { state: string; label: string; ready: boolean; issue?: Ru
 // 最近发布数据与服务生命周期分别读取；null表示来源尚未提供该事实。
 type PublishedData = {state: 'available' | 'unavailable'; label: string; ready: boolean | null;
   basis_date: string | null; published_at: string | null}
+// 原执行配置的开关事实；生命周期、来源许可和风控由各自状态表达。
+export type ExecutionControl = {
+  /** 本代配置已核实或暂不可核实；缺发布能力不等于关闭。 */
+  state: 'available' | 'unavailable'
+  /** 原trader.writes_enabled布尔值；null表示未知。 */
+  writes_enabled: boolean | null
+  /** 后端白名单固定中文说明，不携带配置或异常正文。 */
+  label: string
+}
 export type WtRuntimeObservation = {
   schema_version: 'guanheng.wt-runtime-observation.v1'; read_only: true
   observed_at: string; state: 'available' | 'unconfigured'; reason: string; published_at: string | null
   runtime: (PublishedState & { components: (PublishedState & {
     name: string; display_name: string; pending: boolean; forced: boolean; data?: PublishedData | null
+    /** 本代执行配置开关；旧发布者省略时按未知处理。 */
+    execution_control?: ExecutionControl | null
   })[] }) | null
 }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -33,6 +44,13 @@ function publishedData(v: unknown) {
     && time(v.published_at) : v.basis_date === null && v.published_at === null
 }
 
+function executionControl(v: unknown) {
+  if (v == null) return true
+  if (!object(v) || typeof v.label !== 'string' || !v.label.length || v.label.length > 160) return false
+  return v.state === 'available' ? typeof v.writes_enabled === 'boolean'
+    : v.state === 'unavailable' && v.writes_enabled === null
+}
+
 export function validateWtRuntime(data: unknown): WtRuntimeObservation {
   const error = () => new Error('WT运行状态格式无效，请重新读取')
   if (!object(data) || data.schema_version !== 'guanheng.wt-runtime-observation.v1' || data.read_only !== true
@@ -47,7 +65,8 @@ export function validateWtRuntime(data: unknown): WtRuntimeObservation {
     for (const c of runtime.components) {
       if (!published(c) || typeof c.name !== 'string' || !/^[a-z][a-z0-9_-]*$/.test(c.name)
         || names.has(String(c.name)) || typeof c.display_name !== 'string'
-        || typeof c.pending !== 'boolean' || typeof c.forced !== 'boolean' || !publishedData(c.data)) throw error()
+        || typeof c.pending !== 'boolean' || typeof c.forced !== 'boolean' || !publishedData(c.data)
+        || !executionControl(c.execution_control)) throw error()
       names.add(String(c.name))
     }
   } else throw error()

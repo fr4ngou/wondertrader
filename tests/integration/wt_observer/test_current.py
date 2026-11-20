@@ -207,3 +207,177 @@ def test_new_generation_details_exposes_new_scope_even_while_account_is_invalid(
         assert second.status_code == 200
         assert second.json()['account'] is None
         assert second.json()['runtime_scope_id'] != first['runtime_scope_id']
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_runtime_exposes_verified_native_order_switch_without_private_configuration(strategy_publication, enabled):
+    import hashlib
+    settings, values, files, write = strategy_publication
+    configuration = files['ready'].with_name('execution.json')
+    raw = json.dumps(dict(schema_version='guanheng.cta-execution.v1',
+        trader=dict(writes_enabled=enabled, account='private-account', key_env='PRIVATE_KEY'))).encode('utf8')
+    configuration.write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    for item in (values['ready'], values['result'], values['runtime']['components']['execution']['business_observation']):
+        item['config_sha256'] = digest
+    write()
+    with TestClient(create_app(settings)) as client:
+        for path in ('/v1/ui/wt-runtime', '/v1/ui/wt-instances'):
+            response = client.get(path)
+            assert response.status_code == 200
+            value = response.json()
+            runtime = value['runtime'] if path.endswith('wt-runtime') else value['instances'][0]['runtime']
+            execution = next(c for c in runtime['components'] if c['name'] == 'execution')
+            control = execution['execution_control']
+            assert control['state'] == 'available' and control['writes_enabled'] is enabled
+            assert control['label'] == ('WT下单开关已开启' if enabled else 'WT下单开关已关闭')
+            assert 'private-account' not in response.text and 'PRIVATE_KEY' not in response.text
+            assert str(configuration) not in response.text
+    assert configuration.read_bytes() == raw
+
+
+@pytest.fixture
+def verified_switch(strategy_publication):
+    import hashlib
+    settings, values, files, write = strategy_publication
+    configuration = files['ready'].with_name('execution.json')
+    def configure(value):
+        raw = value if type(value) is bytes else json.dumps(value).encode('utf8')
+        configuration.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        for item in (values['ready'], values['result'], values['runtime']['components']['execution']['business_observation']):
+            item['config_sha256'] = digest
+        write()
+        return raw
+    raw = configure(dict(schema_version='guanheng.cta-execution.v1', trader=dict(writes_enabled=True)))
+    return settings, values, files, write, configuration, configure, raw
+
+
+@pytest.mark.parametrize('failure', [
+    'missing', 'digest', 'json', 'duplicate', 'schema', 'flag_integer', 'flag_text', 'flag_null',
+    'trader_array', 'ready_pid', 'ready_digest', 'ready_closed', 'reference_pid', 'reference_path', 'old_publisher',
+])
+def test_invalid_order_switch_is_local_unknown_not_false_or_runtime_failure(verified_switch, failure):
+    settings, values, files, write, configuration, configure, _raw = verified_switch
+    if failure == 'missing': configuration.unlink()
+    elif failure == 'digest': configuration.write_bytes(configuration.read_bytes()+b' ')
+    elif failure == 'json': configure(b'{invalid-private-body')
+    elif failure == 'duplicate': configure(b'{"schema_version":"guanheng.cta-execution.v1","trader":{"writes_enabled":true,"writes_enabled":false}}')
+    elif failure in ('schema', 'flag_integer', 'flag_text', 'flag_null', 'trader_array'):
+        value = dict(schema_version='guanheng.cta-execution.v1', trader=dict(writes_enabled=True))
+        if failure == 'schema': value['schema_version'] = 'private-invalid-schema'
+        elif failure == 'trader_array': value['trader'] = []
+        else: value['trader']['writes_enabled'] = {'flag_integer':1, 'flag_text':'true', 'flag_null':None}[failure]
+        configure(value)
+    elif failure.startswith('ready_'):
+        values['ready'][{'ready_pid':'pid','ready_digest':'config_sha256','ready_closed':'closed'}[failure]] = {
+            'ready_pid':778,'ready_digest':'c'*64,'ready_closed':True}[failure]
+        write()
+    else:
+        execution = values['runtime']['components']['execution']
+        if failure == 'reference_pid': execution['business_observation']['pid'] = 778
+        elif failure == 'reference_path': execution['business_observation']['path'] = str(files['ready'].parent.parent/'strategies.json')
+        else: execution.pop('business_observation')
+        write()
+    with TestClient(create_app(settings)) as client:
+        response = client.get('/v1/ui/wt-runtime')
+        assert response.status_code == 200
+        value = response.json()
+        assert value['runtime']['state'] == 'ready'
+        execution = next(c for c in value['runtime']['components'] if c['name'] == 'execution')
+        assert execution['ready'] is True
+        assert execution['execution_control'] == dict(state='unavailable', writes_enabled=None, label='WT下单开关暂不可核实')
+        assert 'private' not in response.text and str(configuration) not in response.text
+
+
+def test_missing_configuration_recovers_without_app_restart_and_does_not_gate_strategy_reads(verified_switch):
+    settings, _values, _files, _write, configuration, _configure, raw = verified_switch
+    configuration.unlink()
+    with TestClient(create_app(settings)) as client:
+        first = client.get('/v1/ui/wt-runtime').json()
+        assert first['runtime']['components'][0]['execution_control']['writes_enabled'] is None
+        assert client.get('/v1/ui/strategy-runtime').status_code == 200
+        configuration.write_bytes(raw)
+        assert client.get('/v1/ui/wt-runtime').json()['runtime']['components'][0]['execution_control']['writes_enabled'] is True
+        assert client.get('/v1/ui/strategy-runtime').status_code == 200
+    assert configuration.read_bytes() == raw
+
+
+def test_reference_changed_during_configuration_read_yields_unknown(verified_switch, monkeypatch):
+    import guanheng_app.wt_runtime_observation as runtime
+    settings, values, _files, write, _configuration, _configure, _raw = verified_switch
+    original = runtime.read_runtime_snapshot
+    calls = []
+    def changed(configuration, deadline):
+        snapshot = original(configuration, deadline)
+        calls.append(configuration)
+        if len(calls) == 1:
+            values['runtime']['components']['execution']['business_observation']['config_sha256'] = 'd'*64
+            write()
+        return snapshot
+    monkeypatch.setattr(runtime, 'read_runtime_snapshot', changed)
+    with TestClient(create_app(settings)) as client:
+        response = client.get('/v1/ui/wt-runtime')
+        assert response.status_code == 200
+        assert response.json()['runtime']['components'][0]['execution_control']['writes_enabled'] is None
+        assert len(calls) == 2 and calls[0] == calls[1]
+
+
+def test_ready_replacement_pending_reuses_original_deadline(verified_switch, monkeypatch):
+    from guanheng_market_client.runtime_status import CollectionStatusPending
+    import guanheng_app.wt_runtime_observation as runtime
+    settings, _values, files, _write, _configuration, _configure, _raw = verified_switch
+    original = runtime.read_status_snapshot
+    calls = []
+    def pending_once(path, maximum=65536):
+        if path == files['ready']:
+            calls.append(path)
+            if len(calls) == 1: raise CollectionStatusPending()
+        return original(path, maximum)
+    monkeypatch.setattr(runtime, 'read_status_snapshot', pending_once)
+    with TestClient(create_app(settings)) as client:
+        response = client.get('/v1/ui/wt-runtime')
+        assert response.status_code == 200
+        assert response.json()['runtime']['components'][0]['execution_control']['writes_enabled'] is True
+    assert len(calls) == 2
+
+
+
+def test_order_switch_pending_read_obeys_original_deadline(verified_switch, monkeypatch):
+    from guanheng_market_client.runtime_status import CollectionStatusPending
+    import guanheng_app.wt_runtime_observation as runtime
+    settings, _values, files, _write, configuration, _configure, raw = verified_switch
+    original = runtime.read_status_snapshot
+    calls = []
+    def pending(path, maximum=65536):
+        if path == files['ready']:
+            calls.append(path)
+            raise CollectionStatusPending()
+        return original(path, maximum)
+    monkeypatch.setattr(runtime, 'read_status_snapshot', pending)
+    started = monotonic()
+    with pytest.raises(TimeoutError):
+        runtime.observe_runtime(RuntimeObservationConfig.from_settings(settings), started+.03)
+    assert calls and monotonic()-started < 1
+    assert configuration.read_bytes() == raw
+
+
+def test_order_switch_pins_current_for_one_read_then_follows_next_generation(verified_switch, tmp_path, monkeypatch):
+    import guanheng_app.wt_runtime_observation as runtime
+    settings, _values, _files, _write, _configuration, _configure, _raw = verified_switch
+    current = tmp_path/'CURRENT.json'; publish(current, pointer(settings))
+    original = runtime.read_runtime_snapshot
+    seen = []
+    def changed(configuration, deadline):
+        snapshot = original(configuration, deadline)
+        seen.append(configuration)
+        if len(seen) == 1:
+            publish(current, pointer(settings) | dict(wt_control_id=str(uuid4())))
+        return snapshot
+    monkeypatch.setattr(runtime, 'read_runtime_snapshot', changed)
+    with TestClient(create_app(dynamic_settings(settings, current))) as client:
+        response = client.get('/v1/ui/wt-runtime')
+        assert response.status_code == 200
+        assert response.json()['runtime']['components'][0]['execution_control']['writes_enabled'] is True
+        assert len(seen) == 2 and seen[0] == seen[1]
+        assert client.get('/v1/ui/wt-runtime').status_code == 503

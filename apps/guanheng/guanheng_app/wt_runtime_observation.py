@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
+import hashlib
 import re
 from time import monotonic, sleep
 from uuid import UUID
@@ -200,6 +201,73 @@ def read_runtime_snapshot(configuration, deadline):
     return snapshot
 
 
+def read_execution_reference(runtime, deadline):
+    """共用NRT-R20身份边界，返回原引用与结果路径；缺定位表示尚未发布。
+
+    只核公开引用和原ready，不读取策略、配置、账本或启动执行owner。
+    调用方读取业务文件后须复核同一固定WRI的执行引用及PID。
+    """
+    from .managed_local_process import _inspect
+
+    execution = runtime['components'].get('execution')
+    reference = execution.get('business_observation') if execution else None
+    if reference is None:
+        return None, None
+    _require(type(reference) is dict and set(reference) == {
+        'schema', 'control_id', 'config_sha256', 'pid', 'path', 'ready_path'}
+        and reference['schema'] == 'guanheng.execution-observation-reference.v1')
+    control, digest, pid = reference['control_id'], reference['config_sha256'], reference['pid']
+    _require(type(control) is str and str(UUID(control)) == control and type(digest) is str
+        and re.fullmatch('[a-f0-9]{64}', digest) is not None
+        and type(pid) is int and 0 < pid < 2**32 and execution.get('pid') == pid)
+    _require(type(reference['path']) is str and type(reference['ready_path']) is str)
+    path, ready_path = Path(reference['path']), Path(reference['ready_path'])
+    _require(path.is_absolute() and ready_path.is_absolute() and path.name == 'strategies.json'
+        and ready_path.name == 'ready.json' and path.parent == ready_path.parent and path.parent.name == control)
+    _inspect(path.parent, directory=True)
+    ready = _read_snapshot(ready_path, deadline, 4096).value
+    _require(type(ready) is dict and set(ready) == {'schema', 'control_id', 'config_sha256', 'pid', 'closed'}
+        and ready['schema'] == 'guanheng.execution.ready.v1' and ready['closed'] is False
+        and ready.get('control_id') == control and ready.get('config_sha256') == digest
+        and type(ready.get('pid')) is int and ready['pid'] == pid)
+    return reference, path
+
+
+def _execution_control(configuration, before, deadline):
+    """按已准入代读取配置开关；局部失败只降级此字段，原请求截止保持。
+
+    该布尔值描述原执行配置，不代替生命周期、来源许可及交易风控。
+    每轮最多读取一个256KiB不可变配置，工作量与成交历史无关。
+    """
+    from .managed_local_process import _read, _json
+
+    missing = dict(
+        state='unavailable',  # 本代执行配置是否核实；缺失与配置关闭分开。
+        writes_enabled=None,  # 原trader.writes_enabled，未知为null，不猜测默认值。
+        label='WT下单开关暂不可核实',  # 固定中文说明，原配置和异常正文保持私有。
+    )
+    try:
+        reference, path = read_execution_reference(before, deadline)
+        if reference is None:
+            return missing
+        raw = _read(path.with_name('execution.json'), 256 * 1024, clock=monotonic, deadline=deadline)
+        _require(hashlib.sha256(raw).hexdigest() == reference['config_sha256'])
+        config = _json(raw)
+        _require(type(config) is dict and config.get('schema_version') == 'guanheng.cta-execution.v1'
+            and type(config.get('trader')) is dict and type(config['trader'].get('writes_enabled')) is bool)
+        after = read_runtime_snapshot(configuration, deadline).value
+        execution = after['components'].get('execution', {})
+        _require(after['pid'] == before['pid'] and execution.get('business_observation') == reference
+            and execution.get('pid') == reference['pid'])
+        enabled = config['trader']['writes_enabled']
+        return dict(state='available', writes_enabled=enabled,
+            label='WT下单开关已开启' if enabled else 'WT下单开关已关闭')
+    except (ValueError, OSError, KeyError, TypeError, OverflowError):
+        if monotonic() >= deadline:
+            raise TimeoutError('WT状态读取超过本次时间') from None
+        return missing
+
+
 def observe_runtime(configuration, deadline):
     """原有界读池调用，单次SDK读取前后核同一monotonic秒截止。
 
@@ -209,6 +277,7 @@ def observe_runtime(configuration, deadline):
     if configuration is None:
         return dict(state='unconfigured', reason='尚未配置独立WT状态读取',
                     published_at=None, runtime=None)
+    configuration = resolve_runtime_configuration(configuration, deadline)
     snapshot = read_runtime_snapshot(configuration,deadline)
     value = snapshot.value
     runtime = _published_state(value)
@@ -219,7 +288,8 @@ def observe_runtime(configuration, deadline):
     runtime['components'] = [dict(name=name, display_name=_COMPONENTS.get(name, '其他运行组件'),
         **_published_state(components[name], component=True),
         issue=_component_issue(name, components[name], first),
-        data=_analysis_data(components[name]) if name == 'analysis_window' else None) for name in names]
+        data=_analysis_data(components[name]) if name == 'analysis_window' else None,
+        execution_control=_execution_control(configuration, value, deadline) if name == 'execution' else None) for name in names]
     return dict(state='available', reason=_NOTE,
                 published_at=datetime.fromtimestamp(snapshot.modified_epoch_ns / 1e9, timezone.utc).isoformat(),
                 runtime=runtime)
