@@ -1,5 +1,7 @@
 # 发布记录
 
+- [WT 账户查询与行情接入恢复](2026-11-21-wt-account-observation-recovery.md) · 同账恢复、四类账户查询成功、报价恢复及后续验收范围。
+
 - [观衡 a143 市场观察发布](2026-11-15-observer143-market-observation.md) · 正式 18143 分屏与事件标记、启动补数及后续 WT 验收。
 
 - [WT 分账索引与同账恢复验收](2026-11-13-wt-ledger-replay-and-stability.md) · 正式入口禁单演练、D 盘原账接续、延时与待验事项。

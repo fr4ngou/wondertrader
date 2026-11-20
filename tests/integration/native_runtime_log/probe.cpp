@@ -39,7 +39,28 @@ int main(int argc, char** argv) {
         } else {
             log.start(directory);
             require(log.status().initialized && log.status().file_opened, "logger ready");
-            if (mode == "normal") {
+            if (mode == "first-error-failure") {
+                const auto blocked = directory / "native-first-error.log";
+                fs::create_directory(blocked);
+                WTSLogger::log_raw(wtp::LL_ERROR, "first-copy-unavailable");
+                require(!log.status().first_error_saved && log.status().write_failures >= 1,
+                    "failed first-error copy must not report success");
+                require(read(directory / "native.log").find("first-copy-unavailable") != std::string::npos,
+                    "first-error copy failure must preserve ordinary logging");
+                fs::remove(blocked);
+                WTSLogger::log_raw(wtp::LL_ERROR, "first-copy-recovered");
+                require(log.status().first_error_saved, "first-error copy can recover without blocking business");
+            } else if (mode == "first-error-concurrent") {
+                std::thread first([]{ WTSLogger::log_raw(wtp::LL_ERROR, "concurrent-first-error"); });
+                std::thread second([]{ WTSLogger::log_raw(wtp::LL_ERROR, "concurrent-first-error"); });
+                first.join(); second.join();
+                require(log.status().first_error_saved && log.status().write_failures == 0,
+                    "concurrent error callbacks must complete");
+            } else if (mode == "first-error-utf8") {
+                WTSLogger::log_raw(wtp::LL_ERROR, (std::string(8191, 'a') + u8"中").c_str());
+                require(log.status().first_error_saved && log.status().truncated_records == 1,
+                    "first-error copy must use the same bounded UTF-8 record");
+            } else if (mode == "normal") {
                 emit(u8"动态执行器真实日志");
                 WTSLogger::log_raw(wtp::LL_DEBUG, "hidden-debug");
                 WTSLogger::log_raw(wtp::LL_ERROR, "root-error");
@@ -51,6 +72,7 @@ int main(int argc, char** argv) {
                 require(!fs::exists(directory / "duplicate"), "duplicate start must preserve owner identity");
             } else if (mode == "rotation") {
                 // 足量真实回调越过四个文件，验证原spdlog的轮转及旧记录淘汰。
+                WTSLogger::log_raw(wtp::LL_ERROR, "earliest-source-failure");
                 const std::string body(NativeRuntimeLog::message_bytes, 'x');
                 for (int round = 0; round < 10; ++round) {
                     for (int index = 0; index < 100; ++index) emit(body);
@@ -60,7 +82,8 @@ int main(int argc, char** argv) {
                     require(log.status().flushes > static_cast<std::uint64_t>(round), "background rotation flush");
                 }
                 emit("rotation-tail");
-                require(log.status().attempted_records == 1001 && log.status().write_failures == 0, "rotation callbacks");
+                WTSLogger::log_raw(wtp::LL_ERROR, "later-source-failure");
+                require(log.status().attempted_records == 1003 && log.status().write_failures == 0, "rotation callbacks");
             } else if (mode == "utf8") {
                 emit(std::string(8191, 'a') + u8"中");
                 emit(std::string(8190, 'b') + u8"中文");
@@ -99,6 +122,16 @@ int main(int argc, char** argv) {
             const auto content = read(directory / "native.log");
             require(content.find(u8"动态执行器真实日志") != std::string::npos, "dynamic executor must persist");
             require(content.find("hidden-debug") == std::string::npos, "info floor");
+        }
+        if (mode == "rotation") {
+            const auto first = read(directory / "native-first-error.log");
+            require(first.find("earliest-source-failure") != std::string::npos,
+                "first source error must survive ordinary log rotation");
+            require(first.find("later-source-failure") == std::string::npos,
+                "later errors must preserve the original first error");
+            for (const auto* name : {"native.log", "native.1.log", "native.2.log", "native.3.log"})
+                require(read(directory / name).find("earliest-source-failure") == std::string::npos,
+                    "fixture must actually rotate the original source error away");
         }
         if (mode == "write-failure") require(read(directory / "native.log").find("after-write-failure") != std::string::npos, "write recovery");
         const auto status = log.status();

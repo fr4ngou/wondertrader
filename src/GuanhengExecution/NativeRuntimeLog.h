@@ -2,6 +2,7 @@
 
 #include "WTSTools/WTSLogger.h"
 #include "Includes/ILogHandler.h"
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <atomic>
 #include <chrono>
@@ -21,6 +22,7 @@ namespace guanheng {
 struct NativeRuntimeLogStatus {
     bool initialized; // 原WTSLogger是否已初始化；与交易运行是否成功分别表达。
     bool file_opened; // 本代私有轮转文件是否曾成功打开，不代表全部写入成功。
+    bool first_error_saved; // 本代首个成功写出的ERROR/FATAL是否已独立刷新，普通日志轮转不删除它。
     std::uint64_t attempted_records; // 进入原日志转发入口的记录数，单位条。
     std::uint64_t write_failures; // 打开、追加或刷新失败次数；只存计数。
     std::uint64_t truncated_records; // 超过单条字节预算而截断的记录数，单位条。
@@ -37,6 +39,9 @@ class NativeRuntimeLog final : private wtp::ILogHandler {
         std::string message; // 后台线程拥有的有界UTF-8正文。
     };
     std::shared_ptr<spdlog::logger> writer_; // 原线程安全轮转写者；业务生产者与日志线程退出后回收。
+    std::filesystem::path first_error_path_; // 当前运行代唯一的首错文件，沿原私有目录保存。
+    std::mutex first_error_mutex_; // 只串行首次错误保存；不持有业务或普通日志队列锁。
+    std::atomic<bool> first_error_saved_{false}; // 成功刷新后才发布；失败允许后继错误再次尝试。
     std::mutex queue_mutex_; // 只保护队列和关闭标志，文件读写在锁外。
     std::condition_variable available_; // 普通记录到达或退出时通知唯一后台写者。
     std::deque<Record> queue_; // 单进程普通记录队列，达到容量时丢弃并计数。
@@ -55,6 +60,25 @@ class NativeRuntimeLog final : private wtp::ILogHandler {
     void flush() noexcept {
         try { writer_->flush(); } catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
         flushes_.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void preserve_first_error(spdlog::log_clock::time_point observed_at,
+                              spdlog::level::level_enum level, const char* message, std::size_t size) noexcept {
+        if (level < spdlog::level::err || first_error_saved_.load(std::memory_order_acquire)) return;
+        try {
+            std::lock_guard<std::mutex> lock(first_error_mutex_);
+            if (first_error_saved_.load(std::memory_order_relaxed)) return;
+            // 本代目录由原执行owner独占。失败重试覆盖未完成文件，体积始终受单条预算约束。
+            auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(first_error_path_.u8string(), true);
+            bool failed = false;
+            spdlog::logger first("native-first-error", sink);
+            first.set_pattern("%Y-%m-%dT%H:%M:%S.%e%z [%l] %v");
+            first.set_error_handler([&failed](const std::string&) { failed = true; });
+            first.log(observed_at, {}, level, spdlog::string_view_t(message, size));
+            first.flush();
+            if (failed) failures_.fetch_add(1, std::memory_order_relaxed);
+            else first_error_saved_.store(true, std::memory_order_release);
+        } catch (...) { failures_.fetch_add(1, std::memory_order_relaxed); }
     }
 
     void write_pending() noexcept {
@@ -95,6 +119,7 @@ class NativeRuntimeLog final : private wtp::ILogHandler {
                 : level == wtp::LL_FATAL ? spdlog::level::critical : spdlog::level::info;
             const auto observed_at = spdlog::log_clock::now();
             if (mapped >= spdlog::level::warn) {
+                preserve_first_error(observed_at, mapped, message, size);
                 writer_->log(observed_at, {}, mapped, spdlog::string_view_t(message, size));
                 flush();
                 return;
@@ -123,6 +148,7 @@ public:
         if (started_ || finished_) return;
         started_ = true;
         try {
+            first_error_path_ = directory / "native-first-error.log";
             auto sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
                 (directory / "native.log").u8string(), file_bytes, backup_files);
             writer_ = std::make_shared<spdlog::logger>("native-private", sink);
@@ -145,7 +171,8 @@ public:
     }
     void request_rejection(const char* message) noexcept { handleLogAppend(wtp::LL_WARN,message); }
     NativeRuntimeLogStatus status() const noexcept {
-        return {initialized_, file_opened_, attempted_.load(std::memory_order_relaxed),
+        return {initialized_, file_opened_, first_error_saved_.load(std::memory_order_acquire),
+            attempted_.load(std::memory_order_relaxed),
             failures_.load(std::memory_order_relaxed), truncated_.load(std::memory_order_relaxed),
             dropped_.load(std::memory_order_relaxed), flushes_.load(std::memory_order_relaxed)};
     }

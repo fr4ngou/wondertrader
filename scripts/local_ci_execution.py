@@ -90,6 +90,9 @@ def main():
          '/Fo' + str(workspace / 'native_state_save_probe.obj'), '/Fe' + str(save_probe)],
         'native-state-save-compile', 60)
     run([save_probe, workspace / 'native-state-save-files'], 'native-state-save', 30)
+    log_receipt = output / 'native-runtime-log'
+    run([sys.executable, '-I', '-B', ROOT / 'tests/integration/native_runtime_log/run.py',
+         '--build', seed, '--work', log_receipt], 'native-runtime-log', 120)
     includes = [owned / 'src', upstream / 'src', helper, seed / 'deps/rapidjson/include', seed / 'deps/spdlog/include',
                 *list((seed / 'deps/boost/libs').glob('*/include')),
                 *list((seed / 'deps/boost/libs/numeric').glob('*/include'))]
@@ -122,6 +125,7 @@ def main():
         raise ValueError('冻结的C++测试夹具在编译或运行期间发生变化')
     (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'workspace': str(workspace),
         'native_state_save': {'passed': True, 'log': str(output / 'native-state-save.log')},
+        'native_runtime_log': {'passed': True, 'receipt': str(log_receipt / 'RESULT.json')},
         'cache_startup': {'passed': True, 'log': str(output / 'cache-startup.log')},
         'cpp_fixture': {'path': str(helper / 'standard_probe.cpp'), 'sha256': helper_sha256},
         'standard_source_sha256': hashlib.sha256((owned / 'src/TraderQMT/StandardQmtTrader.cpp').read_bytes()).hexdigest(),

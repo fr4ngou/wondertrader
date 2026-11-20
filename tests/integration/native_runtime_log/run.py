@@ -22,14 +22,23 @@ def main():
     libraries=[build/'cmake/lib/WTSTools.lib',build/'cmake/lib/WTSUtils.lib']+list((build/'cmake/product/readonly-support/deps/boost').rglob('*.lib'))
     commands.append([link,'/nologo','/out:'+str(work/'probe.exe'),str(obj)]+[str(x) for x in libraries]+['synchronization.lib','ws2_32.lib','psapi.lib','dbghelp.lib','version.lib','user32.lib','shell32.lib','advapi32.lib'])
     with contextlib.redirect_stdout(io.StringIO()):native.run(commands[-1],env=env,cwd=work,log=work/'link.log',timeout=60,private_console=True)
-    modes = ('normal','rotation','utf8','open-failure','write-failure','batch')
+    modes = ('normal','rotation','utf8','open-failure','write-failure','batch',
+             'first-error-failure','first-error-concurrent','first-error-utf8')
     for mode in modes:
         commands.append([str(work/'probe.exe'),mode,str(work/mode)])
         native.run(commands[-1],env=env,cwd=work,log=work/(mode+'.log'),timeout=20,private_console=True)
     # 按原UTF-8字节和物理文件验收，覆盖中文边界与轮转实际落盘。
-    rotated=list((work/'rotation').glob('native*.log'))
+    rotated=[work/'rotation'/name for name in ('native.log','native.1.log','native.2.log','native.3.log')]
     assert len(rotated)==4 and all(0<x.stat().st_size<=1048576 for x in rotated)
     assert 'rotation-tail' in (work/'rotation/native.log').read_text(encoding='utf8')
+    first=work/'rotation/native-first-error.log'
+    assert 'earliest-source-failure' in first.read_text(encoding='utf8')
+    assert first.stat().st_size <= 8192+256
+    assert (work/'first-error-failure/native-first-error.log').read_text(encoding='utf8').count('first-copy-recovered') == 1
+    assert (work/'first-error-concurrent/native-first-error.log').read_text(encoding='utf8').count('concurrent-first-error') == 1
+    text=(work/'first-error-utf8/native-first-error.log').read_text(encoding='utf8')
+    assert text.split('] ',1)[1].strip() == 'a'*8191
+    assert not (work/'batch/native-first-error.log').exists()
     contents=(work/'utf8/native.log').read_text(encoding='utf8').splitlines()
     bodies=[line.split('] ',1)[1] for line in contents]
     assert [len(x.encode('utf8')) for x in bodies]==[8191,8190,8192]

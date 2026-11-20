@@ -1743,6 +1743,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                 auto log_state=receipt("guanheng.execution.native-log.v1",id,expected_sha,false);
                 auto& l=log_state.GetAllocator();
                 log_state.AddMember("initialized",logging.initialized,l);log_state.AddMember("file_opened",logging.file_opened,l);
+                log_state.AddMember("first_error_saved",logging.first_error_saved,l);
                 log_state.AddMember("attempted_records",logging.attempted_records,l);
                 log_state.AddMember("write_failures",logging.write_failures,l);
                 log_state.AddMember("truncated_records",logging.truncated_records,l);
@@ -1927,6 +1928,7 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
         auto value=receipt("guanheng.execution.native-log.v1",id,expected_sha,true);auto& a=value.GetAllocator();
         value.AddMember("initialized",logging.initialized,a);value.AddMember("file_opened",logging.file_opened,a);
         value.AddMember("attempted_records",logging.attempted_records,a);value.AddMember("write_failures",logging.write_failures,a);
+        value.AddMember("first_error_saved",logging.first_error_saved,a);
         value.AddMember("truncated_records",logging.truncated_records,a);
         value.AddMember("dropped_records",logging.dropped_records,a); // 普通日志队满时丢弃条数。
         value.AddMember("flushes",logging.flushes,a); // 包含退出排空后的主动刷新。
