@@ -109,3 +109,5 @@ SSE份额按STAT_DATE精确匹配、TOT_VOL万份×10000为份。请求第1页�
 ## 导航
 
 实现和真实证据沿[统一数据模块](../modules/unified-daily-data.md)、[研究指引](../research/resonance-research-guide.md)、[验证规范](../development/verification.md)登记。具体来源/回测及临时验证保留在Git忽略研究目录，公共源码与脱敏测试可追踪。
+
+中证日报的标题日期按年月日数值比较，兼容月份和日期的前导零；继续核对同日报告的两个收盘点位、自由流通市值表头和单位。

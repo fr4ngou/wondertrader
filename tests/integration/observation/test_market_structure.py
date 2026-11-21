@@ -93,3 +93,19 @@ def test_supplier_token_is_sent_only_in_the_https_query(tmp_path):
             fetch.post_private_query('http://api.tushare.pro', dict(token='fixture-token'))
     finally:
         fetch.close()
+
+
+def test_star_retains_qualified_history_when_provider_changes():
+    dates = days(280)
+    stocks = {day: dict(top5_pct=40 + i % 7, median_return_pct=i % 11 - 5,
+                       sample_count=5000, provider='BigQuant' if i < 279 else 'QMT')
+              for i, day in enumerate(dates)}
+    price = [100 + i + i % 13 for i in range(len(dates))]
+    benchmark = [100 + i for i in range(len(dates))]
+    switched = calculate(STAR, dates, price, benchmark, stocks=stocks)
+    stocks[dates[-1]]['provider'] = 'BigQuant'
+    same_provider = calculate(STAR, dates, price, benchmark, stocks=stocks)
+    assert switched[-1]['score'] == same_provider[-1]['score']
+    assert switched[-1]['concentration_z'] == same_provider[-1]['concentration_z']
+    assert switched[-1]['event_code'] == same_provider[-1]['event_code']
+    assert switched[-1]['stock_provider'] == 'QMT'

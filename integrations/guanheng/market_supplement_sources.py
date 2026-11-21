@@ -658,9 +658,10 @@ def _csi300_market_cap(raw, day):
         summary, matrix = (report.pages[i].extract_text(extraction_mode='layout') for i in (0, 1))
     except (PdfReadError, ValueError, OSError, RecursionError):
         _fail('source_csi_report_invalid')
-    date_label = date.fromisoformat(day)
-    title = f'沪深300指数({date_label.year}年{date_label.month}月{date_label.day}日)'
-    if title not in re.sub(r'\s+', '', summary).replace('（', '(').replace('）', ')'):
+    title = re.search(r'沪深300指数\((20\d{2})年(\d{1,2})月(\d{1,2})日\)',
+                      re.sub(r'\s+', '', summary).replace('（', '(').replace('）', ')'))
+    if title is None or tuple(map(int, title.groups())) != (date.fromisoformat(day).year,
+            date.fromisoformat(day).month, date.fromisoformat(day).day):
         _fail('source_date_mismatch')
     header = r'指数代码指数简称基日发布日期基点总市值(?:[（(]亿元[）)])?自由流通市值(?:[（(]亿元[）)])?收盘点位'
     if '规模及行业指数市场数据' not in matrix or not re.search(header,re.sub(r'\s+', '', matrix)):

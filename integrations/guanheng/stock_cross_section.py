@@ -216,7 +216,7 @@ def query_bigquant(policy, dataset, first, last, *, deadline, cancelled, environ
 def prepare_section(facts, cache, unit_evidence, policy, objects, *, deadline, cancelled, environ=None):
     """由 WT 输入 owner 调用，返回随同日股票池归档的聚合和原件摘要。"""
     from .analysis_price_capture import load_price_capture, price_batches
-    from .analysis_price_units import capture_price_units, load_unit_evidence, qualify_capture_units
+    from .analysis_price_units import load_unit_evidence, qualify_capture_units
     day = facts['date']
     provider = 'QMT'
     records = None
@@ -225,22 +225,21 @@ def prepare_section(facts, cache, unit_evidence, policy, objects, *, deadline, c
         units = qualify_capture_units(cache, evidence, deadline=deadline, cancelled=cancelled)
         if units is not None:
             manifest = load_price_capture(cache)
-            symbols = [_instrument(symbol) for symbol in facts['members']]
-            if all(capture_price_units(manifest, cache['sha256'], symbol, units).amount_unit == 'CNY' for symbol in symbols):
-                reference = {_instrument(row[1]): row for row in facts['rows']}
-                stamp = day.replace('-', '')
-                records = []
-                for _, batch in price_batches(cache, manifest, deadline=deadline, cancelled=cancelled):
-                    for symbol, item in batch.items():
-                        if symbol in reference:
-                            bar = item['data'].get(stamp, {})
-                            previous = reference[symbol][3]
-                            records.append(dict(date=day, instrument=symbol, close=bar.get('close'),
-                                                pre_close=float(previous) if previous else None, amount=bar.get('amount')))
-                try:
-                    row = project(facts, records)
-                except ValueError:
-                    records = None
+            # 成交集中度为同一SDK字段的比值，共同金额单位在分子分母中约去。
+            reference = {_instrument(row[1]): row for row in facts['rows']}
+            stamp = day.replace('-', '')
+            records = []
+            for _, batch in price_batches(cache, manifest, deadline=deadline, cancelled=cancelled):
+                for symbol, item in batch.items():
+                    if symbol in reference:
+                        bar = item['data'].get(stamp, {})
+                        previous = reference[symbol][3]
+                        records.append(dict(date=day, instrument=symbol, close=bar.get('close'),
+                                            pre_close=float(previous) if previous else None, amount=bar.get('amount')))
+            try:
+                row = project(facts, records)
+            except ValueError:
+                records = None
     if records is None:
         provider = 'BigQuant'
         environment = os.environ if environ is None else environ
@@ -274,6 +273,7 @@ def prepare_section(facts, cache, unit_evidence, policy, objects, *, deadline, c
         return dict(reason='cross_section_unqualified')
     original = objects.put(encode(dict(
         provider=provider,  # 整日成交额与收盘供应方。
+        amount_use='absolute_CNY' if provider == 'BigQuant' else 'same_sdk_field_ratio',  # QMT原始量额只用于同字段占比。
         table=TABLE if provider == 'BigQuant' else None,  # 外部原始行情表。
         date=day,  # 交易日。
         records=records,  # 适配后的原始价格与成交额组合。

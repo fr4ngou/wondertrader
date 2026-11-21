@@ -55,7 +55,6 @@ def calculate(metric, days, price, benchmark, *, amounts=None, stocks=None, chec
     result = []
     prior_state = None
     relative, activity, concentration, breadth = [], [], [], []
-    section_provider = []
     small = metric == SMALL
     for i, day in enumerate(days):
         check()
@@ -80,10 +79,9 @@ def calculate(metric, days, price, benchmark, *, amounts=None, stocks=None, chec
             concentration.append(stock.get('top5_pct'))
             breadth.append(stock.get('median_return_pct'))
             provider = stock.get('provider') or 'Tushare'
-            section_provider.append(provider if stock else None)
-            same_provider = i >= PERIOD - 1 and all(value == provider for value in section_provider[-PERIOD:])
-            z_concentration = _zscore(concentration, i) if same_provider else None
-            z_breadth = _zscore(breadth, i) if same_provider else None
+            # WT 已统一股票池及聚合定义，供应方名称变化保留历史窗口。
+            z_concentration = _zscore(concentration, i)
+            z_breadth = _zscore(breadth, i)
             components = (z_concentration, z_breadth, z_relative)
             if None not in components:
                 state = 0
@@ -143,7 +141,7 @@ def definition(metric):
         signals = ['橙色竖线：中证2000近5日上涨，领先沪深300至少2个百分点，且成交接力倍数不高于1。']
         boundary = '成交额表示交易活跃度，历史日线无法识别短线资金身份。'
     else:
-        limits.append('成交集中度与市场宽度的252日窗口按同一供应方计算，切换来源后重新积累。')
+        limits.append('成交集中度与市场宽度使用WT统一定义的合格历史，保留逐日供应方；真实缺值阻断252日窗口。')
         fields.update(top5_pct=('前5%个股成交额占比', '%'), median_return_pct=('个股日涨跌幅中位数', '%'),
                       sample_count=('当日有成交样本数', '只'), concentration_z=('成交集中度标准分', '无量纲'),
                       breadth_z=('市场宽度标准分', '无量纲'), stock_provider=('股票横截面供应方', '文本'),
@@ -158,7 +156,7 @@ def definition(metric):
     schema = {key: dict(label=label, unit=unit) for key, (label, unit) in fields.items()}
     schema['event_code'].update(description='0=无新事件。' + event_values)
     schema['event_state'].update(description='0=未满足。' + event_values)
-    return dict(id=metric, board=metric, label=LABELS[metric], definition_version=metric + '/1',
+    return dict(id=metric, board=metric, label=LABELS[metric], definition_version=metric + ('/2' if metric == STAR else '/1'),
                 frequency='交易日日终', unit='无量纲', parameters=False, primary_field='score', overlay=True,
                 default_preset='all', source='中证指数官方日线' if small else '中证指数官方日线与股票横截面',
                 source_url='https://www.csindex.com.cn/', formula=formula, reading=boundary, limitations=limits,

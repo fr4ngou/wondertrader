@@ -352,6 +352,8 @@ def test_csi_pdf_parser_rejects_wrong_date_and_ambiguous_market_cap(monkeypatch)
            SimpleNamespace(extract_text=lambda **kwargs: matrix+row)]
     monkeypatch.setattr(pypdf,'PdfReader',lambda *args,**kwargs:SimpleNamespace(pages=pages))
     assert public_sources._csi300_market_cap(b'%PDF-fixture',DAYS[-1])==228573
+    summary=summary.replace('11月5日','11月05日')
+    assert public_sources._csi300_market_cap(b'%PDF-fixture',DAYS[-1])==228573
     with pytest.raises(public_sources.SourceUnavailable,match='source_date_mismatch'):
         public_sources._csi300_market_cap(b'%PDF-fixture',DAYS[0])
     correct=matrix
@@ -650,3 +652,32 @@ def test_sse_zero_page_latest_date_keeps_previous_share_fact_and_records_gap(
         store.verify_sources()
     finally:
         store.close()
+
+
+def test_daily_stock_uses_same_sdk_amount_ratio_without_absolute_currency_unit(tmp_path, monkeypatch):
+    from integrations.guanheng_market_client.daily_facts import FIELDS, STATS
+    from integrations.guanheng import analysis_price_capture, analysis_price_units
+
+    day = DAYS[-1]
+    facts = dict(schema='guanheng.daily-source-facts.v1', date=day, members=['SSE.600000'], fields=FIELDS,
+        rows=[[day, 'SSE.600000', '2', '1', '100', '1', '1', 'qualified']],
+        units=dict(close_reference='CNY', preclose='CNY', volume='share', turn='percent_of_float'),
+        stats={name: 0 for name in STATS},
+        provenance=dict(packet_sha256='a'*64, universe_sha256='b'*64, source_received_at='2026-11-06T00:00:00+00:00'))
+    monkeypatch.setattr(analysis_price_units, 'load_unit_evidence', lambda *args, **kwargs: object())
+    monkeypatch.setattr(analysis_price_units, 'qualify_capture_units', lambda *args, **kwargs: object())
+    monkeypatch.setattr(analysis_price_units, 'capture_price_units', lambda *args, **kwargs:
+                        type('UnknownAmount', (), {'amount_unit': 'unknown'})())
+    monkeypatch.setattr(analysis_price_capture, 'load_price_capture', lambda *args: {'source_kind': 'actual-qmt'})
+    monkeypatch.setattr(analysis_price_capture, 'price_batches', lambda *args, **kwargs:
+        iter([({}, {'600000.SH': {'data': {day.replace('-', ''): {'close': 2, 'amount': 200}}}})]))
+    def external(*args, **kwargs):
+        pytest.fail('Qualified local amounts suffice for the dimensionless concentration ratio')
+    monkeypatch.setattr(stock_cross_section, 'acquire_bigquant', external)
+    store = ContentStore(tmp_path)
+    result = stock_cross_section.prepare_section(facts, {'sha256': 'c'*64}, {'path': 'fixture'},
+        dict(timeout_seconds=30,minimum_sample_count=1), store,
+        deadline=time.monotonic()+10,cancelled=lambda:False,environ={})
+    assert result['provider'] == 'QMT'
+    assert result['top5_pct'] == 100
+    assert result['median_return_pct'] == 100

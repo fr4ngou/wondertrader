@@ -550,7 +550,7 @@
       "source": "integrations/guanheng/market_buyback_disclosures.py"
     },
     "integrations/guanheng/market_supplement_sources.py": {
-      "sha256": "114d4a63a9e5e345a4fbd632ab494d5fa682457bc6b9aaeedde25020cc40a3ed",
+      "sha256": "56173c207b2c52fcd22fa07a6ec7f6f86be7526f2608c308e89864ad2da7ce12",
       "source": "integrations/guanheng/market_supplement_sources.py"
     },
     "integrations/guanheng/_process_job.py": {
@@ -558,7 +558,7 @@
       "source": "scripts/native_support/process_job.py"
     },
     "integrations/guanheng/stock_cross_section.py": {
-      "sha256": "258b112a36b4df7bb8dc936ba3f1735311b79e2c72d059661a7df33abbaf1323",
+      "sha256": "4b7b0b4d7dcae7362fed10f4fea511be4512e33349d46b43fa5eb3551df9c27f",
       "source": "integrations/guanheng/stock_cross_section.py"
     },
     "integrations/guanheng/market_supplement_store.py": {
@@ -794,5 +794,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.53"
+  "version": "0.2.0a1+unified.54"
 }
