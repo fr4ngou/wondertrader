@@ -31,3 +31,5 @@
 .operations-facts dt, .operations-note { color: var(--muted); font-size: 13px; }
 .operations-facts dd { margin: 6px 0 0; }
 .operations-facts dd p { margin: 6px 0 0; font-size: 13px; }
+
+.runtime-component-list .execution-control { font-size: 12px; line-height: 1.5; }

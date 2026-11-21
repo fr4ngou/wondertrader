@@ -2,7 +2,7 @@ import { WorkspaceDock } from './WorkspaceDock'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { absoluteChinaTime } from '../components/RelativeTime'
 import { fetchOperations } from './operationsApi'
-import { type RuntimeIssue } from './wtRuntimeApi'
+import { type ExecutionControl, type RuntimeIssue } from './wtRuntimeApi'
 import { fetchWtInstances, type WtInstance, type WtInstances } from './wtInstancesApi'
 import './operations.css'
 import { StatusBadge } from './StatusBadge'
@@ -24,6 +24,15 @@ function IssueDetail({issue}: {issue?: RuntimeIssue | null}) {
     <p><b>{issueLabels[issue.relation]}：</b>{issue.summary}</p>
     <p><b>影响：</b>{issue.impact}</p><p><b>处理：</b>{issue.action}</p>
   </aside> : null
+}
+
+/** 开关描述最近执行配置；刷新失败时当前值未知，历史值显式标注。 */
+function orderSwitchText(control: ExecutionControl | null | undefined, stale: boolean, inactive: boolean) {
+  const known = control?.state === 'available' && typeof control.writes_enabled === 'boolean'
+  const label = control?.writes_enabled ? '开启' : '关闭'
+  if (stale) return known ? `当前未知（上次配置：${label}）` : '当前未知'
+  if (!known) return '未知'
+  return inactive ? `最近配置为${label}` : label
 }
 
 export default function OperationsWorkspace() {
@@ -57,14 +66,17 @@ export default function OperationsWorkspace() {
         label={instance.runtime?.label ?? (instance.state === 'unavailable' ? '读取失败' : '未配置')} /></div><time>{time(instance.published_at ?? retained?.published_at ?? null)}</time></header>
       {instance.state === 'unavailable' ? <p role="alert">{instance.reason}{retained ? '以下保留上次成功结果和原发布时间；当前运行状态未知。' : ''}</p> : null}
       {published ? <><ul className="runtime-component-list">{published.components.map(item => <li key={item.name}>
-        <div>{item.display_name}{item.data?.basis_date ? <small>数据交易日 {item.data.basis_date}</small> : null}</div>
+        <div>{item.display_name}{item.data?.basis_date ? <small>数据交易日 {item.data.basis_date}</small> : null}
+          {item.name === 'execution' ? <small className="execution-control">WT 下单开关：{orderSwitchText(item.execution_control,
+            runtime.isError || instance.state === 'unavailable', published.state !== 'ready' || item.state !== 'ready')}</small> : null}</div>
         <StatusBadge state={item.state} label={item.label} />
-        {item.issue || item.data ? <details className="compact-details"><summary>查看详情</summary><IssueDetail issue={item.issue} />
+        {item.issue || item.data || item.name === 'execution' ? <details className="compact-details"><summary>查看详情</summary><IssueDetail issue={item.issue} />
           {item.data ? <p>{item.data.label}{item.data.ready === null ? ' · 数据状态未知' : item.data.ready ? ' · 保留最近发布数据' : ' · 尚未发布策略数据'}
-            {item.data.published_at ? ` · ${time(item.data.published_at)}` : ''}</p> : null}</details> : null}
+            {item.data.published_at ? ` · ${time(item.data.published_at)}` : ''}</p> : null}
+          {item.name === 'execution' ? <p>下单开关显示本代执行配置；实际委托由策略信号、账户权限和交易风控共同决定。</p> : null}</details> : null}
       </li>)}</ul><details className="compact-details"><summary>实例说明</summary><p>显示此WT实例最近发布的状态。</p>
         <p>本次读取：{time(data.observed_at)}</p><IssueDetail issue={published.issue} />
-        <p>组件状态由WT发布，业务数据保留各自更新时间。</p></details></> : <p role="status">{instance.reason}</p>}
+        <p>组件状态由WT发布，业务数据保留各自更新时间。</p></details></> : instance.state === 'unavailable' ? null : <p role="status">{instance.reason}</p>}
     </section>})}</>}
     secondary={<>{operations.isError ? <p role="alert">行情查询状态读取失败。{query ? '当前保留上次成功结果和时间。' : '请稍后重新读取。'}</p> : null}
     {query ? <section className="surface-card runtime-instance" aria-label="行情查询服务">

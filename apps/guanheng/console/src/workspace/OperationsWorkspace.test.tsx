@@ -114,3 +114,52 @@ test('首先报告和同时报告分别解释，读取失败保留原问题，�
  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
  expect(screen.getAllByRole('button')).toHaveLength(1)
 })
+
+
+function withSwitch(enabled: boolean | null | undefined): WtRuntimeObservation {
+ const execution = {...runtime.runtime!.components[0],name:'execution',display_name:'策略执行',
+  execution_control:enabled === undefined ? undefined : enabled === null
+   ? {state:'unavailable' as const,writes_enabled:null,label:'WT下单开关暂不可核实'}
+   : {state:'available' as const,writes_enabled:enabled,label:enabled ? 'WT下单开关已开启' : 'WT下单开关已关闭'}}
+ return {...runtime,runtime:{...runtime.runtime!,components:[execution]}}
+}
+
+test.each([[true,'开启'],[false,'关闭'],[null,'未知'],[undefined,'未知']] as const)('执行行只读显示开关 %s',async(enabled,label)=>{
+ vi.mocked(fetchWtRuntime).mockResolvedValue(withSwitch(enabled))
+ mount()
+ expect(await screen.findByText(`WT 下单开关：${label}`)).toBeVisible()
+ const card=screen.getByRole('region',{name:'WT运行状态'})
+ expect(card).toHaveTextContent('策略执行')
+ expect(card).toHaveTextContent('实际委托由策略信号、账户权限和交易风控共同决定')
+ expect(screen.getAllByRole('button')).toHaveLength(1)
+ expect(screen.getByRole('button')).toHaveTextContent('重新读取状态')
+})
+
+test('整轮刷新失败显示当前未知与上次配置，恢复读取关闭值',async()=>{
+ vi.mocked(fetchWtRuntime).mockResolvedValueOnce(withSwitch(true)).mockRejectedValueOnce(new Error('read failed')).mockResolvedValue(withSwitch(false))
+ mount();await screen.findByText('WT 下单开关：开启')
+ const refresh=screen.getByRole('button',{name:'重新读取状态'});await waitFor(()=>expect(refresh).toBeEnabled());fireEvent.click(refresh)
+ expect(await screen.findByText('WT 下单开关：当前未知（上次配置：开启）')).toBeVisible()
+ expect(screen.getByRole('alert')).toHaveTextContent('保留上次成功结果和时间')
+ await waitFor(()=>expect(refresh).toBeEnabled());fireEvent.click(refresh)
+ expect(await screen.findByText('WT 下单开关：关闭')).toBeVisible()
+ expect(screen.queryByText(/上次配置：开启/)).not.toBeInTheDocument()
+})
+
+test('单实例失败仍展示原时间，当前开关未知',async()=>{
+ const value=withSwitch(true);const unavailable=instances(value)
+ unavailable.instances[0]={...unavailable.instances[0],state:'unavailable',reason:'此WT实例读取失败',published_at:null,runtime:null}
+ vi.mocked(fetchWtInstances).mockResolvedValueOnce(instances(value)).mockResolvedValue(unavailable)
+ mount();await screen.findByText('WT 下单开关：开启')
+ const refresh=screen.getByRole('button',{name:'重新读取状态'});await waitFor(()=>expect(refresh).toBeEnabled());fireEvent.click(refresh)
+ expect(await screen.findByText('WT 下单开关：当前未知（上次配置：开启）')).toBeVisible()
+ expect(screen.getByRole('region',{name:'WT运行状态'})).toHaveTextContent('2026-10-30 09:19:58')
+})
+
+test('停止实例只描述最近配置，开关值不代替运行状态',async()=>{
+ const value=withSwitch(true);value.runtime={...value.runtime!,state:'closed',label:'已停止',ready:false}
+ vi.mocked(fetchWtRuntime).mockResolvedValue(value)
+ mount()
+ expect(await screen.findByText('WT 下单开关：最近配置为开启')).toBeVisible()
+ expect(screen.getByRole('region',{name:'WT运行状态'})).toHaveTextContent('已停止')
+})
