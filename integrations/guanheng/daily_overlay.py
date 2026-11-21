@@ -266,9 +266,13 @@ class DailyOverlayMarket:
                 original = self._base.call(request)
                 if original['status']['code'] != 'Ok':
                     return original
-                data = original['data']
+                data = validate_source_daily_data(original['data'],query)
                 metadata = data['metadata']
-                rows = {b['date']:(b,metadata) for b in data['bars']}
+                rows = {}
+                # 汇总身份属于整批结果，每根日线继续绑定其原分段的捕获来源。
+                for part in data.get('provenance',[dict(offset=0,count=len(data['bars']),metadata=metadata)]):
+                    for bar in data['bars'][part['offset']:part['offset']+part['count']]:
+                        rows[bar['date']] = (bar,part['metadata'])
                 newest = self._base.call(dict(api_version=API_VERSION,action='history.source-daily-query',request=dict(exchange=query['exchange'],code=query['code'],**{'from':10000101,'to':20991231,'limit':1})))
                 _require(newest['status']['code'] == 'Ok')
                 last = max((b['date'] for b in newest['data']['bars']),default=0)

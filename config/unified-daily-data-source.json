@@ -462,7 +462,7 @@
       "source": "integrations/guanheng/daily_local_prices.py"
     },
     "integrations/guanheng/daily_overlay.py": {
-      "sha256": "b0385a54e5d8861832183fd1b814ebe3d334a2a1f819523418d905ab88a0afbb",
+      "sha256": "7320691256ce0deda62c145069237606776a676bbc3d3d3d21a461c0faba3219",
       "source": "integrations/guanheng/daily_overlay.py"
     },
     "integrations/guanheng/daily_price_archive.py": {
@@ -794,5 +794,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.55"
+  "version": "0.2.0a1+unified.56"
 }

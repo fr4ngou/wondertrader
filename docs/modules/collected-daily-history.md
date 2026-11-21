@@ -8,6 +8,8 @@
 
 原生日线对同日期优先；原快照可补当前尾部及缺日。文件自然日仅用于定位，业务日期采用CSV自身交易日；marker会话确认闭合。相同日期相同值去重，冲突或变化中/损坏输入明确不可用。原历史数值保持，范围和根数沿原请求选择；空missing_dates及coverage=Unknown分别保留其语义。
 
+base 返回组合日线时，逐根日线沿 `provenance` 的 offset/count 绑定其原分段来源；整批 `SourceSelection` 只表示汇总身份。上层再次合并、限量截取及追加 Writer 尾部均保留原来源，最后按所选响应形态生成结果。回归入口为 `tests/integration/daily_security/test_daily_overlay_provenance.py`。
+
 ## 配置与来源身份
 
 显式选择`mode=source-daily-overlay`，`base`沿原读取配置。`native_reader`声明原库及SHA，`snapshots`声明Writer存储根、临时副本根、原会话和证券标识映射，以及来源、许可和价量额单位。证券集合对应实际采集标识。`max_file_bytes`和`max_bars`沿有界读取资源契约，关闭由原服务owner持有。
