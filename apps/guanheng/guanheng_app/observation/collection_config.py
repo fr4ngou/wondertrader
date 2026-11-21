@@ -217,7 +217,9 @@ def validate_configuration(value):
                 and 0<=source['overlap_days']<value['max_days_per_batch']
                 and sum(item.get('kind')==source['kind'] for item in value['sources'] if type(item) is dict)==1)
         elif source['kind'] in WT_DERIVED:
-            _need(set(source)=={'id','kind','datasets','date_policy','history_from','overlap_days'}
+            tables=list(getattr(WT_DERIVED[source['kind']],'SOURCE_TABLES',()))
+            _need(set(source)=={'id','kind','datasets','date_policy','history_from','overlap_days'}|({'tables'} if tables else set())
+                and (not tables or source['tables']==tables)
                 and source['date_policy']=='cn-prior-day' and source['datasets']==[WT_DERIVED[source['kind']].METRIC]
                 and date.fromisoformat(source['history_from']).isoformat()==source['history_from']
                 and 0<=source['overlap_days']<value['max_days_per_batch']

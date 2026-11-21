@@ -246,8 +246,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                                          calendar=calendar,snapshot_dates=versions)
             elif source['kind'] in WT_DERIVED:
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
+                module=WT_DERIVED[source['kind']]
+                inputs={'source_tables':tables,'completion_check':finalization.remaining} if getattr(module,'SOURCE_TABLES',()) else {}
                 updates=WT_DERIVED[source['kind']].history(fetch,start,end,market_client_factory,
-                                                           calendar=calendar,snapshot_dates=versions)
+                                                           calendar=calendar,snapshot_dates=versions,**inputs)
             elif source['kind']=='wt_t2108':
                 if market_client_factory is None:raise SourceFailure('market_source_not_configured')
                 updates=wt_t2108_history(fetch,source,start,end,market_client_factory,
@@ -267,7 +269,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 # 来源配置决定事实所有者；同名只读指标投影不取得原源表写入权。
                 # market.sh000001同时有源表和页面投影，必须先更新原表再统一派生。
                 is_table=key in source.get('tables',[])
-                budget.remaining();old=tables.get(key,[]) if is_table else datasets.get(key,[])
+                finalization.remaining();old=tables.get(key,[]) if is_table else datasets.get(key,[])
                 if key==wt_shenwan_source.TABLE:
                     prior={row['date']:row for row in old}
                     rows=[dict(date=row['date'],**{
@@ -277,9 +279,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                     old=t2108_models.versioned_history(old,definitions[key]['definition_version'])
                 if key in BREADTH_METRICS:
                     prepared_definitions[key]=admit_definition(key,definitions.get(key),old,rows)
-                if source['kind'] in WT_DERIVED:
+                if source['kind'] in WT_DERIVED and not is_table:
                     derived=WT_DERIVED[source['kind']]
                     prepared_definitions[key]=derived.definition()
+                    if hasattr(derived,'versioned_history'):old=derived.versioned_history(old)
                     prior={row['date']:row for row in old if derived.row_complete(row)}
                     rows=[row if derived.row_complete(row) else prior.get(row['date'],row) for row in rows]
                 if source['kind'] in etf_flow.ETF_KINDS:
@@ -343,7 +346,8 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                                loaded_period=max((row['date'] for row in datasets.get(derived.METRIC,())
                                                    if derived.row_complete(row)),default=None))
                 if any(not derived.row_complete(row) for row in rows):
-                    receipt.update(status='partial',error_code='wt_history_incomplete')
+                    diagnostic=next((r['diagnostic_code'] for r in reversed(fetch.records) if r.get('diagnostic_code')),None)
+                    receipt.update(status='partial',error_code=diagnostic or 'wt_history_incomplete')
             if source['kind']==market_structure_source.WT_STOCK_KIND:
                 sessions,_=official_calendar(calendar,check=budget.remaining)
                 expected={row['date'] for row in sessions if row['is_open'] and start<=row['date']<=end}
@@ -467,6 +471,10 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
             if key in structure_inputs:
                 context_parents=[reader.objects.put(parquet_bytes(tables[name]),kind='standard')
                                  for name in structure_inputs[key]]
+            for derived in WT_DERIVED.values():
+                if key==derived.METRIC:
+                    context_parents.extend(reader.objects.put(parquet_bytes(tables[name]),kind='standard')
+                        for name in getattr(derived,'SOURCE_TABLES',()) if name in tables)
             if key==bond_mtm.METRIC and bond_mtm.TABLE in tables:
                 context_parents=[*context_parents,*[parent for name in
                     (bond_mtm.TABLE,'source.csi_all','market.sh000001') for parent in table_parents.get(name,[])]]

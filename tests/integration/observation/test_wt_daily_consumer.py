@@ -138,18 +138,22 @@ def test_broker_heat_new_source_publishes_chart_and_reports_missing_warmup(tmp_p
 
 
 @pytest.mark.parametrize('buyback,missing,ratio',[(0,False,3),(200_000_000,False,1.5),(0,True,None)])
-def test_ipo_supply_publishes_two_chart_series_and_counts_ratio_coverage(tmp_path,buyback,missing,ratio):
+def test_ipo_supply_publishes_two_chart_series_and_counts_ratio_coverage(tmp_path,monkeypatch,buyback,missing,ratio):
     from guanheng_app.observation.calendars import official_calendar
 
     reader,_=fetch_at(tmp_path)
     config=configuration()
     day='2026-10-30'
     source=dict(id='wt.ipo_supply',kind=ipo_supply.KIND,date_policy='cn-prior-day',
-        history_from=day,overlap_days=0,datasets=[ipo_supply.METRIC])
+        history_from=day,overlap_days=0,datasets=[ipo_supply.METRIC],tables=list(ipo_supply.SOURCE_TABLES))
     config['sources']=[source]
     validate_configuration(config)
     sessions,_=official_calendar(config['models']['calendars']['cn'])
     days=[row['date'] for row in sessions if row['is_open'] and row['date']<=day][-20:]
+    def announced(fetch,calendar_days,*,existing=()):
+        return [dict(date=d,amount_cny=buyback if d in days else 0,announcement_count=1)
+                for d in calendar_days if not (missing and d==days[0])]
+    monkeypatch.setattr(ipo_supply.buyback_announced,'history',announced)
     manifest=dict(schema_version='market-observation/1',published_at='2026-10-29T00:00:00+00:00',
         boards=[],preferences=dict(default_board='',default_datasets={}),datasets={},assets={})
     adopt_snapshot(reader,manifest,digest(encode(manifest)),None,monotonic()+10)
@@ -186,6 +190,70 @@ def test_ipo_supply_publishes_two_chart_series_and_counts_ratio_coverage(tmp_pat
     assert _coverage(reader,published,source,day,lambda:None,item=repair)==([day] if missing else [])
     assert repair['inputs']==([dict(id=f'{ipo_supply.METRIC}.buyback',missing_count=1,
         first_missing=day,last_missing=day)] if missing else [])
+
+
+@pytest.mark.parametrize('failure',['collection_timeout','choice_public_query_incomplete','source_network_timeout'])
+def test_choice_partial_inputs_publish_and_resume_without_waiting_for_wt(tmp_path,monkeypatch,failure):
+    import json,re
+    from guanheng_app.observation.calendars import official_calendar
+    reader,_=fetch_at(tmp_path);config=configuration();day='2026-10-30'
+    source=dict(id='wt.ipo_supply',kind=ipo_supply.KIND,date_policy='cn-prior-day',history_from=day,
+        overlap_days=0,datasets=[ipo_supply.METRIC],tables=list(ipo_supply.SOURCE_TABLES))
+    config['sources']=[source];config['allowed_hosts']=['ai-saas.eastmoney.com'];validate_configuration(config)
+    sessions,_=official_calendar(config['models']['calendars']['cn'])
+    days=[r['date']for r in sessions if r['is_open'] and r['date']<=day][-20:]
+    manifest=dict(schema_version='market-observation/1',published_at='2026-10-29T00:00:00+00:00',
+        boards=[],preferences=dict(default_board='',default_datasets={}),datasets={},assets={})
+    adopt_snapshot(reader,manifest,digest(encode(manifest)),None,monotonic()+10)
+    class Client:
+        def source_market_snapshot_query(self,requested):
+            return dict(status=dict(code='Ok'),data=dict(snapshot_id='v',observation_date=requested,
+                provenance=dict(supplement_facts_sha256='s')))
+        def source_daily_history_batch_query(self,request):
+            return dict(status=dict(code='Ok'),data=dict(results=[dict(symbol=ipo_supply.STAR50,status=dict(code='Ok'),
+                data=dict(source_snapshot_id='v',metadata=dict(adjustment='none'),bars=[dict(date=20261030,close=1300)]))]))
+        def source_supplement_query(self,request):
+            return dict(status=dict(code='Ok'),data=dict(source_snapshot_id='v',source_sha256='s',
+                rows=[dict(date=d,value='100000000',unit='CNY')for d in days]))
+    calls=[];expire=[failure=='collection_timeout'];nested_fail=[failure=='source_network_timeout'];known_zero=[]
+    class Capture:
+        def __init__(self,objects,hosts,timeout,*,budget):self.objects,self.records,self.timeout,self.budget=objects,[],timeout,budget
+        def close(self):pass
+        def wait(self,seconds):self.budget.remaining()
+        def post_private_query(self,url,payload):
+            self.budget.request()
+            if failure=='choice_public_query_incomplete':return encode(dict(code='502',data=None))
+            bounds=re.findall(r'(\d{4})年(\d{2})月(\d{2})日',payload['keyWord']);first,last=['-'.join(parts)for parts in bounds];calls.append((first,last))
+            if nested_fail[0] and first==last:
+                if known_zero:raise SourceFailure('source_network_timeout')
+                known_zero.append(first)
+            dates=[(date.fromisoformat(first)+timedelta(days=i)).isoformat()for i in range((date.fromisoformat(last)-date.fromisoformat(first)).days+1)]
+            key='DIM{'+first+'|'+last+'|5|天}已回购金额求和'
+            listed=dates[-1:]if failure=='source_network_timeout'else dates
+            total=0 if nested_fail[0]and first==last else 1
+            body=encode(dict(code='100'if total else '201',data=dict(result=dict(total=total,
+                columns=[dict(title='回购',key=key)],dataList=[dict(SECURITY_CODE='600001',**{
+                    'MTM_EXTRA|'+key:json.dumps([dict(colHeads=[dict(colProp='DIM_REPURAMOUNT',unit='元'),dict(colProp='DIM_UPDATEDATE',unit='')],
+                        data=[dict(DIM_UPDATEDATE=d,DIM_REPURAMOUNT='1亿',SUM=str(100000000*len(listed)))for d in listed])])})]if total else []))))
+            self.records.append(dict(kind='http_body',sha256=self.objects.put(body),source_host='np-tjxg-g.eastmoney.com',
+                status=200,retrieved_at='2026-10-31T01:00:00+00:00',media_type='application/json'))
+            if expire[0]:self.budget.deadline=monotonic()-1
+            return body
+    def run():return collection.refresh(reader,config,as_of='2026-10-31',deadline=monotonic()+20,
+        now=datetime(2026,10,31,1,tzinfo=timezone.utc),market_client_factory=lambda _:Client(),fetcher_factory=Capture)
+    result=run();assert result['status']=='partial' and result['sources'][0]['error_code']==failure
+    _,published=reader.snapshot();rows=reader.rows(published['source_tables'][ipo_supply.buyback_announced.TABLE])
+    assert len(rows)==(5 if expire[0] else 2 if nested_fail[0] else 0)
+    repair={};assert _coverage(reader,published,source,day,lambda:None,item=repair)==[day]
+    assert [item['id']for item in repair['inputs']]==[ipo_supply.METRIC+'.buyback']
+    if expire[0]:
+        first_last=calls[0][1];calls.clear();expire[0]=False
+        assert run()['status']=='success'
+        assert calls and all(first>first_last for first,last in calls)
+    elif nested_fail[0]:
+        cached={row['date']for row in rows};calls.clear();nested_fail[0]=False
+        assert run()['status']=='success'
+        assert not any(first==last and first in cached for first,last in calls)
 
 
 @pytest.mark.parametrize('missing_denominator',[False,True])

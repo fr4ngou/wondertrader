@@ -422,7 +422,7 @@
       "source": "integrations/guanheng/daily_batch_source.py"
     },
     "integrations/guanheng/daily_data_inputs.py": {
-      "sha256": "3fb1bacb6c4728bf41cce8c4540d792e60f08cfafdbd5e24a45950d70c8e5dca",
+      "sha256": "f54ce7b8edcbbe5014619dfe66f70e6d13a0d4ae91a24475a53b9b6971defc14",
       "source": "integrations/guanheng/daily_data_inputs.py"
     },
     "integrations/guanheng/daily_data_service.py": {
@@ -542,7 +542,7 @@
       "source": "integrations/guanheng/market_snapshot_prepare.py"
     },
     "integrations/guanheng/market_supplement_capture.py": {
-      "sha256": "49a881c5c5cee45d80bcf7d21d7d4f360cab2be76cc417680b4546282a6e1e77",
+      "sha256": "5d7c1e49820a7cd7fbf55b5d6fde8ed302bbb028368568b5ede768af9c6b202b",
       "source": "integrations/guanheng/market_supplement_capture.py"
     },
     "integrations/guanheng/market_buyback_disclosures.py": {
@@ -550,7 +550,7 @@
       "source": "integrations/guanheng/market_buyback_disclosures.py"
     },
     "integrations/guanheng/market_supplement_sources.py": {
-      "sha256": "56173c207b2c52fcd22fa07a6ec7f6f86be7526f2608c308e89864ad2da7ce12",
+      "sha256": "f539c0864fa3e5ef599fd306343fbec84d4e01cb5c85d55f5c13bc8401fa25bb",
       "source": "integrations/guanheng/market_supplement_sources.py"
     },
     "integrations/guanheng/_process_job.py": {
@@ -562,7 +562,7 @@
       "source": "integrations/guanheng/stock_cross_section.py"
     },
     "integrations/guanheng/market_supplement_store.py": {
-      "sha256": "406c186b5ebe01694b50cb8bb5c1c5c7c596670a96c4f8d0e212714626056eec",
+      "sha256": "bd07c4e6b5ef86d2a182600334e4f6ab2168bc378a4b8303f35448e787367ef6",
       "source": "integrations/guanheng/market_supplement_store.py"
     },
     "integrations/guanheng/minute_counter_quality.py": {
@@ -794,5 +794,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.54"
+  "version": "0.2.0a1+unified.55"
 }

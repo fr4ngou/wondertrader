@@ -307,7 +307,7 @@ def test_ipo_proceeds_listing_scope_and_missing_amount(tmp_path):
     finally:store.close()
 
 
-def test_shareholder_reduction_maps_weekend_and_keeps_unpriced_day_missing(tmp_path):
+def test_shareholder_reduction_maps_weekend_and_records_unpriced_details(tmp_path):
     calendar=['2026-11-06','2026-11-09','2026-11-10','2026-11-11']
     targets=plan(('shareholder_reduction_gross','CN.SH_SZ'),required=False)
     targets['targets'][0]['from']=calendar[1]
@@ -337,8 +337,71 @@ def test_shareholder_reduction_maps_weekend_and_keeps_unpriced_day_missing(tmp_p
     try:
         page=store.query(query(metric='shareholder_reduction_gross',symbols=['CN.SH_SZ'],**{'from':calendar[1],'to':calendar[-1]}))
         assert [(row['date'],row['value']) for row in page['rows']]==[(calendar[1],'500000'),(calendar[-1],'0')]
-        assert [(gap['date'],gap['reason']) for gap in page['gaps']]==[(calendar[2],'source_record_missing')]
+        assert [(gap['date'],gap['reason'])for gap in page['gaps']]==[(calendar[2],'source_record_missing')]
         store.verify_sources()
+    finally:store.close()
+
+
+def test_shareholder_reduction_reuses_local_reference_and_excludes_timing_conflicts():
+    import hashlib
+    day='2026-11-09';calls=[]
+    def event(code,trade):
+        return dict(SECURITY_CODE=code,NOTICE_DATE=day,TRADE_DATE=trade,HOLDER_NAME='股东',
+            CHANGE_NUM=2,CHANGE_NUM_SYMBOL=-2,TRADE_AVERAGE_PRICE=None,CLOSE_PRICE=None,
+            START_DATE='2026-11-01',END_DATE=trade,EITIME=day,DIRECTION='减持',MARKET='二级市场')
+    body=json.dumps(dict(success=True,result=dict(count=2,pages=1,data=[event('600001','2026-11-06'),event('600002','2026-11-10')]))).encode()
+    def get(*args):return dict(body=body,sha256=hashlib.sha256(body).hexdigest(),received_at='2026-11-10T00:00:00Z')
+    def reference(code,trade):calls.append((code,trade.isoformat()));return 7
+    rows=public_sources.shareholder_reduction_history([day],['2026-11-06',day],get,reference_close=reference)
+    assert rows[day]['value']=='140000' and calls==[('600001','2026-11-06')]
+    assert rows[day]['calculation']['estimated_count']==1
+    assert rows[day]['calculation']['timing_conflict_count']==1
+
+
+@pytest.mark.parametrize('corrupt_input',['report','price','price_book'])
+def test_normal_reduction_owner_reads_local_price_reuses_result_and_checks_inputs(tmp_path,monkeypatch,corrupt_input):
+    import hashlib
+    import integrations.guanheng.source_market as local_market
+    import integrations.guanheng_market_client as market_client
+    day='2026-11-09';calendar=['2026-11-06',day];base=dict(mode='source-catalog',fixture='local-only');native_calls=[]
+    class Local:
+        def call(self,request):
+            native_calls.append(request)
+            assert request['action']=='history.source-daily-query'and request['request']['code']=='600001'
+            return dict(status=dict(code='Ok'),data=dict(metadata=dict(adjustment='none',factor_version=''),
+                bars=[dict(date=20261105,close=7),dict(date=20261110,close=99)]))
+        def close(self):pass
+    def create(configuration):assert configuration==base;return Local()
+    monkeypatch.setattr(local_market,'create_native_source_market',create)
+    monkeypatch.setattr(market_client,'validate_response',lambda value,request:value)
+    class Reports(FrozenFetch):
+        def get(self,url,params=None,referer=None):
+            self.budget.request()
+            event=dict(SECURITY_CODE='600001',NOTICE_DATE=day,TRADE_DATE='2026-11-06',HOLDER_NAME='股东',
+                CHANGE_NUM=2,CHANGE_NUM_SYMBOL=-2,TRADE_AVERAGE_PRICE=None,CLOSE_PRICE=None,
+                START_DATE='2026-11-01',END_DATE='2026-11-06',EITIME=day,DIRECTION='减持',MARKET='二级市场')
+            return json.dumps(dict(success=True,result=dict(count=1,pages=1,data=[event]))).encode()
+    objects=ContentStore(tmp_path/'raw');targets=plan(('shareholder_reduction_gross','CN.SH_SZ'),required=False);targets['targets'][0]['from']=day
+    def run():return capture.collect_supplement(targets,day,calendar,tmp_path/'work',objects=objects,fetch=Reports(),
+        qmt_transport=QmtTransport(),calendar_coverage=(calendar[0],calendar[-1]),deadline=time.monotonic()+20,reference_base=base)
+    descriptor=run();assert run()==descriptor and len(native_calls)==1
+    store=MarketSupplementStore(descriptor)
+    try:
+        row,=store.query(query(metric='shareholder_reduction_gross',symbols=['CN.SH_SZ'],**{'from':day,'to':day}))['rows']
+        assert row['value']=='140000'
+        proof=json.loads(objects.get(row['source_sha256']));calculation=json.loads(objects.get(proof['parents'][0]))
+        assert calculation['estimated_count']==1 and calculation['unpriced_count']==0 and len(calculation['parents'])==2
+        if corrupt_input=='price_book':
+            book=objects.put(json.dumps(dict(schema='guanheng.reduction-reference-prices.v1',quotes=[],parents=[calculation['parents'][1]])).encode())
+            calculation['parents'][1]=book;proof['parents']=[objects.put(json.dumps(calculation).encode())]
+            catalog=json.loads(Path(descriptor['path']).read_bytes());catalog['rows'][0]['source_sha256']=objects.put(json.dumps(proof).encode())
+            other=tmp_path/'with-price-book.json';other.write_bytes(json.dumps(catalog).encode());store.close()
+            store=MarketSupplementStore(dict(path=str(other),sha256=hashlib.sha256(other.read_bytes()).hexdigest()))
+            store.verify_sources()
+            target=json.loads(objects.get(book))['parents'][0]
+        else:target=calculation['parents'][0 if corrupt_input=='report'else 1]
+        objects.path(target).write_bytes(b'corrupt fixture input')
+        with pytest.raises(ValueError,match='unavailable or corrupt'):store.verify_sources()
     finally:store.close()
 
 

@@ -66,6 +66,7 @@ def _coverage_by_input(reader, manifest, source, target, check):
         return {key:sorted(expected-dates) for key,dates in observed.items() if expected-dates}
     missing = {}
     for key in source.get('tables', []):
+        if key in getattr(WT_DERIVED.get(source['kind']),'OBSERVER_INPUTS',()):continue
         check()
         rows = reader.rows(tables[key]) if key in tables else ()
         observed = {row['date'] for row in rows if row['date'] <= target
@@ -251,7 +252,9 @@ def repair(reader, config, job, now, *, lease, deadline, cancelled, refresh, mar
                 repository.record_data_repair(job, lease=lease)
             if timed_out:
                 break
-            if missing and upstream is None and config.get('schedule', {}).get('wt_repair_enabled'):
+            observer_inputs=getattr(WT_DERIVED.get(source['kind']),'OBSERVER_INPUTS',())
+            needs_wt=any(entry['id'] not in observer_inputs for entry in item.get('inputs',[]))
+            if missing and needs_wt and upstream is None and config.get('schedule', {}).get('wt_repair_enabled'):
                 item['state'] = 'waiting_for_wt_repair'
                 item['wt_target'] = target  # 该来源实际要求的闭合交易日。
                 item['wt_start'] = checkpoint['first'] or missing[0]  # 收到回执后复核本扫描窗口。

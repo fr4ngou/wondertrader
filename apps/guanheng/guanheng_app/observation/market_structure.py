@@ -195,6 +195,10 @@ def derive(tables, datasets, definitions, *, check=lambda: None):
                 continue
         datasets[metric] = rows
         definitions[metric] = definition(metric)
+        available=[row['date']for row in rows if row['score'] is not None]
+        definitions[metric]['primary_coverage']=dict(start=min(available,default=None),end=max(available,default=None),observations=len(available))
+        if available:
+            definitions[metric]['how_to_read']['boundary']+=f' 合成线预热后的首个有效日为{available[0]}，指数点位保留完整历史。'
         used[metric] = ['source.cn_official_calendar', INDEX_TABLES['000300'], index_table]
         if metric == STAR:
             used[metric].append(STOCK_TABLE)

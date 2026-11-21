@@ -598,8 +598,8 @@ def _shareholder_report(first, last, get):
     _fail('source_pagination_incomplete')
 
 
-def shareholder_reduction_history(days, calendar, get):
-    """按完整披露区间计算减持毛额，周末和节假日披露归至下一交易日。"""
+def shareholder_reduction_history(days, calendar, get, *, reference_close=None, reference_receipts=()):
+    """可计价减持毛额复用原股东图的计价资格，未知明细单列；非交易日向后归属。"""
     from guanheng_app.observation.provider_reports import SHAREHOLDER_REPORT_KEY, SHAREHOLDER_REPORT_MARKETS
 
     first_index = bisect_left(calendar, days[0])
@@ -609,7 +609,13 @@ def shareholder_reduction_history(days, calendar, get):
     last = days[-1]
     rows, receipts = _shareholder_report(first,last,get)
     amounts = dict.fromkeys(days,Decimal(0))
-    incomplete, seen = set(), set()
+    quality={day:dict(
+        priced_count=0,  # 使用公告成交均价的减持笔数。
+        estimated_count=0,  # 使用原报表或已核本地参考收盘价的减持笔数。
+        unpriced_count=0,  # 仍缺价格、未计入可计价金额的减持笔数。
+        timing_conflict_count=0,  # 交易日晚于公告日、单列剔除的明细笔数。
+    )for day in days}
+    seen = set()
     for row in rows:
         notice = _report_day(row,'NOTICE_DATE',first,last)
         day = calendar[bisect_left(calendar,notice)]
@@ -635,14 +641,27 @@ def shareholder_reduction_history(days, calendar, get):
         if direction == '增持':
             continue
         trade = _report_day(row,'TRADE_DATE','1990-01-01','9999-12-31')
-        price = _number(row.get('TRADE_AVERAGE_PRICE') or 0) or _number(row.get('CLOSE_PRICE') or 0)
-        if trade > notice or price == 0:
-            incomplete.add(day)
+        if trade > notice:
+            quality[day]['timing_conflict_count']+=1
             continue
+        price = _number(row.get('TRADE_AVERAGE_PRICE') or 0)
+        if price:
+            quality[day]['priced_count']+=1
+        else:
+            price = _number(row.get('CLOSE_PRICE') or 0)
+            if not price and reference_close is not None:
+                price=_number(reference_close(code,date.fromisoformat(trade)) or 0)
+            quality[day]['estimated_count'if price else 'unpriced_count']+=1
+        if not price:continue
         with localcontext() as context:
             context.prec = 300
             amounts[day] += quantity * price * 10_000
-    return {day:_fact(value,'CNY','Eastmoney',receipts) for day,value in amounts.items() if day not in incomplete}
+    return {day:dict(_fact(value,'CNY','Eastmoney',[*receipts,*reference_receipts]),
+        calculation=dict(schema='guanheng.shareholder-reduction-estimate.v1',  # 可计价减持估算证据版本。
+            date=day,  # 非交易日披露归入的后继交易日。
+            method='known_priced_disclosures; average_then_reference_close; timing_conflicts_excluded',  # 计价及未知明细处理。
+            **quality[day]))
+        for day,value in amounts.items() if quality[day]['unpriced_count']==0}
 
 
 def _csi300_market_cap(raw, day):

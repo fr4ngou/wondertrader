@@ -86,7 +86,7 @@ class MarketSupplementStore:
     def _verify_sources(self, page, *, check=lambda: None):
         """复核QMT证据、行proof和一层父原件；同批去重，每行/原件前核原owner截止。"""
         from guanheng_app.observation.contracts import ObservationError
-        from ..guanheng_market_client.supplement_facts import BUYBACK_EXECUTION
+        from ..guanheng_market_client.supplement_facts import BUYBACK_EXECUTION,SHAREHOLDER_REDUCTION
         import re
         seen = set()
         proofs = {}
@@ -106,6 +106,7 @@ class MarketSupplementStore:
         del evidence_body
         parents = set()
         disclosure_indexes = {}
+        reduction_indexes = {}
         for gap, row in page:
             check()
             if gap:
@@ -120,6 +121,36 @@ class MarketSupplementStore:
                 if len(proof['parents']) != 1:
                     raise ValueError('buyback disclosure proof parent invalid')
                 disclosure_indexes[proof['parents'][0]] = row['date']
+            if row['metric']==SHAREHOLDER_REDUCTION:
+                for parent in proof['parents']:reduction_indexes.setdefault(parent,set()).add(row['date'])
+        for parent,days in reduction_indexes.items():
+            body=read(parent);seen.add(parent)
+            try:index=strict_json(body)
+            except (ValueError,UnicodeError):continue  # 旧版本可直接引用原始非JSON报表。
+            if type(index)is not dict or index.get('schema')!='guanheng.shareholder-reduction-estimate.v1':continue
+            counts={'priced_count','estimated_count','unpriced_count','timing_conflict_count'}
+            if (set(index)!={'schema','date','method','parents',*counts}or {index['date']}!=days
+                    or index['method']!='known_priced_disclosures; average_then_reference_close; timing_conflicts_excluded'
+                    or any(type(index[k])is not int or index[k]<0 for k in counts)or index['unpriced_count']):
+                raise ValueError('reduction estimate proof invalid')
+            inputs=index['parents']
+            if (type(inputs)is not list or not inputs or len(inputs)!=len(set(inputs))
+                    or any(type(sha)is not str or re.fullmatch('[a-f0-9]{64}',sha)is None for sha in inputs)):
+                raise ValueError('reduction estimate input identity invalid')
+            parents.update(inputs)
+            for identity in inputs:
+                if identity in seen:continue
+                raw=read(identity);seen.add(identity)
+                # 历史补数的原参考价清单直接列出其全部价格原件；普通本地查询响应为叶子。
+                try:book=strict_json(raw)
+                except (ValueError,UnicodeError):continue
+                if type(book)is not dict or book.get('schema')!='guanheng.reduction-reference-prices.v1':continue
+                if (set(book)!={'schema','quotes','parents'}or type(book['quotes'])is not list
+                        or type(book['parents'])is not list or not book['parents']
+                        or any(type(sha)is not str or re.fullmatch('[a-f0-9]{64}',sha)is None for sha in book['parents'])
+                        or len(book['parents'])!=len(set(book['parents']))):
+                    raise ValueError('reduction reference price proof invalid')
+                parents.update(book['parents'])
         for parent, day in disclosure_indexes.items():
             index = strict_json(read(parent))
             if (type(index) is not dict or set(index) != {'schema','date','parents'}

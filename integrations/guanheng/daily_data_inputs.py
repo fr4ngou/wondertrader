@@ -147,10 +147,16 @@ def prepare_report_inputs(configuration, day, directory, *, deadline, cancelled)
         max_bytes=public['max_bytes'],response_bytes=public['response_bytes'],cancelled=cancelled)
     objects = ContentStore(configuration['raw_store'])
     previous = template.get('supplement_facts')
+    reference_base=None
+    # 本报表线程按需读已发布的本地WT日线；初次启动也可复用模板已有归档。
     current = Path(template['publication_directory'])/'CURRENT.json'
     if current.exists():
         generation,_ = read_generation(current)
-        previous = _load(generation['configuration'],1048576).get('supplement_facts',previous)
+        published=_load(generation['configuration'],1048576)
+        previous = published.get('supplement_facts',previous)
+        reference_base=published.get('base')
+    elif template.get('base_configuration'):
+        reference_base=template['base_configuration']
     previous = prior_supplement_catalogs(previous,configuration['directory'],root,day,
                                          objects=objects,check=budget.remaining)
     calendar = _load(template['calendar'])
@@ -161,7 +167,7 @@ def prepare_report_inputs(configuration, day, directory, *, deadline, cancelled)
         collect_supplement(inputs['supplement_facts'],day,[row['date'] for row in dates if row['is_open']==1],
             root/'supplement',objects=objects,fetch=fetch,qmt_transport=None,
             calendar_coverage=(calendar['coverage_start'],calendar['coverage_end']),previous=previous,
-            deadline=deadline,cancelled=cancelled,reports_only=True)
+            deadline=deadline,cancelled=cancelled,reports_only=True,reference_base=reference_base)
     finally:
         fetch.close()
 
@@ -371,7 +377,9 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
                 [row['date'] for row in calendar_rows if row['is_open'] == 1], root / 'supplement',
                 objects=reader.objects, fetch=fetch, qmt_transport=supplement_transport,
                 calendar_coverage=(calendar['coverage_start'], calendar['coverage_end']),
-                previous=supplement_previous, deadline=deadline, cancelled=cancelled, environ=environ)
+                previous=supplement_previous, deadline=deadline, cancelled=cancelled, environ=environ,
+                reference_base=(current_config.get('base')if current_config is not None
+                                else template['base_configuration']))
     finally:
         try:
             if supplement_transport is not None:

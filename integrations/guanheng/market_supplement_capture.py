@@ -1,6 +1,6 @@
 """同一WT日线owner的市场事实采集阶段；缓存优先，QMT准入先于外部回退。"""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import os
@@ -294,8 +294,61 @@ REPORT_METRICS = frozenset((MARGIN_PURCHASE, IPO_PROCEEDS, SHAREHOLDER_REDUCTION
                             GOV10Y_YIELD, *MARGIN_SUMMARY_FIELDS, *SHENWAN_FIELDS))
 
 
+class _LocalReductionPrices:
+    """原采集线程按需读取已发布WT日线；零HTTP、零QMT请求，退出关闭同线程reader。"""
+    def __init__(self,base,objects,budget):
+        self.base,self.objects,self.budget=base,objects,budget
+        self.check=budget.remaining
+        self.market=None
+        self.receipts=[]  # 当前报表批次所用本地查询原件及实读UTC时间。
+        self.cache={}  # 本线程重复证券/目标日只读一次，跨轮由原行情归档继续复用。
+
+    def __call__(self,code,trade_day):
+        self.check()
+        key=code,trade_day
+        if key in self.cache:
+            value,receipt=self.cache[key]
+            if receipt is not None and receipt not in self.receipts:self.receipts.append(receipt)
+            return value
+        if self.base is None:return None
+        if self.market is None:
+            from .source_market import create_native_source_market
+            def local(config):
+                mode=config.get('mode')
+                if mode in ('source-store','source-stores','source-catalog'):return config
+                if mode=='source-market-snapshot':return local(config['base'])
+                if mode not in ('source-collected','source-daily-overlay'):
+                    raise ValueError('supplement reference needs local WT archive')
+                return dict(config,base=local(config['base']))
+            base=(_load(self.base,1048576)if set(self.base)=={'path','sha256'}else self.base)
+            self.market=create_native_source_market(local(base))
+        from ..guanheng_market_client import API_VERSION,validate_response
+        query=dict(exchange='SSE'if code.startswith('6')else'SZSE',code=code,
+            **{'from':int((trade_day-timedelta(days=30)).strftime('%Y%m%d')),
+               'to':int(trade_day.strftime('%Y%m%d'))},limit=31,adjustment='none')
+        request=dict(api_version=API_VERSION,action='history.source-daily-query',request=query)
+        result=validate_response(self.market.call(request),request)
+        self.check()
+        value=receipt=None
+        if result['status']['code']=='Ok':
+            data=result['data'];metadata=data['metadata']
+            if metadata['adjustment']!='none' or metadata['factor_version']!='':
+                raise ValueError('supplement reference price adjustment differs')
+            candidates=[bar for bar in data['bars']if query['from']<=bar['date']<=query['to']and bar['close']>0]
+            if candidates:
+                value=Decimal(str(max(candidates,key=lambda bar:bar['date'])['close']))
+                body=encode(result);self.budget.consume(len(body));sha=self.objects.put(body);self.check()
+                receipt=(sha,datetime.now(timezone.utc).isoformat());self.receipts.append(receipt)
+        self.cache[key]=(value,receipt)
+        return value
+
+    def close(self):
+        if self.market is not None:self.market.close()
+
+
 def collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, qmt_transport,
-                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ=None, reports_only=False):
+                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ=None, reports_only=False,
+                       reference_base=None):
     """原总预算内分配本阶段请求份额；串行调用结束后恢复原预算上限。
 
     max_requests省略时沿原预算。实际HTTP重试和SDK调用仍由同一个CollectionBudget
@@ -305,17 +358,20 @@ def collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, 
     original = fetch.budget.max_requests
     if 'max_requests' in plan:
         fetch.budget.max_requests = min(original, fetch.budget.requests + plan['max_requests'])
+    prices=_LocalReductionPrices(reference_base,objects,fetch.budget)
     try:
         return _collect_supplement(plan, day, calendar_dates, directory, objects=objects, fetch=fetch,
             qmt_transport=qmt_transport, calendar_coverage=calendar_coverage, previous=previous,
             deadline=deadline, cancelled=cancelled, environ=os.environ if environ is None else environ,
-            reports_only=reports_only)
+            reports_only=reports_only,reference_prices=prices)
     finally:
-        fetch.budget.max_requests = original
+        try:prices.close()
+        finally:fetch.budget.max_requests = original
 
 
 def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch, qmt_transport,
-                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ, reports_only):
+                       calendar_coverage, previous=None, deadline, cancelled=lambda: False, environ, reports_only,
+                       reference_prices):
     """原data owner持发布租约调用；目录可恢复，不创建线程/调度/数据库。
 
     objects为原ContentStore，fetch为沿总预算创建的原Fetcher，qmt_transport复用原
@@ -494,9 +550,14 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
 
     def certified_row(d, metric, symbol, result):
         check()
+        parents=result['parents']
+        if result.get('calculation'):
+            # 原金额事实接口保持；估算资格与全部原始输入归同一内容仓留证。
+            evidence=objects.put(encode(dict(result['calculation'],parents=parents)))
+            parents=[evidence]
         proof = dict(schema='guanheng.supplement-source-proof.v1',  # 单/双原件的可追溯派生清单。
                      date=d, metric=metric, symbol=symbol, value=result['value'], unit=result['unit'],
-                     source=result['source'], parents=result['parents'])
+                     source=result['source'], parents=parents)
         validate_source_proof(proof)  # 每条标准事实准入后才写进度，避免非法值成为永久已完成行。
         for sha in proof['parents']:
             objects.get(sha)
@@ -591,10 +652,15 @@ def _collect_supplement(plan, day, calendar_dates, directory, *, objects, fetch,
 
     index_days = [d for d, m, s in cells if m == INDEX_TURNOVER and _key(d, m, s) not in state['rows']]
     current = [day] if day in index_days else []
+    def reductions(days):
+        reference_prices.receipts.clear()
+        return shareholder_reduction_history(days,calendar_dates,get,
+            reference_close=reference_prices,reference_receipts=reference_prices.receipts)
+
     report_readers = {
         MARGIN_PURCHASE: lambda days: margin_purchase_history(days[0], days[-1], get),
         IPO_PROCEEDS: lambda days: ipo_proceeds_history(days, get),
-        SHAREHOLDER_REDUCTION: lambda days: shareholder_reduction_history(days, calendar_dates, get),
+        SHAREHOLDER_REDUCTION: reductions,
     } if 'Eastmoney' in plan['external_fallback'] else {}
     if 'ChinaBond' in plan['external_fallback']:
         report_readers[GOV10Y_YIELD] = lambda days: gov10y_history(days[0], days[-1], get)
