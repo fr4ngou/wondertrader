@@ -16,7 +16,7 @@ import { FieldCoverage } from './FieldCoverage'
 import { keyboardRange, latestRange, presetRange, presets } from './dates'
 import { sourceChartDate } from '../sourceChartPresentation'
 import { ChartHistoryTrack } from '../components/ChartHistoryTrack'
-import { boardDatasets, defaultMetric, selectableBoard } from './presets'
+import { boardDatasets, defaultMetric, selectableBoard, selectableCatalog } from './presets'
 import {statusLabel,sourceLabel,failureLabel,displayedUnit,displayedPrimary,automaticUpdateLabel,localSchedulerLabel,frequencyLabel,repairInputLabel} from './presentation'
 import type { Catalog, DataRepair, Definition, Range, Row, Series, WtRepairPhase } from './types'
 import './observation.css'
@@ -125,7 +125,7 @@ function DataRepairControl({ status, pinned }: { status?: UpdateStatus; pinned?:
 
 export default function ObservationShell({ appearance, embedded = false }: { appearance?: ReactNode; embedded?: boolean }) {
   const [search] = useSearchParams(); const pinned = search.get('snapshot_id') || undefined
-  const catalog = useQuery({ retry: false, queryKey: ['observation', 'catalog', pinned], queryFn: ({ signal }) => getCatalog(signal, pinned), refetchInterval: pinned ? false : 60000 })
+  const catalog = useQuery({ retry: false, queryKey: ['observation', 'catalog', pinned], queryFn: ({ signal }) => getCatalog(signal, pinned), select: selectableCatalog, refetchInterval: pinned ? false : 60000 })
   const runtime = useQuery({ retry: false, queryKey: updateKey, queryFn: ({ signal }) => read<UpdateStatus>('updates', {}, signal),
     refetchInterval: query => repairActive(query.state.data?.data_repair) ? 2000 : 60000 })
   const runtimeData=runtime.data
