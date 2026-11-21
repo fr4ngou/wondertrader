@@ -118,3 +118,12 @@ WT Runtime 51444、Native 40644 和分钟 Runtime 47220 保持原进程；本次
 
 
 本轮代码开发 worktree 已沿 Git 收尾移除；发布记录工作树合入后同样清理。构建快照 `D:/wt-build/observer144-order-switch-package-20261121-001/frontend/apps/guanheng/console/node_modules` 的递归删除被自动安全检查拒绝，仅返回 blocked by policy，该项缓存仍保留，清理状态记录为未完成。正式安装的解释器与 SPA 使用独立安装目录，运行入口不引用该缓存。发布包、锁定依赖及旧版回退安装继续按原制品留存。
+
+
+## a145 后继接续核对
+
+本轮收尾时，另一项市场观察发布已将 Web 正常接续为 `0.1.0a145`，实际进程 45008、原地址 18143；a144 的正常关闭与 exit_code=0 原件均已存在，failure 原件不存在。a145 的固定标签为 `guanheng-observation-history-20261121`，源码 `b476ba5a95f5424338733f3aeb3f1dbad740f12e`，安装 `D:/wt-build/observer145-history-install-20261121-001`。其版本元数据及本次开关组件原字节与相应 SOURCE-BUILD 记录、固定标签匹配，本次开关功能包含在该后继中。
+
+本会话沿 a145 原维护入口取得 ready/存活证明，核配置 SHA 和实际监听 PID，并将尚指向已退出 a144 的稳定 DEPLOYMENT/web-profile 同步到这份已运行原配置；保留 a144 部署记录，按原记录未变化条件替换，未重新启动或修改 a145 的配置参数。现有账户四组完整、回测目录 18 份且无无效收据。`successor145-after-browser.json` 和相应截图证明后继的本次开关、刷新、桌面与窄屏均正常，相关浏览器错误/警告为 0。市场观察历史复用的专项资格仍由对应发布拥有，此处不扩大本轮验收范围。
+
+交易 Runtime、Native 与分钟 Runtime 仍为原进程；开盘后策略计算、目标及费用口径继续原待验项。当前正式观衡应按 a145 稳定入口读取，本页 a144 章节保留其当时的发布事实。构建缓存的删除拒绝及保留状态保持。
