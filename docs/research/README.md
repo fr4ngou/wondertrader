@@ -2,6 +2,8 @@
 
 # 研究资料
 
+- [IPO竖线事件离线候选推导](2026-11-22-ipo-event-candidate-inference.md)：24组有限比较、三日期状态与首次触发分别核对、敏感性及未采用结论。
+
 - [IPO图竖线事件原条件与日期对照](2026-11-22-ipo-event-original-comparison.md)：142篇官方回顾、三个相关异名日期、观衡同日输入及未核实的原截图条件。
 
 - [两张市场结构图的原式检索与对照](2026-11-22-original-structure-formulas.md)：EasyK/作者原图、数值和事件锚点、现有偏差及未接受的推导候选。
