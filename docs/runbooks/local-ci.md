@@ -7,7 +7,7 @@
 1. 按[工作树与主干](../development/workflow.md#工作树与主干)核对主目录和最新本地 `master`，为新任务创建独立 worktree。
 2. 在任务 worktree 完成修改，核对候选基线，运行本地 CI 或使用自动检查的合入命令。
 3. 按[开发流程](../development/workflow.md#git-与交接)整理为单个提交，检查结果对应最终代码，以主目录为目标快进本地 `master`。
-4. 合入成功后，按[Worktree收尾](../development/workflow.md#worktree收尾)手动清理本任务临时工作树，并核对目录和 Git 登记。
+4. 合入成功后，在同次交付中按[Worktree收尾](../development/workflow.md#worktree收尾)手动清理本任务临时工作树；最终交付写明目录与Git登记的核对结果。保留项按该正文登记具体原因、处理者和解除条件，收尾状态持续跟进到完成。
 5. 发布按独立发布流程执行。
 
 远端和本地 `master` 处于同一条提交历史时，从主目录执行：
