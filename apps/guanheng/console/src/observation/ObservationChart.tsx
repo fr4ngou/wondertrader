@@ -117,29 +117,41 @@ export function ObservationChart({ definition, rows, history, historyLabel = '�
   historyLabel?: string // 导航数据的真实身份；组合图传基准名称，省略时表示当前指标的完整历史。
 }) {
   const plot = useRef<HTMLDivElement>(null)
+  const instance = useRef<ReturnType<typeof echarts.init> | null>(null)
   const navigationCoverage = history && { start: history.coverage.start, end: sourceChartDate(new Date().toISOString()) }
   const theme = useObserverTheme()
   const [brushing, setBrushing] = useState(false)
-  const callback = useRef(onRange); callback.current = onRange
+  const interaction = useRef({ onRange, onHidden, definition, hidden, range })
+  interaction.current = { onRange, onHidden, definition, hidden, range }
+  // 画布随组件创建与释放；轮询、数据和日期变化只更新同一实例。
   useEffect(() => {
     if (!plot.current) return
     const chart = echarts.init(plot.current)
-    const options=chartOptions(definition, rows, hidden, focus, mode, activity, range, observerChartColors(plot.current))
-    chart.setOption({...options,legend:{...options.legend,selectedMode:!!onHidden}})
-    chart.on('legendselectchanged',((event:{selected:Record<string,boolean>})=>onHidden?.(legendHidden(definition.lines,hidden,event.selected))) as never)
-    if (definition.axis_type !== 'tenor' && brushing) chart.dispatchAction({ type: 'takeGlobalCursor', key: 'brush', brushOption: { brushType: 'lineX', brushMode: 'single' } })
+    instance.current = chart
+    chart.on('legendselectchanged',((event:{selected:Record<string,boolean>})=>{
+      const latest = interaction.current
+      latest.onHidden?.(legendHidden(latest.definition.lines, latest.hidden, event.selected))
+    }) as never)
     chart.on('brushEnd', ((event: { areas: { coordRange?: [number, number] }[] }) => {
       const values = event.areas[0]?.coordRange
       if (!values) return
-      const selected = brushRange(values,range)
-      if (selected) { setBrushing(false); callback.current(selected) }
+      const selected = brushRange(values,interaction.current.range)
+      if (selected) { setBrushing(false); interaction.current.onRange(selected) }
     }) as never)
     const resize = new ResizeObserver(() => chart.resize()); resize.observe(plot.current)
-    return () => { resize.disconnect(); chart.dispose() }
-  }, [definition, rows, hidden, focus, mode, activity, range.start, range.end, theme, brushing])
+    return () => { resize.disconnect(); chart.dispose(); instance.current = null }
+  }, [])
+  useEffect(() => {
+    const chart = instance.current
+    if (!chart || !plot.current) return
+    const options=chartOptions(definition, rows, hidden, focus, mode, activity, range, observerChartColors(plot.current))
+    // 完整替换选项，保证缩减面板、曲线或切换图形时清除旧配置。
+    chart.setOption({...options,legend:{...options.legend,selectedMode:!!onHidden}}, { notMerge: true })
+    if (definition.axis_type !== 'tenor' && brushing) chart.dispatchAction({ type: 'takeGlobalCursor', key: 'brush', brushOption: { brushType: 'lineX', brushMode: 'single' } })
+  }, [definition, rows, hidden, focus, mode, activity, range.start, range.end, theme, brushing, !!onHidden])
   return <div className="observation-plot" tabIndex={0} role="group" aria-label="图表，方向键缩放和移动日期"
     onPointerDown={event => event.currentTarget.focus({ preventScroll: true })}
-    onKeyDown={event => { if (definition.axis_type === 'tenor' || !navigationCoverage || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return; const next = keyboardRange(event.key, range, navigationCoverage); if (next) { event.preventDefault(); event.stopPropagation(); callback.current(next) } }}>
+    onKeyDown={event => { if (definition.axis_type === 'tenor' || !navigationCoverage || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return; const next = keyboardRange(event.key, range, navigationCoverage); if (next) { event.preventDefault(); event.stopPropagation(); interaction.current.onRange(next) } }}>
     {definition.axis_type !== 'tenor' ? <ChartDateControls range={range} coverage={navigationCoverage} onRange={onRange}>
       <button type="button" aria-pressed={brushing} onClick={() => setBrushing(value => !value)}>{brushing ? '取消框选' : '框选日期'}</button>
     </ChartDateControls> : null}

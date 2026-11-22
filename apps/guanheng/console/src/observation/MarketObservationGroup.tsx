@@ -105,7 +105,7 @@ export function MarketObservationGroup({catalog,metric,board,range,parameters,on
         const split=line.key.indexOf('|');return [line.key.slice(0,split),line.key.slice(split+1),line.name]
       })}))
   return <div className="observation-group" data-testid="market-observation-group" aria-busy={queries.some(query=>query.isFetching)}>
-    {queries.some(query=>query.isFetching)&&<p role="status">正在读取本组基准与指标…</p>}
+    {queries.some(query=>query.isLoading)&&<p role="status">正在读取本组基准与指标…</p>}
     {queries.map((query,index)=><ReadNotice key={ids[index]} label={catalog.datasets.find(item=>item.id===ids[index])?.label||metricName(ids[index])} query={query} />)}
     {ids.filter(id=>!registered.has(id)).map(id=><p key={id} role="status">{metricName(id)} 尚未取得可用结果。</p>)}
     {group?<div className="market-group-layout"><ObservationChart definition={group.definition} rows={group.rows} history={history.data} historyLabel="上证指数导航" range={range}

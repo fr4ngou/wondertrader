@@ -133,7 +133,7 @@ export function ExecutiveWeeklyChart({ catalog, data, range, navigationCoverage,
       <span>与中证全指{archived ? '周收盘' : '周涨跌幅'}相关系数 <b>{stats.correlation !== null && stats.correlation > 0 ? '+' : ''}{format(stats.correlation)}</b>{stats.count > 0 && `（${stats.count} 周）`}</span>
     </p>
     {indexes.map((query, i) => <ReadNotice key={WEEKLY_INDEXES[i].symbol} label={WEEKLY_INDEXES[i].name} query={query} />)}
-    {indexes.some(query => query.isFetching) && <p role="status" className="executive-weekly-note">正在读取指数日线…</p>}
+    {indexes.some(query => query.isLoading) && <p role="status" className="executive-weekly-note">正在读取指数日线…</p>}
     {!archived && !local && <p className="executive-weekly-note">中证全指、创业板指、科创50由观衡本地行情提供。</p>}
     {onRange ? <ChartDateControls range={range} coverage={navigationCoverage} onRange={onRange} /> : null}
     <WeeklyPlot weeks={weeks} archived={archived} />
