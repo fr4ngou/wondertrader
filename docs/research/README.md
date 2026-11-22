@@ -2,6 +2,8 @@
 
 # 研究资料
 
+- [IPO图竖线事件原条件与日期对照](2026-11-22-ipo-event-original-comparison.md)：142篇官方回顾、三个相关异名日期、观衡同日输入及未核实的原截图条件。
+
 - [两张市场结构图的原式检索与对照](2026-11-22-original-structure-formulas.md)：EasyK/作者原图、数值和事件锚点、现有偏差及未接受的推导候选。
 
 - [IPO、股东减持与股份回购来源核查](2026-11-14-observation-ipo-supply-sources.md)：募资单位、减持估算、回购公告和同计划累计额。
