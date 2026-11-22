@@ -18,12 +18,14 @@ const definitions = Object.fromEntries([
   ['system_c.weekly.pressure','systemc','恒科价量压力'],['pcr_510300','pcr','沪深300ETF'],
   ['structure.csi2000','structure.csi2000','小盘弹性独强，但成交未接力'],
   ['structure.star50','structure.star50','成交集中度、市场宽度与科创承接'],
+  ['structure.ipo_supply','structure.ipo_supply','IPO减持供给压强与科创50折价'],
 ].map(([id,board,label]) => [id,{id,board,label,frequency:'交易日日频 · 已核四年窗口',coverage,
   parameters:false,lines:[],field_schema:{date:{label:'日期'}},primary_field:'value',limitations:[],source:'测试来源'} as unknown as Definition]))
 const catalog:Catalog = {snapshot_id:'a'.repeat(64),published_at:'2026-10-18T00:00:00Z',
   boards:[{id:'pcr',label:'PCR'},{id:'systemc',label:'系统 C'},
     {id:'structure.csi2000',label:'小盘弹性独强，但成交未接力'},
-    {id:'structure.star50',label:'成交集中度、市场宽度与科创承接'}],
+    {id:'structure.star50',label:'成交集中度、市场宽度与科创承接'},
+    {id:'structure.ipo_supply',label:'IPO减持供给压强与科创50折价'}],
   preferences:{default_board:'pcr',default_datasets:{pcr:'pcr_510050',systemc:'system_c.research'}},
   datasets:Object.values(definitions).map(d=>({...d,dataset_version:'b'.repeat(64)}))}
 vi.mock('./api',()=>({
@@ -48,25 +50,29 @@ async function open(initial='/observation?metric=pcr_510050&preset=d30') {
 }
 const dates=()=>screen.getByLabelText('当前日期范围').textContent!.split(' 至 ')
 
-it.each(['structure.csi2000','structure.star50'])('撤下的看板旧链接回退到可用图表：%s',async metric=>{
+it.each(['structure.csi2000','structure.star50','structure.ipo_supply'])('撤下的看板旧链接回退到可用图表：%s',async metric=>{
   await open('/observation?metric='+metric)
   expect(screen.queryByText('小盘弹性独强，但成交未接力')).toBeNull()
   expect(screen.queryByText('成交集中度、市场宽度与科创承接')).toBeNull()
+  expect(screen.queryByText('IPO减持供给压强与科创50折价')).toBeNull()
 })
 
 it('撤下看板不从旧多看板链接、指标说明或导出选择器重新出现',async()=>{
-  await open('/observation?boards=structure.csi2000,structure.star50,pcr')
+  await open('/observation?boards=structure.csi2000,structure.star50,structure.ipo_supply,pcr')
   expect(screen.getAllByText('图表已读取')).toHaveLength(1)
   expect(screen.queryByText('小盘弹性独强，但成交未接力')).toBeNull()
   expect(screen.queryByText('成交集中度、市场宽度与科创承接')).toBeNull()
+  expect(screen.queryByText('IPO减持供给压强与科创50折价')).toBeNull()
   fireEvent.click(screen.getByRole('link',{name:'指标说明'}))
   await screen.findByRole('heading',{name:'指标说明'})
   expect(screen.queryByText('小盘弹性独强，但成交未接力')).toBeNull()
   expect(screen.queryByText('成交集中度、市场宽度与科创承接')).toBeNull()
+  expect(screen.queryByText('IPO减持供给压强与科创50折价')).toBeNull()
   fireEvent.click(screen.getByRole('link',{name:'导出'}))
   await screen.findByRole('combobox',{name:'导出指标'})
   expect(screen.queryByRole('option',{name:'小盘弹性独强，但成交未接力'})).toBeNull()
   expect(screen.queryByRole('option',{name:'成交集中度、市场宽度与科创承接'})).toBeNull()
+  expect(screen.queryByRole('option',{name:'IPO减持供给压强与科创50折价'})).toBeNull()
 })
 
 it('补齐进度展开后按 ETF 显示缺日范围', async () => {
