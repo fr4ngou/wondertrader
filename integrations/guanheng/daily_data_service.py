@@ -466,7 +466,9 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                             report_phase('price_first')
                             price_result=price_refresh(config,day,Path(price_entry['price_request']).parent,
                                 publisher=publisher,deadline=deadline,cancelled=price_cancelled,
-                                previous_requests=[*registered,*prior_prices])
+                                # 新根首轮也继承配置中原请求的保护区间，INDEX及价格记录按同一身份去重。
+                                previous_requests=list(dict.fromkeys([
+                                    *config['inputs'].get('previous_requests',()),*registered,*prior_prices])))
                             if not stopped():
                                 attach_new_repair(closing_price_stage=True)
                             price_entry.update(price_state='published',price_current_sha256=price_result['current_sha256'],

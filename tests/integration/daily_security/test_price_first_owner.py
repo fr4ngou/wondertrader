@@ -15,6 +15,53 @@ from guanheng_app.observation.source_fetch import SourceFailure
 
 
 class PriceFirstOwnerTests(unittest.TestCase):
+    def test_new_task_root_price_first_protects_configured_unknown_request(self):
+        from time import monotonic
+        from integrations.guanheng import daily_price_refresh as refresh
+        from integrations.guanheng.daily_data_update import _save,_descriptor,_load
+        from integrations.guanheng.daily_gap_update import prepare_gap_plan
+        with tempfile.TemporaryDirectory()as directory:
+            root=Path(directory);descriptor,config=self.fixture(root)
+            slot=root/'original-slot.json';request_id=str(uuid4())
+            _save(slot,dict(request=dict(request_id=request_id,operation_id='market.history_prepare',
+                arguments=dict(symbol='510300.SH',period='1d',start_time='20261105',end_time='20261105'))))
+            previous=root/'previous/REQUEST.json';previous.parent.mkdir()
+            _save(previous,dict(protected_slots=[str(slot)]))
+            config['inputs']['previous_requests']=[str(previous)]
+            config['template'].update(protected_slots=[],helper={})
+            _save(Path(descriptor['path']),config);descriptor=_descriptor(Path(descriptor['path']))
+            old_source=root/'source.json';_save(old_source,dict(mode='source-market-snapshot',base=dict(mode='source-catalog')))
+            current=dict(configuration=_descriptor(old_source),snapshot_id='a'*64)
+            observed=[]
+            class StopBeforeNative(RuntimeError):pass
+            def capture(request,*a,**k):observed.append(request);raise StopBeforeNative()
+            original=slot.read_bytes();control=str(uuid4())
+            self.assertFalse((Path(config['directory'])/'INDEX.json').exists())
+            with patch.object(refresh,'read_generation',return_value=(current,'b'*64)),\
+                 patch.object(refresh,'prepare_price_scope',return_value=dict(path='synthetic-scope',sha256='c'*64)),\
+                 patch.object(refresh,'prepare_price_update',side_effect=capture):
+                with self.assertRaisesRegex(RuntimeError,'one cycle failed'):
+                    serve(descriptor,root/control,control,once=True,as_of='2026-11-05')
+            self.assertEqual(observed[0]['protected_slots'],[str(slot)])
+            self.assertEqual(slot.read_bytes(),original)
+            capture_root=root/'capture';capture_root.mkdir()
+            manifest=dict(request=dict(symbols=['510300.SH'],start_date='20261105',end_date='20261105'),
+                          comparison={'510300.SH':dict(common_dates=[])})
+            _save(capture_root/'manifest.json',manifest)
+            reference=SimpleNamespace(_calendar=dict(coverage_start='2026-01-01',coverage_end='2026-12-31',closed_dates=[]),
+                                      security=lambda *_:dict(listed_on=None,expires_on=None))
+            with patch('guanheng_qmt_shm.analysis_batch_source.read_capture',return_value=manifest):
+                plan=prepare_gap_plan(dict(directory=str(capture_root),sha256=_descriptor(capture_root/'manifest.json')['sha256']),
+                    reference,dict(snapshot_id='a'*64,observation_date='2026-11-05'),root/'new-plan',
+                    protected_slots=observed[0]['protected_slots'],authorized_from='20261105',authorized_to='20261105',
+                    deadline=monotonic()+10)
+            value=_load(plan)
+            self.assertEqual(value['tasks'],[])
+            self.assertEqual(value['protected_requests'][0]['request_id'],request_id)
+            self.assertEqual(value['protected_requests'][0]['execution_state'],'unknown')
+            self.assertEqual(value['exclusions'][0]['reason'],'original_HPR_responsibility')
+            self.assertEqual(slot.read_bytes(),original)
+
     def fixture(self,root,scope=True):
         data=root/'data';data.mkdir();publication=root/'publication';publication.mkdir()
         if scope:(publication/'CURRENT.json').write_text('{}')  # 价格阶段被替身接管；只声明已有基线，未将其当真实行情。
