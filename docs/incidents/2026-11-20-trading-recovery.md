@@ -104,3 +104,23 @@ App149 源码单提交 `c35404c65b6a39e987c32ce5ee51722f254a7185` 已合入 mast
 正式采用前，独立复核发现价格先行阶段只接本INDEX及价格请求，配置中的previous_requests直到完整事实阶段才接入。新任务根空INDEX时，首次价格计划因而缺少旧HPR保护。通用修复统一合并配置、INDEX及价格请求并按路径去重；不新增状态、来源规则或现场标的值。
 
 实际serve→price_refresh回归在原版复现保护集合为空；修复后将捕获的原保护集合交给真实prepare_gap_plan，确认原UUID、未知状态、原槽字节保持，重叠日期无新任务并保留排除证明。独立复核关闭发布缺口，另跑21项相关回归通过。候选unified59的最终CI、普通安装及正式采用分别核对。Data58只读验证已逐项读回7955证券且首尾/数量无差异；九只ETF的分钟与复权价保持，588030原价由缺失恢复5日。原件在 `E:/workspace/wondertrader-data/archive-retention-acceptance-20261123-001/RESULT.json`；该验证进程已正常关闭，生产仍保持57及原CURRENT，原资金和委托保持。
+
+### unified59 正式采用及完整原价恢复
+
+源码4c7feefd4408ec19145d3e72a86389d4c4de6b35已单提交合入master，固定标签unified59-prior-price-intents-20261123-001；包含57诊断、58完整补充层保留及59旧请求接续修复。最终Data/market_supplement共424项通过，本地CI文档和526项软件回归通过，独立full/delta复核通过。207项构建输入与固定提交逐字节一致，普通安装189项源成员核验通过。安装manifest SHA256为2d08186fc1dd99d8623a9aed3cfc0cd2b13d5330099f7a045671daa071458a4d；交付包位于`D:/wt-releases/unified59-prior-price-intents-20261123-001`，ZIP SHA256为d476134e53843bdedb9f11ea7dbb8e8394ac7c9f5db65872d80c4df3a2e6609e。
+
+原57日线Runtime27900/Source35812正常停止并确认退出，唯一发布入口采用已读回的完整原价档，新Runtime27068/Source43956在13:25就绪。配置的来源组合、18136接口和交易运行代保持；任务根为`D:/wt-data/daily-archive-retention-20261123-001/tasks`，按原配置接续137份REQUEST及17份INPUTS，154份原文件SHA均保持。原r024任务与父发布不改写，新根避免将旧父版本的未完发布直接重放到新CURRENT。稳定服务组及部署登记在正式读回、原请求保护验证完成后同步采用59。
+
+正式数据CURRENT现引用`D:/wt-data/raw-history-restoration-20261123-001/source.json`，包含7955证券、902761根原价；588030为2023-09-15至2026-11-20共768根。普通安装只读Reader逐证券核对7955条头的首尾日期及数量，无差异；正式18136九ETF原价/复权/分钟读回与候选一致，11月16–20日分钟各1200根。该验收范围为已恢复原价档及九ETF对应历史窗口，全市场最新数据、今日分钟与辅助事实完整性继续分别核验。
+
+新价格REQUEST SHA256为d6942bb003441366f1272bc7a7866f1eaf2045b9de1f0193df2d7706f198e2bf。197份原计划描述符SHA已验证：旧保护路径123070个，其中1362个继续保护，121708个有原冻结计划的完成证明，缺少证明的遗漏为0。新根首次接续旧计划约五分钟，来源进程持续有CPU活动并最终保存REQUEST；后续沿原请求等待RetainedReadPending，保留来源UUID，不因观察未刷新重复启动。一次额外只读审计误逐个重读已证明的历史回包，已停止本任务QA进程，复用实际发布者已核验的冻结证明完成独立核对；生产来源及交易进程保持。
+
+发布前后九张通信交易表和ASA账摘要一致，交易Runtime57812与原控制代保持。13:47现场再次核实：本机未见QMT主终端，采集器connected=false、最近来源时间仍为11月20日16:30，账户本代无成功结果；策略执行execution_ready=false、Native PID为空。自动交易仍未恢复，需用户恢复QMT主终端及原接入后，再核实际账户、未知委托与两策略自然计算。未发测试委托，也未改资金持仓。
+
+正式原件在`E:/workspace/wondertrader-data/archive-retention-release-20261123-002`，包括前后配置及账摘要、STOP/PUBLISHED/START、FORMAL-QUERY、PRIOR-PROTECTION、POSTFLIGHT、DELIVERY及validation。代码工作树`E:/workspace/wondertrader-worktrees/data-prior-price-intents-20261123`已移除，目录和Git登记核验一致；前置58及fixture工作树亦已清理。D盘临时构建/测试目录仍保留此前自动审查拒绝，未绕过，交付ZIP和实际引用的数据/安装依赖继续保留。
+
+### 优化版历史回测正式页面验收
+
+正式18143已打开优化版resonance-kc50-pullback-confirm 0.3.0a1报告，run为f1b31b83fbf64f8995e4f8f809063d58，完成收据SHA256为64603f433d20c89b0e3b703888a9dafc764183d057883b1f7efbed2392a337f6。实际评价2021-01-05至2026-11-06共1414期，初始100万元，净收益169.5895%、最大回撤17.6204%、158笔交易；预热包含2021-01-04。此为该固定研究报告的历史模型结果，当前交易运行资格沿本代Native与账户事实核验。
+
+正式入口为`http://127.0.0.1:18143/backtests?strategy=resonance-kc50-pullback-confirm%400.3.0a1&run=f1b31b83fbf64f8995e4f8f809063d58`。配置、绩效、图表和账明细接口均200；实际Chrome核对所选run、日期、SVG走势、买卖标记与日期持仓明细，桌面和窄屏无浏览器错误、无横向溢出。最初验证脚本用不存在的文案及canvas等待导致超时，改按真实页面的SVG和报告字段验收，页面实现保持。证据及截图位于`E:/workspace/wondertrader-data/archive-retention-release-20261123-001/backtest-postflight`；该001目录含有效报告验收材料，继续保留。
