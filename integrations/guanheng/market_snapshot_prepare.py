@@ -1,7 +1,7 @@
 """数据侧准备统一行情快照；复用已导入原生根和真实证券原件，不访问外部来源。"""
 from copy import deepcopy
 from datetime import datetime,timezone
-import hashlib,json
+import hashlib,json,math,time
 from pathlib import Path
 
 from ..guanheng_market_client import strict_json
@@ -14,6 +14,42 @@ def _catalog(config):
         if type(config.get('base'))is not dict:raise ValueError('market snapshot needs the original source catalog')
         config=config['base']
     return config
+
+
+def price_archive_layers(base_config, *, deadline, cancelled=lambda:False):
+    """返回外层优先的全部补充档及首个股票Native档，供两个日更入口共用。
+
+    部分补充档不能代表整类价格已齐。这里只核原清单SHA/类型并保留层顺序，
+    股票Native以下的基准仍由原Reader拥有；不读取DSB或保存第二份状态。
+    """
+    from .daily_data_update import _load
+    from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
+    if type(deadline)not in(int,float)or not math.isfinite(deadline)or not callable(cancelled):
+        raise ValueError('price archive selection controls invalid')
+    def check():
+        if cancelled():raise InterruptedError('price archive selection stopped')
+        if time.monotonic()>=deadline:raise TimeoutError('price archive selection deadline')
+    supplemental=[];seen=set();base=base_config
+    while isinstance(base,dict):
+        check();archive=base.get('archive')
+        if archive is not None:
+            key=(archive['path'],archive['sha256'])
+            if key not in seen:
+                document=_load(archive,DAILY_ARCHIVE_MANIFEST_BYTES)
+                schema=document.get('schema');entries=document.get('entries')
+                if schema not in('guanheng.daily-native-archive.v1','guanheng.daily-native-archive.v2')or type(entries)is not list:
+                    raise ValueError('price archive layer schema invalid')
+                front=bool(entries)
+                if schema=='guanheng.daily-native-archive.v2':
+                    for entry in entries:
+                        check()
+                        if not all(part['metadata']['adjustment']=='front_ratio'for part in entry['provenance']):
+                            front=False;break
+                    if not front:return supplemental,archive
+                seen.add(key);supplemental.append(archive)
+        base=base.get('base')
+    check()
+    return supplemental,None
 
 
 def compose_archive_catalog(base_config,index_archive_config):

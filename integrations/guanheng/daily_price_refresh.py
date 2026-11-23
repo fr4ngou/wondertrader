@@ -5,13 +5,12 @@ import hashlib
 from pathlib import Path
 
 from .daily_data_update import _save,_load,_descriptor,price_maintenance_with_slots
-from .source_archive_identity import DAILY_ARCHIVE_MANIFEST_BYTES
 from .daily_price_scope import prepare_price_scope
 from .daily_data_inputs import fixed_price_input_configuration
 from .daily_gap_plan import committed_gap_plans, load_gap_plan, terminal_hpr_paths
 from .daily_price_update import prepare_price_update,compact_price_base
 from .market_generation import GenerationPublisher,encode,read_fixed,read_generation
-from .market_snapshot_prepare import compose_static_archive,_catalog
+from .market_snapshot_prepare import compose_static_archive,_catalog,price_archive_layers
 from ..guanheng_market_client import strict_json
 from ..guanheng_market_client.market_snapshot import snapshot_identity,validate_market_snapshot
 
@@ -80,22 +79,18 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
                     terminal_paths.update(terminal_hpr_paths(load_gap_plan(plan,deadline=deadline,cancelled=cancelled)))
                     known_plans.add(key)
         completed=work/'prices'/'RESULT.json'
-        if completed.exists():
+        if completed.exists() and fixed_request is None:
             # 完成的同owner结果记录被后继整档合并的补充层；只收敛这些已知层，不猜原生基础档。
             retired_archives.extend(strict_json(read_fixed(completed,maximum=16777216))['additional_archives'])
-    base=old_config['base']
-    while isinstance(base,dict):
-        archive=base.get('archive')
-        if archive is not None:
-            document=_load(archive,DAILY_ARCHIVE_MANIFEST_BYTES)
-            # 最近一次补充档优先；原价和前复权各保留一份完整原档，底层原股票仍由Reader链拥有。
-            entries=document.get('entries',[])
-            if entries:
-                adjustment=entries[0]['provenance'][0]['metadata']['adjustment']
-                if adjustment not in {kind for kind,_ in previous_archives}:previous_archives.append((adjustment,archive))
-        base=base.get('base')
-    retired_archives.extend(item for _,item in previous_archives)
-    retired_archives=list({(item['path'],item['sha256']):item for item in retired_archives}.values())
+    if fixed_request is None:
+        previous_archives,_=price_archive_layers(old_config['base'],deadline=deadline,cancelled=cancelled)
+        retired_archives.extend(previous_archives)
+        retired_archives=list({(item['path'],item['sha256']):item for item in retired_archives}.values())
+    else:
+        # 原意图已固定合并输入；程序后继不把新增的选源结果注入已派发任务。
+        original=price_maintenance_with_slots(fixed_request)
+        previous_archives=original['previous_archives']
+        retired_archives=original['replaced_archives']
     scope=prepare_price_scope(configuration['price_scope'],day,None,current,inputs/'prices',
         deadline=deadline,cancelled=cancelled,environ=environ)
     if fixed_request is None:
@@ -106,7 +101,7 @@ def price_refresh(configuration,day,directory,*,publisher,deadline,cancelled,env
         calendar=configuration['template']['calendar'],connections=configuration['inputs']['connections'],
         authorized_from=configuration['price_scope']['authorized_from'],
         source_kind=configuration['inputs']['source_kind'],maximum_history_rows=configuration['price_scope']['maximum_history_rows'],
-        previous_archives=[item for _,item in previous_archives],helper=configuration['template']['helper'],
+        previous_archives=previous_archives,helper=configuration['template']['helper'],
         replaced_archives=retired_archives)  # 新整档包含的旧补充层；活动Reader替换，旧原件永久保留原引用。
     if configuration['price_scope'].get('index_fallback')is not None:
         maintenance['index_fallback']=configuration['price_scope']['index_fallback']

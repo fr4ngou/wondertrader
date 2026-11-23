@@ -157,8 +157,8 @@ def prepare_price_update(request,native,base_configuration,directory,*,deadline,
     front=None
     if inputs is not None:
         previous_view=base
-        archives = reversed(previous_archives) if published_result is not None else previous_archives
-        for item in archives:
+        # 外层优先的列表从内向外装配，普通及已发布回读保持同一选源顺序。
+        for item in reversed(previous_archives):
             previous_view=compose_static_archive(previous_view,item,reader,max_bars=limit)
         with ExitStack() as views:
             market = create_native_source_market(previous_view)

@@ -262,20 +262,9 @@ def prepare_update(configuration, day, directory, *, deadline, cancelled=lambda:
         if 'supplement_facts' in inputs:
             supplement_previous = current_config.get('supplement_facts', supplement_previous)
         template['daily_facts'] = current_config['daily_facts']
-        base = current_config['base'];additional_selected=False;current_additional=[]
-        while isinstance(base, dict):
-            archive = base.get('archive')
-            if archive is not None:
-                schema=_load(archive,DAILY_ARCHIVE_MANIFEST_BYTES).get('schema')
-                if schema=='guanheng.daily-native-archive.v1'and not additional_selected:
-                    current_additional.append(archive);additional_selected=True
-                if schema=='guanheng.daily-native-archive.v2':
-                    entries=_load(archive,DAILY_ARCHIVE_MANIFEST_BYTES)['entries']
-                    if entries and all(row['provenance'][0]['metadata']['adjustment']=='front_ratio'for row in entries):
-                        current_additional.append(archive);base=base.get('base');continue
-                    template.update(previous_archives=[archive], previous_stores=[])
-                    break
-            base = base.get('base')
+        from .market_snapshot_prepare import price_archive_layers
+        current_additional,native=price_archive_layers(current_config['base'],deadline=deadline,cancelled=cancelled)
+        if native is not None:template.update(previous_archives=[native], previous_stores=[])
         if current_additional:
             # 当前成功档优先；显式采用的已核原生补充档仍进入同一按日合并，不被指针抹掉。
             selected={(item['path'],item['sha256']):item for item in current_additional}
