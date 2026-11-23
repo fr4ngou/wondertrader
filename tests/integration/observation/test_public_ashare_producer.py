@@ -166,3 +166,24 @@ def test_original_scheduler_loop_reaches_archive_and_closes(tmp_path,monkeypatch
     assert calls==['archiving']
     status=reader.repository.scheduler_status()
     assert status['phase']=='stopped' and status['enabled'] is False
+
+
+@pytest.mark.parametrize('kind',['provider_diagnostic','provider_without_diagnostic','ordinary_failure'])
+def test_dated_capture_failure_keeps_adapter_diagnostic_and_completed_part(tmp_path,monkeypatch,kind):
+    # 后续证券表回包失败时，已完成北交所部件保持可恢复；源诊断不能在归档层丢失。
+    archive,reader=owner(tmp_path)
+    diagnostic=dict(provider='baostock',stage='table_response',request_type='45',received_bytes=47520)
+    error=(SourceFailure('source_request_timeout',diagnostic=diagnostic if kind=='provider_diagnostic' else None)
+           if kind!='ordinary_failure' else RuntimeError('private endpoint and response must remain absent'))
+    monkeypatch.setattr(archive,'bse_part',lambda day:dict(date=day))
+    def failed_security(day):raise error
+    monkeypatch.setattr(archive,'security_part',failed_security)
+    with pytest.raises(type(error)) as raised:archive.get(DAY)
+    assert raised.value is error
+    receipt=archive.receipts('ashare_capture',DAY,status='failed')[0]
+    assert receipt['error_code']==('ashare_public_capture_failed' if kind=='ordinary_failure' else 'source_request_timeout')
+    if kind=='provider_diagnostic':assert receipt['diagnostic']==diagnostic
+    else:assert 'diagnostic' not in receipt
+    assert 'private endpoint' not in encode(receipt).decode('utf8')
+    assert len(archive.receipts('ashare_part',DAY,status='success',part='bse_close'))==1
+    assert reader.repository.current() is None

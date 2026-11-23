@@ -30,7 +30,7 @@
       "source": "apps/guanheng/guanheng_app/observation/ashare_pool.py"
     },
     "guanheng_app/observation/ashare_public.py": {
-      "sha256": "63824cb310c07041ec3c7ee0cea0a37762c598add946d66a805a2e437e0021a6",
+      "sha256": "b2f06f3f4ca3c2f66db5ecb2a583d78a666c54c4ecbf62cb686597db12ebb43d",
       "source": "apps/guanheng/guanheng_app/observation/ashare_public.py"
     },
     "guanheng_app/observation/ashare_source.py": {
@@ -798,5 +798,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.59"
+  "version": "0.2.0a1+unified.60"
 }

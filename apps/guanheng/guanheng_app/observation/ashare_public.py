@@ -295,8 +295,12 @@ class Archive:
             if isinstance(error,ObservationError) and error.code=='write_outcome_unknown':raise
             try:
                 fetch.budget.remaining()
+                # 沿用来源适配器的安全诊断契约，避免定日归档丢失请求阶段与回包进度。
+                details={}
+                if isinstance(error,SourceFailure) and error.diagnostic is not None:
+                    details['diagnostic']=error.diagnostic
                 self.record('ashare_capture',day,'failed',error_code=getattr(error,'code','ashare_public_capture_failed'),
-                    source_manifest=fetch.objects.put(encode(fetch.records)))
+                    source_manifest=fetch.objects.put(encode(fetch.records)),**details)
             except (SourceFailure,ObservationError,OSError):
                 pass
             raise
