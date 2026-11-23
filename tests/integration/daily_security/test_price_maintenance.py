@@ -17,6 +17,7 @@ from integrations.guanheng.daily_price_scope import prepare_price_scope
 from integrations.guanheng.security_reference import SecurityReference,trade_day_state,prepare_retained_reference
 from integrations.guanheng.market_generation import encode
 from integrations.guanheng import daily_data_service as service
+from daily_gap_fixture import synthetic_gap_plan
 
 
 def write(path,value):
@@ -100,7 +101,7 @@ class PriceMaintenanceTests(unittest.TestCase):
     def test_original_returned_observation_and_available_price_do_not_trigger_repeat(self):
         with tempfile.TemporaryDirectory()as directory:
             root=Path(directory);work=root/'gap-work/observations';work.mkdir(parents=True)
-            plan=write(root/'plan.json',dict(tasks=[dict(index=0,symbol='510300.SH')]))
+            plan=synthetic_gap_plan(root/'plan',['510300.SH'],'20261103')
             # 旧已提交INPUTS的稀疏/晚到观察无法证明回读时点，目标缺价保持接续。
             write(work/'000000.json',dict(plan_sha256=plan['sha256'],row=dict(index=0,state='call_returned')))
             inputs=write(root/'INPUTS.json',dict(plan=plan,preparation=dict(rows=[])))

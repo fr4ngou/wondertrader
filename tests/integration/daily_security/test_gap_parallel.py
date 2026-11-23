@@ -10,19 +10,19 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from integrations.guanheng.daily_data_update import _descriptor,_save
+from integrations.guanheng.daily_data_update import _save
 from integrations.guanheng.daily_gap_update import advance_gap_plan
 from guanheng_qmt_shm.market_daily_preparation import MarketDailyPreparation
 from guanheng_qmt_shm.read_retention_client import RetainedReadPending,RetainedReadBindingChanged
 from guanheng_qmt_shm_agent.history_preparation import OPERATION,returned
+from daily_gap_fixture import synthetic_gap_plan
 
 
 class GapParallelTests(unittest.TestCase):
     def fixture(self,root,*,concurrency=4,count=8,unknown=None):
         metadata=dict(binding=dict(host_instance_id='synthetic-original',transport_generation='synthetic-generation'),binding_sha256='a'*64,limits={},
             profile=dict(operation_profiles={OPERATION:dict(limits=dict(total_timeout_ms=5000))}))
-        tasks=[dict(index=i,symbol='%06d.SH'%(510000+i),start_date='20261105',end_date='20261105')for i in range(count)]
-        path=root/'plan.json';_save(path,dict(schema='guanheng.daily-gap-plan.v1',tasks=tasks))
+        plan=synthetic_gap_plan(root/'plan',['%06d.SH'%(510000+i)for i in range(count)],'20261105')
         state=SimpleNamespace(submissions={},active=0,peak=0,unknown=unknown,lock=threading.Lock())
         class Client:
             def __init__(self,transport,**kwargs):
@@ -50,7 +50,7 @@ class GapParallelTests(unittest.TestCase):
         self.addCleanup(metadata_patch.stop);metadata_patch.start()
         transport=SimpleNamespace(exchange=lambda *a:None,plan=lambda *a:None,rpc_budget=lambda *a:nullcontext())
         owner=MarketDailyPreparation(lambda:object(),transport,concurrency=concurrency)
-        return _descriptor(path),owner,state
+        return plan,owner,state
 
     def run_plan(self,plan,owner,root,**kwargs):
         return advance_gap_plan(plan,root/'work',owner,deadline=time.monotonic()+90,max_tasks=100,**kwargs)

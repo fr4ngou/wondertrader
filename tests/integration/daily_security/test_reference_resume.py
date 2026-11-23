@@ -17,6 +17,7 @@ from integrations.guanheng.daily_price_scope import prepare_price_scope
 from integrations.guanheng.market_generation import GenerationPublisher, encode, read_generation
 from integrations.guanheng.source_reference_capture import UNIVERSE, DETAILS
 from guanheng_qmt_shm.read_retention_client import RetainedReadPending
+from daily_gap_fixture import synthetic_gap_plan
 
 
 class ReferenceResumeTests(unittest.TestCase):
@@ -264,7 +265,7 @@ class ReferenceResumeTests(unittest.TestCase):
 
     def test_pending_reference_keeps_original_plan_integrity_checks(self):
         scope=self.write(self.root/'pending-scope.json',dict(reference_state=dict(state='reference_source_unavailable')))
-        plan=self.write(self.root/'plan.json',dict(tasks=[dict(index=0,symbol='600000.SH')]))
+        plan=synthetic_gap_plan(self.root/'plan',['600000.SH'],'20261103')
         progress=dict(schema='guanheng.daily-gap-readback-progress.v1',plan_sha256='f'*64,rows=[])
         inputs=self.write(self.root/'price-inputs.json',dict(plan=plan,preparation=progress))
         with self.assertRaisesRegex(ValueError,'readback progress differs'):

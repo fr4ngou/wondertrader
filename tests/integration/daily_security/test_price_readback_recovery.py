@@ -6,6 +6,7 @@ from unittest.mock import patch
 from integrations.guanheng.daily_data_update import _save,_descriptor,_load
 from integrations.guanheng.daily_price_inputs import prepare_price_inputs
 from integrations.guanheng.daily_price_continuation import requires_price_continuation
+from daily_gap_fixture import synthetic_gap_plan
 
 class PriceReadbackRecoveryTests(unittest.TestCase):
     def test_completed_readback_and_interrupted_inputs_keep_original_pending_progress(self):
@@ -34,7 +35,8 @@ class PriceReadbackRecoveryTests(unittest.TestCase):
         class Batch(Closed):
             def capture(self,request,output,**kw):
                 captures.append(Path(output).name)
-                write(Path(output)/'manifest.json',dict(source_kind='sdk-synthetic',request=request))
+                write(Path(output)/'BINDING.json',dict(binding=dict(synthetic=True)))
+                write(Path(output)/'manifest.json',dict(source_kind='sdk-synthetic',request=request,batches=[]))
         progress_calls=[]
         def advance(descriptor,output,owner,**kw):
             state='pending'if not progress_calls else'call_returned';progress_calls.append(state)
@@ -42,8 +44,8 @@ class PriceReadbackRecoveryTests(unittest.TestCase):
             write(Path(output)/'observations'/'000000.json',dict(plan_sha256=descriptor['sha256'],row=row))
             return dict(plan_sha256=descriptor['sha256'],rows=[row])
         def plan(cache,reference,snapshot,output,**kw):
-            return write(Path(output)/'PLAN.json',dict(snapshot_id=snapshot['snapshot_id'],capture=cache,
-                tasks=[dict(index=0,symbol='510300.SH')]))
+            return synthetic_gap_plan(output,['510300.SH'],'20261103',capture=cache,
+                                      snapshot_id=snapshot['snapshot_id'])
         reads=[]
         def prices(cache,*a,**kw):
             reads.append(True)
@@ -52,12 +54,14 @@ class PriceReadbackRecoveryTests(unittest.TestCase):
         patches={
          'integrations.guanheng.daily_price_inputs.create_native_source_market':lambda *a:Market(),
          'guanheng_app.observation.calendars.official_calendar':lambda *a:([dict(date='2026-11-03',is_open=1)],{}),
-         'integrations.guanheng.daily_batch_source.DailyBatchAnalysisSource':Batch,
+         'integrations.guanheng.daily_price_capture.DailyBatchAnalysisSource':Batch,
          'guanheng_qmt_shm.market_daily_preparation.MarketDailyPreparation':Closed,
+         'integrations.guanheng.daily_price_capture.BoundHistorySource':Closed,
          'integrations.guanheng.source_history_transport.BoundHistorySource':Closed,
          'integrations.guanheng.daily_price_inputs.prepare_gap_plan':plan,
          'integrations.guanheng.daily_price_inputs.advance_gap_plan':advance,
          'integrations.guanheng.daily_price_inputs.load_price_capture':lambda d:_load(dict(path=str(Path(d['directory'])/'manifest.json'),sha256=d['sha256'])),
+         'integrations.guanheng.daily_price_capture.load_price_capture':lambda d:_load(dict(path=str(Path(d['directory'])/'manifest.json'),sha256=d['sha256'])),
          'integrations.guanheng.daily_price_inputs.price_batches':prices,
         }
         with ExitStack()as stack:
