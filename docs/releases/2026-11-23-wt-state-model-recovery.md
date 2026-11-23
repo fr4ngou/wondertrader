@@ -17,3 +17,17 @@
 受控证据：`E:/workspace/wondertrader-data/retained-identity-recovery-20261123-001` 保存原账备份、逐项迁移计划、CAS/中断回归及CI002；`E:/workspace/wondertrader-data/strategy-state-model-20261123-001` 保存85项固定源码、24个轮子、普通安装校验、恢复预检、正式启动、稳定入口及页面材料。安装核1343个轮子成员与1841个安装RECORD摘要通过，pip check通过。Runtime及producer分别为原维护版本追加 `statemodel.1`。
 
 策略身份修复工作树 `E:/workspace/wondertrader-worktrees/strategy-state-identity-20261123` 已删除，目录及Git登记均已移除；记录见受控制品中的 `WORKTREE-CLEANUP.json`。本轮CI临时构建继续按其来源清理；现金修复工作树内此前自动安全审查拒绝删除的目录保持保留，禁止通过删除父目录绕过。当前分钟九ETF各有61或62根，缺连接前179或178根；旧88条未归属及1条冲突、真实费用结算语义均继续保留原核查责任。
+
+## 观衡150正式采用及17:27后验真
+
+后继观衡源码 `4ffed7cb3611acc5e5e67d0cf610e5d38752f971` 已单提交合入，固定标签 `observer150-quote-owner-20261123-001`。最终CI003文档及542项软件回归通过，独立full/delta复核通过；普通离线构建、575项Git原件、162项App源码和4899项安装RECORD摘要核对通过。17:18正式18143沿原外部读取配置采用App150，旧149正常关闭、退出码0；WT保持原运行身份。稳定观衡启动资料已采用新安装，原回测归档及读取权限保持。
+
+页面可选报价由App独立有界读取，详情只投影最近成功内存值。真实慢报价不再占用详情两秒截止；异常价格按标的隔离并保留原数据，缓存及待办各限64是读取资源边界。首次冷缓存暂时显示未知，后继刷新补入原时间报价；休市继续显示最后有效报价。网络读取、原交易费用及策略账分别归原owner。
+
+真实浏览器验收两策略均显示线上运行，原策略5只、优化版1只非零持仓全部有市值，运行/表现/目标页与390像素窄屏通过，无控制台错误及HTTP失败。实际HTTP连续8次详情均200，耗时8.285至33.969ms；账户状态complete、策略状态available。17:27复核原Runtime47108、Native58352及QMT主终端38880仍在，Native可写、无waiting和writes_blocked，Parser连接1/断开0，schedules仍为0。收盘后恢复的范围与下一交易时段验收继续分别登记。
+
+Web日志owner使用延迟打开文件：健康运行且无文本输出时，本代只有ready.json属于已核源码行为；首次输出沿原有界web.log写入，异常控制收据独立保存。Native日志实际有内容、无写失败和丢弃。旧故障无法补造的历史证据仍明确未知。
+
+受控证据 `E:/workspace/wondertrader-data/observer-quote-owner-release-20261123-001` 保存安装包、源码/安装证明、旧代关闭、新代启动、稳定入口、API-POSTFLIGHT、BROWSER-POSTFLIGHT、八张页面截图及构建日志。当前安装位于同级observer-programs/a150-quote-owner-20261123-001，原环境摘要保持。观衡源码工作树已删除且Git登记移除，CLEANUP-POSTFLIGHT已核对。新两个D盘构建目录及此前四个Native CI目录、旧149构建和现金审查目录均被自动安全检查拒绝递归清理（仅给出blocked by policy）；材料保持，禁止绕过或删除父目录。
+
+整体状态继续为pending-verification：下一交易时段核两策略自然信号、目标及新委托；11月23日九ETF早段各缺179或178根分钟，源历史闭合日规则仅接受此前日期，后继按原队列核补读和归档；88条旧未归属及1条冲突等待真实来源证明；18笔成交的最终费用和整单/逐笔结算语义待柜台证据。保留原记录，不猜测归属或补造费用。
