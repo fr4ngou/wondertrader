@@ -124,3 +124,9 @@ App149 源码单提交 `c35404c65b6a39e987c32ce5ee51722f254a7185` 已合入 mast
 正式18143已打开优化版resonance-kc50-pullback-confirm 0.3.0a1报告，run为f1b31b83fbf64f8995e4f8f809063d58，完成收据SHA256为64603f433d20c89b0e3b703888a9dafc764183d057883b1f7efbed2392a337f6。实际评价2021-01-05至2026-11-06共1414期，初始100万元，净收益169.5895%、最大回撤17.6204%、158笔交易；预热包含2021-01-04。此为该固定研究报告的历史模型结果，当前交易运行资格沿本代Native与账户事实核验。
 
 正式入口为`http://127.0.0.1:18143/backtests?strategy=resonance-kc50-pullback-confirm%400.3.0a1&run=f1b31b83fbf64f8995e4f8f809063d58`。配置、绩效、图表和账明细接口均200；实际Chrome核对所选run、日期、SVG走势、买卖标记与日期持仓明细，桌面和窄屏无浏览器错误、无横向溢出。最初验证脚本用不存在的文案及canvas等待导致超时，改按真实页面的SVG和报告字段验收，页面实现保持。证据及截图位于`E:/workspace/wondertrader-data/archive-retention-release-20261123-001/backtest-postflight`；该001目录含有效报告验收材料，继续保留。
+
+### 后台关闭错误被首错槽忽略
+
+原运行入口已保存首错时，finally中后台快照发布者的stop再次抛错会被接住并调用capture。capture只处理空首错槽，第二个错误因此同时缺少进程事件和cleanup_failure；继续抛出到上下文退出的清理错误原先可记录。新回归沿真实run与FailureDiagnostic复现首错为组件检查ValueError、后台stop为ENOSPC，原诊断cleanup_failure为null，证据`E:/workspace/wondertrader-data/runtime-cleanup-diagnostics-20261123-001/red2.xml`；red.xml仅为未创建测试build目录的环境失败，不作为缺陷红灯。
+
+通用修复在原诊断owner统一捕获首错及首个清理错误，已接住和继续抛出的清理错误共用同一槽及原日志队列。每代最多各一份，正常无额外写入，原异常传播、关闭预算和金融状态保持。候选32项诊断、慢磁盘/管道及快照回归通过，独立full/delta复核关闭错误重抛重复记录的问题；Runtime与分析发布者依赖同步采用cleanupdiag.1发行身份。独立复核、最终CI、普通安装和正式采用分别验收；此时线上仍为旧35，QMT连接与旧故障当时卷容量原因继续保持未知，日志修复无法追溯补造历史证据。

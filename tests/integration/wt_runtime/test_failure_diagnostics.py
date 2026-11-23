@@ -171,6 +171,44 @@ class FailureDiagnostics(unittest.TestCase):
             self.assertEqual(value['cleanup_failure']['errno'],errno.EIO)
             self.assertFalse((directory/'closed.json').exists())
 
+    def test_caught_background_close_error_keeps_first_error_and_cleanup_evidence(self):
+        class Failing(OfflineRuntime):
+            def check(self):raise ValueError('private primary failure')
+        def stop_background(timeout):
+            # 正常关闭接住后台写盘故障，首错与该清理错误仍须分别落在原日志及诊断里。
+            raise OSError(errno.ENOSPC,'private cleanup detail')
+        background=SimpleNamespace(submit=lambda value: None,stop=stop_background)
+        with tempfile.TemporaryDirectory(dir=ROOT/'build') as root:
+            directory=Path(root)/str(uuid4());runtime=Failing()
+            with patch.object(cli,'BackgroundSnapshotPublisher',return_value=background):
+                self.assertEqual(self._run(runtime,directory),2)
+            value=json.loads((directory/'diagnostic.json').read_bytes())
+            self.assertEqual(value['failure']['phase'],'component_check')
+            self.assertEqual(value['failure']['exception_type'],'ValueError')
+            self.assertEqual(value['cleanup_failure']['phase'],'loop_status_publish')
+            self.assertEqual(value['cleanup_failure']['errno'],errno.ENOSPC)
+            events=[json.loads(row) for row in (directory.parent/'process-events.jsonl').read_text().splitlines()]
+            self.assertEqual([event['phase'] for event in events],['component_check','loop_status_publish'])
+            self.assertNotIn('private',json.dumps(value)+json.dumps(events))
+            self.assertEqual(runtime.close_calls,[1])
+            self.assertTrue(json.loads((directory/'failure.json').read_bytes())['components_closed'])
+            self.assertFalse((directory/'closed.json').exists())
+
+    def test_same_background_failure_rethrown_at_stop_is_recorded_once(self):
+        failure=OSError(errno.ENOSPC,'private first write error')
+        def rethrow(*args):raise failure
+        # 真实后台发布者submit/stop会再次抛出同一个_failure，传播本身不形成新故障。
+        background=SimpleNamespace(submit=rethrow,stop=rethrow)
+        with tempfile.TemporaryDirectory(dir=ROOT/'build') as root:
+            directory=Path(root)/str(uuid4())
+            with patch.object(cli,'BackgroundSnapshotPublisher',return_value=background):
+                self.assertEqual(self._run(OfflineRuntime(),directory),2)
+            value=json.loads((directory/'diagnostic.json').read_bytes())
+            self.assertEqual(value['failure']['errno'],errno.ENOSPC)
+            self.assertIsNone(value['cleanup_failure'])
+            events=[json.loads(row) for row in (directory.parent/'process-events.jsonl').read_text().splitlines()]
+            self.assertEqual(len(events),1)
+
     def test_component_failure_result_is_not_changed_into_an_exception(self):
         class Failing(OfflineRuntime):
             def check(self):return False

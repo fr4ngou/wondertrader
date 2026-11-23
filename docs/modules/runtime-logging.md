@@ -6,7 +6,7 @@
 
 WT原生运行日志、委托/成交记录和既有通信Journal继续各自拥有原事实。运行状态描述当前阶段，事件日志描述发生过程；业务输入覆盖与无交易原因来自唯一策略诊断，观衡只读这些结果，不启动通信或承担日志采集。
 
-自有`apps/wt_runtime/guanheng_wt_runtime/runtime_diagnostics.py`有两类接缝：`FailureDiagnostic`保留原CLI失败分类；`ProcessEventLog`由原ManagedLocalProcess的两条管道和监督线程共同调用，保存启动、ready、失败、关闭及两条输出流的字节数/摘要。固定异常类别、已知模块的有限行位置、errno/winerror可持久定位；原始stdout/stderr、异常正文、完整路径、参数和自定义异常类名不进入新日志。
+自有`apps/wt_runtime/guanheng_wt_runtime/runtime_diagnostics.py`有两类接缝：`FailureDiagnostic`保留原CLI首错及首个清理错误，被关闭流程接住的错误和继续抛出的错误沿同一捕获入口；`ProcessEventLog`由原ManagedLocalProcess的两条管道和监督线程共同调用，保存启动、ready、失败、关闭及两条输出流的字节数/摘要。固定异常类别、已知模块的有限行位置、errno/winerror可持久定位；原始stdout/stderr、异常正文、完整路径、参数和自定义异常类名不进入新日志。
 
 ## 结构与资源
 

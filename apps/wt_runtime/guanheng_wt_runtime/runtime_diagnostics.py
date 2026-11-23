@@ -72,38 +72,39 @@ class FailureDiagnostic:
         self.process_log = ProcessEventLog(directory.parent, identity['control_id'], 'wt-runtime')
         self.phase = 'runtime_construct'  # 当前边界固定阶段，捕获时只认_PHASES白名单。
         self.failure = None  # 首次异常的纯值分类；None表示未观察异常，后续清理错误独立保存。
+        self.cleanup_failure = None  # 首个清理异常的纯值分类；已捕获与继续抛出的清理错误共用同一槽。
+        self._first_error = None  # 仅在本次退出期间比较异常对象身份；收口释放，避免把同一异常重抛计成新错。
 
     def __enter__(self):
         return self
 
-    def capture(self, error):
-        if self.failure is None:
-            try:
-                self.failure = _event(self.phase, error)
-                details = _runtime_exception(self.failure, error)
-                self.process_log.runtime_exception(details, pid=self.identity['pid'])
-            except Exception:
-                pass
+    def capture(self, error, *, cleanup=False):
+        """首错优先保留；关闭阶段另记首个错误，次数与历史长度无关。"""
+        if error is self._first_error or (self.failure is not None and (not cleanup or self.cleanup_failure is not None)):
+            return
+        try:
+            event = _event(self.phase, error)
+            if self.failure is None:
+                self.failure = event
+                self._first_error = error
+            else:
+                self.cleanup_failure = event
+            details = _runtime_exception(event, error)
+            self.process_log.runtime_exception(details, pid=self.identity['pid'])
+        except Exception:
+            pass
 
     def __exit__(self, kind, error, traceback):
-        secondary = None
         if isinstance(error, Exception):
-            if self.failure is None:
-                self.capture(error)
-            else:
-                try:
-                    secondary = _event(self.phase, error)
-                    details = _runtime_exception(secondary, error)
-                    self.process_log.runtime_exception(details, pid=self.identity['pid'])
-                except Exception:
-                    pass
+            self.capture(error, cleanup=True)
         if self.failure is not None:
             try:
                 self.publish(self.directory, 'diagnostic.json', dict(
                     schema='guanheng.wt-runtime-diagnostic.v1', **self.identity,
-                    failure=self.failure, cleanup_failure=secondary))
+                    failure=self.failure, cleanup_failure=self.cleanup_failure))
             except Exception:
                 pass
+        self._first_error = None
         return False
 
 

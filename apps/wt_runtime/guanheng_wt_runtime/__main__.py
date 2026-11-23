@@ -146,7 +146,7 @@ def run(config, configuration_sha256, directory, control_id, *, lease_root=None)
                             background.stop(max(0.0, close_deadline - time.monotonic()))
                         except Exception as error:
                             failed = failed or 'runtime_failure'
-                            diagnostic.capture(error)
+                            diagnostic.capture(error, cleanup=True)
                             if isinstance(error, TimeoutError):
                                 snapshots = None  # 未确认后台释放，原候选仍归后台。
                     if snapshots is not None:
