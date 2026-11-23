@@ -641,7 +641,7 @@ class ConfirmationSignals(Signals):
         return replace(read, value=replace(read.value, confirmation_recovery_json=json.dumps(self.recovery).encode()))
 
 
-def confirmation_fixture(monkeypatch, *, actions=None, recovery=None):
+def confirmation_fixture(monkeypatch, *, actions=None, recovery=None, writes_enabled=False):
     from guanheng_strategy_original.kc50_confirmation import CODES, STRATEGY_ID, STRATEGY_VERSION
     projection = small(actions)
     for key in ('signals_today', 'signal_close_prices', 'model_state', 'route_qualification'):
@@ -650,7 +650,7 @@ def confirmation_fixture(monkeypatch, *, actions=None, recovery=None):
         atr_inputs={code:dict(close=10., atr=1., multiplier=2., qualified=True) for code in CODES})
     signals = ConfirmationSignals(projection)
     signals.recovery = recovery or {}
-    return make(monkeypatch, signals=signals, strategy_id=STRATEGY_ID, version=STRATEGY_VERSION, writes_enabled=False)
+    return make(monkeypatch, signals=signals, strategy_id=STRATEGY_ID, version=STRATEGY_VERSION, writes_enabled=writes_enabled)
 
 
 def test_confirmation_no_write_plans_seven_growth_targets(monkeypatch):
@@ -720,3 +720,23 @@ def test_confirmation_same_day_qualified_buy_resets_existing_line(monkeypatch):
     schedule(owner,ctx)
     assert out[-1][0]['atr_protection'][code]['status']=='buy_resets_protection'
     assert json.loads(ctx.kv)['atr_protection'][code]['line'] is None and 'set' not in ctx.calls
+
+@pytest.mark.parametrize('confirmation', [False, True])
+def test_signal_context_prices_outside_universe_do_not_poison_recovery(monkeypatch, confirmation):
+    if confirmation:
+        owner,ctx,allocation,signals,reports=confirmation_fixture(monkeypatch,actions={'588000':'BUY'},writes_enabled=True)
+    else:
+        owner,ctx,allocation,signals,reports=make(monkeypatch,actions={'588000':'BUY'})
+    # 同一信号包含指数/其他上下文参考价；策略只需保存自己的执行标的cap。
+    signals.small['signal_close_prices'].update({'000300':4000.,'900001':88.})
+    owner.callback(ctx);schedule(owner,ctx)
+    # 替身setter不连接SQLite；把已接受的同一状态镜像放入原ASA状态槽，恢复读到本次BUY。
+    allocation.states[owner.id,owner.recovery_state.record.schema]=ctx.kv
+    resumed,restored,_,_,_=make(monkeypatch,mode='resume',signals=signals,allocation=allocation,
+        strategy_id=owner.id,version=owner.version,writes_enabled=True)
+    restored.kv=ctx.kv
+    resumed.callback(restored)
+    assert resumed.initialized
+    assert set(resumed._intent_prices)<=set(resumed.codes)
+    assert resumed._buys==owner._buys and resumed._plan==owner._plan
+    assert set(json.loads(ctx.kv)['intent_prices'])<=set(owner.codes)

@@ -142,3 +142,13 @@ App149 源码单提交 `c35404c65b6a39e987c32ce5ee51722f254a7185` 已合入 mast
 日志修复与现金上限分别保留各worktree的单一提交，联合候选以cleanupdiag.1.cashcap.1固定Runtime和producer依赖。最终CI保留首次缺.local-ci.json及旧原生缓存覆盖不匹配的环境失败，按当前已批准上游覆盖重建缓存后继续完整检查；不更改业务门禁或失败收据。源码、普通安装、正式采用及恢复后自然交易均逐项登记，当前交易进程已退出，独立采集/日线仍运行。
 
 现金工作树的build/reviewer-cash-cap-20261123-001递归清理由自动安全检查拒绝，原因仅blocked by policy。该目录保持，禁止经其他删除工具或整个worktree递归删除间接绕过；工作树收尾因此另列待完成。
+
+### 优化版参考价写入范围与恢复校验不一致
+
+现金及诊断联合候选d8796e07已合入，534项软件与原生E2E全阶段通过。85项输入与固定提交一致，新安装1825项RECORD及24轮子SHA验证、pip check和完整Runtime构造通过，八项私有依赖231成员保持实际旧安装字节，Host未升级。14:45沿新服务正常start，Runtime39176启动Native24484；原故障代97ad的fault_reconciled交接通过，今日同一成交被认作duplicate_fills=1、新成交0。
+
+Native随后在CTA初始化阶段退出码2：callback-failure.json定位original_live._initialize的original_state_prices。线上恢复记录含七只ETF价格及000300指数参考价，writer消费完整signal_close_prices后整包保存，reader只允许实例交易范围；第一次实际BUY写入后的重启因而失败。原七标的价格、买卖意图、完整目标和资金归属均未被该校验改变。新故障代7f20fc28-6847-40f5-9ddd-8f8e3be0c01f保留reconciled、callback/failure和关闭证据，执行队列accepted=0；原18笔成交/20命令保持，独立采集和日线继续运行。
+
+回归通过真实OriginalLiveStrategy消费→状态镜像/ASA恢复槽→新实例初始化，在九只与七只两种模型均复现同一original_state_prices，red2.xml为有效原反例；首次red.xml仅暴露替身setter未提交ASA状态的测试接缝缺口，不作为根因红灯。修复统一在消费信号后按实例codes投影原价，两条意图赋值路径共用该结果；恢复严格校验保持，不写入旧记录特判。完整profile文件51项通过、1项原有跳过。原件位于`E:/workspace/wondertrader-data/intent-price-scope-20261123-001`。
+
+既有状态按一次性运维处理：旧进程退出后持原WT实例租约，以最新SQLite备份先验证，沿AccountAllocation.commit_strategy_state的原SHA比较更新，仅移除不属于原恢复目标范围的参考价。原完整状态及前后摘要保留，逐表核验原目标/计划/命令/成交/冲突及策略现金数量保持。源码、迁移副本、正式迁移、安装和重新恢复分别记录，未完成项目继续保留。

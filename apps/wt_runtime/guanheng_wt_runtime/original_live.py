@@ -365,6 +365,8 @@ class OriginalLiveStrategy:
             self.publish(self.id,dict(candidate,status='waiting',reason=reason),deadline=deadline)
         if own is None:waiting('broker_observation_stale');return
         if not read.ready or small is None:waiting('prepared_signal_unavailable');return
+        # 指数等上下文参考价留在原信号；恢复cap只持有本策略交易范围，保持写入/读回合同一致。
+        intent_source_prices = {code: price for code, price in small['signal_close_prices'].items() if code in self.codes}
         qualifications=small.get('route_qualification',{})
         _need(type(qualifications)is dict and set(qualifications)==set(self.codes),'original_route_qualification')
         candidate['route_qualification']=qualifications
@@ -412,7 +414,7 @@ class OriginalLiveStrategy:
                         buys.add(c);sells.discard(c);plan=None
                         new_buys.add(c)
                     else:sells.add(c);buys.discard(c);plan=None if plan is None else dict(plan,**{c:0})
-                    last_source=small['signal_sha256'];intent_known_at=small['decision_at'];intent_prices=dict(small['signal_close_prices'])
+                    last_source=small['signal_sha256'];intent_known_at=small['decision_at'];intent_prices=dict(intent_source_prices)
             if consumed_any:last_date=small['decision_date'];consumed_sha=small['signal_sha256']
         if confirmation is not None:
             atr_state, protection, exits = self._confirmation_atr(read.value,small,own,actual,eligible,sells,new_buys)
@@ -423,7 +425,7 @@ class OriginalLiveStrategy:
                 sells.add(code);buys.discard(code);plan=None if plan is None else dict(plan,**{code:0})
             # 未成交增仓仍按首次信号的价格上界和来源；新的ATR退出只缩减目标。
             if exits and not buys and (plan is None or all(quantity <= actual[code] for code, quantity in plan.items())):
-                last_source=small['signal_sha256'];intent_known_at=small['decision_at'];intent_prices=dict(small['signal_close_prices'])
+                last_source=small['signal_sha256'];intent_known_at=small['decision_at'];intent_prices=dict(intent_source_prices)
         if not consumed_any and not (buys or sells or plan is not None) and atr_state == (self._atr_state if self.confirmation else None):
             if blocked_buys:waiting('atr_history_units_unqualified')
             elif eligible and any(not r['qualified'] for r in qualifications.values()):waiting('route_data_unqualified')
