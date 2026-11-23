@@ -89,6 +89,8 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         # 切换报告时，原两项读取可能仍在收尾；为新绩效和记录各留等待位。
         # 继续单线程读取原件，避免与行情/账户共用读取线程。
         application.state.backtest_reader = BoundedReader(workers=1, capacity=4)
+        from .strategy_position_quotes import PositionQuoteOwner
+        application.state.position_quotes = PositionQuoteOwner(configured,market_client_factory)
         application.state.watchlist_owner = None
         application.state.observation_owner = None
         application.state.observation_error = None
@@ -102,6 +104,7 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
         try:
             application.state.reader.start()
             application.state.backtest_reader.start()
+            application.state.position_quotes.start()
             if configured.observation_root:
                 try:
                     application.state.observation_owner = observation_reader(configured.observation_root)
@@ -144,7 +147,8 @@ def create_app(settings=None, market_client_factory=None, static_directory=None,
                     return False
             close(application.state.watchlist_owner, 0)
             results = [close(owner, max(0,deadline-monotonic())) for owner in
-                (application.state.reader, application.state.backtest_reader, application.state.watchlist_owner)]
+                (application.state.reader, application.state.backtest_reader,
+                 application.state.position_quotes, application.state.watchlist_owner)]
             # 原读池退出后才关闭观察租约，保留任何未回收worker的责任。
             if results[0]:
                 try:
