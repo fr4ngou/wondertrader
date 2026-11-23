@@ -46,6 +46,15 @@ class StrategyStateRecord:
     schema: str  # 唯一协议及版本；更早版本须由策略显式迁移。
     transient_keys: frozenset[str] = frozenset()  # 可重建且单独变化时无需持久化的字段。
 
+    def model_identity(self, model):
+        """按状态协议及业务模型生成兼容身份；部署源码真实性由宿主绑定负责。
+
+        model须由策略提供完整业务参数及算法契约版本。安装路径、程序源码摘要和
+        初始化代号属于部署证据，变化时不应改写已经接受的业务状态。
+        """
+        raw = _encode(dict(contract='guanheng.strategy-state-model.v1', schema=self.schema, model=model))
+        return hashlib.sha256(raw.encode('ascii')).hexdigest()
+
     def _decode(self, raw):
         value = json.loads(raw, object_pairs_hook=_pairs, parse_constant=_invalid_constant)
         if type(value) is not dict or value.get('schema') != self.schema:

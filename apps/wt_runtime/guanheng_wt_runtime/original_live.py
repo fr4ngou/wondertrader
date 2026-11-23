@@ -79,7 +79,9 @@ class OriginalLiveStrategy:
         self.signals=signals or OriginalSignalWorker(OriginalSignalConfig.from_dict(p['signal_source']),confirmation=self.confirmation)
         self.seconds=p['evaluation_seconds'];self.max_age=p['broker_max_age_seconds'];self.capital_reader=None;self.participants={}
         self.execution_enabled=native['trader']['writes_enabled'];_need(type(self.execution_enabled)is bool,'execution_permission')
-        self.identity=digest((self.id,self.version,{k:v for k,v in p.items() if k!='state_mode'},code_identity));self.initialized=False;self.sequence=0
+        model = dict(strategy_id=self.id, strategy_version=self.version,
+                     parameters={k:v for k,v in p.items() if k!='state_mode'}, mapping=self.mapping)
+        self.identity=INTENT_STATE.model_identity(model);self.initialized=False;self.sequence=0
         from .execution_recovery import strategy_state_mode
         try:
             self.state_mode = strategy_state_mode(native, self.id, deadline=deadline) or p['state_mode']
@@ -91,16 +93,14 @@ class OriginalLiveStrategy:
                 'recovery_strategy_targets_required',
             ) else 'recovery_strategy_state_unavailable'
             raise
-        self.previous_identity=None
         if self.state_mode=='resume' and getattr(configuration,'recovery_mode',None)=='resume_reconciled':
             from .execution_recovery import load_transition,state_origin_configuration
-            _,prior_code=load_transition(native)
+            load_transition(native)  # 部署真实性与状态模型分别核验，维护代码升级不迁移业务记录。
             previous=state_origin_configuration(native,deadline=deadline)
             prior=next((row for row in previous['strategies'] if row['id']==self.id),None)
             _need(prior is not None,'original_previous_profile_required')
             old=prior['parameters']['python_strategy']
             _need({k:v for k,v in old.items() if k!='state_mode'}=={k:v for k,v in p.items() if k!='state_mode'},'original_model_transition')
-            self.previous_identity=digest((self.id,self.version,{k:v for k,v in old.items() if k!='state_mode'},prior_code))
         self._buys=set();self._sells=set();self._plan=None;self._last_date=None;self._last_source=None
         self._intent_known_at=None;self._intent_prices={};self._consumed_sha=None;self._consumed_codes={};self._announced=False
         self._atr_state={}
@@ -112,7 +112,7 @@ class OriginalLiveStrategy:
     def _state(self):
         state = dict(
             schema='guanheng.original-live-intent.v1',  # 固定意图KV协议，不是券商账本。
-            identity=self.identity,  # 本模型配置/代码身份SHA，跨安装仅沿原transition接受前代。
+            identity=self.identity,  # 本状态协议、模型版本及业务参数SHA；部署代码另由Native绑定核验。
             sequence=self.sequence,  # 回调观察序号，不是交易次数或命令UUID。
             buys=sorted(self._buys),  # 已消费原BUY后尚未完成的六位代码集合。
             sells=sorted(self._sells),  # 已消费原SELL的退出意图，实际可卖继续由ASA/WT拥有。
@@ -154,11 +154,11 @@ class OriginalLiveStrategy:
             view=own.strategy
             _need(view.ledger_cash_cny==self.initial_capital_cny and not view.pending_groups and all(r.quantity==0 for r in view.positions),'original_new_allocation_required')
         else:
-            state=saved.value
+            state=json.loads(json.dumps(saved.value))  # 恢复验证不原地改变ASA当前版本。
             if type(state) is dict:
                 state.setdefault('consumed_routes', {})  # 旧意图仅保存消费摘要，原信号细节继续未知。
             _need(type(state)is dict and set(state)==set(self._state()) and state['schema']=='guanheng.original-live-intent.v1'
-                and state['identity']in (self.identity,self.previous_identity) and state['identity']is not None,'original_state_identity')
+                and state['identity']==self.identity,'original_state_identity')
             _need(type(state['sequence'])is int and state['sequence']>=0,'original_state_sequence')
             for name in ('buys','sells'):_need(type(state[name])is list and len(state[name])==len(set(state[name])) and set(state[name])<=set(self.codes),'original_state_intent')
             if state['plan']is not None:_need(set(state['plan'])==set(self.codes) and all(type(x)is int and x>=0 and x%100==0 for x in state['plan'].values()),'original_state_plan')
@@ -205,7 +205,8 @@ class OriginalLiveStrategy:
                                or (all(type(row[key]) in (int, float) and math.isfinite(row[key]) for key in ('peak','line'))
                                    and 0 <= row['line'] <= row['peak'])), 'confirmation_atr_state')
                 self._atr_state = atr
-        self.recovery_state.accept(context, self.recovery_state.stage(self._state()), deadline=deadline)
+        staged = (self.recovery_state.current, None) if raw is not None else self.recovery_state.stage(self._state())
+        self.recovery_state.accept(context, staged, deadline=deadline)
         self.initialized=True
         self.publish(self.id,dict(
             status='initialized',  # ctx及自有分配已核初始化；不宣布成交或信号齐备。

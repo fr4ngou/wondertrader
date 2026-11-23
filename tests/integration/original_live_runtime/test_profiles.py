@@ -57,7 +57,7 @@ def small(actions=None):
         signal_close_prices={c:9.5 for c in DEFAULT_CODES},model_state={c:dict(held=True) for c in DEFAULT_CODES},route_qualification={c:dict(qualified=True,reasons=[]) for c in DEFAULT_CODES})
 
 def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=None,allocation=None,
-         strategy_id=ORIGINAL_ID,capital='1000000',execution_symbol=None,version='0.2.0a1',writes_enabled=True, reader_rows=None):
+         strategy_id=ORIGINAL_ID,capital='1000000',execution_symbol=None,version='0.2.0a1',writes_enabled=True, reader_rows=None,code_identity='f'*64):
     monkeypatch.setattr(mod,'configured_native_facts',
         lambda config,native,mapping,**kw:((),{},dict.fromkeys(mapping.values(),Fraction(1,1000))))
     p=dict(schema=ORIGINAL_PROFILE,strategy_version=version,main_symbol='SSE.ETF.510300',price_policy=policy,
@@ -80,10 +80,36 @@ def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=N
         if execution_symbol is not None and all(row['std_code'] != execution_symbol for row in reader_rows):
             reader_rows.append(dict(std_code=execution_symbol, symbol=execution_symbol.rsplit('.', 1)[-1] + '.SH'))
     native = {'trader': {'writes_enabled': writes_enabled}, 'data': {'store': {'symbols': reader_rows}}}
-    owner=mod.OriginalLiveStrategy(dict(id=strategy_id,parameters={'python_strategy':p}),publish,NS(),native,deadline=time.monotonic()+3,code_identity='f'*64,allocation=allocation,signals=sig)
+    owner=mod.OriginalLiveStrategy(dict(id=strategy_id,parameters={'python_strategy':p}),publish,NS(),native,deadline=time.monotonic()+3,code_identity=code_identity,allocation=allocation,signals=sig)
     ctx=Context(owner.codes[0]);return owner,ctx,allocation,sig,out
 
 def schedule(owner,ctx):ctx.event=NS(kind=4,epoch=2,tdate=20261109);owner.callback(ctx)
+
+
+def test_deployment_change_and_partial_initialization_preserve_business_record(monkeypatch):
+    # 第一只完成INIT、另一只失败，ASA已提交而NativeKV未保存；新安装应沿原记录恢复。
+    owner,ctx,asa,_,_=make(monkeypatch,code_identity='a'*64)
+    owner.callback(ctx)
+    frozen=dict(asa.states)
+    for code_identity in ('b'*64,'c'*64):
+        successor,next_ctx,_,_,_=make(monkeypatch,allocation=asa,mode='resume',code_identity=code_identity)
+        successor.callback(next_ctx)
+        assert successor.initialized and asa.states==frozen
+        assert next_ctx.kv==next(iter(frozen.values()))
+        assert not next_ctx.targets
+
+
+@pytest.mark.parametrize('change',('capital','mapping','version'))
+def test_semantic_model_changes_require_explicit_state_migration(monkeypatch,change):
+    policy='executor-price' if change=='mapping' else 'signal-close-cap'
+    owner,ctx,asa,_,_=make(monkeypatch,policy=policy);owner.callback(ctx)
+    changed={'capital':dict(capital='2000000'),'mapping':dict(execution_symbol='SSE.ETF.588030'),
+             'version':dict(version=mod.CONFIRM_LIVE_VERSION)}[change]
+    successor,next_ctx,_,_,_=make(monkeypatch,allocation=asa,mode='resume',policy=policy,**changed)
+    frozen=dict(asa.states)
+    with pytest.raises(CtaBridgeError,match='original_state_identity'):
+        successor.callback(next_ctx)
+    assert asa.states==frozen and not next_ctx.targets
 
 def test_strategy_instance_uses_declared_model_version_and_reader_mappings(monkeypatch):
     owner, *_ = make(monkeypatch, strategy_id='another-cta-instance', version=mod.CONFIRM_LIVE_VERSION)

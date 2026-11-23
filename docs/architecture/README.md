@@ -1,5 +1,7 @@
 # 架构与决策
 
+- [ADR-0032 策略状态模型身份](adr/0032-strategy-state-model-identity.md)：部署程序真实性与业务状态兼容分责，初始化保留原记录。
+
 - [ADR-0029 已结清阶段接纳最新经济目标](adr/0029-settled-stage-target-handoff.md)：阶段序号用于诊断，最新目标在实际结清后接续；旧报告保留原数学与失败。
 
 - [ADR-0028 中断缓存查询的后继观察](adr/0028-interrupted-cache-read-observations.md)：显式日线只读观察与原失败责任分别保存，金融及下载语义保持。

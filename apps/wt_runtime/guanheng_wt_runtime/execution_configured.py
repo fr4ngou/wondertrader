@@ -258,26 +258,19 @@ class RetainedStrategy:
         self.native_fees = _json(frozen['fees'])
         self.native_fee_source = 'original-WT:fees-sha256:'+hashlib.sha256(frozen['fees']).hexdigest()
         self.takeover = 'takeover' in native
-        identity = (self.id, self.input_sha, tuple(sorted(self.mapping.items())), asdict(self.inputs.policy), code_identity)
-        if self.market_window is not None:
-            identity += (self.market_window.configuration_identity,)
-        self.state_identity = _digest(identity)
-        # 故障恢复显式核前代发行身份；原状态模型、输入和数量不变量保持。
-        self.previous_state_identity = None
+        identity = dict(strategy_id=self.id, input_sha256=self.input_sha, mapping=self.mapping,
+                        policy=asdict(self.inputs.policy), configuration=self.config_identity,
+                        algorithm=self.algorithm_identity,
+                        market_window=None if self.market_window is None else self.market_window.configuration_identity)
+        self.state_identity = RETAINED_STATE.model_identity(identity)
+        # 部署源码沿原transition核验；记录兼容身份只绑定业务模型及算法契约。
         self.recovery_state = SharedStrategyState(RETAINED_STATE, allocation, self.id) if allocation is not None else None
         self.recovery_native = native  # 原已准入恢复链；仅用于核验前代合法原报价及原时点。
         self.retained_market_source = None  # 保留报价时的原控制/文件SHA，独立于当前现金与NAP。
         self.initial_market_window = None  # 初始化只读验证的出版物元数据，不产生目标或新行情事件。
         if self.recovery == 'resume_reconciled':
             from .execution_recovery import load_transition
-            unused, prior_code_identity = load_transition(native)
-            prior_identity = (self.id,self.input_sha,tuple(sorted(self.mapping.items())),asdict(self.inputs.policy),prior_code_identity)
-            from .execution_recovery import state_origin_configuration
-            previous_native=state_origin_configuration(native,deadline=deadline)
-            prior_window=next(row for row in previous_native['strategies'] if row['id']==self.id)['parameters']['python_strategy'].get('market_window')
-            if prior_window is not None:
-                prior_identity += (MarketWindowFile.from_dict(prior_window).configuration_identity,)
-            self.previous_state_identity = _digest(prior_identity)
+            load_transition(native)
         self.state, self.sequence, self.initialized = None, 0, False
         self.cycles, self.exits = {}, ()
         self.flat_sources = {}
@@ -348,11 +341,9 @@ class RetainedStrategy:
     def _load_state(self, text):
         _need(type(text) is str and 1 <= len(text) <= 32768, 'quantity_state_missing')
         value = _json(text.encode('ascii'))
-        previous_identity = self.previous_state_identity or self.state_identity
         _need(set(value) == {'schema','strategy_id','identity','sequence','state','state_id','cycles','exits'}
               and value['schema'] == 'guanheng.retained-quantity-state.v1' and value['strategy_id'] == self.id
-              and (value['identity'] == previous_identity or
-                   (getattr(self, 'recovery_state', None) is not None and value['identity'] == self.state_identity)),
+              and value['identity'] == self.state_identity,
               'quantity_state_identity')
         seq = value['sequence'];_need(type(seq) is int and 0 <= seq <= 9007199254740991, 'quantity_state_sequence')
         state = _restore_quantity_state(value['state'])
@@ -451,16 +442,17 @@ class RetainedStrategy:
         # 原主K线触发规则保持，用户状态由原dirty保存流程落盘。
         register_main_minute(context, self.main, deadline=self.start_deadline)
         if self.recovery_state is not None:
-            value = json.loads(self._state_payload(self.state, self.sequence, self.cycles, self.exits))
-            self.recovery_state.accept(context, self.recovery_state.stage(value), deadline=self.start_deadline)
+            if self.recovery_state.current.revision is not None:
+                staged = self.recovery_state.current, None  # 初始化仅核原记录及镜像，后续业务变化才提交。
+            else:
+                value = json.loads(self._state_payload(self.state, self.sequence, self.cycles, self.exits))
+                staged = self.recovery_state.stage(value)
+            self.recovery_state.accept(context, staged, deadline=self.start_deadline)
         elif self.recovery not in ('resume_clean','resume_reconciled'):
             # 首次接管可消费已核对的旧初值标记；此后只接受当前策略状态协议。
             initial = self._state_payload(None,0,self.cycles,self.exits)
             context.store_quantity_state(initial)
             self._state_revision = hashlib.sha256(initial.encode('ascii')).hexdigest()
-        elif self.recovery == 'resume_reconciled':
-            # 身份交接独立于资金展示和首轮调度；正常关闭后即可沿本代身份恢复。
-            self._store_state(context,self._state_payload(self.state,self.sequence,self.cycles,self.exits))
         self.initialized = True
         if self.allocation is not None:
             self._publish(dict(status='waiting_market_input',reason='awaiting_first_strategy_calculation',sequence=self.sequence,
