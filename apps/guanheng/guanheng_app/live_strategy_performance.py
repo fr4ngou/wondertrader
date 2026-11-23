@@ -14,7 +14,8 @@ from zoneinfo import ZoneInfo
 
 from .managed_local_process import _inspect
 from .watchlist_lock import WindowsLease
-from .wt_runtime_observation import RuntimeObservationConfig, resolve_runtime_configuration, read_runtime_snapshot
+from .wt_runtime_observation import (RuntimeObservationConfig, resolve_runtime_configuration,
+    read_runtime_snapshot, execution_startup_status)
 from .wt_business_observation import read_business
 from .strategy_runtime_projection import project_strategy, project_strategies
 from .observer_strategy_details import _execution_lifecycle
@@ -89,12 +90,15 @@ def _process_running(pid, started_at):
 
 def execution_process_state(runtime, reference, lifecycle, probe=_process_running):
     """同代运行和执行进程都经核实时，公开实际在线状态。"""
+    execution = runtime['components'].get('execution', {})
+    if runtime['state'] == 'ready' and execution_startup_status(execution) is not None:
+        # 等待、初始化与矛盾发布均未证明当前执行在线，旧PID和旧事件不能补足资格。
+        return False, None
     started = lifecycle.get('execution_started_at')
     execution_active = probe(reference['pid'], started) if reference else None
     runtime_active = probe(runtime.get('pid'), started)
     active = (False if execution_active is False or runtime_active is False else
               True if execution_active is True and runtime_active is True else None)
-    execution = runtime['components'].get('execution', {})
     is_current = (runtime['state'] == 'ready' and runtime['ready'] is True and execution.get('state') == 'ready'
                   and execution.get('ready') is True and active is True and not lifecycle.get('execution_finished_at'))
     return is_current, active

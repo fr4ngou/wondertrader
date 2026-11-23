@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from .strategy_catalog import strategy_definition
 from .wt_runtime_observation import (RuntimeObservationConfig, RuntimeCurrentFile, read_runtime_snapshot,
-    observe_runtime, resolve_runtime_configuration)
+    observe_runtime, resolve_runtime_configuration, execution_startup_status)
 from .reading import ReadCapacityError
 from guanheng_market_client.runtime_status import read_status_snapshot
 
@@ -52,10 +52,13 @@ def project_execution(runtime, strategy, report=None):
     state = 'unconfigured' if runtime is None else 'not_started' if component is None else component['state']
     if component and runtime['state'] in ('stopping', 'closed', 'faulted'):
         state = runtime['state']
+    startup = execution_startup_status(component) if component and state == 'ready' else None
     labels = dict(unconfigured='尚未配置策略运行读取', not_started='策略未启动', disabled='策略未启动',
         new='策略待启动', starting='策略启动中', ready='策略执行组件已就绪',
         stopping='策略停止中', closed='策略已停止', faulted='策略运行失败', unavailable='策略状态暂不可用')
-    if state == 'ready' and strategy:
+    if startup is not None:
+        state, label = startup['state'], startup['label']
+    elif state == 'ready' and strategy:
         label = ('运行中 · 等待新行情' if strategy.get('status') == 'waiting_market_input'
             else 'WT已发布策略计算结果' if strategy.get('decision_at') is not None else strategy['status_label'])
     else:
@@ -63,7 +66,7 @@ def project_execution(runtime, strategy, report=None):
     started_at = _missing('WT现有公开结果未提供本次策略启动时间。')
     duration = _missing('缺少策略启动时间，无法确定运行时长。')
     # 启动时间由原生执行器session.start成功后发布；资金基准与文件mtime分别解释。
-    origin = report.get('execution_started_at') if isinstance(report, dict) else None
+    origin = report.get('execution_started_at') if isinstance(report, dict) and startup is None else None
     if origin is not None:
         try:
             if not isinstance(origin, str) or not 1 <= len(origin) <= 64:
@@ -90,7 +93,8 @@ def project_execution(runtime, strategy, report=None):
                 duration = (dict(value=int((now-stamp).total_seconds()), reason=None) if state == 'ready'
                     else _missing('策略当前未运行；原发布未提供停止时间，运行时长保持未知。'))
     return dict(state=state, label=label,
-        reason='当前WT实例未配置策略执行器；账户持仓可独立查看。' if state == 'not_started'
+        reason=startup['reason'] if startup is not None else
+            '当前WT实例未配置策略执行器；账户持仓可独立查看。' if state == 'not_started'
             else '运行状态以WT最近发布为准，组件就绪与策略计算结果分别核实。',
         started_at=started_at, duration_seconds=duration)
 

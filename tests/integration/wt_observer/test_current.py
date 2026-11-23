@@ -80,6 +80,103 @@ def dynamic_settings(settings, path):
     return settings.model_copy(update=dict(wt_current_file=str(path)))
 
 
+@pytest.mark.parametrize('phase,label', [
+    ('waiting_source', '等待QMT连接，策略执行尚未启动'),
+    ('starting_execution', '正在启动策略执行器'),
+])
+def test_source_wait_reports_strategy_not_started(strategy_publication, phase, label):
+    settings, values, files, write = strategy_publication
+    values['runtime']['components']['execution'].update(
+        pid=None, business_observation=None, execution_ready=False, source_wait_state=phase)
+    write()
+    original = {key: path.read_bytes() for key, path in files.items()}
+    with TestClient(create_app(settings)) as client:
+        for path in ('/v1/ui/wt-runtime', '/v1/ui/wt-instances'):
+            response = client.get(path)
+            assert response.status_code == 200
+            value = response.json()
+            runtime = value['runtime'] if path.endswith('wt-runtime') else value['instances'][0]['runtime']
+            execution = next(c for c in runtime['components'] if c['name'] == 'execution')
+            assert execution['state'] == 'ready' and execution['ready'] is True
+            assert execution['label'] == label
+        response = client.get('/v1/ui/strategy-details')
+        assert response.status_code == 200
+        execution = response.json()['execution']
+        assert execution['state'] == 'starting' and execution['label'] == label
+        assert execution['started_at']['value'] is None
+    assert {key: path.read_bytes() for key, path in files.items()} == original
+
+
+def test_runtime_fault_takes_precedence_over_source_wait(strategy_publication):
+    settings, values, _files, write = strategy_publication
+    values['runtime'].update(state='faulted', ready=False)
+    values['runtime']['components']['execution'].update(
+        pid=None, business_observation=None, execution_ready=False, source_wait_state='waiting_source')
+    write()
+    with TestClient(create_app(settings)) as client:
+        execution = client.get('/v1/ui/strategy-details').json()['execution']
+        assert execution['state'] == 'faulted' and execution['label'] == '策略运行失败'
+
+
+@pytest.mark.parametrize('phase,ready', [('waiting_source', True), ('private-invalid-phase', False)])
+def test_inconsistent_source_wait_is_unknown(strategy_publication, phase, ready):
+    settings, values, _files, write = strategy_publication
+    values['runtime']['components']['execution'].update(
+        pid=None, business_observation=None, execution_ready=ready, source_wait_state=phase)
+    write()
+    with TestClient(create_app(settings)) as client:
+        response = client.get('/v1/ui/strategy-details')
+        execution = response.json()['execution']
+        assert execution['state'] == 'unavailable'
+        assert execution['label'] == '策略执行启动状态待核实'
+        assert 'private-invalid-phase' not in response.text
+
+
+def test_same_app_follows_source_wait_to_started_execution(strategy_publication):
+    from copy import deepcopy
+    settings, values, _files, write = strategy_publication
+    original = deepcopy(values['runtime']['components']['execution'])
+    values['runtime']['components']['execution'].update(
+        pid=None, business_observation=None, execution_ready=False, source_wait_state='waiting_source')
+    write()
+    with TestClient(create_app(settings)) as client:
+        assert client.get('/v1/ui/strategy-details').json()['execution']['state'] == 'starting'
+        values['runtime']['components']['execution'] = dict(original,
+            execution_ready=True, source_wait_state='execution_started')
+        write()
+        execution = client.get('/v1/ui/strategy-details').json()['execution']
+        assert execution['state'] == 'ready'
+        assert execution['label'] != '等待QMT连接，策略执行尚未启动'
+
+
+def test_source_wait_ignores_previous_lifecycle_and_strategy():
+    from guanheng_app.observer_strategy_details import project_execution
+    runtime = dict(state='ready', components=dict(execution=dict(state='ready', ready=True,
+        execution_ready=False, source_wait_state='waiting_source', pid=None, business_observation=None)))
+    result = project_execution(runtime, dict(status='waiting_market_input'),
+        dict(execution_started_at='2026-01-05T01:30:00+00:00'))
+    assert result['state'] == 'starting'
+    assert result['started_at']['value'] is None and result['duration_seconds']['value'] is None
+
+
+@pytest.mark.parametrize('phase,ready', [
+    ('waiting_source', False), ('starting_execution', False), ('waiting_source', True),
+])
+def test_source_wait_cannot_reuse_live_pid_as_online(phase, ready):
+    from guanheng_app.live_strategy_performance import execution_process_state
+    runtime = dict(state='ready', ready=True, pid=101, components=dict(execution=dict(
+        state='ready', ready=True, execution_ready=ready, source_wait_state=phase,
+        pid=102, business_observation=dict(pid=102))))
+    probes = []
+    def probe(pid, started):
+        probes.append(pid)
+        return True
+    current, active = execution_process_state(runtime, dict(pid=102),
+        dict(execution_started_at='2026-01-05T01:30:00+00:00'), probe=probe)
+    assert current is False and active is None
+    assert probes == []
+
+
 def test_same_app_follows_nap_generation_without_fixed_fallback(account_publication, tmp_path):
     settings, values, _files, write = account_publication
     current = tmp_path/'CURRENT.json'

@@ -32,3 +32,19 @@
 账户回收与采用规则已以单提交 `ebf19c30` 合入本地 master。最终 CI `D:/wt-build/trading-recovery-20261121-001/account-ci-003/RESULT.json` 通过：494 项软件回归及原生执行链，包括读取失败、委托拒绝与回报等恢复场景。Host/Agent/Core 和五个运行/策略 wheel 在主干重建后与候选字节一致。
 
 整组构造预检发现新运行环境还需携带原分析窗口生产者。该包精确依赖旧 Runtime 版本，需要同步发行依赖版本；这里只更新包元数据，原计算代码保持。正式停止前完成整组配置、包依赖及逐角色构造检查。此阶段线上尚未切换。
+## 11 月 23 日故障核查与原账恢复
+
+状态：recovering；自然交易验收继续。11 月 22 日 14:47:50–55，日线服务的持续更新 owner 以 OSError 退出；交易 Runtime 在 loop_status_publish 收到 errno=28。该发布目标在 D 盘，原始记录表示存储空间不足；当时卷容量变化及日线异常的具体系统错误缺少原证据，完整历史根因仍未知。11 月 23 日核查时 C、D、E 盘均有空闲，旧 Runtime、Native 及相关 Host 已物理退出。行情采集进程存活但 connected=false、receiver_failure=connection_ended，来源尾部仍为 11 月 20 日 16:30，QMT 主终端未找到。
+
+已完成以下一次性运维恢复，业务源码未加入现场值：
+
+- 三本 SQLite 使用原只读连接制作一致性备份，quick_check 均为 ok。ASA 保留 17 条成交归属、19 个命令（16 filled、3 cancelled）、88 条未归属回报及一项冲突。通信库 123 个 sdk_returned 只证明 SDK 已返回，柜台终态继续等新查询确认。
+- 原生目录 44 个文件逐字节备份。故障关闭留下零字节 `.cta-clean.prepared.json.pending`，按原开始/结束生命周期、原 owner 退出及完整备份核实后，单文件归档保存；其余 43 个原件摘要不变。原 clean 凭据、失败收据和未知委托身份保持。
+- 日线按当前正式控制器 start 恢复，同一实例新 Runtime 22068、历史进程 55352 ready；原来源及配置 SHA 保持。首次误用旧服务自带控制器因不识别后继 generation 字段而在启动前拒绝，该失败保留；正式服务组所用当前控制器正常接续，未回退状态格式。
+- 交易沿原 service-permission-enabled 正常 start，新 Runtime 57812、控制代 70f166dd-4ee6-4900-ad64-fd088c9f6114。七个组件的本地监督已就绪；execution_ready=false、Native PID 为空、source_wait_state=waiting_source。现阶段等待 QMT 接入，尚未启动策略执行或生成新委托。已请求用户启动、登录 QMT 并运行原接入正文，之后按原身份核账户和行情。
+
+独立审查核实 installed 与 master 六个恢复 Python 文件一致，Native 原失败关闭分支接受本次 recovery_state 与原开始/结束生命周期；归档残留后没有已确认的启动阻断。原账完整与实际柜台对账分别验收。原件保留于受控目录 `D:/wt-build/trading-recovery-20261123-001`：`pre-recovery-001/BACKUP.json`、`NATIVE-BACKUP.json`、原控制目录副本、零字节残留归档、`DAILY-RECOVERED.json` 与 `TRADING-RESTARTED.json`。
+
+观衡等待监督器 ready 被直接写成“策略执行组件已就绪”。新增 HTTP 回归在原实现复现两项失败；共用纯投影区分等待 QMT、启动执行器和已启动，策略详情等待时采用既有 starting 状态，原组件生命周期、权限和资金账保持。父故障优先、字段矛盾未知、旧报告时间隔离及同一 App 从等待恢复到启动均有回归，当前聚焦文件 44 项通过。独立审查又复现旧PID仍存活时在线列表误报；线上表现和运行策略列表现复用同一启动投影，新增原反例回归。候选 App149 的发布与实际页面验收仍待完成。
+
+继续项：QMT 来源恢复后的四查询及旧委托对账、Native 实际接续、两套策略自然计算/逐标的目标、当天分钟持续采集和缺口检查、后续真实成交费用语义；日线异常缺少 errno/安全调用位置、存储异常日志的完整上下文需补齐。完整八项目标保持，不能用本地 ready 替代自动交易已恢复。

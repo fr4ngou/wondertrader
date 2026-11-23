@@ -114,6 +114,31 @@ def _published_state(value, *, component=False):
     return result
 
 
+def execution_startup_status(component):
+    """投影等待监督器与实际执行器的区别；旧发布缺此扩展时沿原生命周期。
+
+    返回页面的state、label和reason，不修改WT生命周期或赋予交易资格。
+    父实例的停止/故障由调用者优先处理，未知字段不复制到公开说明。
+    """
+    if component.get('state') != 'ready' or 'source_wait_state' not in component:
+        return None
+    phase, ready = component.get('source_wait_state'), component.get('execution_ready')
+    if (phase == 'execution_started' and ready is True
+            and type(component.get('pid')) is int and component['pid'] > 0
+            and type(component.get('business_observation')) is dict):
+        return None
+    if ready is False:
+        if (phase == 'waiting_source' and component.get('pid') is None
+                and component.get('business_observation') is None):
+            return dict(state='starting', label='等待QMT连接，策略执行尚未启动',
+                        reason='WT等待QMT接入认证；连接恢复后沿原流程启动执行器。')
+        if phase == 'starting_execution':
+            return dict(state='starting', label='正在启动策略执行器',
+                        reason='QMT接入认证已通过，正在恢复原账并初始化策略执行器。')
+    return dict(state='unavailable', label='策略执行启动状态待核实',
+                reason='WT发布的执行启动阶段与就绪信息不一致，当前交易运行资格保持未知。')
+
+
 def _analysis_data(value):
     """仅投影原发布者的阶段及最后成功时间；不由服务ready推导数据或新鲜度。
 
@@ -285,11 +310,18 @@ def observe_runtime(configuration, deadline):
     runtime['issue'], first = _runtime_issue(value)
     names = [name for name in _COMPONENTS if name in components]
     names.extend(name for name in components if name not in _COMPONENTS)
-    runtime['components'] = [dict(name=name, display_name=_COMPONENTS.get(name, '其他运行组件'),
-        **_published_state(components[name], component=True),
-        issue=_component_issue(name, components[name], first),
-        data=_analysis_data(components[name]) if name == 'analysis_window' else None,
-        execution_control=_execution_control(configuration, value, deadline) if name == 'execution' else None) for name in names]
+    runtime['components'] = []
+    for name in names:
+        component = components[name]
+        published = _published_state(component, component=True)
+        if name == 'execution' and value['state'] == 'ready':
+            startup = execution_startup_status(component)
+            if startup is not None:
+                published['label'] = startup['label']
+        runtime['components'].append(dict(name=name, display_name=_COMPONENTS.get(name, '其他运行组件'),
+            **published, issue=_component_issue(name, component, first),
+            data=_analysis_data(component) if name == 'analysis_window' else None,
+            execution_control=_execution_control(configuration, value, deadline) if name == 'execution' else None))
     return dict(state='available', reason=_NOTE,
                 published_at=datetime.fromtimestamp(snapshot.modified_epoch_ns / 1e9, timezone.utc).isoformat(),
                 runtime=runtime)
