@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 
 from integrations.guanheng.market_service import MarketHTTPServer
 from integrations.guanheng.source_market import create_native_source_market
+from integrations.guanheng.data_process_diagnostics import DataFailureDiagnostic
 from integrations.guanheng.quote_collection_service import _read, _json, _fields, _need, _path, _sha
 from guanheng_qmt_shm.private_files import create_private_directory, write_private_new
 
@@ -76,13 +77,16 @@ def serve(configuration, expected_sha256, directory, control_id):
     error = None
     stage = 'control_directory'
 
-    def publish(name, value):
+    def publish(name, value, *, replace_existing=False):
         raw = json.dumps(value, ensure_ascii=True, sort_keys=True, allow_nan=False).encode('ascii')
         _need(0 < len(raw) <= 65536)
         # 一次性身份收据先完整写入并关闭，再发布最终名称；父不会读到半份正文。
         temporary = directory / (name + '-' + str(uuid4()) + '.tmp')
         write_private_new(temporary, raw)
-        os.rename(temporary, directory / name)
+        (os.replace if replace_existing else os.rename)(temporary, directory / name)
+
+    diagnostic = DataFailureDiagnostic(lambda name, value: publish(name, value, replace_existing=True),
+        control_id=control_id, configuration_sha256=expected_sha256, role='source_market')
 
     try:
         # 先取得本代私有控制目录，配置或凭据校验失败也能留下同身份收据。
@@ -114,24 +118,30 @@ def serve(configuration, expected_sha256, directory, control_id):
                 listen_host=value['listen']['host'], listen_port=server.server_port))
         stage = 'serving'
         while True:
+            stage = 'stop_read'
             stop_deadline = _stop(directory, control_id)
             if stop_deadline is not None:
                 _need(time.monotonic() < stop_deadline)
                 break
+            stage = 'daily_update_check'
             if daily_owner is not None:daily_owner.check()
             # 原server/Reader始终在创建线程处理；这里不引入第二套读取池。
+            stage = 'serving'
             server.handle_request()
     except BaseException as exc:
         error = {'stage': stage, 'exception_kind': type(exc).__name__}
+        if created:
+            diagnostic.capture(stage, exc)
     finally:
         if stop_deadline is None and created:
             try:stop_deadline=_stop(directory,control_id)
-            except Exception:pass
+            except Exception as exc:diagnostic.cleanup('stop_read', exc)
         closing_deadline=stop_deadline if stop_deadline is not None else time.monotonic()+30.
         if daily_owner is not None:
             try:daily_owner.request_close(closing_deadline)
             except BaseException as exc:
                 error=error or {'stage':'daily_update_stop','exception_kind':type(exc).__name__}
+                diagnostic.cleanup('daily_update_stop', exc)
         try:
             if server is not None:
                 server.server_close()
@@ -145,10 +155,12 @@ def serve(configuration, expected_sha256, directory, control_id):
         except BaseException as exc:
             if error is None:
                 error = {'stage': 'close', 'exception_kind': type(exc).__name__}
+            diagnostic.cleanup('close', exc)
         if daily_owner is not None:
             try:daily_owner.close(closing_deadline)
             except BaseException as exc:
                 error=error or {'stage':'daily_update_close','exception_kind':type(exc).__name__}
+                diagnostic.cleanup('daily_update_close', exc)
         if created:
             try:
                 if error is None and server_closed and native_closed:
@@ -159,8 +171,10 @@ def serve(configuration, expected_sha256, directory, control_id):
                     publish('failure.json', dict(schema='guanheng.source-market-failure.v1',
                         control_id=control_id, pid=os.getpid(), configuration_sha256=expected_sha256,
                         server_closed=server_closed, native_closed=native_closed, **error))
-            except BaseException:
+            except BaseException as exc:
                 error = error or {'stage': 'receipt_publish', 'exception_kind': 'unavailable'}
+                diagnostic.cleanup('receipt_publish', exc)
+            diagnostic.finish()
     return 0 if error is None else 2
 
 

@@ -18,6 +18,7 @@ import time
 from uuid import UUID,uuid4
 
 from integrations.guanheng.daily_data_update import run_update, _save, _load
+from integrations.guanheng.data_process_diagnostics import DataFailureDiagnostic
 from integrations.guanheng.daily_data_inputs import prepare_report_inputs, prepare_update
 from integrations.guanheng.daily_input_recovery import observe_input_reads, close_input_discovery, registered_requests
 from integrations.guanheng.market_generation import GenerationPublisher, read_fixed, read_generation
@@ -228,6 +229,8 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
     owner_thread = get_ident()
     directory.mkdir(parents=False, exist_ok=False)
     close_deadline = None
+    diagnostic = DataFailureDiagnostic(lambda name, value: _save(directory / name, value),
+        control_id=control_id, configuration_sha256=configuration['sha256'], role='daily_data')
 
     def stopped():
         nonlocal close_deadline
@@ -244,7 +247,8 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
 
     error = None
     try:
-        with GenerationPublisher(config['template']['publication_directory']) as publisher, ExitStack() as input_resources:
+        with GenerationPublisher(config['template']['publication_directory']) as publisher, ExitStack() as input_resources, \
+                diagnostic.capture_scope('data_serve'):
             from integrations.guanheng.market_supplement_capture import REPORT_METRICS
             report_targets = config['inputs'].get('supplement_facts',{}).get('targets',())
             report_queue = (input_resources.enter_context(ThreadPoolExecutor(max_workers=1,thread_name_prefix='wt-report'))
@@ -543,16 +547,25 @@ def serve(configuration, directory, control_id, *, once=False, as_of=None, clock
                 time.sleep(config['schedule']['poll_seconds'])
     except BaseException as failure:
         error = type(failure).__name__
+        if not diagnostic.capture('data_serve', failure):
+            diagnostic.cleanup('data_resources_close', failure)
         raise
     finally:
         late = close_deadline is not None and time.monotonic() >= close_deadline
-        _save(directory / ('closed.json' if error is None and not late else 'failure.json'), dict(
-            schema='guanheng.daily-data-closed.v1',  # 进程入口关闭事实；物理Job关闭沿父收据。
-            control_id=control_id,  # 本轮控制UUID，旧停止请求不能影响新代。
-            pid=os.getpid(),  # 实际数据进程身份，不以launcher PID代替。
-            owner_closed=True,  # 所有输入/更新上下文已退出，排他锁已释放。
-            error_type=error,  # 固定异常类型，成功为None；无凭据或来源正文。
-            close_deadline_exceeded=late))  # 是否超过调用者原关闭截止。
+        try:
+            _save(directory / ('closed.json' if error is None and not late else 'failure.json'), dict(
+                schema='guanheng.daily-data-closed.v1',  # 进程入口关闭事实；物理Job关闭沿父收据。
+                control_id=control_id,  # 本轮控制UUID，旧停止请求不能影响新代。
+                pid=os.getpid(),  # 实际数据进程身份，不以launcher PID代替。
+                owner_closed=True,  # 所有输入/更新上下文已退出，排他锁已释放。
+                error_type=error,  # 固定异常类型，成功为None；无凭据或来源正文。
+                close_deadline_exceeded=late))  # 是否超过调用者原关闭截止。
+        except BaseException as failure:
+            diagnostic.cleanup('data_close_receipt_publish', failure)
+            if error is None:
+                raise
+        finally:
+            diagnostic.finish()
 
 
 def main():
