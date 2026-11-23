@@ -81,7 +81,7 @@ class StrategySeed:
 class AccountSnapshot:
     revision: int  # 原完整P/A观察的单调序号；同号不同正文拒绝。
     trading_day: str  # 原来源上海交易日，ISO日期；不是本机刷新日期。
-    available_cny: Decimal  # 账户原可用资金上限，冻结项不重复扣减。
+    available_cny: Decimal  # 账户可用资金的保守分位上限，原精度由来源SHA保留；冻结项不重复扣减。
     positions: tuple[OwnedPosition, ...]  # 原完整账户实际数量/可卖份额。
     source_sha256: str  # 原账户事实摘要，绑定本轮来源。
     sell_reservations: tuple[SellReservation, ...] = ()  # 同一完整观察证明的原订单冻结归属。

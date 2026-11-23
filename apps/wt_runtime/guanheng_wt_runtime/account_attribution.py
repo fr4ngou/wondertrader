@@ -8,7 +8,7 @@ import json
 import logging
 import math
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_UP, localcontext
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP, localcontext
 import sys
 from threading import RLock, local
 from time import monotonic, perf_counter
@@ -385,7 +385,7 @@ class AttributionCoordinator:
                     reservations.append(SellReservation(command.command_id,
                         self._quantity(source['remaining_quantity']), source['source_sha256']))
             prior = self.strategy_state(self.strategy_ids[0], deadline=deadline)
-            available = self._source_decimal(repr(broker.available), '.01')
+            available = self._source_available_cap(repr(broker.available))
             snapshot = AccountSnapshot(prior.account_revision+1, day, available, tuple(positions), fingerprint, tuple(reservations))
             try:
                 self.allocation.observe_account(snapshot, deadline=deadline)
@@ -426,8 +426,8 @@ class AttributionCoordinator:
         return result
 
     @staticmethod
-    def _source_decimal(value, quantum):
-        """只收敛原有限double尾差，原正文与SHA由inbox保留；明显离档值待核。"""
+    def _source_precision(value, quantum):
+        """校验原double及可证明尾差；不改变来源正文与SHA。"""
         _need(type(value) is str and 0 < len(value) <= 128, 'source_cash_precision_unproven')
         number = Decimal(value)
         _need(number.is_finite(), 'source_cash_precision_unproven')
@@ -436,11 +436,26 @@ class AttributionCoordinator:
         epsilon = 4 * sys.float_info.epsilon * abs(binary)
         step = Decimal(quantum)
         _need(epsilon < float(step)/4, 'source_cash_precision_unproven')
+        return number, step, Decimal.from_float(epsilon)
+
+    @staticmethod
+    def _source_decimal(value, quantum):
+        """成交价、成交额等经济事实只收敛可证明的double尾差，实际离档值仍待核。"""
+        number, step, epsilon = AttributionCoordinator._source_precision(value, quantum)
         with localcontext() as context:
             context.prec = 64
             normalized = number.quantize(step, rounding=ROUND_HALF_UP)
-            _need(abs(number-normalized) <= Decimal.from_float(epsilon), 'source_cash_precision_unproven')
+            _need(abs(number-normalized) <= epsilon, 'source_cash_precision_unproven')
         return normalized
+
+    @staticmethod
+    def _source_available_cap(value):
+        """券商可用余额只作可买上限，一律向下取分；原余额证据及策略现金保持。"""
+        number, step, _ = AttributionCoordinator._source_precision(value, '.01')
+        _need(number >= 0, 'source_cash_precision_unproven')
+        with localcontext() as context:
+            context.prec = 64
+            return number.quantize(step, rounding=ROUND_DOWN)
 
     def _group(self, body):
         _need(type(body.get('instance_id')) is str and body['instance_id'], 'attribution_group')

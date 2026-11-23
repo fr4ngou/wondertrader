@@ -700,3 +700,45 @@ def test_weekend_native_planned_session_does_not_advance_actual_account_day(tmp_
     # 官方范围之外没有可用归属日期，明确等待；原计划交易日仍不可代替。
     coordinator._account_observation_day=lambda day:None
     assert coordinator.observe_context(context,deadline=end(),max_age_seconds=30)=='account_observation_day_unqualified'
+
+@pytest.mark.parametrize('available, expected', [
+    (1999999.996, D('1999999.99')),
+    (1999999.994, D('1999999.99')),
+    (0.009, D('0.00')),
+    (200.19999999999997, D('200.19')),
+    (2000000000000.009, D('2000000000000.00')),
+])
+def test_native_subcent_available_is_conservative_cap_without_mutating_strategy_cash(tmp_path, monkeypatch, available, expected):
+    from guanheng_wt_runtime.execution_strategy import BrokerObservationValue, BrokerPositionValue
+    book, coordinator, bridge = setup(tmp_path)
+    stamp = int(datetime.fromisoformat(STAMP).timestamp()*1000)
+    broker = BrokerObservationValue(True, True, 9, stamp, 10, stamp, stamp,
+        2000000, available, (BrokerPositionValue(CODE, True, 10000, 10000),))
+    context = SimpleNamespace(broker_observation=lambda: broker)
+    before = {sid: book.view(sid, deadline=end()).ledger_cash_cny for sid in coordinator.strategy_ids}
+    seen = []
+    observe = book.observe_account
+    def capture(snapshot, *, deadline):
+        seen.append(snapshot)
+        return observe(snapshot, deadline=deadline)
+    monkeypatch.setattr(book, 'observe_account', capture)
+    # 券商可用余额含实际厘位，作为可买上限保守取分；各策略自有现金与持仓保持原值。
+    assert coordinator.observe_context(context, deadline=end(), max_age_seconds=30) is None
+    assert seen[-1].available_cny == expected
+    assert {sid: book.view(sid, deadline=end()).ledger_cash_cny for sid in coordinator.strategy_ids} == before
+    assert book.view('old', deadline=end()).positions[0].quantity == 10000
+    assert coordinator.observe_context(context, deadline=end(), max_age_seconds=30) is None
+    assert len(seen) == 1
+
+def test_available_cap_never_increases_raw_balance_across_float_boundaries():
+    import math
+    normalize = AttributionCoordinator._source_available_cap
+    for base in [0., .01, 200.2, 1999999.99, 2000000000000.]:
+        for value in [base, math.nextafter(base, 0.), math.nextafter(base, math.inf)]:
+            raw = D(repr(value))
+            cap = normalize(repr(value))
+            assert D('0') <= cap <= raw
+            assert raw-cap < D('.01')
+    for value in ['-0.001', 'NaN', 'Infinity', '1e309', '1e15']:
+        with pytest.raises(RuntimeError, match='source_cash_precision_unproven'):
+            normalize(value)

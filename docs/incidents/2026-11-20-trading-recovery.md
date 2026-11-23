@@ -130,3 +130,15 @@ App149 源码单提交 `c35404c65b6a39e987c32ce5ee51722f254a7185` 已合入 mast
 原运行入口已保存首错时，finally中后台快照发布者的stop再次抛错会被接住并调用capture。capture只处理空首错槽，第二个错误因此同时缺少进程事件和cleanup_failure；继续抛出到上下文退出的清理错误原先可记录。新回归沿真实run与FailureDiagnostic复现首错为组件检查ValueError、后台stop为ENOSPC，原诊断cleanup_failure为null，证据`E:/workspace/wondertrader-data/runtime-cleanup-diagnostics-20261123-001/red2.xml`；red.xml仅为未创建测试build目录的环境失败，不作为缺陷红灯。
 
 通用修复在原诊断owner统一捕获首错及首个清理错误，已接住和继续抛出的清理错误共用同一槽及原日志队列。每代最多各一份，正常无额外写入，原异常传播、关闭预算和金融状态保持。候选32项诊断、慢磁盘/管道及快照回归通过，独立full/delta复核关闭错误重抛重复记录的问题；Runtime与分析发布者依赖同步采用cleanupdiag.1发行身份。独立复核、最终CI、普通安装和正式采用分别验收；此时线上仍为旧35，QMT连接与旧故障当时卷容量原因继续保持未知，日志修复无法追溯补造历史证据。
+
+### QMT接入后的可用余额厘位故障
+
+13:57用户确认QMT主终端和原接入已运行，交易Runtime57812自然启动Native45544，读到报价并恢复账户四查询；独立采集36172也自动重新连接，原进程保持。优化版实际消费11月20日、适用11月23日信号；原策略窗口仍过期。14:00自然成交已按原命令入账，账本由17笔成交/19条命令变为18笔/20条命令；回报归属耗时约82ms，重复批次投影约0.01–0.02ms。本轮没有为验收造测试委托。
+
+14:00:58 Native以退出码1退出，callback-failure.json明确定位AttributionError：observe_context→_source_decimal→source_cash_precision_unproven；Runtime随原执行故障规则关闭交易组合。完整QMT账户原件证明可用余额真实三位小数、距离最近分位0.004元，账户commission也有三位。原代码将该账户可买上限强制当成必须精确到分的经济事实，实际厘位被拒并逃出策略回调。原账户/库及全部故障收据已保存于`E:/workspace/wondertrader-data/account-cash-precision-20261123-001/before`，两库均沿SQLite一致性备份，原库保持。Native日志无写失败和丢弃；此前首条分钟cutoff表示分钟事件时间超出框架当前时钟，发生后运行继续，与本次退出及磁盘超时分别核实。
+
+根因回归沿真实observe_context和ASA owner，在未修版三项分以下可用余额触发同一AttributionError，原二进制尾差例仍通过，见red2.xml；red.xml仅测试临时根误落C盘的环境失败。新实现仅把可用余额作为保守CNY可买上限，一律向下取分；原P/A正文与指纹、策略现金、持仓、成交价/额和费用规则保持。独立审查复现第一版大金额尾差容忍会向上增加额度，review-red.xml锁住该反例及微小尾差；修正后普通规模/大金额/零/非有限和浮点边界不增上限的七项通过，原coordinator整组32项通过。Source精度校验与上限语义在同owner分开，真实费用暂未取得逐笔最终结算证明，不能用账户累计commission直接补17笔旧费或本日新费。
+
+日志修复与现金上限分别保留各worktree的单一提交，联合候选以cleanupdiag.1.cashcap.1固定Runtime和producer依赖。最终CI保留首次缺.local-ci.json及旧原生缓存覆盖不匹配的环境失败，按当前已批准上游覆盖重建缓存后继续完整检查；不更改业务门禁或失败收据。源码、普通安装、正式采用及恢复后自然交易均逐项登记，当前交易进程已退出，独立采集/日线仍运行。
+
+现金工作树的build/reviewer-cash-cap-20261123-001递归清理由自动安全检查拒绝，原因仅blocked by policy。该目录保持，禁止经其他删除工具或整个worktree递归删除间接绕过；工作树收尾因此另列待完成。
