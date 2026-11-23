@@ -11,7 +11,7 @@
 | 市场观察历史与原图对齐 | 用户要求撤下科创承接、小盘弹性及IPO供给回购三图；观衡148正式18143已移除对应单图、多看板、指标说明与导出入口，旧链接回退验收通过。历史数据保留，后续推导结束；原146采集调度和WT保持本轮发布前身份，ETF图表保留。 | [IPO撤图发布](../releases/2026-11-22-observer148-remove-ipo-board.md)、[前两图撤下](../releases/2026-11-22-observer147-remove-unverified-boards.md) |
 | 系统职责 | WT 独立拥有 QMT 通信、采集/历史、策略和交易；观衡独立部署、只读消费。 | [架构](../architecture/overview.md)、[ADR-0016](../architecture/adr/0016-independent-wt-runtime-and-observer.md) |
 | 交易恢复核查 | 11 月 23 日已备份核三库及原生状态，归档存储故障留下的零字节关闭残留；日线及交易 WT 沿原账重启。交易 Runtime 57812 等待 QMT，Native 尚未启动，自动交易尚未恢复；原资金持仓与委托身份保持。自然计算、今日分钟及费用语义继续验收。 | [本次恢复](../incidents/2026-11-20-trading-recovery.md#11-月-23-日故障核查与原账恢复) |
-| 观衡交付 | 正式 App148 在原18143可读，后继撤图已采用；本次等待启动状态的 App149 候选回归通过，尚未发布。优化版五年回测和之前下单开关的已验范围沿原记录；当前无 Native 引用时开关保持未知。 | [恢复与待验范围](../incidents/2026-11-20-trading-recovery.md#11-月-23-日故障核查与原账恢复)、[148发布](../releases/2026-11-22-observer148-remove-ipo-board.md) |
+| 观衡交付 | 正式 App149 已在18143正常接续148，系统页等待QMT、刷新及桌面/窄屏通过；回测列表18份无无效收据。两策略当前实际版本未发布，版本/持仓页保持未确认及部分验收。WT和原外部读取配置保持。 | [149正式验真](../incidents/2026-11-20-trading-recovery.md#观衡149正式采用与验真) |
 | 市场广度 | 正式一年窗口内沪深五项与沪深北广度、RANA、MSI、推力各有 242 个有效值。沪深北 TRIN 有 240 个有效值，T2108 保留 47 日。 | [备用来源补采与验真](../evidence/2026-11-08-observation-breadth-alternative-sources.md) |
 | 原模拟账户运行 | 11 月 12 日 18:51 沿原账恢复，七角色及执行器就绪。18:51:43、18:52:16 两轮账户快照可读。发布时策略等待新分析窗口，自然调度和券商回报待后续交易窗口验证。 | [WT 发布](../releases/2026-11-12-wt-strategy-return.md)、[独立采集与分析发布](../releases/2026-11-12-wt-data-retry.md) |
 | 目标记录 | 1160 行原始设置归约为 42 条首次/变化记录；目标、持仓和成交分别归属。原目标、历史权重、算法版本及原因缺字段时保持未知。 | [目标规格](../specs/strategy-target-history.md)、[后验真](../evidence/2026-11-07-native-target-cash-gapplan-postflight.md) |
