@@ -5,16 +5,21 @@
 ## 日常流程
 
 1. 按[工作树与主干](../development/workflow.md#工作树与主干)核对主目录和最新本地 `master`，为新任务创建独立 worktree。
-2. 在任务 worktree 完成修改，核对候选基线，运行本地 CI 或使用自动检查的合入命令。
-3. 按[开发流程](../development/workflow.md#git-与交接)整理为单个提交，检查结果对应最终代码，以主目录为目标快进本地 `master`。
-4. 合入成功后，在同次交付中按[Worktree收尾](../development/workflow.md#worktree收尾)手动清理本任务临时工作树；最终交付写明目录与Git登记的核对结果。保留项按该正文登记具体原因、处理者和解除条件，收尾状态持续跟进到完成。
-5. 发布按独立发布流程执行。
+2. 在任务 worktree 完成修改，核对候选基线，运行本地 CI 的 `check` 完成验证。
+3. 向用户交付可审查的候选及验证结果，按[合入授权](../development/workflow.md#git-与交接)取得明确同意；等待确认时保留候选和独立 worktree。
+4. 获准后整理为单个提交，核对授权范围、最终代码和检查结果，再以主目录为目标快进本地 `master`。
+5. 合入成功后，在同次交付中按[Worktree收尾](../development/workflow.md#worktree收尾)手动清理本任务临时工作树；最终交付写明目录与Git登记的核对结果。保留项按该正文登记具体原因、处理者和解除条件，收尾状态持续跟进到完成。
+6. 发布按独立授权和发布流程执行。
 
-远端和本地 `master` 处于同一条提交历史时，从主目录执行：
+先从主目录获取远端状态并核对差异：
 
 ```text
 git fetch --no-tags origin master
-git merge --ff-only origin/master
+```
+
+远端有新提交且用户明确同意本次同步后，再执行 `git merge --ff-only origin/master`。以核对后的本地 `master` 创建任务工作树：
+
+```text
 git worktree add -b codex/my-task "../wondertrader-worktrees/my-task" master
 ```
 
@@ -24,10 +29,15 @@ git worktree add -b codex/my-task "../wondertrader-worktrees/my-task" master
 
 ```text
 python -B scripts/local_ci.py check
+```
+
+取得用户对具体候选和范围的明确合入授权后，才执行下列命令：
+
+```text
 python -B scripts/local_ci.py integrate --master-worktree <本地master工作区绝对路径>
 ```
 
-`integrate`省略`--receipt`时自动执行检查。预先检查过的同一内容可用下式合入，检查后提交且内容保持相同时也可复用：
+`integrate`省略`--receipt`时自动执行检查；执行命令的授权前提保持。预先检查过的同一内容可用下式合入，检查后提交且内容保持相同时也可复用：
 
 ```text
 python -B scripts/local_ci.py integrate --master-worktree <本地master工作区绝对路径> --receipt <成功RESULT.json绝对路径>
@@ -72,7 +82,7 @@ python -B scripts/local_ci.py integrate --master-worktree <本地master工作区
 
 ## 本地Git行为
 
-入口先验证结果、内容及master基线，再用Git正常快进。master已推进时更新候选并重验，冲突由Git保留。命令成功返回即完成CI的检查与合入职责，开发者随后从主工作区手动完成临时worktree清理；运行进程不依赖待删工作树是清理前的核对项。CI保持常驻服务、运行版本和真实账户原样。
+执行者先核对用户明确合入授权，入口再验证结果、内容及master基线，并用Git正常快进。现有 CLI 不自动判断聊天中的用户授权；正常 Git 命令和本入口均由执行者遵守[合入授权](../development/workflow.md#git-与交接)。master已推进时更新候选并重验，冲突由Git保留。命令成功返回即完成CI的检查与合入职责，开发者随后从主工作区手动完成临时worktree清理；运行进程不依赖待删工作树是清理前的核对项。CI保持常驻服务、运行版本和真实账户原样。
 
 暂存区和工作文件不同时，CI记录实际运行的工作文件；合入时再核对提交树。执行器覆盖源码和对应构建输入也触发执行检查；覆盖文件、源码与构建配方先核一致，外部C++测试帮助文件冻结副本的摘要进入执行结果。
 

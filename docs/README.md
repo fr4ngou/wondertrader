@@ -17,7 +17,7 @@
 
 - [WT 私有持久化与磁盘规则](specs/wt-private-persistence.md)覆盖策略状态接入、D/E 盘分工、去重、恢复及迁移。
 
-本地持续集成：[CI与master合入](runbooks/local-ci.md)，开发分支按实际变化自动运行检查、回归及执行链E2E；源码身份匹配后合入本地master，发布独立执行。
+本地持续集成：[CI与master合入](runbooks/local-ci.md)，开发分支按实际变化运行检查、回归及执行链E2E；交付候选与验证结果，取得用户明确同意后合入本地master，发布独立授权执行。
 
 开发验证到发布的衔接：[开发流程](development/workflow.md) → [验证规范](development/verification.md) → [本地CI](runbooks/local-ci.md) → [构建手册](runbooks/build.md) → [发布与回滚](runbooks/release.md)。相同输入复用有效结果，WT与观衡分别发布。
 
