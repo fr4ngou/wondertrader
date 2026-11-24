@@ -943,7 +943,7 @@ def test_migrate_v2_and_reopen_with_concurrent_same_fill(tmp_path):
                 'SELECT id,payload FROM asa_record WHERE kind=?', (kind,)))
         raw = _wire(core)
         db.execute('UPDATE asa_book SET value=?,sha256=? WHERE id=1', (raw, digest(raw)))
-        db.execute("UPDATE asa_identity SET value=replace(value, 'asa-book.v3', 'asa-book.v2')")
+        db.execute("UPDATE asa_identity SET value=replace(value, 'asa-book.v4', 'asa-book.v2')")
         db.execute('DROP TABLE asa_source_proof')
         db.execute('DROP TRIGGER asa_fill_strategy_insert')
         db.execute('DROP TRIGGER asa_fill_strategy_fee')
@@ -1103,3 +1103,205 @@ def test_replay_lookup_seeks_the_original_order_index(tmp_path, monkeypatch):
     assert store.pending_events(replayable_only=True, after_sequence=first.sequence, deadline=deadline()) == (second,)
     assert any('SEARCH inbox USING INDEX asa_inbox_pending_order (<expr>=? AND sequence>?)' in line
                for line in plans)
+
+
+def current_fee(store, actual, value, *, receipt=None):
+    """合成原柜台收件，费用观察顺序由持久收件取得。"""
+    event_id = receipt or uid()
+    raw = json.dumps(dict(trade_id=actual.fill_id, fee_cny=value, source_sha256=SHA),
+                     sort_keys=True, separators=(',', ':')).encode()
+    import hashlib
+    store.receive_event(event_id, '8', raw, SHA, deadline=deadline())
+    return FeeFact(event_id, actual.fill_id, D(value), SHA, source_event_id=event_id)
+
+
+def test_current_fee_subcent_correction_preserves_principal(tmp_path):
+    store, identity = book(tmp_path)
+    _, _, command = prepare(store, 11000, 3000, 4000, fee='20')
+    actual = fill(command, 1500, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    first = current_fee(store, actual, '5.01403')
+    store.apply_fee(first, deadline=deadline())
+    assert pos(store, 'old').quantity == 11000 and pos(store, 'new').quantity == 500
+    assert view(store, 'old').cash_cny == D('7996.65731')
+    assert view(store, 'new').cash_cny == D('998998.32866')
+    assert view(store, 'old').provisional_fee_count == 1
+    second = current_fee(store, actual, '5.02')
+    store.apply_fee(second, deadline=deadline())
+    assert view(store, 'old').cash_cny == D('7996.65')
+    assert view(store, 'new').cash_cny == D('998998.33')
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
+    before = view(reopened, 'old'), view(reopened, 'new')
+    reopened.apply_fee(second, deadline=deadline())
+    reopened.apply_fee(first, deadline=deadline())
+    assert (view(reopened, 'old'), view(reopened, 'new')) == before
+    assert sum(v.cash_cny for v in before) == D('1006994.98')
+
+
+def test_final_fee_cannot_be_overwritten_by_current_observation(tmp_path):
+    store, _ = book(tmp_path)
+    _, _, command = prepare(store, 10000, 100, 100, fee='20')
+    actual = fill(command, 100, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    store.apply_fee(current_fee(store, actual, '5.01403'), deadline=deadline())
+    final = FeeFact(uid(), actual.fill_id, D('5.02'), SHA)
+    store.apply_fee(final, deadline=deadline())
+    assert view(store, 'new').cash_cny == D('999794.98')
+    assert view(store, 'new').provisional_fee_count == 0
+    store.apply_fee(current_fee(store, actual, '5.01'), deadline=deadline())
+    assert view(store, 'new').cash_cny == D('999794.98')
+
+
+def test_current_fee_requires_original_receipt_and_is_atomic(tmp_path):
+    store, _ = book(tmp_path)
+    _, _, command = prepare(store, 10000, 100, 100, fee='20')
+    actual = fill(command, 100, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    before = view(store, 'new')
+    with pytest.raises(AllocationError, match='fee_source_unproven'):
+        store.apply_fee(FeeFact(uid(), actual.fill_id, D('5.01403'), SHA,
+                               source_event_id=uid()), deadline=deadline())
+    assert view(store, 'new') == before
+
+
+def broker_fee(store, command, actual, amount, *, source_kind='query-result'):
+    """沿实际券商批量收件入口，保留新观察与证明种类的区别。"""
+    body = dict(trade_id=actual.fill_id, trading_date=20261106, fee_cny=amount,
+                source_sha256=SHA, source_kind=source_kind, user_tag=command.wt_order_id,
+                request_id=uid())
+    raw = json.dumps(body, sort_keys=True, separators=(',', ':')).encode()
+    inbox, prepared = store.receive_broker_event(uid(), '8', raw, SHA,
+                                                command.wt_order_id, deadline=deadline())
+    assert prepared.command_id == command.command_id
+    return inbox, FeeFact(inbox.event_id, actual.fill_id, D(amount), SHA,
+                          source_event_id=inbox.event_id)
+
+
+def test_current_fee_round_trip_and_two_sources_do_not_grow_duplicates(tmp_path):
+    store, _ = book(tmp_path)
+    _, _, command = prepare(store, 10000, 100, 100, fee='20')
+    actual = fill(command, 100, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    received = [broker_fee(store, command, actual, fee) for fee in ('5', '6', '5')]
+    assert [r.sequence for r, _ in received] == sorted({r.sequence for r, _ in received})
+    assert len({r.sequence for r, _ in received}) == 3
+    # 同批先收件再投影，原 5 元证明重放保持其旧顺序。
+    for _, fact in received:
+        store.apply_fee(fact, deadline=deadline())
+    store.apply_fee(received[0][1], deadline=deadline())
+    assert view(store, 'new').cash_cny == D('999795')
+    for i in range(12):
+        _, fact = broker_fee(store, command, actual, '5',
+                            source_kind='query-result' if i % 2 else 'derived-facts')
+        store.apply_fee(fact, deadline=deadline())
+    with sqlite3.connect(store.path) as db:
+        assert db.execute('SELECT count(*) FROM asa_inbox').fetchone()[0] == 4
+
+
+def test_current_fee_corrupt_source_is_rejected(tmp_path):
+    store, _ = book(tmp_path)
+    _, _, command = prepare(store, 10000, 100, 100, fee='20')
+    actual = fill(command, 100, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    first = current_fee(store, actual, '5')
+    before = view(store, 'new')
+    with sqlite3.connect(store.path) as db:
+        raw = db.execute('SELECT raw_json FROM asa_inbox WHERE event_id=?', (first.source_event_id,)).fetchone()[0]
+        body = json.loads(raw); body['fee_cny'] = '6'
+        db.execute('UPDATE asa_inbox SET raw_json=? WHERE event_id=?',
+                   (json.dumps(body).encode(), first.source_event_id))
+    with pytest.raises(AllocationError, match='storage_invalid'):
+        store.apply_fee(replace(first, fee_cny=D('6')), deadline=deadline())
+    assert view(store, 'new') == before
+
+
+def test_current_fee_compaction_preserves_observation_and_continuation(tmp_path):
+    from guanheng_wt_runtime.allocation_compaction import compact
+    root = tmp_path / 'book'; root.mkdir()
+    store, identity = book(root)
+    _, _, command = prepare(store, 10000, 100, 100, fee='20')
+    actual = fill(command, 100, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    for fee in ('5', '6', '5'):
+        _, fact = broker_fee(store, command, actual, fee)
+        store.apply_fee(fact, deadline=deadline())
+    store.close(deadline())
+    output = tmp_path / 'compacted'
+    result = compact(root / 'account-allocation.sqlite3', output)
+    assert result['candidate_receipts'] == 3
+    reopened = AccountAllocation(output, identity, owner_check=lambda: None, require_existing=True)
+    assert view(reopened, 'new').cash_cny == D('999795')
+    _, fact = broker_fee(reopened, command, actual, '4.001')
+    reopened.apply_fee(fact, deadline=deadline())
+    assert view(reopened, 'new').cash_cny == D('999795.999')
+
+
+def test_v3_final_fee_event_replay_after_upgrade_keeps_identity(tmp_path):
+    store, identity = book(tmp_path)
+    _, _, command = prepare(store, 10000, 100, 100, fee='20')
+    actual = fill(command, 100, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    final = FeeFact(uid(), actual.fill_id, D('5'), SHA)
+    store.apply_fee(final, deadline=deadline())
+    before = view(store, 'new')
+    store.close(deadline())
+    with sqlite3.connect(store.path) as db:
+        assert 'source_event_id' not in db.execute('SELECT payload FROM asa_events WHERE identity=?',
+                                                   ('fee:'+final.event_id,)).fetchone()[0]
+        db.execute("UPDATE asa_identity SET value=replace(value, 'asa-book.v4', 'asa-book.v3')")
+        records = db.execute('SELECT * FROM asa_record ORDER BY kind,id').fetchall()
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None, require_existing=True)
+    reopened.apply_fee(final, deadline=deadline())
+    assert view(reopened, 'new') == before
+    with sqlite3.connect(reopened.path) as db:
+        assert db.execute('SELECT * FROM asa_record ORDER BY kind,id').fetchall() == records
+
+
+def test_current_fee_correction_rollback_and_concurrent_replay(tmp_path):
+    store, identity = book(tmp_path)
+    _, _, command = prepare(store, 10000, 100, 100, fee='20')
+    actual = fill(command, 100, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    initial = current_fee(store, actual, '5.01403')
+    store.apply_fee(initial, deadline=deadline())
+    correction = current_fee(store, actual, '4.001')
+    before = view(store, 'new')
+
+    def interrupted():
+        store.apply_fee(correction, deadline=deadline())
+        raise RuntimeError('synthetic interruption before commit')
+
+    with pytest.raises(RuntimeError, match='synthetic interruption'):
+        store.project_broker_batch(interrupted, deadline=deadline())
+    assert view(store, 'new') == before
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert sum(pool.map(lambda _: reopened.apply_fee(correction, deadline=deadline()), range(12))) == 1
+    assert view(reopened, 'new').cash_cny == D('999795.999')
+    assert view(reopened, 'new').provisional_fee_count == 1
+
+
+def test_fee_receipts_keep_invalid_and_valid_rows_in_same_batch(tmp_path):
+    store, _ = book(tmp_path)
+    _, _, command = prepare(store, 10000, 100, 100, fee='20')
+    actual = fill(command, 100, fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    first, fee = broker_fee(store, command, actual, '5')
+    store.apply_fee(fee, deadline=deadline())
+    facts = []
+    for value in ('pending', '5'):
+        body = dict(trade_id=actual.fill_id, trading_date=20261106, fee_cny=value,
+                    source_sha256=SHA, source_kind='query-result', user_tag=command.wt_order_id,
+                    request_id=uid())
+        facts.append((uid(), json.dumps(body).encode(), SHA, command.wt_order_id))
+    received = store.receive_broker_events('8', tuple(facts), deadline=deadline())
+    assert len(received) == 2
+    assert first.sequence < received[0][0].sequence < received[1][0].sequence
+    assert json.loads(received[0][0].raw_json)['fee_cny'] == 'pending'
+    assert json.loads(received[1][0].raw_json)['fee_cny'] == '5'
+    # 坏费用保持为未投影原件，后继合法观察仍可走统一费用入口。
+    last = received[1][0]
+    store.apply_fee(FeeFact(last.event_id, actual.fill_id, D('5'), SHA,
+                           source_event_id=last.event_id), deadline=deadline())
+    assert view(store, 'new').cash_cny == D('999795')
+    assert len(store.pending_events(deadline=deadline())) == 3

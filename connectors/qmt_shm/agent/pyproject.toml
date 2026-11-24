@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-qmt-shm-agent"
-version = "0.1.0a12+marketdaily.4.uc.1.sdkreturn.1"
+version = "0.1.0a13"
 description = "Private independent QMT SHM agent"
 readme = "README.md"
 requires-python = ">=3.6.8"

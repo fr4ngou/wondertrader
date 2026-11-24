@@ -310,9 +310,12 @@ def snapshot_order(order_info):
     return _snapshot(order_info, _ORDER_FIELDS)
 
 
-def snapshot_deal(deal_info):
-    """成交原观察；SDK 对象只在本次投影借用，不持有或猜测 WT 身份。"""
-    return _snapshot(deal_info, _DEAL_FIELDS)
+def snapshot_deal(deal_info, *, projection_version=1):
+    """成交原观察；仅已准入的费用投影增加别名，旧契约保持原字段。"""
+    if type(projection_version) is not int or projection_version not in (1, 2, 3):
+        _fail('invalid_configuration')
+    fields = _DEAL_FIELDS + ('m_dCommission', 'm_dComission') if projection_version == 3 else _DEAL_FIELDS
+    return _snapshot(deal_info, fields)
 
 
 def snapshot_error(order_args, err_msg):

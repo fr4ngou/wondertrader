@@ -6,6 +6,7 @@
 from contextlib import contextmanager
 
 from guanheng_qmt_shm_agent.protocol import canonical, decode
+from guanheng_qmt_shm_agent.account_query import account_projection_version
 from guanheng_qmt_shm_agent.read_capabilities import validate_read_profile
 from guanheng_qmt_shm_agent.trade_capabilities import validate_trade_profile_binding
 from guanheng_qmt_shm_agent.trading_kernel import snapshot_order, snapshot_deal, snapshot_error
@@ -108,6 +109,8 @@ class TradeEventRecords:
         self._retained_usage = None  # 同一写入者锁内维护已提交的流数、事件数和逻辑字节。
         self._storage, self._limits = storage, dict(limits)
         self._profile_sha = profile_sha
+        self._projection_version = account_projection_version(
+            profile['operation_profiles']['account.trade_detail']['policy_version'])
         self._previous_identity = self._previous_profile_sha = None
         if previous_read_profile is not None:
             # 仅显式读取回收 owner 给出此关系。旧金融身份保持原 bytes；
@@ -159,7 +162,7 @@ class TradeEventRecords:
             projected = snapshot_order(payload)
             account = payload.get('m_strAccountID')
         elif value['kind'] == 'deal':
-            projected = snapshot_deal(payload)
+            projected = snapshot_deal(payload, projection_version=self._projection_version)
             account = payload.get('m_strAccountID')
         elif value['kind'] == 'error':
             _fields(payload, ('order_args', 'err_msg'))

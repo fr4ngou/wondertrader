@@ -104,6 +104,7 @@ def project_allocation(identity, report):
         cash_cny=_money(own['cash_cny'], optional=True),  # 原真实自有现金，未知费用时缺失。
         ledger_cash_cny=_money(own['ledger_cash_cny']),  # 已记账本金/已知费用后现金，未知费用另列。
         unknown_fee_count=_quantity(own['unknown_fee_count']),  # 原未确认费用条数。
+        provisional_fee_count=_quantity(own.get('provisional_fee_count', 0)),  # 原QMT暂记费用笔数；旧发布无此资格时为零。
         targets=targets,  # 原已提交目标，无意图为None。
         fills=projected,  # 仅实际D分配；旧发布未知为None。
         fills_truncated=truncated)  # 原发布的展示截断，账本保留。

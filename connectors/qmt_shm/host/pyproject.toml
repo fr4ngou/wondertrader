@@ -4,12 +4,12 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "guanheng-qmt-shm-host"
-version = "0.1.0a25+exitdiag.1.accountexpiry.1"
+version = "0.1.0a26"
 description = "Private independent QMT SHM host"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = ["Private :: Do Not Upload"]
-dependencies = ["guanheng-qmt-shm-agent==0.1.0a12+marketdaily.4.uc.1.sdkreturn.1", "pydantic==2.12.5", "fastapi==0.139.2", "starlette==1.9.0", "uvicorn==0.51.0"]
+dependencies = ["guanheng-qmt-shm-agent==0.1.0a13", "pydantic==2.12.5", "fastapi==0.139.2", "starlette==1.9.0", "uvicorn==0.51.0"]
 
 [project.optional-dependencies]
 mdp = ["guanheng-native-analysis-core==0.1.0a2+mdphttp.1"]

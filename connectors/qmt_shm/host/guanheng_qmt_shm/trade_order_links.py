@@ -19,7 +19,7 @@ _COLUMNS = ('command_id', 'broker_order_id', 'source_session_id', 'source_bindin
 
 def _order_query(request, result):
     return (request.get('operation_id') == 'account.trade_detail'
-        and request.get('policy_version') == '2.0'
+        and request.get('policy_version') in ('2.0', '3.0')
         and request.get('arguments', {}).get('datatype') == 'order'
         and result.get('ok') is True)
 
@@ -92,13 +92,13 @@ class TradeOrderLinks:
         broker = _broker(value)
         return (broker, None) if broker is not None else (None, 'broker_identity_unrepresentable')
 
-    def _query_rows(self, request, result):
+    def _query_rows(self, request, result, profile=None):
         # 原Host投影validator只核版本。认领身份还须核真实账户范围与完整原列表，
         # 金额/仓位/状态等金融解释继续由唯一mapper负责。
         validate_read_result_projection(request, result)
         data = result.get('data')
-        limits = self._owner.admission_profile['operation_profiles']['account.trade_detail']['limits']
-        if (type(data) is not dict or data.get('schema_version') != 'qmt.account-batch.v2'
+        limits = (self._owner.admission_profile if profile is None else profile)['operation_profiles']['account.trade_detail']['limits']
+        if (type(data) is not dict or data.get('schema_version') not in ('qmt.account-batch.v2', 'qmt.account-batch.v3')
                 or data.get('account_binding') != dict(limits['account_binding'], origin='trusted_bootstrap_argument')
                 or data.get('query') != {'account_type': 'stock', 'datatype': 'order',
                                          'scope': 'account', 'strategy_name': None}
@@ -244,15 +244,14 @@ class TradeOrderLinks:
                 or digest(canonical(unsigned)) != sha or sha != link['query_result_sha256']
                 or not _order_query(request, result)):
             raise JournalConflict('order query original identity differs')
-        validate_read_request(request, self._owner.admission_profile,
-                              max_result_bytes=self._owner.max_result_bytes)
-        data = self._query_rows(request, result)
         binding = decode(row[4])
-        if (self._owner._source(binding) != row[4]
-                or not self._owner._historical_read_profile_matches(binding)):
+        profile = self._owner._historical_read_profile(binding)
+        if self._owner._source(binding) != row[4] or profile is None:
             raise JournalConflict('order query source differs')
+        validate_read_request(request, profile,max_result_bytes=self._owner.max_result_bytes)
+        data = self._query_rows(request, result, profile)
         index = link['query_row_index']
-        if (data['schema_version'] != 'qmt.account-batch.v2'
+        if (data['schema_version'] not in ('qmt.account-batch.v2', 'qmt.account-batch.v3')
                 or data['account_binding']['account_id'] != command['account_id']
                 or type(index) is not int or not 0 <= index < len(data['rows'])):
             raise JournalConflict('order query row identity differs')

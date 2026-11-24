@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import UUID, uuid4
 from guanheng_qmt_shm_agent.read_capabilities import known_operation, ACCOUNT
-from guanheng_qmt_shm_agent.account_query import POLICY_VERSION, IDENTITY_POLICY_VERSION, LIMITS_SCHEMA
+from guanheng_qmt_shm_agent.account_query import POLICY_VERSION, IDENTITY_POLICY_VERSION, FEE_POLICY_VERSION, LIMITS_SCHEMA
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 def utc_now() -> datetime:
@@ -132,11 +132,11 @@ class GatewayOperationRequest(StrictModel):
 
 class BoundGatewayOperationRequest(GatewayOperationRequest):
     """Bound owner在实际profile准入之后使用；旧无profile DTO仍仅接受1.0。"""
-    policy_version: Literal[POLICY_VERSION, IDENTITY_POLICY_VERSION] = POLICY_VERSION
+    policy_version: Literal[POLICY_VERSION, IDENTITY_POLICY_VERSION, FEE_POLICY_VERSION] = POLICY_VERSION
 
     @model_validator(mode="after")
     def validate_account_projection_policy(self):
-        if (self.policy_version == IDENTITY_POLICY_VERSION
+        if (self.policy_version in (IDENTITY_POLICY_VERSION, FEE_POLICY_VERSION)
                 and (self.operation_id != ACCOUNT or self.policy_id != LIMITS_SCHEMA)):
             raise ValueError('identity projection requires the account policy')
         return self

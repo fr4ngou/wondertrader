@@ -17,8 +17,10 @@ from .errors import GatewayError
 
 SCHEMA = 'qmt.account-batch.v1'
 IDENTITY_SCHEMA = 'qmt.account-batch.v2'
+FEE_SCHEMA = 'qmt.account-batch.v3'
 POLICY_VERSION = '1.0'
 IDENTITY_POLICY_VERSION = '2.0'
+FEE_POLICY_VERSION = '3.0'
 LIMITS_SCHEMA = 'qmt.account-read.v1'
 MAX_INTEGER = 2**53 - 1
 _IDENTITY_FIELDS = ('m_strAccountID', 'm_strMoneyType')
@@ -39,6 +41,7 @@ _FIELDS = {
         'm_dPositionProfit', 'm_dFloatProfit'),
 }
 _IDENTITY_PROJECTION_FIELDS = ('m_strRemark', 'm_strOrderRef')
+_TRADE_FEE_FIELDS = ('m_dCommission', 'm_dComission', 'm_dComssion')  # SDK逐笔当前费用别名，原值可缺。
 _MESSAGES = {
     'invalid_request': '账户读取参数或受管额度不合格',
     'owner_required': '账户读取需要构造时的原策略线程',
@@ -67,6 +70,8 @@ def account_projection_version(policy_version):
             return 1
         if policy_version == IDENTITY_POLICY_VERSION:
             return 2
+        if policy_version == FEE_POLICY_VERSION:
+            return 3
     _fail('invalid_request')
 
 
@@ -203,10 +208,10 @@ class AccountQueryAdapter(object):
     """
     def __init__(self, read_trade_detail, limits, max_result_bytes,
                  clock=time.monotonic, utc_now=_utc_now, *, projection_version=1, observe_result=None):
-        if type(projection_version) is not int or projection_version not in (1, 2):
+        if type(projection_version) is not int or projection_version not in (1, 2, 3):
             _fail('invalid_request')
         self._projection_version = projection_version
-        self._schema = SCHEMA if projection_version == 1 else IDENTITY_SCHEMA
+        self._schema = (SCHEMA, IDENTITY_SCHEMA, FEE_SCHEMA)[projection_version-1]
         self._limits = validate_account_limits(limits, max_result_bytes)
         if not callable(read_trade_detail) or not callable(clock) or not callable(utc_now):
             _fail('invalid_request')
@@ -315,8 +320,10 @@ class AccountQueryAdapter(object):
         budget.node()
         output = {}
         names = _FIELDS[datatype] + _IDENTITY_FIELDS
-        if self._projection_version == 2 and datatype in ('order', 'deal'):
+        if self._projection_version in (2, 3) and datatype in ('order', 'deal'):
             names += _IDENTITY_PROJECTION_FIELDS
+        if self._projection_version == 3 and datatype == 'deal':
+            names += _TRADE_FEE_FIELDS
         for name in names:
             self._check(deadline)
             value = self._field(row, name, deadline)

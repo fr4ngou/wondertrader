@@ -45,6 +45,53 @@ test('默认直接展示当日持仓成交，未合格收益率与单点历史�
   expect(screen.getByRole('columnheader', { name: '金额（元）' })).toBeVisible()
 })
 
+test('已计入当前费用的净值保留暂记口径', () => {
+ const observation: LivePerformance = { ...data, summary: { ...data.summary!, provisional_fee_count: 2 } }
+ render(<LiveStrategyPerformance data={observation} />)
+ expect(screen.getByText(/本次净值已计入 QMT 当前回报的暂记费用/)).toBeVisible()
+ expect(() => validateLivePerformance({ ...observation, summary: { ...observation.summary, provisional_fee_count: -1 } }, 'sample', '1')).toThrow()
+})
+
+test('摘要与所选日期各用自己的费用口径，历史现金保留完整原值', () => {
+ const observation: LivePerformance = {
+  ...data,
+  coverage: { ...data.coverage, from: '2026-01-02', point_count: 2 },
+  summary: { ...data.summary!, provisional_fee_count: 2 },
+  daily: [{ ...data.daily[0], observed_at: '2026-01-02T08:00:00Z', nav_cny: '1000000.00',
+   cash_cny: '999597.333', provisional_fee_count: 1 },
+   { ...data.daily[1], provisional_fee_count: 0 }],
+ }
+ render(<LiveStrategyPerformance data={validateLivePerformance(observation, 'sample', '1')} />)
+ expect(screen.getByText(/本次净值已计入 QMT 当前回报的暂记费用/)).toBeVisible()
+ expect(screen.queryByText(/该日净值已计入 QMT 当前回报的暂记费用/)).toBeNull()
+ fireEvent.change(screen.getByLabelText('观察日期'), { target: { value: '2026-01-02' } })
+ expect(screen.getByText(/该日净值已计入 QMT 当前回报的暂记费用/)).toBeVisible()
+ const details = within(screen.getByRole('region', { name: '2026-01-02每日持仓和成交' }))
+ expect(details.getByTitle('999597.333元')).toBeVisible()
+ fireEvent.change(screen.getByLabelText('观察日期'), { target: { value: '2026-01-05' } })
+ expect(screen.queryByText(/该日净值已计入 QMT 当前回报的暂记费用/)).toBeNull()
+ expect(screen.getByText(/本次净值已计入 QMT 当前回报的暂记费用/)).toBeVisible()
+})
+
+test('参考现金使用自己的金额与时间，并保留分以下原值', () => {
+ const observation: LivePerformance = { ...data,
+  coverage: { ...data.coverage, from: null, to: null, point_count: 0, reference_point_count: 1 },
+  daily: [data.daily[0], {
+  ...data.daily[1], cash_cny: '1000.00', cash_observed_at: '2026-01-05T07:00:00Z',
+  observed_at: null, nav_cny: null, valuation_state: 'reference-fee-pending',
+  reference_nav_cny: '1000197.33', reference_observed_at: '2026-01-05T08:00:00Z',
+  reference_cash_cny: '999597.333', reference_cash_observed_at: '2026-01-05T07:59:00Z',
+ }] }
+ render(<LiveStrategyPerformance data={validateLivePerformance(observation, 'sample', '1')} />)
+ fireEvent.click(screen.getByRole('button', { name: '展开详细信息' }))
+ const details = within(screen.getByRole('region', { name: '2026-01-05每日持仓和成交' }))
+ const cash = details.getByTitle('999597.333元')
+ expect(cash).toBeVisible()
+ expect(cash.parentElement).toHaveTextContent('参考现金（手续费待确认）')
+ expect(cash.parentElement).toHaveTextContent('15:59')
+ expect(details.queryByTitle('1000.00元')).toBeNull()
+})
+
 test('摘要按同日证券及方向合计，左侧仍保留各笔原明细', () => {
   const original = data.daily[1].deals[0]
   const observation: LivePerformance = { ...data, daily: [data.daily[0], {

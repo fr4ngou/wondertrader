@@ -99,6 +99,18 @@ def main():
          '/Fo' + str(workspace / 'read_source_diagnostic_probe.obj'), '/Fe' + str(source_probe)],
         'read-source-diagnostic-compile', 60)
     run([source_probe], 'read-source-diagnostic', 30)
+    fee_probe = workspace / 'trade_fee_probe.exe'
+    run([compiler, '/nologo', '/std:c++17', '/EHsc', '/MD', '/utf-8',
+         '/I' + str(owned / 'src'), '/I' + str(seed / 'deps/rapidjson/include'),
+         owned / 'tests/integration/qmt_broker_context/trade_fee_probe.cpp',
+         '/Fo' + str(workspace / 'trade_fee_probe.obj'), '/Fe' + str(fee_probe)], 'trade-fee-compile', 60)
+    run([fee_probe], 'trade-fee', 30)
+    fee_env = dict(env, PYTHONPATH=os.pathsep.join(str(ROOT / path) for path in (
+        'connectors/qmt_shm/agent', 'connectors/qmt_shm/host', str(legacy / 'qmt_shm_trading'))))
+    run([sys.executable, '-B', '-m', 'pytest', ROOT / 'tests/integration/qmt_shm_account/test_current_fee_projection.py',
+         ROOT / 'tests/integration/qmt_shm_trading/test_fee_profile_upgrade.py',
+         '-q', '-p', 'no:cacheprovider', '--basetemp', workspace / 'fee-projection-temp'],
+        'trade-fee-projection', 60, environment=fee_env)
     log_receipt = output / 'native-runtime-log'
     run([sys.executable, '-I', '-B', ROOT / 'tests/integration/native_runtime_log/run.py',
          '--build', seed, '--work', log_receipt], 'native-runtime-log', 120)
@@ -117,6 +129,22 @@ def main():
     run([compiler.with_name('link.exe'), '/nologo', '/MACHINE:X64', '/OUT:' + str(probe), workspace / 'probe.obj',
          *libraries, 'winhttp.lib', 'bcrypt.lib', 'synchronization.lib', 'ws2_32.lib', 'psapi.lib',
          'dbghelp.lib', 'version.lib', 'user32.lib', 'shell32.lib', 'advapi32.lib', 'ole32.lib'], 'probe-link')
+    fee_mapping = workspace / 'trade_fee_mapping.exe'
+    run([compiler, '/nologo', '/std:c++17', '/EHsc', '/MD', '/O2', '/utf-8',
+         '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/DBOOST_ALL_NO_LIB', '/D_CRT_SECURE_NO_WARNINGS',
+         '/D_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS', '/FIobjbase.h',
+         *['/I' + str(p) for p in includes], '/c', owned / 'tests/integration/qmt_broker_context/trade_fee_mapping_probe.cpp',
+         '/Fo' + str(workspace / 'fee_mapping.obj')], 'trade-fee-mapping-compile')
+    standard_link = (build / 'link-inputs/GuanhengStandardTrader.rsp').read_text(encoding='utf-16').splitlines()
+    fee_objects = [Path(item.strip('"')) for item in standard_link
+                   if item.strip('"').replace('\\', '/').endswith(('/AccountMapping.cpp.obj', '/EventDeliveryIndex.cpp.obj'))]
+    if len(fee_objects) != 2:
+        raise ValueError('费用映射回归需要本次真实mapper与交付索引对象')
+    run([compiler.with_name('link.exe'), '/nologo', '/MACHINE:X64', '/OUT:' + str(fee_mapping),
+         workspace / 'fee_mapping.obj', *fee_objects, *libraries, 'winhttp.lib', 'bcrypt.lib',
+         'synchronization.lib', 'ws2_32.lib', 'psapi.lib', 'dbghelp.lib', 'version.lib',
+         'user32.lib', 'shell32.lib', 'advapi32.lib', 'ole32.lib'], 'trade-fee-mapping-link')
+    run([fee_mapping, workspace / 'trade-fee-mapping-files'], 'trade-fee-mapping', 30)
     model_source = helper / 'strategy_extension.cpp'
     shutil.copyfile(ROOT / 'tests/integration/strategy_extension/native_probe.cpp', model_source)
     model_source_sha = hashlib.sha256(model_source.read_bytes()).hexdigest()
@@ -171,6 +199,9 @@ def main():
         raise ValueError('Native 模型探针源码在验证期间发生变化')
     (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'read_source_diagnostics': source_results, 'workspace': str(workspace),
         'native_state_save': {'passed': True, 'log': str(output / 'native-state-save.log')},
+        'trade_fee': {'passed': True, 'log': str(output / 'trade-fee.log'),
+                      'source_projection_log': str(output / 'trade-fee-projection.log'),
+                      'mapper_log': str(output / 'trade-fee-mapping.log')},
         'native_runtime_log': {'passed': True, 'receipt': str(log_receipt / 'RESULT.json')},
         'permission_storage': {'passed': True, 'source_sha256': model_source_sha,
                                'log': str(output / 'model-regression.log')},

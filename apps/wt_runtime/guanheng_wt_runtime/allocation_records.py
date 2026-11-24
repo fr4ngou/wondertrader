@@ -4,8 +4,21 @@ import json
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 
+from .allocation_money import restore_record
+
 
 KINDS = ('plans', 'groups', 'children', 'commands', 'fills')
+
+
+def finite_fee_value(value):
+    """仅供收件去重比较；非法来源保持原件，由金融事实入口决定拒绝原因。"""
+    if type(value) is not str or not 0 < len(value) <= 128:
+        return None
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        return None
+    return number if number.is_finite() else None
 
 
 def digest(raw):
@@ -184,7 +197,7 @@ class Records:
                                   (self.kind, identity)).fetchone()
             if row is None:
                 raise KeyError(identity)
-            self.loaded[identity] = decode(*row, self.wire)
+            self.loaded[identity] = restore_record(self.kind, decode(*row, self.wire))
             self.original[identity] = row[0]
         return self.loaded[identity]
 

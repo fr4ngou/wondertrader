@@ -1,5 +1,5 @@
 """Standard-library read-only QMT SHM agent; internal private artifact."""
-__version__ = "0.1.0a12+marketdaily.4.uc.1.sdkreturn.1"
+__version__ = "0.1.0a13"
 
 from .restricted import RestrictedReadAgent
 

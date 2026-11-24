@@ -255,13 +255,6 @@ class RetainedTradingJournal(_RetainedJournal, HostTradingJournal):
     def _retention_extra_counts(self):
         return {'held_financial_proof': 0}
 
-    def _historical_read_profile_matches(self, binding):
-        if super()._historical_read_profile_matches(binding):
-            return True
-        previous = self.admission_profile
-        if 'read_retention'not in previous:return False
-        del previous['read_retention']
-        return binding['capability_sha256'] == digest(canonical(previous))
 
 
 class HttpRetainedTradingJournal(RetainedTradingJournal):

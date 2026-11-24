@@ -48,7 +48,9 @@ def compact(source, output):
                 if digest != expected:
                     raise ValueError(f'original receipt checksum mismatch at sequence {sequence}')
                 key = broker_receipt_key(kind, body, _wire)
-                if key is None:
+                # 逐笔费用观察有时序，5→6→5 的后继事实及原来源引用须完整保留。
+                # 正常重复由收件 owner 合并；离线归并不重写其金融因果关系。
+                if key is None or kind == '8' and body.get('fee_cny') is not None:
                     continue
                 state = (key, applied, reason)
                 retained = representatives.setdefault(state, (sequence, event_id))

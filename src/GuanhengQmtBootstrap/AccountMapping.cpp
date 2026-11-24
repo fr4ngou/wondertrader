@@ -1,6 +1,7 @@
 #include "AccountMapping.h"
 #include "JsonBoundary.h"
 #include "GuanhengCommon/QmtAccountFields.h"
+#include "GuanhengCommon/QmtTradeFee.h"
 #include "Includes/WTSTradeDef.hpp"
 #include "Includes/WTSContractInfo.hpp"
 #include "Includes/IBaseDataMgr.h"
@@ -276,7 +277,16 @@ static AccountBatch map_account_rows_impl(unsigned stage,const rapidjson::Value&
      V unknown(rapidjson::kObjectType);add(unknown,"availability","unknown",a);unknown.AddMember("value",V(),a);add(unknown,"reason","源未公开价格类型",a);v.AddMember("price_type",unknown,a);
     }else{
      std::string raw_id=*decoded_facts.trade,id=scoped_trade_id(exch,code_value,day,raw_id);double qty=*decoded_facts.quantity,pvalue=*decoded_facts.price,amount_value=*decoded_facts.amount;std::string tuple=exch+"\n"+code_value+"\n"+std::to_string(day)+"\n"+raw_id;auto reverse=reverse_ids.emplace(id,tuple);check(reverse.second||reverse.first->second==tuple,"派生成交身份冲突");
-     add(canonical,"trade",id,a);add(canonical,"quantity",qty,a);add(canonical,"price",pvalue,a);add(canonical,"amount",amount_value,a);std::string normalized=json_text(canonical),key=id+"\n"+oid;auto inserted=seen.emplace(key,std::make_pair(normalized,index));if(!inserted.second){check(inserted.first->second.first==normalized,"HTTP成交同ID事实冲突");batch.source_to_output.push_back(inserted.first->second.second);continue;}
+     const auto fee=qmt_trade_fee(row);
+     if(fee){
+      // 费用属于原成交事实的可变观察，不改变成交身份或既有WTS本金/数量槽。
+      V value(rapidjson::kObjectType);add(value,"availability","present",a);
+      value.AddMember("value",*fee,a);facts.AddMember("fee_cny",value,a);
+     }
+     add(canonical,"trade",id,a);add(canonical,"quantity",qty,a);add(canonical,"price",pvalue,a);add(canonical,"amount",amount_value,a);std::string normalized=json_text(canonical),key=id+"\n"+oid;
+     // 费用可跨观察更正；同一批同一成交的费用必须一致，不能依行序任选。
+     if(fee)add(canonical,"fee_cny",*fee,a);
+     const auto same_batch=json_text(canonical);auto inserted=seen.emplace(key,std::make_pair(same_batch,index));if(!inserted.second){check(inserted.first->second.first==same_batch,"HTTP成交同ID事实冲突");batch.source_to_output.push_back(inserted.first->second.second);continue;}
      canonical_record(batch,canonical_limits,stage,binding,exch,code_value,day,oid,id,normalized);
      add(identity,trade,raw_id,a);add(identity,"derived_trade_id",id,a);add(identity,"mapping_version",protocol::mapping_version,a);
      auto p=append_owned(*batch.array,wtp::WTSTradeInfo::create(c->getCode(),c->getExchg()));p->setContractInfo(c);p->setDirection(wtp::WDT_LONG);p->setOffsetType(offset);p->setTradeID(id.c_str());p->setRefOrder(oid.c_str());p->setUserTag("");p->setVolume(qty);p->setPrice(pvalue);p->setAmount(amount_value);p->setTradeDate(day);p->setTradeTime(time);

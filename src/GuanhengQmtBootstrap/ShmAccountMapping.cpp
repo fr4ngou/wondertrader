@@ -70,7 +70,7 @@ AdmittedShmRows admit_shm_account_rows(unsigned stage,const QmtAccountResult& in
   "共享内存账户原请求与结果关联不符");
  const auto& native_ok=member(native,"ok");
  check(native_ok.IsBool()&&native_ok.GetBool(),"共享内存账户原生终态失败");
- check(text(data,"schema_version",64)==(identity_projection?account_fields::identity_schema:account_fields::schema),
+ check(text(data,"schema_version",64)==(identity_projection?(text(request,"policy_version",8)==account_fields::fee_policy_version?account_fields::fee_schema:account_fields::identity_schema):account_fields::schema),
   "共享内存账户data版本不符");
  if(identity_projection){
   // 入口仍只接Core成功采用值；此处固定v2适用范围，不能由data反向选择版本。
@@ -85,9 +85,9 @@ AdmittedShmRows admit_shm_account_rows(unsigned stage,const QmtAccountResult& in
    "共享内存账户v2原profile或绑定不符");
   rapidjson::Document profile;parse_value(receipt.read_profile_body,profile,4096);
   const auto& operation=member(member(profile,"operation_profiles"),"account.trade_detail");
-  check(text(operation,"policy_version",8)==account_fields::identity_policy_version
+  check(account_fields::has_order_identity(text(operation,"policy_version",8))
    &&text(request,"policy_id",64)=="qmt.account-read.v1"
-   &&text(request,"policy_version",8)==account_fields::identity_policy_version,
+   &&text(request,"policy_version",8)==text(operation,"policy_version",8),
    "共享内存账户v2原请求投影不符");
  }
  fixed_query(member(request,"arguments"),datatypes[stage],false);

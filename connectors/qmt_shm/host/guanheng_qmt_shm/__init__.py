@@ -1,7 +1,7 @@
 """Independent authenticated read-only QMT Host; internal private artifact."""
 from importlib import import_module
 
-__version__ = "0.1.0a25+exitdiag.1"
+__version__ = "0.1.0a26"
 
 # 公开API在实际使用时才加载：共享内存/私有文件等标准库工具独立运行，
 # HTTP应用的FastAPI/Uvicorn依赖只由使用HTTP入口的进程承担。

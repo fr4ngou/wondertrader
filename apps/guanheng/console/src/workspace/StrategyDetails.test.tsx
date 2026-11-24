@@ -95,6 +95,15 @@ test('持仓报价过期时仍显示账本待确认手续费和最近合格估�
  expect(await screen.findByText(/实际手续费待确认 · 最近合格估值/)).toHaveTextContent('15:00')
 })
 
+test('当前费用已经入账时说明暂记和后继更正', async () => {
+ const value = { ...fixture(), calculation: { ...runtimeFixture.strategy,
+  owned_valuation: { unknown_fee_count: 0, provisional_fee_count: 2 } } }
+ vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(value)))
+ mount()
+ expect(await screen.findByText(/费用按 QMT 当前回报暂记/)).toHaveTextContent('按差额更正')
+ expect(screen.queryByText(/实际手续费待确认/)).toBeNull()
+})
+
 test('两种范围只显示有实际持仓的标的，同表保留持仓标的的零目标', async () => {
  const value = { ...fixture(), calculation: structuredClone(runtimeFixture.strategy), security_names: { '510300.SH': '沪深300ETF' } }
  const row = value.account.groups.position.rows[0]

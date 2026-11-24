@@ -67,6 +67,8 @@ export default function StrategyDetails({ strategy }: {
       <StrategyCapitalSummary baseline={data.capital_baseline} capital={data.capital} />
       {(data.calculation?.owned_valuation?.unknown_fee_count ?? 0) > 0 || data.calculation?.valuation_reason === 'actual_fees_unconfirmed'
         ? <p role="status">实际手续费待确认{data.returns.valued_at ? ' · 最近合格估值 ' + clock(data.returns.valued_at) : ''}</p> : null}
+      {(data.calculation?.owned_valuation?.provisional_fee_count ?? 0) > 0
+        ? <p role="status">费用按 QMT 当前回报暂记，现金和收益已计入；最终结算变化时按差额更正。</p> : null}
       {runFacts}
       {data.calculation_reason ? <p role="status">{data.calculation_reason}</p> : null}
       {data.calculation ? <p title={currentAuxiliaryPresentation(data.calculation).title}>策略最近计算：{data.calculation.status_label}；决策时间：{clock(data.calculation.decision_at)}；{currentAuxiliaryPresentation(data.calculation).label}</p> : null}

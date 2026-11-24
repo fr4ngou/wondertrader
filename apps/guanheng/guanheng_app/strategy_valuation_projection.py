@@ -4,9 +4,10 @@ from decimal import Decimal
 import hashlib
 import json
 
-from .strategy_allocation_projection import _need, _time, _money, _sha, security
+from .strategy_allocation_projection import _need, _time, _money, _sha, _quantity, security
 
 FIELDS = set('schema strategy_id strategy_version book_scope_sha256 revision observed_at cash_observed_at state reason cash_cny reference_cash_cny market_value_cny nav_cny reference_nav_cny unknown_fee_count baseline_cny baseline_source baseline_at baseline_sha256 reference_change_cny reference_return_pct price_observed_at price_latest_at price_valid_until quotes source source_sha256'.split())
+CURRENT_FEE_FIELDS = {'provisional_fee_count'}  # 当前费用暂记资格；旧已确认费用发布保留原字节/摘要。
 
 
 def project_owned_valuation(identity, report, allocation):
@@ -14,11 +15,13 @@ def project_owned_valuation(identity, report, allocation):
     value=report.get('owned_valuation')
     if value is None:return None,'absent','not_published'
     try:
-        _need(type(value)is dict and set(value)==FIELDS and value['schema']=='guanheng.owned-valuation.v1')
+        _need(type(value)is dict and set(value) in (FIELDS, FIELDS|CURRENT_FEE_FIELDS)
+              and value['schema']=='guanheng.owned-valuation.v1')
         proof={k:v for k,v in value.items()if k!='source_sha256'}
         expected=hashlib.sha256(json.dumps(proof,ensure_ascii=True,allow_nan=False,sort_keys=True,separators=(',',':')).encode('ascii')).hexdigest()
         _need(_sha(value['source_sha256'])==expected and value['source']=='ASA-owned+Native-raw-quote')
         state=value['state'];_need(state in ('actual','reference-fee-pending','unavailable'))
+        if value.get('provisional_fee_count') is not None:_quantity(value['provisional_fee_count'])
         observed=_time(value['observed_at']);cash_at=_time(value['cash_observed_at'])
         _need(observed is not None and (cash_at is None or cash_at<=observed))
         _need(value['baseline_source']in ('original-profile.initial_capital_cny','retained.capital_baseline.total_cny','retained.policy.initial_capital_cny'))
@@ -42,6 +45,8 @@ def project_owned_valuation(identity, report, allocation):
             _need(allocation is not None and value['strategy_id']==identity and value['strategy_version']==allocation['strategy_version']
                 and value['book_scope_sha256']==allocation['book_scope_sha256'] and value['revision']==allocation['revision']
                 and value['unknown_fee_count']==allocation['unknown_fee_count'] and cash_at==allocation['observed_at'])
+            pending=value.get('provisional_fee_count',0)
+            _need(type(pending)is int and pending>=0 and pending==allocation.get('provisional_fee_count',0))
             held={p['symbol']:p['quantity']for p in allocation['positions']if p['quantity']}
             _need({security(r['symbol']):r['quantity']for r in value['quotes']}==held)
             _need(value['market_value_cny']is not None and Decimal(value['market_value_cny'])>=0)

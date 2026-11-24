@@ -29,6 +29,7 @@ export type LiveDay = {
   /** 只扣已知费用的ledger参考现金，元。 */ reference_cash_cny?: string | null
   /** 参考估值原时刻，缺省兼容旧发布。 */ reference_observed_at?: string | null
   /** 本日最后合格估值资格。 */ valuation_state?: 'actual' | 'reference-fee-pending'
+  /** 此估值采用QMT暂记费用的笔数。 */ provisional_fee_count?: number
   /** 原配置资本参考变化额，不当投资损益。 */ reference_change_cny?: string | null
   /** 相对配置资本参考率%，不当投资收益。 */ reference_return_pct?: string | null
   /** 原配置资本，元。 */ valuation_baseline_cny?: string | null
@@ -101,6 +102,7 @@ export type LivePerformance = {
   /** 当前资本和同一估值时点的收益原发布。 */ summary: {
     /** 未扣未知费用的参考净值，元。 */ reference_nav_cny?: string | null
     /** 原估值资格，旧发布可缺。 */ valuation_state?: 'actual' | 'reference-fee-pending' | null
+    /** 原估值的暂记费用笔数，最终结算另行核实。 */ provisional_fee_count?: number
     /** 配置资本参考变化额，元。 */ reference_change_cny?: string | null
     /** 配置资本参考率%，不代表投资收益。 */ reference_return_pct?: string | null
     /** 原配置资本，元。 */ baseline_cny?: string | null
@@ -149,6 +151,7 @@ export function validateLivePerformance(value: unknown, id: string, version: str
     if (s.valuation_state !== undefined && s.valuation_state !== null && !['actual','reference-fee-pending'].includes(String(s.valuation_state))) return invalid()
     if (s.valuation_state === 'reference-fee-pending' && (s.nav_cny !== null || !money(s.reference_nav_cny))) return invalid()
     if (s.valuation_state === 'actual' && (!money(s.nav_cny) || s.reference_nav_cny != null)) return invalid()
+    if (s.provisional_fee_count !== undefined && !count(s.provisional_fee_count)) return invalid()
     const result = s.capital_return
     if (result === undefined) {
       if (s.return_pct !== null) return invalid()
@@ -181,6 +184,7 @@ export function validateLivePerformance(value: unknown, id: string, version: str
       || d.positions_observed_at !== undefined && (!text(d.positions_observed_at) || !Number.isFinite(Date.parse(String(d.positions_observed_at))))
       || ['reference_nav_cny','reference_cash_cny','reference_change_cny','reference_return_pct','valuation_baseline_cny'].some(k => d[k] !== undefined && d[k] !== null && !money(d[k]))
       || d.valuation_state !== undefined && !['actual','reference-fee-pending'].includes(String(d.valuation_state))
+      || d.provisional_fee_count !== undefined && !count(d.provisional_fee_count)
       || d.cash_observed_at !== undefined && (!text(d.cash_observed_at) || !Number.isFinite(Date.parse(String(d.cash_observed_at))))
       || d.cash_runtime_scope_id !== undefined && (typeof d.cash_runtime_scope_id !== 'string' || !/^[a-f0-9]{64}$/.test(d.cash_runtime_scope_id))
       || d.deals.some(t => !deal(t) || !money(t.amount_cny) || t.fee_cny !== undefined && t.fee_cny !== null && !money(t.fee_cny))) return invalid()

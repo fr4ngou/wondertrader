@@ -91,7 +91,10 @@ export type StrategyRuntime = {
     /** WT 自有估值的等待原因，早期响应可缺。 */
     valuation_reason?: string | null
     /** 自有账本尚未确认的成交手续费笔数。旧响应可缺，null表示未知，0表示无待确认项。 */
-    owned_valuation?: { unknown_fee_count: number | null } | null
+    owned_valuation?: {
+      /** 原费用缺失笔数。 */ unknown_fee_count: number | null
+      /** 已按QMT当前回报暂记、尚待最终结算确认的笔数。 */ provisional_fee_count?: number | null
+    } | null
     /** 最近已核策略收益使用的估值时间。 */
     capital_return?: { valued_at: string }
     /** 已消费的闭合信号。日期为市场日，历史模型持有与实际归属分开。 */
@@ -297,8 +300,11 @@ export function validateStrategyRuntime(data: unknown): StrategyRuntime {
     }
   }
   if (s.position_basis !== undefined && s.position_basis !== 'strategy-allocated') return invalid()
-  if (record(s.owned_valuation) && s.owned_valuation.unknown_fee_count !== undefined
-    && !quantity(s.owned_valuation.unknown_fee_count)) return invalid()
+  if (record(s.owned_valuation)) {
+    for (const field of ['unknown_fee_count', 'provisional_fee_count']) {
+      if (s.owned_valuation[field] != null && !quantity(s.owned_valuation[field])) return invalid()
+    }
+  }
   validateCapitalFields(s)
   return { ...data, strategy: { ...s, ...projectDiagnosticFields(s, seen), ...projectCurrentAuxiliary(s, seen) } } as StrategyRuntime
 }

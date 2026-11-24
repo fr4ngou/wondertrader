@@ -8,7 +8,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from .protocol import ProtocolError, canonical, decode
-from .account_query import POLICY_VERSION, IDENTITY_POLICY_VERSION, IDENTITY_SCHEMA
+from .account_query import POLICY_VERSION, IDENTITY_POLICY_VERSION, IDENTITY_SCHEMA, FEE_POLICY_VERSION, FEE_SCHEMA
 from .analysis_reads import DAILY, FACTORS, DAILY_POLICY, FACTORS_POLICY, PROFILE_VERSION as ANALYSIS_PROFILE_VERSION
 from .security_reference import UNIVERSE, DETAILS, POLICY as REFERENCE_POLICY, PROFILE_VERSION as REFERENCE_VERSION
 
@@ -116,7 +116,7 @@ def _operation_profiles(profile, operations, max_result_bytes):
     for op in operations:
         descriptor = entries[op]
         _fields(descriptor, ('policy_id', 'policy_version', 'execution_timeout_ms', 'limits'))
-        versions = ((POLICY_VERSION, IDENTITY_POLICY_VERSION)
+        versions = ((POLICY_VERSION, IDENTITY_POLICY_VERSION, FEE_POLICY_VERSION)
             if op == ACCOUNT and profile.get('read_profile_version') == TRADE_READ_PROFILE_VERSION
             else (POLICY_VERSION,))
         if (type(descriptor['policy_id']) is not str or descriptor['policy_id'] != ('qmt.daily-batch-read.v1' if op == DAILY and profile.get('read_profile_version') == 'qmt.read-profile.v8' else _POLICIES[_OPERATIONS.index(op)])
@@ -255,15 +255,15 @@ def validate_read_result_projection(request, result):
     if request['operation_id'] != ACCOUNT or result.get('ok') is not True:
         return
     version = request['policy_version']
-    if type(version) is not str or version not in (POLICY_VERSION, IDENTITY_POLICY_VERSION):
+    if type(version) is not str or version not in (POLICY_VERSION, IDENTITY_POLICY_VERSION, FEE_POLICY_VERSION):
         _reject()
     data = result.get('data')
     if version == POLICY_VERSION:
         # 旧Host只保存有界原文，完整旧data语义仍归原Core；只阻止新投影降级。
-        if type(data) is dict and data.get('schema_version') == IDENTITY_SCHEMA:
+        if type(data) is dict and data.get('schema_version') in (IDENTITY_SCHEMA, FEE_SCHEMA):
             _reject()
         return
-    if type(data) is not dict or data.get('schema_version') != IDENTITY_SCHEMA:
+    if type(data) is not dict or data.get('schema_version') != (FEE_SCHEMA if version == FEE_POLICY_VERSION else IDENTITY_SCHEMA):
         _reject()
 
 

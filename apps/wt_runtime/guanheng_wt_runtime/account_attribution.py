@@ -514,7 +514,7 @@ class AttributionCoordinator:
         return command
 
     def _source(self, event, event_id, command):
-        from .account_allocation import FillFact, TerminalFact
+        from .account_allocation import FeeFact, FillFact, TerminalFact
         body, deadline = event.body, event.deadline
         if command is not None:
             provided = body.get('command_id')
@@ -532,11 +532,17 @@ class AttributionCoordinator:
                 raise AttributionError('fill_clock_pending')
             settlement = self._settlement(day) if body['side'] == 'buy' else day
             amount = self._source_decimal(body['amount_cny'], '.01')
-            fee = None if body.get('fee_cny') is None else self._source_decimal(body['fee_cny'], '.01')
             applied_new_fill = self.allocation.apply_fill(FillFact(body['trade_id'], command.command_id,
-                self._quantity(body['quantity']), self._source_decimal(body['price_cny'], '.001'), amount, fee, day, settlement,
+                self._quantity(body['quantity']), self._source_decimal(body['price_cny'], '.001'), amount, None, day, settlement,
                 body['source_sha256'], body['symbol'], body['side'], executed_at=executed.isoformat()), deadline=deadline)
-            if applied_new_fill:
+            fee_changed = False
+            if body.get('fee_cny') is not None:
+                # 原 finite decimal 字符串直接进入费用精度边界；本金/价格继续沿原档位校验。
+                _need(type(body['fee_cny']) is str and 0 < len(body['fee_cny']) <= 128,
+                      'source_cash_precision_unproven')
+                fee_changed = self.allocation.apply_fee(FeeFact(event_id, body['trade_id'],
+                    Decimal(body['fee_cny']), body['source_sha256'], source_event_id=event_id), deadline=deadline)
+            if applied_new_fill or fee_changed:
                 # 提交结果未知时也要求账户重新核对，避免沿用成交前的资金与持仓。
                 self._last_mutating_fill_ms = self._utcnow().timestamp()*1000
             return 'new_fill' if applied_new_fill else 'duplicate_fill'

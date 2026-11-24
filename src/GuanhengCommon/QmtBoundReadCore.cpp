@@ -432,7 +432,7 @@ bool profile_v3(const Value& p,std::size_t cap,QmtBoundProfile selected,std::uin
         if(!keys(d,{"policy_id","policy_version","execution_timeout_ms","limits"})||!field(d,"policy_id")
             ||text(d["policy_id"])!=policy(kind)||!field(d,"policy_version")
             ||(text(d["policy_version"])!=account_fields::policy_version
-                &&!(v4&&kind==QmtBoundProfile::AccountV3&&text(d["policy_version"])==account_fields::identity_policy_version))
+                &&!(v4&&kind==QmtBoundProfile::AccountV3&&account_fields::has_order_identity(text(d["policy_version"]))))
             ||!integer(d["execution_timeout_ms"],100,30000))return false;
         maximum=std::max(maximum,d["execution_timeout_ms"].GetUint());const auto& l=d["limits"];
         if(kind==QmtBoundProfile::AccountV3){
@@ -565,8 +565,8 @@ template<std::size_t N>bool allowed_account_field(const Value& key,const char* c
 bool account_data(const std::string& raw,const Value& v,const Value& args,const AccountLimits& limits,SignedHttpDeadline& until,std::string& original)
 {
     if(!account_arguments(args)||!keys(v,{"schema_version","account_binding","query","execution","completeness","trading_date","rows"})
-        ||!field(v,"schema_version")||text(v["schema_version"])!=(limits.policy_version==account_fields::identity_policy_version
-            ?account_fields::identity_schema:account_fields::schema)||!account_binding(v["account_binding"],true))return false;
+        ||!field(v,"schema_version")||text(v["schema_version"])!=(limits.policy_version==account_fields::fee_policy_version?account_fields::fee_schema:
+            limits.policy_version==account_fields::identity_policy_version?account_fields::identity_schema:account_fields::schema)||!account_binding(v["account_binding"],true))return false;
     const auto& binding=v["account_binding"];
     if(text(binding["account_id"])!=limits.account_id||text(binding["account_environment"])!=limits.environment)return false;
     const auto& query=v["query"];
@@ -586,9 +586,11 @@ bool account_data(const std::string& raw,const Value& v,const Value& args,const 
     for(const auto& row:v["rows"].GetArray()){
         if(!until.remaining()||!row.IsObject())return false;
         for(auto i=row.MemberBegin();i!=row.MemberEnd();++i){
-            const bool identity_field=limits.policy_version==account_fields::identity_policy_version
+            const bool identity_field=account_fields::has_order_identity(limits.policy_version)
                 &&(type=="order"||type=="deal")&&allowed_account_field(i->name,account_fields::identity_fields);
-            const bool allowed=identity_field||(type=="position"?allowed_account_field(i->name,guanheng::account_fields::position_fields):
+            const bool fee_field=limits.policy_version==account_fields::fee_policy_version
+                &&type=="deal"&&allowed_account_field(i->name,account_fields::trade_fee_fields);
+            const bool allowed=identity_field||fee_field||(type=="position"?allowed_account_field(i->name,guanheng::account_fields::position_fields):
                 type=="order"?allowed_account_field(i->name,guanheng::account_fields::order_fields):
                 type=="deal"?allowed_account_field(i->name,guanheng::account_fields::trade_fields):allowed_account_field(i->name,guanheng::account_fields::account_fields));
             if(!allowed||!account_scalar(i->value))return false;
@@ -619,7 +621,7 @@ bool request(const QmtBoundReceipt& receipt,Document& body,Document& pin,QmtBoun
         ||!uuid(body["request_id"])||!uuid(body["correlation_id"])||!field(body,"operation_id")||text(body["operation_id"])!=operation(profile)
         ||!field(body,"policy_id")||text(body["policy_id"])!=policy(profile)
         ||!field(body,"policy_version")||(text(body["policy_version"])!=account_fields::policy_version
-            &&!(profile==QmtBoundProfile::AccountV4&&text(body["policy_version"])==account_fields::identity_policy_version))
+            &&!(profile==QmtBoundProfile::AccountV4&&account_fields::has_order_identity(text(body["policy_version"]))))
         ||!field(body,"priority_class")||text(body["priority_class"])!="normal"
         ||!body["timeout_ms"].IsUint()||body["timeout_ms"].GetUint()<100||body["timeout_ms"].GetUint()>30000
         ||!operation_arguments(profile,body["arguments"]))return false;

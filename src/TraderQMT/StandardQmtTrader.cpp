@@ -1179,7 +1179,17 @@ struct StandardQmtTrader::Impl {
    if(stage==2){auto row=mapped.batch.array->at<wtp::WTSTradeInfo>(i);details(row);
     attribution_text(out,"amount_cny",source_decimal(row->getAmount()),a);
     attribution_uint(out,"trading_date",row->getTradeDate(),a);attribution_uint(out,"trade_time",row->getTradeTime(),a);
-    out.AddMember("fee_cny",rapidjson::Value(),a);
+    require(mapped.batch.views.size()==mapped.batch.array->size(),"account_attribution_source_shape");
+    rapidjson::Document original;
+    require(parse_bounded_qmt_json(mapped.batch.views[i],original,http.max_response_bytes)
+     &&original.IsObject()&&original.HasMember("facts")&&original["facts"].IsObject(),"account_attribution_fee_source");
+    const auto& facts=original["facts"];
+    if(facts.HasMember("fee_cny")){
+     const auto& fee=facts["fee_cny"];
+     require(fee.IsObject()&&fee.HasMember("value")&&fee["value"].IsNumber()
+      &&std::isfinite(fee["value"].GetDouble())&&fee["value"].GetDouble()>=0,"account_attribution_fee_source");
+     attribution_text(out,"fee_cny",source_decimal(fee["value"].GetDouble()),a);
+    }else out.AddMember("fee_cny",rapidjson::Value(),a);
    }else{auto row=mapped.batch.array->at<wtp::WTSOrderInfo>(i);details(row);
     attribution_number(out,"filled_quantity",row->getVolTraded(),a);attribution_number(out,"remaining_quantity",row->getVolLeft(),a);
     attribution_uint(out,"order_state",static_cast<unsigned>(row->getOrderState()),a);out.AddMember("terminal",!row->isAlive(),a);
@@ -2284,20 +2294,22 @@ struct StandardQmtTrader::Impl {
  }
  void settle_completed_event_chain()
  {std::lock_guard<std::mutex> lock(mutex);settle_completed_event_chain_locked(Clock::now());}
- template<class F> bool deliver_event(const QmtEventDeliveryObservation& observation,Clock::time_point until,F&& call)
+ template<class F> QmtEventDeliveryDisposition deliver_event(const QmtEventDeliveryObservation& observation,Clock::time_point until,F&& call)
  {
-  if(Clock::now()>=until){fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return false;}
+  if(Clock::now()>=until){fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return QmtEventDeliveryDisposition::Rejected;}
   auto admitted=event_index->reserve(observation);
-  if(!admitted.status.ok()){fail(admitted.status);return false;}
+  if(!admitted.status.ok()){fail(admitted.status);return QmtEventDeliveryDisposition::Rejected;}
   if(admitted.disposition==QmtEventDeliveryDisposition::Duplicate){
-   if(Clock::now()>=until)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));else advance_event();return false;
+   if(stop_requested||event_detached||!spi)return QmtEventDeliveryDisposition::Rejected;
+   if(Clock::now()>=until){fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return QmtEventDeliveryDisposition::Rejected;}
+   advance_event();return QmtEventDeliveryDisposition::Duplicate;
   }
   if(admitted.disposition!=QmtEventDeliveryDisposition::Deliver){
-   fail(failure(ErrorCode::SubmissionUnknown,"qmt_standard_event_delivery_unresolved"));return false;
+   fail(failure(ErrorCode::SubmissionUnknown,"qmt_standard_event_delivery_unresolved"));return QmtEventDeliveryDisposition::Rejected;
   }
   if(stop_requested||event_detached||!spi||Clock::now()>=until){
    require(event_index->finish(admitted.ticket,QmtEventDeliveryOutcome::Suppressed),"qmt_standard_event_suppression_failed");
-   if(!stop_requested&&!event_detached)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return false;
+   if(!stop_requested&&!event_detached)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return QmtEventDeliveryDisposition::Rejected;
   }
   bool started=false,returned=false;
   try {
@@ -2311,9 +2323,9 @@ struct StandardQmtTrader::Impl {
   }catch(...){if(started&&!returned)event_index->finish(admitted.ticket,QmtEventDeliveryOutcome::Unknown);throw;}
   if(!started){
    require(event_index->finish(admitted.ticket,QmtEventDeliveryOutcome::Suppressed),"qmt_standard_event_suppression_failed");
-   if(!stop_requested&&!event_detached)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return false;
+   if(!stop_requested&&!event_detached)fail(failure(ErrorCode::Timeout,"qmt_standard_event_delivery_deadline"));return QmtEventDeliveryDisposition::Rejected;
   }
-  advance_event();return true;
+  advance_event();return QmtEventDeliveryDisposition::Deliver;
  }
  QmtEventDeliveryObservation event_observation(const QmtAccountIdentityResult& mapped)
  {
@@ -2541,11 +2553,12 @@ struct StandardQmtTrader::Impl {
   if(!mapped.status.ok()){fail(mapped.status);return;}
   auto observation=event_observation(mapped);remember(mapped.batch,result.stage);
   const auto until=event_chain->deadline;
-  const bool delivered=deliver_event(observation,until,[&]{
+  const auto delivery=deliver_event(observation,until,[&]{
    if(observation.is_trade)spi->onPushTrade(mapped.batch.array->at<wtp::WTSTradeInfo>(0));
    else spi->onPushOrder(mapped.batch.array->at<wtp::WTSOrderInfo>(0));
   });
-  if(delivered)source_facts(mapped,result.stage,until);
+  if(delivery==QmtEventDeliveryDisposition::Deliver
+   ||(delivery==QmtEventDeliveryDisposition::Duplicate&&observation.is_trade))source_facts(mapped,result.stage,until);
  }
  // 首次截止前冻结纯POD旁证；捕获失败不覆盖原错误、不改变停止/原D。
  void capture_event_chain_deadline()

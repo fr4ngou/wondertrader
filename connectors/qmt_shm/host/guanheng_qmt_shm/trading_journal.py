@@ -214,9 +214,9 @@ class HostTradingJournal(BoundReadJournal):
             if self._binding_opening:self._binding_versions.opening(db)
             yield db
 
-    def prepare_binding_extension(self,new_binding,authorization_sha256,rule_changes,*,deadline):
-        """仅原独占维护owner纯核prepare；不重写配对、命令、事件或读票据。"""
-        return self._binding_versions.prepare(new_binding,authorization_sha256,rule_changes,deadline=deadline)
+    def prepare_binding_extension(self,new_binding,authorization_sha256,rule_changes,*,deadline,read_profile=None):
+        """原独占维护owner准备绑定/投影交接；read_profile为后继完整能力，原事实保持。"""
+        return self._binding_versions.prepare(new_binding,authorization_sha256,rule_changes,deadline=deadline,read_profile=read_profile)
 
     def adopt_binding_extension(self,plan,*,deadline):
         """沿同一SQLite原事务CAS采用；随后关闭维护owner，用新绑定重开。"""
@@ -231,6 +231,9 @@ class HostTradingJournal(BoundReadJournal):
     def _historical_profile_hashes(self):
         return self._binding_versions.profile_hashes()
 
+    def _historical_read_profile(self,binding):
+        return self._binding_versions.read_profile(binding['capability_sha256'])
+
     @property
     def trade_binding(self):
         return decode(self._trade_binding_bytes)
@@ -241,7 +244,7 @@ class HostTradingJournal(BoundReadJournal):
 
     def _historical_read_profile_matches(self, binding):
         """只核已有持久proof；新来源准入仍由完整认证profile校验。"""
-        return binding['capability_sha256'] in ({digest(canonical(self.admission_profile))}|self._historical_profile_hashes())
+        return self._historical_read_profile(binding) is not None
 
     def _bound_result_saved(self, db, rid, request, result, deadline):
         # 原读结果和原委托通信观察一起提交；失败均回滚，GET不触发认领。

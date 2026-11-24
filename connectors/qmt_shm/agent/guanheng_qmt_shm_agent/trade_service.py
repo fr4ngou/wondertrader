@@ -9,6 +9,7 @@ from time import monotonic as _monotonic
 from uuid import uuid4
 
 from .completion import MemoryCompletion
+from .account_query import account_projection_version
 from .protocol import canonical, decode
 from .trade_clock import CLOCK_SCHEMA, SharedUptimeClock, deadline_seconds
 from .trade_events import TradeEventBuffer
@@ -83,7 +84,8 @@ class SourceTradingService(object):
             self._events = TradeEventBuffer(self._session_id, self._binding['binding_id'],
                 max_events=self._limits['max_events'], max_event_bytes=self._limits['max_event_bytes'],
                 max_total_bytes=self._limits['max_total_event_bytes'], on_gap=self._on_gap,
-                account_id=self._binding['account_id'])
+                account_id=self._binding['account_id'], projection_version=account_projection_version(
+                    admitted.profile['operation_profiles']['account.trade_detail']['policy_version']))
             self._kernel = TradingKernel(context, binding=self._binding, passorder=passorder,
                 cancel=cancel, writes_enabled=self._enabled, clock=self._kernel_clock,
                 reserve_call=self._reserve_sdk_call, release_call=self._release_sdk_call)
@@ -126,7 +128,7 @@ class SourceTradingService(object):
         """实际账户适配器在原线程完成完整投影后调用；不创建查询或修改原SDK结果。"""
         if get_ident() != self._owner:
             _fail('wrong_thread')
-        if (type(data) is not dict or data.get('schema_version') != 'qmt.account-batch.v2'
+        if (type(data) is not dict or data.get('schema_version') not in ('qmt.account-batch.v2', 'qmt.account-batch.v3')
                 or data.get('query') != {'account_type': 'stock', 'datatype': 'order',
                                          'scope': 'account', 'strategy_name': None}):
             return

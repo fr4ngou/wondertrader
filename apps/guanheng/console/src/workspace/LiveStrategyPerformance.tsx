@@ -104,6 +104,8 @@ function LiveDayPreview({ day, names, allocated, hovering, truncated }: {
       <span>{day.reference_nav_cny != null ? '参考净值（手续费待确认）' : '净值'} {money(chartValue(day))}</span>
       <span>{day.positions_state === 'unavailable' ? '持仓未取得' : `持仓 ${heldPositions(day).length} 项`}</span>
     </div>
+    {(day.provisional_fee_count ?? 0) > 0
+      ? <p className="live-strategy-note">该日净值已计入 QMT 当前回报的暂记费用。</p> : null}
     <div className="live-day-summary-heading">
       <span>{scope}</span>
       <span>{day.deals_state === 'unavailable' ? '未取得' : `${day.deals.length} 笔`}</span>
@@ -130,6 +132,7 @@ const LiveDayDetails = memo(function LiveDayDetails({ day, names, allocated, exp
   const positionsTime = day.positions_observed_at ?? day.positions[0]?.observed_at
   const positionScope = allocated ? '策略自有持仓' : '策略证券范围内的账户持仓'
   const referenceCash = day.reference_cash_cny != null
+  const cash = referenceCash ? day.reference_cash_cny ?? null : day.cash_cny
   const cashTime = referenceCash ? day.reference_cash_observed_at : day.cash_observed_at
   return <div className="live-day-columns" role="region" aria-label={`${day.date}每日持仓和成交`}>
     <div className="live-day-details-heading">
@@ -161,7 +164,7 @@ const LiveDayDetails = memo(function LiveDayDetails({ day, names, allocated, exp
       {day.deals_state === 'partial' ? <p role="status">成交观测不完整，明细仅显示已取得的记录。</p> : null}
     </section>
     {expanded ? <div className="live-day-financials">
-      <span>{referenceCash ? '参考现金（手续费待确认）' : '现金'} {money(day.cash_cny ?? day.reference_cash_cny ?? null)}
+      <span>{referenceCash ? '参考现金（手续费待确认）' : '现金'} {cash === null ? '尚无观测' : <><FinancialValue value={cash} /> 元</>}
         {cashTime ? ` · 现金观察 ${sourceTime(cashTime)}` : ''}</span>
       <span>市值 {money(day.market_value_cny)}</span><span>原发布基准变化 {money(day.pnl_cny)}</span>
       <span>{sourceTime(day.observed_at ?? day.reference_observed_at ?? null)}</span>
@@ -199,6 +202,8 @@ export default function LiveStrategyPerformance({ data }: {
       <div><small>净值实际覆盖</small><strong>{data.coverage.point_count} 个实际日{data.coverage.reference_point_count ? ` · ${data.coverage.reference_point_count} 个参考日` : ''}</strong></div>
     </div>
     <p className="live-strategy-note">{data.coverage.reason}</p>
+    {(data.summary?.provisional_fee_count ?? 0) > 0
+      ? <p className="live-strategy-note">本次净值已计入 QMT 当前回报的暂记费用，最终结算变化时按差额更正。</p> : null}
     {data.summary ? <p className="live-strategy-note">{data.summary.return_reason} · {data.summary.pnl_source === 'previous-verified-valuation' ? '上次已核净值时间' : '净值时间'} {sourceTime(data.summary.observed_at)}{data.summary.price_observed_at ? ` · 行情原时间 ${sourceTime(data.summary.price_observed_at)}` : ''}{capitalReturn && returnValue !== null ? ` · 收益估值截止 ${sourceTime(capitalReturn.valued_at)}` : ''}</p> : null}
     {capitalReturn ? <details className="compact-details">
       <summary>策略资金进出（{capitalReturn.flow_count} 笔）</summary>

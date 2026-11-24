@@ -50,6 +50,7 @@ class LiveDay(TypedDict):
     reference_cash_cny: NotRequired[str | None]  # ledger参考现金，不冒充确定现金。
     reference_observed_at: NotRequired[str | None]  # 参考估值原UTC时刻，与实际NAV分别保留。
     valuation_state: NotRequired[str]  # actual/reference-fee-pending，本日最后合格资格。
+    provisional_fee_count: NotRequired[int]  # 该估值采用QMT暂记费用的笔数；最终结算确认另行核实。
     valuation_source_sha256: NotRequired[str]  # 原profile估值输入/资格摘要。
     valuation_baseline_cny: NotRequired[str | None]  # 原配置资本，元；只作参考变化。
     reference_change_cny: NotRequired[str | None]  # 相对配置资本变化额，非投资损益。
@@ -103,6 +104,7 @@ class CapitalReturn(TypedDict):
 class LiveSummary(TypedDict):
     reference_nav_cny: NotRequired[str | None]  # 未扣未知费用参考净值，实际资格时None。
     valuation_state: NotRequired[str | None]  # 原估值资格；旧NAP来源可缺。
+    provisional_fee_count: NotRequired[int]  # 该估值按QMT当前回报暂记的费用笔数。
     reference_change_cny: NotRequired[str | None]  # 配置资本参考变化额，元。
     reference_return_pct: NotRequired[str | None]  # 配置资本参考变化率%，非投资收益。
     baseline_cny: NotRequired[str | None]  # 本条原配置资本声明，元。

@@ -39,7 +39,11 @@ class TradeEventBuffer(object):
     gap 只说明本接入丢失完整性，序号不证明券商事件连续。
     """
     def __init__(self, session_id, binding_id, *, max_events, max_event_bytes,
-                 max_total_bytes, on_gap, account_id=None):
+                 max_total_bytes, on_gap, account_id=None, projection_version=1):
+        # 由已验证的账户能力给出，回调内容不能改变投影契约。
+        if type(projection_version) is not int or projection_version not in (1, 2, 3):
+            _fail('invalid_configuration')
+        self._projection_version = projection_version
         self._session_id = _identity(session_id)
         self._binding_id = _identity(binding_id)
         if account_id is not None:
@@ -142,7 +146,7 @@ class TradeEventBuffer(object):
             if kind == 'order':
                 payload = snapshot_order(source)
             elif kind == 'deal':
-                payload = snapshot_deal(source)
+                payload = snapshot_deal(source, projection_version=self._projection_version)
             else:
                 payload = snapshot_error(source, err_msg)
             if self._account_id is not None:

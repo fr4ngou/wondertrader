@@ -157,7 +157,7 @@ AdmittedIdentityEvent admit_identity_event(const QmtTradeEventPage& input,
   // Common兼容旧account policy；事件身份入口明确消费2.0的原字段契约。
   rapidjson::Document profile;parse(input.read_profile_body,profile,4096);
   const auto& operation=member(member(profile,"operation_profiles"),"account.trade_detail");
-  require(text(member(operation,"policy_version"))==account_fields::identity_policy_version,
+  require(account_fields::has_order_identity(text(member(operation,"policy_version"))),
    ErrorCode::InvalidInput,"qmt_event_identity_policy_invalid");
   require(input.page_json.size()<=descriptor.max_event_page_bytes,
    ErrorCode::InvalidInput,"qmt_event_identity_input_invalid");

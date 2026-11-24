@@ -4,6 +4,7 @@ from guanheng_qmt_shm_agent.protocol import canonical,decode
 from guanheng_qmt_shm_agent.trading_contract import (
     LEGACY_BINDING_SCHEMA, TRADE_BINDING_SCHEMA, validate_trade_binding)
 from guanheng_qmt_shm_agent.read_capabilities import validate_read_profile
+from guanheng_qmt_shm_agent.account_query import account_projection_version
 from guanheng_qmt_shm_agent.trade_capabilities import validate_trade_profile_binding
 from .bound import digest,sha256_text
 from .journal import JournalConflict,JournalFull,HostReadJournal
@@ -31,7 +32,7 @@ _PLAN_FIELDS={
     'expected_version',  # prepare时原current连续版本，供adopt事务CAS。
     'expected_current_sha256',  # 原版本记录SHA；尚未扩展时为原trade_identity SHA。
     'new_identity',  # 后继绑定与不变资源预算，不含新的数据库或队列。
-    'new_profile',  # 仅变更trade_profile.binding_sha256的后继来源profile。
+    'new_profile',  # 后继完整来源profile；交易绑定及显式账户投影升级沿同一准入校验。
     'authorization_sha256',  # 调用者已核受控授权原件SHA。
     'rule_changes',  # 明确授权规则差异，包含before/after与ETF合同证据。
     'symbol_additions',  # 本次严格新增证券，原有额外许可不删除。
@@ -47,6 +48,9 @@ def _need(ok):
 def _delta(before,after,changes):
     """核旧名单扩展或向通用绑定的同账户单向迁移。"""
     old,new=validate_trade_binding(before),validate_trade_binding(after)
+    if old==new:
+        _need(changes=={})
+        return []
     if new['schema_version'] == TRADE_BINDING_SCHEMA:
         expected = dict(old, schema_version=TRADE_BINDING_SCHEMA)
         expected.pop('symbol_rules', None)
@@ -68,11 +72,22 @@ def _delta(before,after,changes):
     return sorted(set(current)-set(previous))
 
 
-def _profile(profile,binding,max_result_bytes):
+def _profile(profile,binding,max_result_bytes,read_profile=None):
+    """冻结原账户、额度和其他能力，仅允许已登记账户投影前进及原绑定交接。"""
     old=decode(canonical(profile));_need(old.get('read_profile_version')=='qmt.read-profile.v4')
     old['trade_profile']['binding_sha256']=digest(canonical(binding))
     checked=validate_read_profile(old,max_result_bytes=max_result_bytes)
     validate_trade_profile_binding(checked['trade_profile'],binding)
+    if read_profile is not None:
+        target=validate_read_profile(read_profile,max_result_bytes=max_result_bytes)
+        validate_trade_profile_binding(target['trade_profile'],binding)
+        previous=checked['operation_profiles']['account.trade_detail']['policy_version']
+        successor=target['operation_profiles']['account.trade_detail']['policy_version']
+        _need(account_projection_version(successor)>=account_projection_version(previous))
+        normalized=decode(canonical(target))
+        normalized['operation_profiles']['account.trade_detail']['policy_version']=previous
+        _need(normalized==checked)
+        return target
     return checked
 
 
@@ -131,7 +146,8 @@ class BindingVersions:
             else:
                 parent=rows[-1];_need(value['parent_sha256']==parent[1]);sha256_text(value['authorization_sha256']);sha256_text(value['plan_sha256'])
                 additions=_delta(parent[0]['identity']['trade_binding'],identity['trade_binding'],value['rule_changes'])
-                _need(value['symbol_additions']==additions and profile==_profile(parent[0]['profile'],identity['trade_binding'],self.owner.max_result_bytes))
+                _need(parent[0]['identity']!=identity or parent[0]['profile']!=profile)
+                _need(value['symbol_additions']==additions and profile==_profile(parent[0]['profile'],identity['trade_binding'],self.owner.max_result_bytes,profile))
                 _need(value['retention_identity']==rows[0][0]['retention_identity'])
             rows.append((value,sha))
         current=db.execute('SELECT id,version,sha256 FROM trade_binding_current').fetchall()
@@ -170,6 +186,18 @@ class BindingVersions:
                 p=dict(value['profile']);p.pop('read_retention');found.add(digest(canonical(p)))
         return found
 
+    def read_profile(self,capability_sha256):
+        """从已验证原件取得历史能力，不以当前版本改写旧委托查询证明。"""
+        profiles=[self.owner.admission_profile]+[value['profile']for value,_ in self.history]
+        for profile in profiles:
+            if capability_sha256==digest(canonical(profile)):
+                return decode(canonical(profile))
+            if 'read_retention'in profile:
+                previous=dict(profile);previous.pop('read_retention')
+                if capability_sha256==digest(canonical(previous)):
+                    return previous
+        return None
+
     def logical_bytes(self,db):
         if self.version is None or not self.present(db):return 0
         return db.execute('SELECT COALESCE(SUM(length(value)+length(sha256)+16),0) FROM trade_binding_versions').fetchone()[0]+96
@@ -192,10 +220,11 @@ class BindingVersions:
     def _require_maintenance(self):
         _need(self.version==VERSION and self.maintenance)
 
-    def prepare(self,new_binding,authorization_sha256,rule_changes,*,deadline):
+    def prepare(self,new_binding,authorization_sha256,rule_changes,*,deadline,read_profile=None):
         self._require_maintenance();authorization_sha256=sha256_text(authorization_sha256)
         new=validate_trade_binding(new_binding);changes=decode(canonical(rule_changes))
-        additions=_delta(self.owner.trade_binding,new,changes);profile=_profile(self.owner.admission_profile,new,self.owner.max_result_bytes)
+        additions=_delta(self.owner.trade_binding,new,changes);profile=_profile(self.owner.admission_profile,new,self.owner.max_result_bytes,read_profile)
+        _need(new!=self.owner.trade_binding or profile!=self.owner.admission_profile)
         with self.owner._trade_lock(deadline):
             with self.owner._transaction(deadline)as db:
                 self._preserved_responsibilities(db,deadline);rows,current=self.read(db)
@@ -232,8 +261,9 @@ class BindingVersions:
                     _need(plan['expected_current_sha256']==(digest(bytes(origin[0]))if current is None else current[1]))
                     _need(plan['protected_facts']==self._facts(db,deadline));self._preserved_responsibilities(db,deadline)
                     new=plan['new_identity']['trade_binding'];_need(self._identity(new)==plan['new_identity'])
+                    _need(new!=self.owner.trade_binding or plan['new_profile']!=self.owner.admission_profile)
                     _need(_delta(self.owner.trade_binding,new,plan['rule_changes'])==plan['symbol_additions'])
-                    _need(_profile(self.owner.admission_profile,new,self.owner.max_result_bytes)==plan['new_profile']);sha256_text(plan['authorization_sha256'])
+                    _need(_profile(self.owner.admission_profile,new,self.owner.max_result_bytes,plan['new_profile'])==plan['new_profile']);sha256_text(plan['authorization_sha256'])
                     if current is None:
                         db.execute('CREATE TABLE trade_binding_versions(version INTEGER PRIMARY KEY,value BLOB NOT NULL,sha256 TEXT UNIQUE NOT NULL)')
                         db.execute('CREATE TABLE trade_binding_current(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,sha256 TEXT NOT NULL)')

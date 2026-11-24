@@ -45,6 +45,7 @@ def owned_valuation(context, observation, ticks, *, baseline_cny, baseline_sourc
         nav_cny=None,  # 费用已知且报价齐备的实际自有净值，CNY。
         reference_nav_cny=None,  # 未扣未知费用的参考净值，绝不标实际。
         unknown_fee_count=None if observation is None else observation.strategy.unknown_fee_count,  # 原未确认费用数量。
+        provisional_fee_count=None if observation is None else observation.strategy.provisional_fee_count,  # 当前QMT暂记费用笔数；与费用缺失分别表达。
         baseline_cny=None,  # 仅原策略配置资本声明，不是账户总资产。
         baseline_at=baseline_at,  # 原资本声明时刻；配置未给出为None，不用估值clock代替。
         baseline_source=baseline_source,  # 配置声明字段的固定公开名称，无私有路径。
@@ -92,10 +93,10 @@ def owned_valuation(context, observation, ticks, *, baseline_cny, baseline_sourc
         value=Fraction(own.ledger_cash_cny)+market
         if own.unknown_fee_count:
             result.update(state='reference-fee-pending',reason='actual_fees_unconfirmed',
-                reference_cash_cny=_fixed(own.ledger_cash_cny),reference_nav_cny=_fixed(value))
+                reference_cash_cny=format(own.ledger_cash_cny,'f'),reference_nav_cny=_fixed(value))
         elif own.cash_cny is not None:
             value=Fraction(own.cash_cny)+market
-            result.update(state='actual',reason=None,cash_cny=_fixed(own.cash_cny),nav_cny=_fixed(value))
+            result.update(state='actual',reason=None,cash_cny=format(own.cash_cny,'f'),nav_cny=_fixed(value))
         else:
             result['reason']='cash_unavailable';return _finish(result)
         result.update(reference_change_cny=_fixed(value-baseline),reference_return_pct=_fixed((value-baseline)*100/baseline,6))

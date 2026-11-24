@@ -26,7 +26,7 @@ SCHEMA = 'guanheng.live-strategy-performance.v1'
 MAX_DEALS = 2000  # 单次展示窗口的成交条数；超出显式标partial，原历史不删除。
 SHANGHAI = ZoneInfo('Asia/Shanghai')
 DAY_BYTES = 16384  # 已核最多64证券持仓加金额/状态的单日展示副本；成交逐条独立存储。
-VALUATION_FIELDS = {'reference_nav_cny','reference_cash_cny','reference_cash_observed_at','reference_observed_at','valuation_state','valuation_source_sha256','valuation_baseline_cny','reference_change_cny','reference_return_pct','valuation_runtime_scope_id'}  # 原profile估值字段，日记录资格与金额原样复制。
+VALUATION_FIELDS = {'reference_nav_cny','reference_cash_cny','reference_cash_observed_at','reference_observed_at','valuation_state','valuation_source_sha256','valuation_baseline_cny','reference_change_cny','reference_return_pct','valuation_runtime_scope_id','provisional_fee_count'}  # 原profile估值字段，日记录资格与金额原样复制。
 DEAL_BYTES = 4096  # 单条白名单成交副本的最大JSON字节数，禁止读库放大。
 
 
@@ -126,6 +126,7 @@ def _stored_day(raw):
     if 'cash_runtime_scope_id'in row and (type(row['cash_runtime_scope_id'])is not str or not re.fullmatch('[a-f0-9]{64}',row['cash_runtime_scope_id'])):raise ValueError('live stored cash scope')
     if row.get('reference_observed_at')is not None and _day(row['reference_observed_at'])!=row['date']:raise ValueError('live stored reference day')
     if row.get('valuation_state')not in (None,'actual','reference-fee-pending'):raise ValueError('live valuation state')
+    if 'provisional_fee_count'in row and (type(row['provisional_fee_count'])is not int or row['provisional_fee_count']<0):raise ValueError('live fee state')
     if row.get('valuation_state')=='actual' and (row['nav_cny']is None or row.get('reference_nav_cny')is not None):raise ValueError('live actual valuation')
     if row.get('valuation_state')=='reference-fee-pending' and (row['nav_cny']is not None or row.get('reference_nav_cny')is None or row.get('reference_observed_at')is None):raise ValueError('live reference valuation')
     if row.get('reference_cash_observed_at')is not None:_stamp(row['reference_cash_observed_at'])
@@ -228,6 +229,7 @@ def _valuation_day(value,scope):
         reference_cash_cny=value['reference_cash_cny'],  # 只扣已知费用ledger现金，非确定现金。
         reference_observed_at=None if actual else value['observed_at'],  # 参考估值原clock。
         valuation_state=value['state'],  # 本日最后合格估值资格。
+        provisional_fee_count=value.get('provisional_fee_count',0),  # 此估值时刻按QMT当前费用暂记的笔数。
         valuation_source_sha256=value['source_sha256'],  # 原组合估值输入/资格摘要。
         valuation_baseline_cny=value['baseline_cny'],  # 原配置资本，仅作参考变化。
         reference_change_cny=value['reference_change_cny'],  # 原owner发布的配置资本变化额。
@@ -245,6 +247,7 @@ def _valuation_summary(row):
         reference_nav_cny=row.get('reference_nav_cny'),valuation_state=row.get('valuation_state'),
         reference_change_cny=row.get('reference_change_cny'),reference_return_pct=row.get('reference_return_pct'),
         baseline_cny=row.get('valuation_baseline_cny'),
+        provisional_fee_count=row.get('provisional_fee_count',0),  # 保留该历史估值本身的费用口径。
         return_reason='相对配置资本变化只作参考，缺少连续资金流资格，投资收益率保持未知。'if row.get('valuation_state')else'缺少连续策略资金流及独立归因，收益率保持未知。')
 
 

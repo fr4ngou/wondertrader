@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field, replace
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from fractions import Fraction
 import hashlib
 import json
 import math
@@ -18,7 +19,9 @@ from threading import Event, RLock, local
 from time import monotonic
 from uuid import UUID
 
+from .allocation_money import decimal_value, encode_fraction, restore_money
 from .allocation_records import (KINDS, Records, broker_receipt_key, decode, digest,
+                                 finite_fee_value,
                                  ensure_broker_receipt_index, ensure_fill_strategy_index,
                                  create_pending_fee_groups, pending_fee_group_counts, save_proof, schema)
 from .thread_owner import ThreadOwner
@@ -205,8 +208,9 @@ class FillFact:
 class FeeFact:
     event_id: str  # 原后继费用事实UUID，重复同正文幂等。
     fill_id: str  # 费用所属原成交，不能跨成交挪用。
-    fee_cny: Decimal  # 已确认非负费用，零必须显式提供。
+    fee_cny: Decimal  # 当前/最终非负费用，元，保留原十进制精度；零必须显式提供。
     source_sha256: str  # 该费用事实原来源SHA。
+    source_event_id: str | None = None  # 暂记费用的原成交收件 UUID；None 表示明确最终费用。
 
 
 @dataclass(frozen=True)
@@ -247,7 +251,7 @@ class PositionView:
 class StrategyView:
     strategy_id: str  # 固定策略身份。
     version: str  # 原初始化经济版本。
-    cash_cny: Decimal | None  # 费用全已知时的真实有符号余额；未知费用时为None。
+    cash_cny: Decimal | None  # 费用已取得时的有符号余额；未知为None，暂记口径另列计数。
     ledger_cash_cny: Decimal  # 已发生本金/已知费用后的有符号余额；实际费用可使其为负。
     reserved_cash_cny: Decimal  # 未结限价本金和未知费用的保守占款。
     spendable_cash_cny: Decimal  # max(0,本策略余额减占款)，仍受账户available总上限。
@@ -255,6 +259,7 @@ class StrategyView:
     positions: tuple[PositionView, ...]  # 自有份额投影。
     pending_groups: tuple[str, ...]  # 原未知/未结group原标识，不能改成新ID。
     revision: int  # 本模块持久事务水位，不延长来源资格。
+    provisional_fee_count: int = 0  # 本策略当前暂记、尚无最终结算确认的成交费用笔数。
 
 
 @dataclass(frozen=True)
@@ -330,6 +335,15 @@ def _money(value):
     return numerator*100//denominator
 
 
+def _fee_money(value):
+    """原费用保留有限十进制精度，返回精确分单位；本金仍沿 _money。"""
+    _need(type(value) is Decimal and value.is_finite() and value >= 0, 'money_invalid')
+    _need(len(value.as_tuple().digits) <= 28 and -126 <= value.as_tuple().exponent <= 126
+          and value.adjusted() <= 24, 'money_precision')
+    amount = Fraction(value) * 100
+    return amount.numerator if amount.denominator == 1 else amount
+
+
 def _price(value):
     _need(type(value) is Decimal and value.is_finite() and value > 0
           and len(value.as_tuple().digits) <= 24 and -126 <= value.as_tuple().exponent <= 126
@@ -358,7 +372,7 @@ def _stamp(value, *, allow_future=False):
 
 def _wire(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False,
-                      default=lambda x: str(x) if isinstance(x, Decimal) else asdict(x))
+                      default=lambda x: encode_fraction(x) if isinstance(x, Fraction) else str(x) if isinstance(x, Decimal) else asdict(x))
 
 
 def _gross(price, quantity):
@@ -368,12 +382,17 @@ def _gross(price, quantity):
 
 
 def _cny(cents):
-    sign, absolute = ('-' if cents < 0 else ''), abs(cents)
-    return Decimal(f'{sign}{absolute//100}.{absolute%100:02d}')
+    return decimal_value(Fraction(cents, 100), min_places=2)
 
 
 def _split(cents, parts):
-    """按实际分配份额拆分金额到分；余分按余数及原FIFO稳定分配。"""
+    """按实际份额拆分；费用沿原十进制单位，余数按原FIFO稳定分配。"""
+    if type(cents) is Fraction:
+        denominator = 1
+        while denominator % cents.denominator:
+            denominator *= 10
+        units = cents * denominator
+        return [Fraction(v, denominator) for v in _split(int(units), parts)]
     total = sum(q for _, q in parts)
     _need(total > 0, 'allocation_empty')
     result = [cents*q//total for _, q in parts]
@@ -472,20 +491,26 @@ class AccountAllocation:
             db.execute('CREATE TABLE IF NOT EXISTS asa_inbox (sequence INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT UNIQUE NOT NULL, kind TEXT NOT NULL, raw_json BLOB NOT NULL, payload_sha256 TEXT NOT NULL, source_sha256 TEXT, applied INTEGER NOT NULL CHECK(applied IN(0,1)), reason TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS asa_conflicts (identity TEXT PRIMARY KEY, kind TEXT NOT NULL, fact_id TEXT NOT NULL, payload TEXT NOT NULL, source_sha256 TEXT NOT NULL)')
             row = db.execute('SELECT value FROM asa_identity WHERE id=1').fetchone()
-            identity = _wire({'schema': 'asa-book.v3', **asdict(self.identity)})
+            identity = _wire({'schema': 'asa-book.v4', **asdict(self.identity)})
             if tables != current_tables:
                 schema(db)
             if row is None:
                 _need(not tables, 'storage_invalid')
                 db.execute('INSERT INTO asa_identity VALUES (1,?)', (identity,))
             elif row[0] != identity:
-                _need(tables == original_tables
-                      and row[0] == _wire({'schema': 'asa-book.v2', **asdict(self.identity)}), 'book_identity_conflict')
-                self._migrate_records(db, deadline)
+                if tables == original_tables and row[0] == _wire({'schema': 'asa-book.v2', **asdict(self.identity)}):
+                    self._migrate_records(db, deadline)
+                else:
+                    _need(tables == current_tables and row[0] == _wire({'schema': 'asa-book.v3', **asdict(self.identity)}),
+                          'book_identity_conflict')
                 db.execute('UPDATE asa_identity SET value=? WHERE id=1', (identity,))
             else:
                 _need(tables == current_tables, 'storage_invalid')
             ensure_broker_receipt_index(db)
+            db.execute("""CREATE INDEX IF NOT EXISTS asa_inbox_fee_latest ON asa_inbox(
+                json_extract(CAST(raw_json AS TEXT), '$.trading_date'),
+                json_extract(CAST(raw_json AS TEXT), '$.trade_id'), sequence DESC)
+                WHERE kind='8' AND json_extract(CAST(raw_json AS TEXT), '$.fee_cny') IS NOT NULL""")
             if not has_fill_strategy_index:
                 ensure_fill_strategy_index(db)
             else:
@@ -638,6 +663,9 @@ class AccountAllocation:
                   'storage_invalid')
         except (ValueError, TypeError):
             raise AllocationError('storage_invalid') from None
+        for strategy in state['strategies'].values():
+            strategy['cash'] = restore_money(strategy['cash'])
+        state['account']['adjustment'] = restore_money(state['account']['adjustment'])
         state.update((kind, Records(db, kind, _wire)) for kind in KINDS)
         return row[0], state
 
@@ -728,6 +756,26 @@ class AccountAllocation:
                   'event_identity_conflict')
         elif receipt is not None:
             row = db.execute('SELECT * FROM asa_inbox WHERE receipt_key=?', (receipt,)).fetchone()
+            # 同值的不同证明继续复用原记录；费用发生往返则保留此次原观察。
+            # 单调性来自持久收件，旧 event_id 已在上分支核同，不能变成新观察。
+            incoming = json.loads(raw_json)
+            fee_value = finite_fee_value(incoming.get('fee_cny'))
+            if kind == '8' and fee_value is not None:
+                latest = db.execute("""SELECT * FROM asa_inbox
+                    WHERE kind='8' AND json_extract(CAST(raw_json AS TEXT), '$.fee_cny') IS NOT NULL
+                      AND json_extract(CAST(raw_json AS TEXT), '$.trading_date')=?
+                      AND json_extract(CAST(raw_json AS TEXT), '$.trade_id')=?
+                    ORDER BY sequence DESC LIMIT 1""",
+                    (incoming.get('trading_date'), incoming.get('trade_id'))).fetchone()
+                if latest is not None:
+                    known = self._inbox_row(latest)
+                    prior = json.loads(known.raw_json)
+                    if finite_fee_value(prior['fee_cny']) != fee_value:
+                        if row is not None:
+                            receipt = hashlib.sha256(_wire(['fee-transition.v1', receipt, known.event_id]).encode()).hexdigest()
+                        row = None
+                    elif row is None and broker_receipt_key(kind, prior, _wire) == receipt:
+                        row = latest
         if row is None:
             db.execute('INSERT INTO asa_inbox(event_id,kind,raw_json,payload_sha256,source_sha256,applied,reason,receipt_key) '
                        'VALUES(?,?,?,?,?,0,?,?)', (event_id, kind, raw_json, digest, source_sha256, reason, receipt))
@@ -1422,13 +1470,15 @@ class AccountAllocation:
     @staticmethod
     def _fee(state, fill, fee):
         group = state['groups'][fill['group']]
-        _need(group['fee_paid']+fee <= group['fee_bound'], 'fee_bound_exceeded')
+        previous = fill['fee'] or 0
+        delta = fee-previous
+        _need(group['fee_paid']+delta <= group['fee_bound'], 'fee_bound_exceeded')
         parts = [(a['strategy'], a['quantity']) for a in fill['allocations']]
-        for (sid, _), cents in zip(parts, _split(fee, parts)):
+        for (sid, _), before, after in zip(parts, _split(previous, parts), _split(fee, parts)):
             # 真实已发生费用完整归原策略；有符号亏欠不转嫁其他策略，不拒收原成交。
-            state['strategies'][sid]['cash'] -= cents
-        group['fee_paid'] += fee; fill['fee'] = fee
-        state['account']['adjustment'] -= fee
+            state['strategies'][sid]['cash'] -= after-before
+        group['fee_paid'] += delta; fill['fee'] = fee
+        state['account']['adjustment'] -= delta
 
     @staticmethod
     def _fill_economics(fact, price, amount):
@@ -1445,7 +1495,7 @@ class AccountAllocation:
         _day(fact.trading_day); _day(fact.settlement_day)
         _symbol(fact.symbol); _need(fact.side in ('buy', 'sell'), 'fill_invalid')
         _need(fact.trading_day <= datetime.now(timezone(timedelta(hours=8))).date().isoformat(), 'fill_future_day')
-        fee = None if fact.fee_cny is None else _money(fact.fee_cny)
+        fee = None if fact.fee_cny is None else _fee_money(fact.fee_cny)
         executed = None if fact.executed_at is None else _stamp(fact.executed_at).astimezone(timezone.utc).isoformat()
         if executed is not None:
             _need(_stamp(executed).astimezone(timezone(timedelta(hours=8))).date().isoformat() == fact.trading_day, 'fill_execution_day')
@@ -1525,19 +1575,53 @@ class AccountAllocation:
             self._fee(state, fill, fee)
 
     def apply_fee(self, fact: FeeFact, *, deadline):
+        """按原收件顺序记费用差额；返回金额或费用资格是否改变，供账户观察屏障使用。"""
         _need(type(fact) is FeeFact, 'fee_invalid')
-        _uuid(fact.event_id); _text(fact.fill_id); _sha(fact.source_sha256); fee = _money(fact.fee_cny)
+        _uuid(fact.event_id); _text(fact.fill_id); _sha(fact.source_sha256); fee = _fee_money(fact.fee_cny)
+        if fact.source_event_id is not None:
+            _uuid(fact.source_event_id)
         with self._transaction(deadline) as db:
             rev, state = self._load(db)
-            if not self._event(db, 'fee:'+fact.event_id, asdict(fact)):
-                return
+            payload = asdict(fact)
+            if fact.source_event_id is None:
+                payload.pop('source_event_id')  # 原 final 事件编码保持，可重放升级前已确认费用。
+            if not self._event(db, 'fee:'+fact.event_id, payload):
+                return False
             fill = state['fills'].get(fact.fill_id)
             _need(fill is not None, 'fill_unknown')
-            if fill['fee'] is not None:
-                _need(fill['fee'] == fee, 'fee_conflict')
-                return
+            sequence = None
+            if fact.source_event_id is not None:
+                row = db.execute('SELECT * FROM asa_inbox WHERE event_id=?',
+                                 (fact.source_event_id,)).fetchone()
+                _need(row is not None, 'fee_source_unproven')
+                receipt = self._inbox_row(row)
+                _need(receipt.kind == '8' and receipt.source_sha256 == fact.source_sha256, 'fee_source_unproven')
+                body = json.loads(receipt.raw_json)
+                _need(body.get('trade_id') == fact.fill_id and type(body.get('fee_cny')) is str
+                      and _fee_money(Decimal(body['fee_cny'])) == fee, 'fee_source_unproven')
+                sequence = receipt.sequence
+            prior = fill.get('fee_observation')
+            if fill['fee'] is not None and prior is None:
+                # 原最终费用保持其资格，后到的暂记观察只留来源证明。
+                if sequence is None:
+                    _need(fill['fee'] == fee, 'fee_conflict')
+                return False
+            if prior is not None and sequence is not None and sequence <= prior['sequence']:
+                _need(sequence < prior['sequence'] or fee == fill['fee'], 'fee_conflict')
+                return False
+            was_provisional = prior is not None
+            changed = fill['fee'] != fee or was_provisional != (sequence is not None)
             self._fee(state, fill, fee)
+            fill['fee_observation'] = None if sequence is None else {
+                'sequence': sequence,  # 原持久收件顺序，旧事实重放不能获得新顺序。
+                'event_id': fact.source_event_id,  # 费用来源原收件 UUID。
+                'source_sha256': fact.source_sha256,  # 原费用来源证明，不用处理时刻替换。
+            }
+            for part in fill['allocations']:
+                strategy = state['strategies'][part['strategy']]
+                strategy['provisional_fees'] = strategy.get('provisional_fees', 0) + int(sequence is not None)-int(was_provisional)
             self._save(db, rev, state)
+            return changed
 
     def apply_terminal(self, fact: TerminalFact, *, deadline):
         _need(type(fact) is TerminalFact, 'terminal_invalid')
@@ -1602,7 +1686,8 @@ class AccountAllocation:
         return StrategyView(strategy_id, strategy['version'], None if unknown else _cny(strategy['cash']),
             _cny(strategy['cash']), _cny(reserved), _cny(max(0, strategy['cash']-reserved)), unknown, positions,
             tuple(key for key, group in state['groups'].items(active_only=True)
-                  if any(a['strategy'] == strategy_id for a in group['allocations'])), revision)
+                  if any(a['strategy'] == strategy_id for a in group['allocations'])), revision,
+            strategy.get('provisional_fees', 0))
 
     def _strategy_observation(self, state, strategy_id, revision):
         view = self._strategy_view(state, strategy_id, revision)

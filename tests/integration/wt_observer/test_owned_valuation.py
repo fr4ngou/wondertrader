@@ -79,6 +79,36 @@ def cash_store(root):
     return store
 
 
+def test_current_fee_precision_and_status_reach_actual_valuation_and_history(tmp_path):
+    store=make_book(tmp_path/'current-fees')
+    event=str(uuid4())
+    raw=json.dumps(dict(trade_id='actual-shared-fill',fee_cny='4.001',source_sha256=SHA)).encode()
+    store.receive_event(event,'8',raw,SHA,deadline=deadline())
+    store.apply_fee(FeeFact(event,'actual-shared-fill',D('4.001'),SHA,source_event_id=event),deadline=deadline())
+    ctx=Context();ctx.prices[CODES[0]]=3.
+    rows={}
+    for sid,version in ((OLD,'1.2.2'),(NEW,'0.2.0a1')):
+        observation=store.strategy_observation(sid,deadline=deadline())
+        valuation=owned_valuation(ctx,observation,{CODES[0]:Fraction(1,1000)},
+            baseline_cny='1000000',baseline_source='original-profile.initial_capital_cny',
+            max_age=60,deadline=deadline())
+        rows[sid]=dict(strategy_id=sid,strategy_version=version,status='holding',
+            allocation_observation=json.loads(json.dumps(allocation_projection(observation,include_read_projection=True))),owned_valuation=valuation)
+    projected=project_strategy(wrapper(rows),strategy_id=NEW)
+    assert projected['owned_valuation']['state']=='actual'
+    assert projected['owned_valuation']['cash_cny']=='999597.333'
+    assert projected['owned_valuation']['provisional_fee_count']==1
+    display=tmp_path/'current-fee-display';display.mkdir()
+    live=LiveStrategyPerformanceOwner(None,history_root=str(display),snapshot_reader=lambda _:snapshot(rows),process_probe=lambda *_:True)
+    try:
+        result=live.read(NEW,'0.2.0a1',deadline=deadline())
+        assert result['summary']['nav_cny']=='1000197.33'
+        assert result['summary']['provisional_fee_count']==1
+        assert result['daily'][-1]['provisional_fee_count']==1
+    finally:
+        live.close();store.close(deadline())
+
+
 def test_cash_only_actual_profile_initial_point_and_fingerprint(monkeypatch,tmp_path):
     store=cash_store(tmp_path/'asa')
     ctx=Context();owner,out=profile(monkeypatch,store)
@@ -166,6 +196,10 @@ def test_asa_detail_never_spends_deadline_on_nap_and_legacy_default_keeps_accoun
     import guanheng_app.wt_business_observation as business
     import guanheng_app.account_publication as account
     from test_dual_strategy_read import reports
+    # 用受控时钟验证原D及无关查询隔离，避免OS抢占把25ms边界变成随机断言。
+    clock=[time.monotonic()]
+    monotonic=lambda:clock[0]
+    monkeypatch.setattr(details,'monotonic',monotonic)
     rows=reports(make_book(tmp_path/'asa'));calls=[];limits=[]
     runtime=dict(state='ready',components=dict(execution=dict(state='ready',ready=True)))
     monkeypatch.setattr(details,'resolve_runtime_configuration',lambda c,d:c)
@@ -175,7 +209,7 @@ def test_asa_detail_never_spends_deadline_on_nap_and_legacy_default_keeps_accoun
         if monotonic()>=d:raise TimeoutError('original deadline')
         return rows,None,'ready'
     def slow_nap(*_a,**_kw):
-        calls.append('NAP');time.sleep(.04);raise TimeoutError('NAP unavailable')
+        calls.append('NAP');clock[0]+=.04;raise TimeoutError('NAP unavailable')
     monkeypatch.setattr(business,'read_business',source)
     monkeypatch.setattr(account,'observe_published_account',slow_nap)
     end=monotonic()+.025
