@@ -28,6 +28,8 @@ EXPORT_FLAG int stopStandardQmtTrader(wtp::ITraderApi* api)
 EXPORT_FLAG int inspectStandardQmtTrader(wtp::ITraderApi* api,guanheng::StandardQmtDiagnostics* out)
 {try{auto p=StandardQmtTrader::lookup(api);return p&&out&&out->version==1&&out->size==sizeof(*out)?p->diagnostics(*out):guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
 // 可选旁证独立于原StandardQmtDiagnostics与宿主按值Status的固定布局。
+EXPORT_FLAG int inspectStandardQmtReadSource(wtp::ITraderApi* api,guanheng::ReadSourceDiagnosticsV1* out)
+{try{auto p=StandardQmtTrader::lookup(api);return p&&out?p->read_source_diagnostics(*out):guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
 EXPORT_FLAG int inspectStandardQmtEventChain(wtp::ITraderApi* api,guanheng::EventChainDiagnosticsV1* out)
 {try{auto p=StandardQmtTrader::lookup(api);return p&&out?p->event_chain_diagnostics(*out):guanheng::StandardQmtInvalid;}catch(...){return guanheng::StandardQmtFailure;}}
 EXPORT_FLAG int closeStandardQmtSubmissions(wtp::ITraderApi* api)

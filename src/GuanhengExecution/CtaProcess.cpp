@@ -1429,8 +1429,6 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
     bool lifecycle_started=false; // 原Native start已完成；用于确认停止事件属于真实启动过的这一代。
     bool native_log_attempted=false; // 控制目录已准入后才创建日志及其旁证。
     const char* stage="configuration";
-    decltype(&inspectStandardQmtEventChain) inspect_event_chain=nullptr; // 可选旁证；旧DLL缺导出继续原路径。
-    decltype(&findStandardQmtTrader) find_event_chain=nullptr; // 同一已装载DLL的实例查找，借用至进程退出。
     try{
         need(std::wstring(argv[1])==L"--config"&&std::wstring(argv[3])==L"--control"
              &&std::wstring(argv[5])==L"--control-id"&&std::wstring(argv[7])==L"--config-sha256");
@@ -1607,8 +1605,8 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
             functions.attribution_configure=plugin.get<decltype(functions.attribution_configure)>("configureStandardQmtAttribution");
         }
         functions.find=plugin.get<decltype(functions.find)>("findStandardQmtTrader");
-        find_event_chain=functions.find;
-        inspect_event_chain=reinterpret_cast<decltype(inspect_event_chain)>(GetProcAddress(plugin.module,"inspectStandardQmtEventChain"));
+        functions.event_chain_diagnostics=reinterpret_cast<decltype(functions.event_chain_diagnostics)>(GetProcAddress(plugin.module,"inspectStandardQmtEventChain"));
+        functions.read_source_diagnostics=reinterpret_cast<decltype(functions.read_source_diagnostics)>(GetProcAddress(plugin.module,"inspectStandardQmtReadSource"));
         const auto request_sink=reinterpret_cast<guanheng::SetRequestRejectionSink>(
             GetProcAddress(plugin.module,"setStandardQmtRequestRejectionSink"));
         if(request_sink)request_sink(log_request_rejection);
@@ -1869,12 +1867,19 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                         state.AddMember("payload_bytes",static_cast<std::uint64_t>(queue.payload_bytes),a); // 原在途预算字节数。
                         diagnostic.AddMember("execution_queue",state,a);
                     }
+                    // 同一原失败收据保存来源比较的实际差异，不另开文件或复制原始身份。
+                    guanheng::ReadSourceDiagnosticsV1 source_change;
+                    if(execution)execution->read_source_diagnostics(source_change);
+                    if(source_change.captured){
+                        rj::Value source(rj::kObjectType);
+                        source.AddMember("schema",rj::Value("guanheng.qmt-read-source-failure.v1",a),a);
+                        source.AddMember("stage",source_change.stage,a); // 原比较位置，ReadSourceStage。
+                        source.AddMember("differences",source_change.differences,a); // 实际差异位，ReadSourceDifference。
+                        diagnostic.AddMember("read_source",source,a);
+                    }
                     // 同批Standard冻结的首次截止旁证；固定字段不携账户/请求/异常原文。
                     guanheng::EventChainDiagnosticsV1 event_chain;
-                    if(inspect_event_chain&&find_event_chain&&trader){
-                        auto* api=find_event_chain(trader->getString("instance_id").c_str());
-                        if(api)inspect_event_chain(api,&event_chain);
-                    }
+                    if(execution)execution->event_chain_diagnostics(event_chain);
                     if(event_chain.captured){
                         const auto& d=event_chain;rj::Value event(rj::kObjectType);
                         event.AddMember("schema",rj::Value("guanheng.qmt-event-deadline.v1",a),a);

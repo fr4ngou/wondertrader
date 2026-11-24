@@ -267,6 +267,16 @@ bool StandardExecutionHost::begin_recovery() {
         ||!x.functions.close_submissions||!x.functions.recovery)return false;
     x.stop_bridge();return x.functions.close_submissions(x.api)==0;
 }
+int StandardExecutionHost::event_chain_diagnostics(EventChainDiagnosticsV1& out) const {
+    auto& x=*impl_;if(!x.on_owner())return StandardQmtWrongOwner;
+    if(out.version!=1||out.size!=sizeof(out))return StandardQmtInvalid;
+    return x.api&&x.functions.event_chain_diagnostics?x.functions.event_chain_diagnostics(x.api,&out):StandardQmtUnavailable;
+}
+int StandardExecutionHost::read_source_diagnostics(ReadSourceDiagnosticsV1& out) const {
+    auto& x=*impl_;if(!x.on_owner())return StandardQmtWrongOwner;
+    if(out.version!=1||out.size!=sizeof(out))return StandardQmtInvalid;
+    return x.api&&x.functions.read_source_diagnostics?x.functions.read_source_diagnostics(x.api,&out):StandardQmtUnavailable;
+}
 int StandardExecutionHost::known_working_children(std::uint32_t& out) const {
     auto& x=*impl_;if(!x.on_owner())return StandardQmtWrongOwner;
     if(!x.functions.working_children)return StandardQmtUnavailable;

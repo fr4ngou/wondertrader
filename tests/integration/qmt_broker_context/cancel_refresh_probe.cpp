@@ -41,6 +41,8 @@ int wmain(int argc,wchar_t** argv){
   functions.submission={exports.get<guanheng::BeginSubmissionFn>("beginStandardQmtSubmission"),exports.get<guanheng::EndSubmissionFn>("endStandardQmtSubmission"),exports.get<guanheng::InspectSubmissionFn>("inspectStandardQmtSubmission")};
   functions.awaiting_observation=exports.get<decltype(functions.awaiting_observation)>("inspectStandardQmtAwaitingObservation");
   functions.recovery=exports.get<decltype(functions.recovery)>("inspectStandardQmtRecovery");functions.pause_inserts=exports.get<decltype(functions.pause_inserts)>("pauseStandardQmtInserts");
+  functions.event_chain_diagnostics=exports.get<decltype(functions.event_chain_diagnostics)>("inspectStandardQmtEventChain");
+  functions.read_source_diagnostics=exports.get<decltype(functions.read_source_diagnostics)>("inspectStandardQmtReadSource");
   host.reset(new guanheng::StandardExecutionHost("cancel_e2e","cancel_e2e_host",base,policy,factory,*environment));
   check(host->initialize(trader.get(),execution.get(),functions,{16,65536,16,10000}),"cancel_e2e_host_init");
   manager.add_executer(host->command());
@@ -52,6 +54,15 @@ int wmain(int argc,wchar_t** argv){
    }
    const auto state=host->status();
    check(state.plugin.error!=0&&state.plugin.writes_blocked&&state.plugin.inserts==0,"unproven_rejection_fenced");
+   // 插件故障已从活动名单移除，但原API仍由Host持有；诊断继续可读至真实close。
+   check(functions.find(trader->getString("instance_id").c_str())==nullptr,"failed_instance_retired");
+   guanheng::EventChainDiagnosticsV1 event;guanheng::ReadSourceDiagnosticsV1 source;
+   check(host->event_chain_diagnostics(event)==0&&host->read_source_diagnostics(source)==0,"retired_instance_diagnostics_readable");
+   source.version=2;check(host->read_source_diagnostics(source)==guanheng::StandardQmtInvalid,"diagnostic_wrong_version");
+   source={};source.size=0;check(host->read_source_diagnostics(source)==guanheng::StandardQmtInvalid,"diagnostic_wrong_size");
+   source={};int other=0;std::thread nonowner([&]{other=host->read_source_diagnostics(source);});nonowner.join();
+   check(other==guanheng::StandardQmtWrongOwner,"diagnostic_wrong_owner");
+   report.AddMember("retired_diagnostics_readable",true,a);
    report.AddMember("rejection_fenced",true,a);
   }else if(scenario=="account-rejected"||scenario=="account-result-unavailable"){
    const auto prior=host->broker_observation();

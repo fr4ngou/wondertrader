@@ -116,7 +116,8 @@ install(FILES "${GH_FIXED_OWN_ROOT}/src/GuanhengExecution/BrokerQueryContext.h"
   "${GH_FIXED_OWN_ROOT}/src/GuanhengExecution/ExecutionEnvironment.h"
   "${GH_FIXED_OWN_ROOT}/src/GuanhengExecution/QueryFirstSubmission.h" DESTINATION include/GuanhengExecution)
 install(FILES "${GH_FIXED_OWN_ROOT}/src/TraderQMT/StandardSubmission.h"
-  "${GH_FIXED_OWN_ROOT}/src/TraderQMT/StandardQmtTrader.h" DESTINATION include/TraderQMT)
+  "${GH_FIXED_OWN_ROOT}/src/TraderQMT/StandardQmtTrader.h"
+  "${GH_FIXED_OWN_ROOT}/src/TraderQMT/StandardReadSource.h" DESTINATION include/TraderQMT)
 install(FILES "${GH_FIXED_UPSTREAM_ROOT}/input.json" DESTINATION provenance RENAME upstream-input.json)
 install(FILES "${GH_FIXED_OWN_ROOT}/input.json" DESTINATION provenance RENAME owned-input.json)
 

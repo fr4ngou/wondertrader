@@ -91,6 +91,14 @@ def main():
          '/Fo' + str(workspace / 'native_state_save_probe.obj'), '/Fe' + str(save_probe)],
         'native-state-save-compile', 60)
     run([save_probe, workspace / 'native-state-save-files'], 'native-state-save', 30)
+    source_probe = workspace / 'read_source_diagnostic_probe.exe'
+    run([compiler, '/nologo', '/std:c++17', '/EHsc', '/MD', '/utf-8',
+         '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/I' + str(owned / 'src'),
+         '/I' + str(seed / 'deps/rapidjson/include'),
+         owned / 'tests/integration/qmt_broker_context/read_source_diagnostic_probe.cpp',
+         '/Fo' + str(workspace / 'read_source_diagnostic_probe.obj'), '/Fe' + str(source_probe)],
+        'read-source-diagnostic-compile', 60)
+    run([source_probe], 'read-source-diagnostic', 30)
     log_receipt = output / 'native-runtime-log'
     run([sys.executable, '-I', '-B', ROOT / 'tests/integration/native_runtime_log/run.py',
          '--build', seed, '--work', log_receipt], 'native-runtime-log', 120)
@@ -133,6 +141,17 @@ def main():
          '-q', '-o', 'cache_dir=' + str(output / 'model-pytest-cache'),
          '--basetemp', workspace / 'model-pytest-temp', '--junitxml', output / 'model-junit.xml'],
         'model-regression', 90, environment=model_env)
+    source_results = []
+    for scenario in ('session', 'authentication', 'stable-binding', 'invalid-binding'):
+        directory = workspace / ('read-source-' + scenario)
+        run([sys.executable, '-I', '-B', ROOT / 'tests/integration/qmt_read_source_diagnostics/run_native_source.py',
+             '--source', ROOT, '--legacy-fixtures', legacy, '--candidate-app', build / 'bin',
+             '--toolchain', seed / 'TOOLCHAIN.json', '--output', directory, '--scenario', scenario],
+            'read-source-' + scenario, 90)
+        receipt = json.loads((directory / 'RESULT.json').read_bytes())
+        if receipt.get('passed') is not True:
+            raise ValueError('Native读取来源诊断未通过：' + scenario)
+        source_results.append(dict(scenario=scenario, receipt=str(directory / 'RESULT.json')))
     results = []
     for scenario in ('cancel-false', 'cancel-error', 'partial', 'missing-current', 'account-rejected',
                      'account-result-unavailable', 'account-frontend', 'event-rejected'):
@@ -150,7 +169,7 @@ def main():
         raise ValueError('冻结的C++测试夹具在编译或运行期间发生变化')
     if hashlib.sha256(model_source.read_bytes()).hexdigest() != model_source_sha:
         raise ValueError('Native 模型探针源码在验证期间发生变化')
-    (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'workspace': str(workspace),
+    (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'read_source_diagnostics': source_results, 'workspace': str(workspace),
         'native_state_save': {'passed': True, 'log': str(output / 'native-state-save.log')},
         'native_runtime_log': {'passed': True, 'receipt': str(log_receipt / 'RESULT.json')},
         'permission_storage': {'passed': True, 'source_sha256': model_source_sha,

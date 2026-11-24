@@ -2,6 +2,7 @@
 #include "Includes/ITraderApi.h"
 #include "Includes/WTSMarcos.h"
 #include "StandardSubmission.h"
+#include "StandardReadSource.h"
 #include "GuanhengCommon/AccountAttributionProtocol.h"
 #include <cstdint>
 #include <memory>
@@ -100,6 +101,7 @@ public:
  int stop();int diagnostics(StandardQmtDiagnostics&) const;
  // 已核券商活动状态且原SDK收据已移交的子单数；不解除原提交组责任。
  int known_working_children(std::uint32_t&) const;
+ int read_source_diagnostics(ReadSourceDiagnosticsV1&) const; // 同owner读取首次来源差异，不改金融状态。
  int event_chain_diagnostics(EventChainDiagnosticsV1&) const; // 同owner可选纯值旁证，不改变原Status/金融ABI。
  // 同owner单向关闭新增insert/cancel；保持既有收据、查询和事件处理，0=已关闭。
  int close_submissions();int recovery(StandardQmtRecoveryV1&) const;
@@ -139,6 +141,7 @@ GH_QMT_STANDARD_EXPORT int pumpStandardQmtTrader(wtp::ITraderApi*,std::uint32_t 
 GH_QMT_STANDARD_EXPORT int waitStandardQmtTrader(wtp::ITraderApi*,std::uint32_t flags,std::uint32_t timeout_ms);
 GH_QMT_STANDARD_EXPORT int stopStandardQmtTrader(wtp::ITraderApi*);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtTrader(wtp::ITraderApi*,guanheng::StandardQmtDiagnostics*);
+GH_QMT_STANDARD_EXPORT int inspectStandardQmtReadSource(wtp::ITraderApi*,guanheng::ReadSourceDiagnosticsV1*);
 GH_QMT_STANDARD_EXPORT int inspectStandardQmtEventChain(wtp::ITraderApi*,guanheng::EventChainDiagnosticsV1*);
 GH_QMT_STANDARD_EXPORT int closeStandardQmtSubmissions(wtp::ITraderApi*);
 GH_QMT_STANDARD_EXPORT int pauseStandardQmtInserts(wtp::ITraderApi*,std::uint32_t paused);

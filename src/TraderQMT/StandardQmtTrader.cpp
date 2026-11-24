@@ -5,6 +5,7 @@
 #include "GuanhengQmtBootstrap/QmtAccountIdentity.h"
 #include "StandardEventBudget.h"
 #include "StandardReadFailure.h"
+#include "StandardReadSourceContext.h"
 #include "GuanhengQmtBootstrap/JsonBoundary.h"
 #include "GuanhengCommon/QmtAccountFields.h"
 #include "GuanhengCommon/QmtHostCodec.h"
@@ -390,6 +391,7 @@ struct StandardQmtTrader::Impl {
  }
  bool worker_done=false,drained=false;
  Clock::time_point close_deadline;
+ ReadSourceFailure read_source_failure; // 首次差异固定纯值，worker/owner共用，关闭不清空。
  Status first_error,ingress_error,owner_error;
  std::string last_command;
  unsigned callbacks=0,queries=0,inserts=0,cancels=0;
@@ -1671,19 +1673,21 @@ struct StandardQmtTrader::Impl {
   std::uint64_t next_read=0,active_read=0; // 当前认证运输代际；普通观察复用原客户端与HTTP owner。
   QmtTradeEventReadContext read_origin;
   // 固定实例/账户/profile与Source业务session。运输binding只属于该轮，不作为业务session。
-  auto same_read_source=[&](const QmtTradeEventReadContext& value) {
-   if(read_origin.source.session_id.empty()||value.source.session_id!=read_origin.source.session_id
-    ||value.read_profile_body!=read_origin.read_profile_body
-    ||value.read_result_capacity!=read_origin.read_result_capacity
-    ||value.admitted_event_page_capacity!=read_origin.admitted_event_page_capacity)return false;
+  auto same_read_source=[&](const QmtTradeEventReadContext& value,ReadSourceStage stage) {
+   const auto difference=read_context_differences(read_origin,value)
+    |(read_origin.source.session_id.empty()?ReadSourceUninitialized:0u);
+   if(difference){read_source_failure.capture(stage,difference);return false;}
    // 业务来源固定账户/profile/session及完整route等原字段；仅认证连接的两项随机身份可换代。
    // 当前完整B仍归各代Core精确钉住；原票据、命令、query proof及event来源绝不改绑。
    rapidjson::Document origin,current;
    if(!parse_bounded_qmt_json(read_origin.source.binding_json,origin,4096,4096)
     ||!parse_bounded_qmt_json(value.source.binding_json,current,4096,4096)
-    ||!qmt_host_codec::binding(origin,nullptr,"2.0")||!qmt_host_codec::binding(current,nullptr,"2.0"))return false;
+    ||!qmt_host_codec::binding(origin,nullptr,"2.0")||!qmt_host_codec::binding(current,nullptr,"2.0")){
+    read_source_failure.capture(stage,ReadSourceBindingInvalid);return false;
+   }
    for(const auto key:{"transport_generation","host_instance_id"}){origin.RemoveMember(key);current.RemoveMember(key);}
-   return qmt_host_codec::encode(origin)==qmt_host_codec::encode(current);
+   const bool same=qmt_host_codec::encode(origin)==qmt_host_codec::encode(current);
+   if(!same)read_source_failure.capture(stage,ReadSourceStableBinding);return same;
   };
   auto callback_wait=[](Clock::time_point until) {
    const auto left=std::chrono::duration_cast<std::chrono::milliseconds>(until-Clock::now()).count();
@@ -1709,7 +1713,7 @@ struct StandardQmtTrader::Impl {
     auto& read=*reads.at(active_read);QmtTradeEventReadContext current;
     auto status=read.identity->prepare_event_read_context(end,current,failure,control);
     if(status.ok()){
-     if(!same_read_source(current))throw ReadGenerationFailure{
+     if(!same_read_source(current,ReadSourceStage::Reuse))throw ReadGenerationFailure{
          Status{ErrorCode::StaleSession,"qmt_standard_read_source_changed"}};
      require(same_event_source(current.source,read.context.source),"qmt_standard_read_generation_binding_changed");
      ++read.users;id=active_read;return read;
@@ -1733,7 +1737,7 @@ struct StandardQmtTrader::Impl {
    try {
     auto status=read.identity->prepare_event_read_context(end,read.context,failure,control);
     if(!status.ok())throw ReadGenerationFailure{std::move(status)};
-    if(!same_read_source(read.context))throw ReadGenerationFailure{
+    if(!same_read_source(read.context,ReadSourceStage::Open))throw ReadGenerationFailure{
         Status{ErrorCode::StaleSession,"qmt_standard_read_source_changed"}};
    }catch(...){read.released=true;throw;}
    if(active_read){auto& previous=*reads.at(active_read);if(!previous.users)previous.released=true;}
@@ -1799,7 +1803,7 @@ struct StandardQmtTrader::Impl {
        result.status=trade->prepare_event_read_context(end,context);
        if(result.status.ok()){
         if(read_origin.source.session_id.empty())read_origin=std::move(context);
-        else require(same_read_source(context),"qmt_standard_read_source_changed");
+        else require(same_read_source(context,ReadSourceStage::Prepare),"qmt_standard_read_source_changed");
        }
       }
      }else if(task.kind==Kind::Query){
@@ -2513,10 +2517,9 @@ struct StandardQmtTrader::Impl {
   auto& chain=*event_chain;SignedHttpDeadline end(chain.deadline);
   auto& page=result.event_page;
   const auto& fresh=result.event_context;
-  require(fresh.source.session_id==event_context.source.session_id
-   &&fresh.read_profile_body==event_context.read_profile_body
-   &&fresh.read_result_capacity==event_context.read_result_capacity
-   &&fresh.admitted_event_page_capacity==event_context.admitted_event_page_capacity,"qmt_standard_read_source_changed");
+  const auto difference=read_context_differences(event_context,fresh);
+  if(difference)read_source_failure.capture(ReadSourceStage::EventPage,difference);
+  require(difference==0,"qmt_standard_read_source_changed");
   // 该页尚未交付；认证逻辑session与资源合同保持，原index/cursor继续保留。
   event_context=std::move(result.event_context);
   require(same_event_source(page.source,event_context.source)&&page.read_profile_body==event_context.read_profile_body
@@ -3154,6 +3157,12 @@ int StandardQmtTrader::diagnostics(StandardQmtDiagnostics& out)const
  const auto& reason=x.first_error.ok()&&x.read_waiting?std::string("qmt_read_source_waiting"):x.first_error.reason;
  std::strncpy(value.reason,reason.c_str(),sizeof(value.reason)-1);
  std::strncpy(value.last_command_id,x.last_command.c_str(),sizeof(value.last_command_id)-1);out=value;return 0;
+}
+int StandardQmtTrader::read_source_diagnostics(ReadSourceDiagnosticsV1& out)const
+{
+ if(!owner())return StandardQmtWrongOwner;
+ if(out.version!=1||out.size!=sizeof(out))return StandardQmtInvalid;
+ out=impl_->read_source_failure.snapshot();return 0;
 }
 int StandardQmtTrader::event_chain_diagnostics(EventChainDiagnosticsV1& out)const
 {

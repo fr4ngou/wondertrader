@@ -475,3 +475,15 @@ P34-C1：实际失败交付方法正文的定向验证覆盖及时与晚到的 q
 默认native、Prepare/Login、金融写入/Audit、其他业务错误、来源/协议/身份错误，以及带实际SDK结果绑定的失败继续原路径。独立StandardReadFailure纯值函数只解释已准入的原Host终态；新增read_interrupted字段区别于read_not_dispatched，避免把已派发中断误说为SDK未进入。
 
 P35-C1：实际故障Journal中原ORDER查询的白名单投影确认此形状，独立C++探针接受该查询，拒绝其他错误、写操作、不同原ID、带SDK结果绑定、无派发绑定及成功数据。P35-C2：完整Standard翻译单元通过语法编译；集成owner同批构建后验原Host/插件后继读取恢复与正常关闭，未知金融原身份和账本保持。纯值/语法证据与完整插件运行证据分别登记。
+
+
+## STQ-P36 读取来源变化的首次差异诊断
+
+读取来源变化继续沿P31拒绝，原错误码、原因、未知委托与恢复规则保持。原worker或owner首次拒绝时冻结阶段和纯数值差异位：来源未初始化、业务session、完整读取profile、结果容量、事件页容量、binding格式或稳定binding变化。稳定binding继续只忽略原transport_generation与host_instance_id；先分别比较四项上下文字段；发现差异后跳过binding比较，未比较的字段不推断一致。
+
+复用P33的可选旁证接缝，以独立ReadSourceDiagnosticsV1及inspectStandardQmtReadSource导出读取首次值，并由Native沿原failure.json一次持久保存read_source对象。version/size、owner和实例查找继续严格校验；旧DLL缺导出保持原失败收据。字段只含阶段、差异位及captured，不含原session、账户、配置正文、路径、凭据或金融数量。第一次差异以单个原子纯值冻结，后续错误不覆盖；不增加查询、重试、后台线程、每轮落盘或交易条件。
+
+验收覆盖四个上下文字段分别变化、只切认证运输两字段、稳定binding及坏binding、首次值保持、跨线程读取和错版拒绝。真实Standard/Native同批编译及原执行E2E继续检查原错误、正常关闭、未知身份及金融事实不变；合成来源变化验证failure.json的实际持久字段，避免只验字段定义。
+
+
+P36同时修复P33读取的生命周期接缝：停止时活动实例查询表已退休，诊断由StandardExecutionHost原有API借用读取，至原close释放前有效；不延长实例注册或资源寿命，不另建错误仓库。两个诊断函数指针追加到自有StandardPluginFunctions，同批自有调用方重编，原StandardQmtDiagnostics及金融/上游ABI保持。独立可选getter缺失时返回Unavailable，原失败和关闭流程继续。
