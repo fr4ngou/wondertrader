@@ -233,6 +233,7 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
     : presetRange(selectedPreset || defaultPreset, coverage.end, coverage))
   const segments = (settings.get('segments') || 'main').split(',').filter(item=>['main','chinext','star'].includes(item))
   if (!segments.length) segments.push('main')
+  const multipleSegments = settings.get('segment_mode')==='multiple' || !settings.has('segment_mode') && segments.length>1
   const parameters = { window: settings.get('window') || (dataset.board === 'spread' ? '756' : '20'), k: settings.get('k') || '2', method: settings.get('method') || 'sma', pcr_type: settings.get('pcr_type') || 'oi', ...(dataset.board==='breaknet'?{segments:segments.join(',')}:{}) }
   const definition = useQuery({ retry: false, queryKey: ['observation', 'definition', dataset.id, catalog.snapshot_id], queryFn: ({ signal }) => getDefinition(dataset.id, catalog.snapshot_id, signal) })
   const history = useQuery({ retry: false, queryKey: ['observation', 'history', dataset.id, catalog.snapshot_id], queryFn: ({ signal }) => getHistory(dataset.id, catalog.snapshot_id, signal) })
@@ -252,14 +253,32 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
     setSearch({ metric:id,start:nextRange.start,end:nextRange.end,preset,...(search.get('snapshot_id') ? {snapshot_id:search.get('snapshot_id')!} : {}) })
     setDetail('rows')
   }
-  const parameter = (key: string, input: string) => {
-    if (boardId) { setPanelParams(previous => ({ ...previous, [key]: input })); return }
-    const next = new URLSearchParams(search); next.set('metric', dataset.id); next.set(key, input); setSearch(next, { replace: true })
+  const changeParameters = (values: Record<string,string>) => {
+    if (boardId) { setPanelParams(previous => ({ ...previous, ...values })); return }
+    const next = new URLSearchParams(search); next.set('metric', dataset.id)
+    Object.entries(values).forEach(([key,input])=>next.set(key,input)); setSearch(next, { replace: true })
   }
+  const parameter = (key:string,input:string) => changeParameters({[key]:input})
+  const selectSegments = (selected:string[], multiple=multipleSegments) => changeParameters({
+    segments:['main','chinext','star'].filter(id=>selected.includes(id)).join(','),segment_mode:multiple?'multiple':'single'})
+  const simpleChoices = dataset.board==='pb' || dataset.board==='valuation'
   const originalDefinition = series.data?.definition || definition.data?.definition
-  const d = useMemo(()=> originalDefinition?.board==='systemc' ? {...originalDefinition,label:dataset.label,
-    lines:originalDefinition.lines.map(line=>line.key===originalDefinition.primary_field?{...line,name:dataset.label}:line)} : originalDefinition,
-    [originalDefinition,dataset.label])
+  const d = useMemo(()=> {
+    if (!originalDefinition) return originalDefinition
+    if (dataset.board==='valuation') return {...originalDefinition,label:dataset.label,
+      lines:[...originalDefinition.lines.filter(line=>line.key===originalDefinition.primary_field),
+        {key:'marketcap_trillion',name:'全A总市值',unit:'万亿元',panel:'context',shown:true,color:'#d69a23',
+          formula:'同日来源记录的沪深北全A总市值',reading:'读左侧万亿元轴，与右侧市值/GDP比例对照。'}],
+      how_to_read:{purpose:'同时看全A总市值，以及它相当于上年全年GDP的多少。',
+        signals:['蓝线是总市值/GDP，读右侧倍数轴。','金线是全A总市值，读左侧万亿元轴。','图上方直接列出同日市值、GDP和比例。'],
+        boundary:'两条线使用不同单位，各自读对应的轴；图中只展示实际保存的观察日。'},
+      term_notes:[{term:'市值/GDP',note:'股市总市值除以上年全年GDP。例如0.8倍就是80%。'},
+        {term:'全A总市值',note:'沪深北所有A股的总市值，单位为万亿元。'}]}
+    if (dataset.board==='pb') return {...originalDefinition,label:dataset.label,
+      lines:originalDefinition.lines.filter(line=>['equal_pb','sse_reference'].includes(line.key))}
+    return originalDefinition.board==='systemc' ? {...originalDefinition,label:dataset.label,
+      lines:originalDefinition.lines.map(line=>line.key===originalDefinition.primary_field?{...line,name:dataset.label}:line)} : originalDefinition
+  },[originalDefinition,dataset.label,dataset.board,simpleChoices])
   const hidden = settings.has('hidden') ? (settings.get('hidden') || '').split(',').filter(Boolean) : d?.lines.filter(line => line.shown === false).map(line => line.key) || []
   const shownLines = d?.lines.filter(line=>dataset.board!=='crossmarket' || mode!=='raw_panels' || ['hscei_rebased','a_rebased'].includes(line.key)) || []
   const primaryRows=d ? series.data?.rows.filter(row=>typeof row[d.primary_field]==='number') : undefined
@@ -285,7 +304,9 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
   const Dock = boardId ? InlineBoard : WorkspaceDock
   return <>
     {!boardId && <div className="observation-board-nav">{catalog.boards.filter(board => selectableBoard(board.id) && available.some(item => item.board === board.id)).map((board, index) => <button key={board.id} className={dataset.board === board.id ? 'active' : ''} onClick={() => select(defaultMetric(catalog,board.id)!)}><small>{String(index + 1).padStart(2, '0')}</small>{board.label}<EventBadge catalog={catalog} board={board.id} /></button>)}</div>}
-    <section className="observation-panel observation-controls"><label>{dataset.board === 'etf_flow' ? '选择 ETF' : '查看指标'}<select aria-label={dataset.board === 'etf_flow' ? '选择 ETF' : '观察口径'} value={dataset.id} onChange={e => select(e.target.value)}>{available.filter(v => v.board === dataset.board).map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>
+    <section className="observation-panel observation-controls">{simpleChoices ? dataset.board==='pb' && <div className="observation-metric-buttons" role="group" aria-label="观察内容">
+      {available.filter(v=>v.board===dataset.board).map(v=><button type="button" key={v.id} aria-pressed={dataset.id===v.id} onClick={()=>select(v.id)}>{v.label}</button>)}
+    </div> : <label>{dataset.board === 'etf_flow' ? '选择 ETF' : '查看指标'}<select aria-label={dataset.board === 'etf_flow' ? '选择 ETF' : '观察口径'} value={dataset.id} onChange={e => select(e.target.value)}>{available.filter(v => v.board === dataset.board).map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>}
       {d?.axis_type !== 'tenor' ? <div className="observation-presets" role="group" aria-label="快捷日期">{presets.map(([key, label]) =>
         <button key={key} aria-pressed={selectedPreset === key} className={selectedPreset === key ? 'active' : ''}
           onClick={() => updateRange(presetRange(key, today, key==='all'?coverage:undefined), key)}>{label}</button>)}</div> : null}
@@ -293,7 +314,13 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
       <p className="observation-note">资料截至 {dataset.coverage.end}{dataset.board==='executive' && ' · 已披露资料，非盘中实时'}{d?.primary_coverage?.end && d.primary_coverage.end!==dataset.coverage.end && ` · 主指标截至 ${d.primary_coverage.end}`} {range.end<dataset.coverage.end && <button onClick={()=>updateRange(latestRange(range,selectedPreset,dataset.coverage,dateDomain),selectedPreset)}>查看最新数据</button>}</p>
     </section>
     <Dock layoutId="observation" primaryTitle="指标图" secondaryTitle="原始数据与原图" side="below"
-      primary={<section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{shareholder ? '最新日可计价净减持' : primaryLine?.name}</span><strong title={last&&d?exactObservationValue(primary,primaryUnit):undefined}>{last && d ? observationNumber(primary,primaryUnit) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
+      primary={<section className="observation-panel"><div className="observation-chart-title"><div><h2>{groupedBoard(dataset.board)?catalog.boards.find(board=>board.id===dataset.board)?.label:dataset.label}</h2><p className="observation-note">所选日期内 {series.data?.total ?? '…'} 条记录</p></div><div className="observation-last"><span>{shareholder ? '最新日可计价净减持' : primaryLine?.name}</span><strong title={last&&d?exactObservationValue(primary,primaryUnit):undefined}>{last && d ? (dataset.board==='breaknet' && typeof primary==='number'?new Intl.NumberFormat('zh-CN',{maximumFractionDigits:2}).format(primary):observationNumber(primary,primaryUnit)) : '—'} <small>{d && primaryLine ? observationDisplayUnit(displayedUnit(primaryLine,d,mode)) : ''}</small></strong><span>{last?.date}</span></div></div>
+      {simpleChoices && <p className="observation-note">{dataset.board==='pb'
+        ? '等权就是每家公司算一份。沪深按交易日记录，全A以月末为主，另保留最新观察。'
+        : `全A总市值 ÷ 上年全年GDP，范围含沪深北。0.8倍表示市值相当于GDP的80%。本序列从 ${dataset.coverage.start} 起有记录。`}</p>}
+      {dataset.id==='valuation_marketcap_gdp_latest' && last && typeof last.marketcap_trillion==='number' && typeof last.gdp_trillion==='number' && typeof primary==='number' && <p className="observation-valuation-formula">
+        全A总市值 <b>{observationNumber(last.marketcap_trillion,'万亿元')} 万亿元</b> ÷ {last.gdp_year}年GDP <b>{observationNumber(last.gdp_trillion,'万亿元')} 万亿元</b> = <b>{new Intl.NumberFormat('zh-CN',{maximumFractionDigits:2}).format(primary*100)}%</b>
+      </p>}
       {eventRules && series.data?.rows.length ? <p className="observation-note">
         {!last ? '所选日期暂无合成线。计算需要连续 252 个交易日的有效输入。' :
           last.date !== series.data.rows.at(-1)?.date ? `合成线截至 ${last.date}。后续日期的输入或预热尚未齐全。` : null}
@@ -301,9 +328,19 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
       {dataset.board === 'etf_flow' && series.data && !last && <p className="observation-note">所选日期暂无可计算的净申赎额，等待 WT 补齐已核单位的价格及相邻交易日总份额。</p>}
       {d?.id==='t2108.ashare' && <T2108Coverage row={last} definitionVersion={d.definition_version} mixedMethods={new Set(series.data?.rows.map(row=>row.method_version || d.definition_version || 'unregistered')).size>1} />}
       <FieldCoverage metric={dataset.id} row={series.data?.rows.at(-1)} />
-      {dataset.board==='breaknet' && <fieldset className="observation-inline"><legend>板块范围（多选合并统计）</legend>{[['main','主板'],['chinext','创业板'],['star','科创板']].map(([id,label])=><label key={id}><input type="checkbox" checked={segments.includes(id)} disabled={segments.length===1 && segments.includes(id)} onChange={()=>parameter('segments',segments.includes(id)?segments.filter(value=>value!==id).join(','):[...segments,id].join(','))}/>{label}</label>)}<span>分母为正PB有效样本，缺失及剔除家数见原始数据</span></fieldset>}
+      {dataset.board==='breaknet' && <div className="observation-breaknet-scope">
+        <span className="observation-breaknet-label">观察板块</span>
+        <div className="observation-breaknet-segments" role="group" aria-label="板块范围">
+          {[['main','主板'],['chinext','创业板'],['star','科创板']].map(([id,label])=><button type="button" key={id}
+            aria-pressed={segments.includes(id)} disabled={multipleSegments && segments.length===1 && segments.includes(id)}
+            onClick={()=>selectSegments(!multipleSegments?[id]:segments.includes(id)?segments.filter(value=>value!==id):[...segments,id])}>{label}</button>)}
+        </div>
+        <span className="observation-breaknet-hint">{multipleSegments?'所选板块合并统计':'点击板块直接切换'}</span>
+        <button type="button" role="switch" aria-label="多选" aria-checked={multipleSegments} className="observation-breaknet-mode"
+          onClick={()=>selectSegments(multipleSegments?[segments[0]]:segments,!multipleSegments)}><span aria-hidden="true" />多选</button>
+      </div>}
       {d?.parameters && <div className="observation-inline"><label>窗口<input aria-label="计算窗口" type="number" min="2" max="2000" value={parameters.window} onChange={e => parameter('window', e.target.value)} /></label><label>倍数<input aria-label="通道倍数" type="number" min="0" max="10" step="0.5" value={parameters.k} onChange={e => parameter('k', e.target.value)} /></label><select aria-label="通道算法" value={parameters.method} onChange={e => parameter('method', e.target.value)}><option value="sma">算术均值</option><option value="ema">EMA中心</option><option value="ema_moments">EMA矩通道</option></select>{dataset.board === 'pcr' && <select aria-label="PCR口径" value={parameters.pcr_type} onChange={e => parameter('pcr_type', e.target.value)}><option value="oi">持仓</option><option value="volume">成交</option></select>}</div>}
-      {!groupedBoard(dataset.board) && <div className="observation-inline">{(dataset.board==='pcr' ? [['both','三图联动'],['upper','只看PCR'],['lower','放大认购/认沽']] : [['both', '上下图'], ['upper', '只看上图'], ['lower', '放大下图']]).map(([id, label]) => <button key={id} className={focus === id ? 'active' : ''} onClick={() => parameter('focus',id)}>{label}</button>)}
+      {!simpleChoices && !groupedBoard(dataset.board) && <div className="observation-inline">{(dataset.board==='pcr' ? [['both','三图联动'],['upper','只看PCR'],['lower','放大认购/认沽']] : [['both', '上下图'], ['upper', '只看上图'], ['lower', '放大下图']]).map(([id, label]) => <button key={id} className={focus === id ? 'active' : ''} onClick={() => parameter('focus',id)}>{label}</button>)}
         {dataset.board === 'crossmarket' && <><select aria-label="价格比较模式" value={mode} onChange={e => parameter('mode',e.target.value)}><option value="fixed_base">固定基准100</option><option value="window_return">区间涨幅</option><option value="raw_panels">原始点位分图</option></select><select aria-label="成交市场" value={activity} onChange={e => parameter('activity',e.target.value)}><option value="all">两个市场成交</option><option value="a_activity">只看上证成交</option><option value="hscei_activity">只看国企成交</option></select></>}
         {dataset.board === 'cffex' && dataset.id.startsWith('cffex_') && <button onClick={() => setFuturesMatrix(!futuresMatrix)}>{futuresMatrix ? '切换单项详细' : '四品种2×2'}</button>}
       </div>}
@@ -312,7 +349,7 @@ function BoardPanel({ catalog, boardId, linkedRange, onPanelRange }: {
         {<ObservationChart definition={d} rows={series.data.rows} history={history.data} range={range} hidden={hidden} focus={focus} mode={mode} activity={activity} onRange={updateRange} onHidden={keys=>parameter('hidden',keys.join(','))} />}
         {eventRules && <div className="observation-line-toggles" aria-label="事件标记">{eventRules.values.map(event => <span key={event.code}><i style={{ background: event.color }} />{event.label}</span>)}</div>}
         {dataset.board === 'crossmarket' && <p className="observation-note">本窗口国企涨幅 {change(series.data.rows, 'hscei_close')}，上证涨幅 {change(series.data.rows, 'a_close')}。</p>}
-        <div className="observation-line-toggles">{shownLines.map(line => <label key={line.key}><input type="checkbox" checked={!hidden.includes(line.key)} onChange={() => parameter('hidden', hidden.includes(line.key) ? hidden.filter(key => key !== line.key).join(',') : [...hidden, line.key].join(','))} /><i style={{ background: line.color }} />{line.name} · {d && displayedUnit(line,d,mode)}</label>)}</div>
+        {!simpleChoices && <div className="observation-line-toggles">{shownLines.map(line => <label key={line.key}><input type="checkbox" checked={!hidden.includes(line.key)} onChange={() => parameter('hidden', hidden.includes(line.key) ? hidden.filter(key => key !== line.key).join(',') : [...hidden, line.key].join(','))} /><i style={{ background: line.color }} />{line.name} · {d && displayedUnit(line,d,mode)}</label>)}</div>}
       </>}
       {d && <details className="observation-reading"><summary>怎么看这张图 · 点击展开</summary><p><b>{d.how_to_read?.purpose || d.reading}</b></p>{d.how_to_read?.signals.map((signal, i) => <p key={i}>{signal}</p>)}<p>{d.how_to_read?.example}</p><p>{d.how_to_read?.boundary}</p>{d.lines.map(line => <p key={line.key}><b style={{ color: line.color }}>{line.name}（{line.unit}）</b>：{line.reading}</p>)}</details>}
       {d?.term_notes?.length ? <details className="observation-reading"><summary>名词小备注 · 点击展开</summary><dl>{d.term_notes.map(note => <div key={note.term}><dt>{note.term}</dt><dd>{note.note}</dd></div>)}</dl></details> : null}

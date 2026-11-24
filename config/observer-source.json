@@ -91,6 +91,7 @@
       "apps/guanheng/console/src/observation/ObservationDownload.tsx",
       "apps/guanheng/console/src/observation/ObservationExports.tsx",
       "apps/guanheng/console/src/observation/ObservationShell.test.tsx",
+      "apps/guanheng/console/src/observation/SimpleBoards.test.tsx",
       "apps/guanheng/console/src/observation/ObservationShell.tsx",
       "apps/guanheng/console/src/observation/ObservationDock.tsx",
       "apps/guanheng/console/src/observation/PCRChart.test.tsx",

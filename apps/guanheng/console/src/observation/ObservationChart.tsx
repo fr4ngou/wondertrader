@@ -78,7 +78,7 @@ export function chartOptions(definition: Definition, input: Row[], hidden: strin
     const context = explicitRight || (panels ? undefined : !split ? group.find(line => line.panel === 'context') : undefined)
     const first = metricRight && context ? context : main; const second = metricRight && context ? main : context
     const firstIndex = axes.length
-    const limits = definition.board === 'valuation' && second && metricRight ? [{min:0,max:7000},{min:0,max:2.4}] : definition.board==='breaknet' && group.some(line=>line.chart_type==='bar') ? [{min:0},{min:0}] : []
+    const limits = definition.board==='breaknet' && group.some(line=>line.chart_type==='bar') ? [{min:0},{min:0}] : []
     axes.push({...axis(first, palette?.line ?? '#dce1e8', index), ...limits[0], ...(panels?.[index].min===undefined?{}:{min:panels[index].min}), ...(panels?.[index].max===undefined?{}:{max:panels[index].max})})
     if (second) axes.push({...axis(second, palette?.line ?? '#dce1e8', index, 'right'), ...limits[1]})
     for (const line of group) {

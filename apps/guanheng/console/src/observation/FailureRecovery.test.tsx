@@ -9,12 +9,12 @@ const state = vi.hoisted(() => ({ failure: '', futures: false, empty: false }))
 vi.mock('./ObservationChart', () => ({ ObservationChart: () => <div data-testid="chart">固定版本图表</div> }))
 const coverage = { start: '2026-10-01', end: '2026-10-16', observations: 2 }
 function definition(id: string): Definition {
-  return { id, board: id.startsWith('cffex') ? 'cffex' : 'valuation', label: id, frequency: 'daily',
+  return { id, board: id.startsWith('cffex') ? 'cffex' : 'pb', label: id, frequency: 'daily',
     coverage, parameters: false, primary_field: 'value', lines: [], field_schema: { date: { label: '日期' }, value: { label: '值' } },
     source: '人工样本', source_url: 'https://example.invalid/fixture', unit: '倍', limitations: [], reading: '人工样本', formula: '人工样本' }
 }
 function catalog(): Catalog {
-  const id = state.futures ? 'cffex_if' : 'pb_test', d = definition(id)
+  const id = state.futures ? 'cffex_if' : 'pb_shsz_daily', d = definition(id)
   return { snapshot_id: 'a'.repeat(64), published_at: '2026-10-17T00:00:00Z',
     boards: [{ id: d.board, label: d.board }], preferences: { default_board: d.board, default_datasets: { [d.board]: id } },
     datasets: [{ ...d, dataset_version: 'b'.repeat(64) }] }
@@ -37,7 +37,7 @@ vi.mock('./api', () => ({
 
 let active: QueryClient | undefined
 afterEach(() => { cleanup(); active?.clear(); active = undefined; state.failure = ''; state.futures = false; state.empty = false })
-function open(path = '/observation?metric=pb_test') {
+function open(path = '/observation?metric=pb_shsz_daily') {
   const query = active = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={query}><MemoryRouter initialEntries={[path]}><ObservationShell /></MemoryRouter></QueryClientProvider>)
   return query
@@ -48,7 +48,7 @@ it('原图成功后单独资料重读失败，保留原图与结论并可手动�
   await screen.findByTestId('chart')
   fireEvent.click(screen.getByRole('button', { name: '原图对照' }))
   await screen.findByRole('img', { name: '用户提供的原始图表' })
-  state.failure = 'reference/pb_test'
+  state.failure = 'reference/pb_shsz_daily'
   await query.refetchQueries({ queryKey: ['observation', 'reference'] })
   await screen.findByText(/原图资料读取失败：子资料读取失败/)
   expect(screen.getByRole('img', { name: '用户提供的原始图表' })).toBeInTheDocument()
@@ -58,7 +58,7 @@ it('原图成功后单独资料重读失败，保留原图与结论并可手动�
   expect(await screen.findByRole('img', { name: '用户提供的原始图表' })).toBeVisible()
 })
 
-it.each(['history:pb_test', 'definition:pb_test'])('首次%s失败仍使用序列携带定义绘图', async failure => {
+it.each(['history:pb_shsz_daily', 'definition:pb_shsz_daily'])('首次%s失败仍使用序列携带定义绘图', async failure => {
   state.failure = failure
   open()
   expect(await screen.findByTestId('chart')).toBeVisible()
@@ -73,7 +73,7 @@ it('目录刷新失败保留看板，指标刷新失败保留图表和数据，�
   await query.refetchQueries({ queryKey: ['observation', 'catalog'] })
   await screen.findByText(/观察目录读取失败：目录读取失败/)
   expect(screen.getByTestId('chart')).toBeVisible()
-  state.failure = 'series:pb_test'
+  state.failure = 'series:pb_shsz_daily'
   await query.refetchQueries({ queryKey: ['observation', 'series'] })
   await screen.findByText(/指标数据读取失败：指标读取失败/)
   expect(screen.getByTestId('chart')).toBeVisible()
@@ -87,7 +87,7 @@ it('目录刷新失败保留看板，指标刷新失败保留图表和数据，�
 
 it('切换日期后的首次失败不显示其他日期图表', async () => {
   open(); await screen.findByTestId('chart')
-  state.failure = 'series:pb_test'
+  state.failure = 'series:pb_shsz_daily'
   fireEvent.click(screen.getByRole('button', { name: '近 5 日' }))
   await screen.findByText(/指标数据读取失败：指标读取失败/)
   expect(screen.queryByTestId('chart')).not.toBeInTheDocument()

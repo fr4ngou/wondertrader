@@ -35,7 +35,9 @@ $env:GUANHENG_OBSERVATION_ROOT = $ObservationRoot
 
 ## 页面使用
 
-「破净观察」采用一张上下图和同版原始数据表：上方破净率线及家数柱，下方5交易日变化。板块复选默认主板，多选合并家数和正PB分母。当前CSV/JSON导出继承同一选择；PB缺失、非正PB剔除数和三板块基础家数可在原始数据复核。口径沿[破净规格](../specs/independent-market-observation.md#破净率家数与5日变化)。
+「等权 PB」用按钮切换沪深日线和全A月末；「市值 / GDP」固定在同图展示全A市值比例与对应总市值，分别读取倍数轴和万亿元轴。全A比例旁直接显示市值、上年GDP及比例，实际起始日期在图旁标明；原始数据与导出继续继承当前所选口径。
+
+「破净观察」采用一张上下图和同版原始数据表：上方破净率线及家数柱，下方5交易日变化。默认主板，点击其它板块即可切换；开启「多选」后合并家数和正PB分母，关闭时回到当前第一项。当前CSV/JSON导出继承同一选择；PB缺失、非正PB剔除数和三板块基础家数可在原始数据复核。口径沿[破净规格](../specs/independent-market-observation.md#破净率家数与5日变化)。
 
 已保存的逐股PB可通过观察CLI `derive-breaknet --root <观察根> --expected-current <固定快照> --stock-basic-sha256 <已登记完整证券表原件SHA> --seconds 600` 重算。原件采用同源`stock_basic`的code/type/ipoDate/outDate字段；命令只使用原不可变股票分区与官方日历，在原采集lease和CAS内发布，保留其它指标、原件及配置。分区内同日重复股票明确拒绝；股票池不全的日期保持未知。要持续日更，在已安装支持本指标的更新角色中，为原`baostock`来源`derived_metrics`追加`valuation.breaknet`，保留其原datasets、tables、其它派生指标与调度。原版本程序及配置按各自发布资格核实，不提前交给旧更新器。
 

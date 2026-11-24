@@ -10,6 +10,22 @@ vi.mock('../workspace/observerAppearance', () => ({ useObserverTheme: () => 'lig
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} }))
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
+it('市值与GDP比例按万亿元和倍数读轴，坐标范围随实际数据变化',()=>{
+  const definition={id:'valuation_marketcap_gdp_latest',board:'valuation',primary_field:'ratio',frequency:'实际观察日',lines:[
+    {key:'ratio',name:'市值/GDP',unit:'倍',panel:'main',shown:true,color:'#2768b2'},
+    {key:'marketcap_trillion',name:'全A总市值',unit:'万亿元',panel:'context',shown:true,color:'#d69a23'},
+  ]} as Definition
+  const option=chartOptions(definition,[{date:'2026-11-24',ratio:.803,marketcap_trillion:112.57}],[],'both','fixed_base','all')
+  expect(option.yAxis[0]).toEqual(expect.objectContaining({name:'万亿元',position:'left'}))
+  expect(option.yAxis[1]).toEqual(expect.objectContaining({name:'倍',position:'right'}))
+  expect(option.yAxis[0]).not.toHaveProperty('max')
+  expect(option.yAxis[1]).not.toHaveProperty('max')
+  expect(option.series).toEqual(expect.arrayContaining([
+    expect.objectContaining({name:'全A总市值',yAxisIndex:0,data:[[Date.parse('2026-11-24'),112.57]]}),
+    expect.objectContaining({name:'市值/GDP',yAxisIndex:1,data:[[Date.parse('2026-11-24'),.803]]}),
+  ]))
+})
+
 it('破净率和家数共用上图、分别用百分数与家数轴，下图显示5日变化', () => {
   const definition = { id:'valuation.breaknet',board:'breaknet',primary_field:'ratio',frequency:'交易日日频', lines:[
     {key:'ratio',name:'破净率',unit:'%',panel:'main',color:'#123456',shown:true},

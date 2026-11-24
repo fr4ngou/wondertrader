@@ -7,7 +7,7 @@
     "crossmarket": "crossmarket.hk_a",
     "spread": "spread_sw",
     "pcr": "pcr_510050",
-    "valuation": "valuation_marketcap_gdp_observed",
+    "valuation": "valuation_marketcap_gdp_latest",
     "liquidity": "liquidity_shibor",
     "swap": "swap.mid_history",
     "cffex": "cffex_if",
@@ -17,9 +17,14 @@
     "institutions": "holdings_bank"
   },
   "main_board_datasets": {
-    "systemc": ["system_c.weekly.pressure"]
+    "systemc": ["system_c.weekly.pressure"],
+    "pb": ["pb_shsz_daily", "pb_all"],
+    "valuation": ["valuation_marketcap_gdp_latest"]
   },
   "display_names": {
-    "system_c.weekly.pressure": "恒科价量压力"
+    "system_c.weekly.pressure": "恒科价量压力",
+    "pb_shsz_daily": "沪深等权 PB（日线）",
+    "pb_all": "全A等权 PB（月末）",
+    "valuation_marketcap_gdp_latest": "全A市值 / GDP"
   }
 }
