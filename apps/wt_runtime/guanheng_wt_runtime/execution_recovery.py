@@ -644,7 +644,7 @@ def _compatible_python(previous, current, *, strategy_upgrade=False, strategy_ex
         distribution = PACKAGE_DISTRIBUTIONS[package].replace('-', '_')
         return (key.startswith('site/'+package+'/')
                 or key.startswith('site/'+distribution+'-') and key.endswith('.dist-info/METADATA'))
-    # 任一源码或发行元数据已出现即属于已绑定owner；其后完整清单保持不变。
+    # 首次接入须完整新增；既有owner的版本升级另要求同业务发行资格。
     first_source_owners = tuple(package for package in SOURCE_OWNER_PACKAGES
                                 if not any(source_key(key, package) for key in before))
     for key in before.keys()|after.keys():
@@ -662,9 +662,10 @@ def _compatible_python(previous, current, *, strategy_upgrade=False, strategy_ex
                 or strategy_extension and any(key.startswith('site/'+package+'/')
                     or key.startswith('site/'+package+'-') and key.endswith('.dist-info/METADATA')
                     for package in ('guanheng_strategy_original','guanheng_market_client'))
-                # 已核显式Source续接只补齐此前未绑定的两个owner；既有源码/元数据仍逐字相同。
-                or source_handoff and key not in before and key in after and any(
-                    source_key(key, package) for package in first_source_owners))
+                # 两项资格共同允许通信实现升级；账户、权限、业务和原状态继续由原transition核同。
+                or source_handoff and any(source_key(key, package) and (
+                    strategy_upgrade or key not in before and key in after and package in first_source_owners)
+                    for package in SOURCE_OWNER_PACKAGES))
 
 
 def load_transition(native, identities=None, *, binding=None, deadline=float('inf')):

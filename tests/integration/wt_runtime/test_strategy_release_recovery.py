@@ -58,6 +58,27 @@ class StrategyReleaseRecoveryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_transition(native, identities, binding=current)
 
+    def test_existing_source_owner_upgrade_requires_same_business_release_and_source_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous, current = self.binding(root / 'old', '1'), self.binding(root / 'new', '1')
+            for value, version in ((previous, '25'), (current, '26')):
+                site = Path(value['site_root'])
+                for package, distribution in (('guanheng_qmt_shm', 'guanheng_qmt_shm_host'),
+                                               ('guanheng_qmt_shm_agent', 'guanheng_qmt_shm_agent')):
+                    value['files'].extend(((str(site / package / 'protocol.py'), version[1] * 64),
+                        (str(site / (distribution + '-0.1.0a' + version + '.dist-info/METADATA')), version[1] * 64)))
+            for upgrade, source in ((False, False), (True, False), (False, True)):
+                with self.subTest(upgrade=upgrade, source=source), self.assertRaises(ValueError):
+                    _compatible_python(previous, current, strategy_upgrade=upgrade, source_handoff=source)
+            _compatible_python(previous, current, strategy_upgrade=True, source_handoff=True)
+            for index in (2, 4):
+                changed = dict(current, files=list(current['files']))
+                name, unused = changed['files'][index]
+                changed['files'][index] = (name, 'f' * 64)
+                with self.assertRaises(ValueError):
+                    _compatible_python(previous, changed, strategy_upgrade=True, source_handoff=True)
+
     def test_default_comparison_and_non_strategy_dependencies_remain_strict(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
