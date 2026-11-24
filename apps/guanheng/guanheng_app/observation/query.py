@@ -209,7 +209,7 @@ class ObservationReader:
     def derived(self,item,definition,query,deadline=None):
         query=calculation_query(definition,query)
         # Visible dates, fields and pagination never alter full-history calculations.
-        key=(item['partition'],digest(encode(definition)),query.window,query.k,query.method,query.pcr_type)
+        key=(item['partition'],digest(encode(definition)),query.window,query.k,query.method,query.pcr_type,query.segments)
         with self.lock:
             if key in self.calculations:
                 self.calculations.move_to_end(key);return self.calculations[key]

@@ -74,14 +74,15 @@ export function chartOptions(definition: Definition, input: Row[], hidden: strin
   for (const [index, group] of groups.entries()) {
     if (!group.length) continue
     const main = panels ? group.find(line=>line.axis!=='right') || group[0] : group.find(line => line.panel !== 'context') || group[0]
-    const context = panels ? group.find(line=>line.axis==='right') : !split ? group.find(line => line.panel === 'context') : undefined
+    const explicitRight = group.find(line=>line.axis==='right')
+    const context = explicitRight || (panels ? undefined : !split ? group.find(line => line.panel === 'context') : undefined)
     const first = metricRight && context ? context : main; const second = metricRight && context ? main : context
     const firstIndex = axes.length
-    const limits = definition.board === 'valuation' && second && metricRight ? [{min:0,max:7000},{min:0,max:2.4}] : []
+    const limits = definition.board === 'valuation' && second && metricRight ? [{min:0,max:7000},{min:0,max:2.4}] : definition.board==='breaknet' && group.some(line=>line.chart_type==='bar') ? [{min:0},{min:0}] : []
     axes.push({...axis(first, palette?.line ?? '#dce1e8', index), ...limits[0], ...(panels?.[index].min===undefined?{}:{min:panels[index].min}), ...(panels?.[index].max===undefined?{}:{max:panels[index].max})})
     if (second) axes.push({...axis(second, palette?.line ?? '#dce1e8', index, 'right'), ...limits[1]})
     for (const line of group) {
-      const right = second && (panels ? line.axis==='right' : (metricRight && line.panel !== 'context') || (!metricRight && line.panel === 'context'))
+      const right = second && (explicitRight ? line.axis==='right' : panels ? line.axis==='right' : (metricRight && line.panel !== 'context') || (!metricRight && line.panel === 'context'))
       const levels = line.reference_levels || (line.key === definition.primary_field && definition.reference_levels?.length ? definition.reference_levels : [])
       const markers = definition.event_markers
       const events = markers && !Array.isArray(markers) && markers.anchor === line.key ? plotted.flatMap(row => {

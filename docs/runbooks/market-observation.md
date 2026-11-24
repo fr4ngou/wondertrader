@@ -35,6 +35,10 @@ $env:GUANHENG_OBSERVATION_ROOT = $ObservationRoot
 
 ## 页面使用
 
+「破净观察」采用一张上下图和同版原始数据表：上方破净率线及家数柱，下方5交易日变化。板块复选默认主板，多选合并家数和正PB分母。当前CSV/JSON导出继承同一选择；PB缺失、非正PB剔除数和三板块基础家数可在原始数据复核。口径沿[破净规格](../specs/independent-market-observation.md#破净率家数与5日变化)。
+
+已保存的逐股PB可通过观察CLI `derive-breaknet --root <观察根> --expected-current <固定快照> --stock-basic-sha256 <已登记完整证券表原件SHA> --seconds 600` 重算。原件采用同源`stock_basic`的code/type/ipoDate/outDate字段；命令只使用原不可变股票分区与官方日历，在原采集lease和CAS内发布，保留其它指标、原件及配置。分区内同日重复股票明确拒绝；股票池不全的日期保持未知。要持续日更，在已安装支持本指标的更新角色中，为原`baostock`来源`derived_metrics`追加`valuation.breaknet`，保留其原datasets、tables、其它派生指标与调度。原版本程序及配置按各自发布资格核实，不提前交给旧更新器。
+
 打开本机App的`/observation`。选择指标及日期，窗口与通道使用完整归档历史预热；日终PCR可切换持仓/成交口径。原始数据、怎么算、来源与质量、原图对照分别展示实际定义。“指标说明”提供中文名称、来源、覆盖、字段含义、公式和读法。
 
 CSV/JSON导出链接包含页面snapshot_id，和表格/图表保持同版本。机器读取前缀为`/v1/market-observation`，浏览器投影为`/v1/ui/market-observation`；分页继续携带原snapshot及cursor。原件下载仅机器前缀提供，按已登记资产ID读取。独立App CLI仅监听回环地址；远程共享及访问控制另行部署验收。

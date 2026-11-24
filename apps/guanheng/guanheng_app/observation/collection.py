@@ -21,6 +21,7 @@ from .stock_partitions import extend_daily_partitions
 from .wondertrader_source import history as market_history, prepare_table as prepare_market_table
 from .breadth_models import METRICS as BREADTH_METRICS, admit_definition, prepare_definitions,attach_boards
 from . import financial_models, executive_models, t2108_models
+from . import breaknet
 from .financial_source import annual_reports
 from .executive_source import executive_changes
 from .t2108_feed import history as t2108_history
@@ -131,6 +132,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         financial_models.prepare_definitions(definitions,datasets,config['sources'])
         executive_models.prepare_definitions(definitions,datasets,config['sources'])
         t2108_models.prepare_definitions(definitions,datasets,config['sources'])
+        if any(breaknet.METRIC in source.get('derived_metrics', []) for source in config['sources']):
+            definitions[breaknet.METRIC] = dict(definitions.get(breaknet.METRIC, {}), **breaknet.definition())
+            datasets.setdefault(breaknet.METRIC, [])
         tables={key:[dict(row) for row in reader.rows(value)] for key,value in manifest.get('source_tables',{}).items()}
         table_parents=copy.deepcopy(manifest.get('source_table_parents',{}))
     except Exception as exc:
@@ -263,6 +267,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
                 updates=annual_reports(fetch,source,start,end,admitted_rows=tables.get(key,()))
             else:updates=PARSERS[source['kind']](fetch,source,start,end)
             allowed=set(source.get('tables',[]))|set(source.get('datasets',[]))
+            if breaknet.METRIC in source.get('derived_metrics', []):allowed.add(breaknet.METRIC)
             if set(updates)-allowed:raise SourceFailure('unregistered_source_output')
             prepared={};revisions=[];count=0;prepared_definitions={};retained_dates={}
             for key,rows in updates.items():
@@ -423,6 +428,9 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         financial_models.refresh_ranks(datasets,check=finalization.remaining)
         attach_trends(datasets,definitions,tables,check=finalization.remaining)
         attach_benchmark(datasets,definitions,tables)
+        if breaknet.METRIC in datasets:
+            datasets[breaknet.METRIC] = breaknet.calendar_rows(datasets[breaknet.METRIC], tables['source.cn_official_calendar'])
+            breaknet.update_history(definitions[breaknet.METRIC], datasets[breaknet.METRIC])
         structure_inputs=market_structure.derive(tables,datasets,definitions,check=finalization.remaining)
         margin_rows=tables.get(wt_margin_summary.TABLE, [])
         if margin_rows and 'leverage_margin' in datasets:
@@ -492,6 +500,7 @@ def _refresh(reader,config,*,as_of,deadline,source_ids,window_key,attempt,cancel
         t2108_models.attach_board(candidate)
         market_structure.attach_boards(candidate)
         etf_flow.attach_board(candidate)
+        breaknet.attach_board(candidate)
         for derived in WT_DERIVED.values():
             if derived.METRIC in candidate['datasets']:
                 if not any(board['id']==derived.METRIC for board in candidate['boards']):

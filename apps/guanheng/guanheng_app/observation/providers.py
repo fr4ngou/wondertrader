@@ -67,6 +67,7 @@ def tencent(fetch, config, start, end):
     return updates
 
 def baostock_daily(fetch, config, start, end):
+    from . import breaknet
     from .breadth_models import SHSZ_METRICS as METRICS,rows_for_metrics,universe_row
     from .market_breadth import stock_day
     from .stock_universe import shsz_listings
@@ -88,17 +89,20 @@ def baostock_daily(fetch, config, start, end):
             calendar.append(dict(date=day,is_open=int(flag)))
         if [row['date'] for row in calendar]!=list(dates(start,end)):raise SourceFailure('pb_calendar_incomplete')
         trade_dates=[row['date'] for row in calendar if row['is_open']==1]
-        result=[]
+        result=[]; broken=[]
         for day in trade_dates:
             fields,rows=client.table('stock_daily_batch',day)
             value, expected = shsz_daily_pb(fields, rows, listings, day, check=fetch.budget.remaining,
                                           minimum_universe=config['minimum_universe'])
+            if breaknet.METRIC in config.get('derived_metrics', []):
+                broken.append(breaknet.stock_day(fields, rows, day, eligible=expected, check=fetch.budget.remaining))
             if selected:
                 calculated=stock_day(fields,rows,sorted(expected),day,check=fetch.budget.remaining)
                 for key,row in rows_for_metrics(calculated,selected).items():derived[key].append(row)
                 universes.append(universe_row(day,expected,basic_sha))
             result.append(dict(date=day,**value,available_at=None,sse_reference=None))
         updates={'pb_shsz_daily':result,'source.cn_calendar':calendar,**derived}
+        if breaknet.METRIC in config.get('derived_metrics', []):updates[breaknet.METRIC]=broken
         if selected:updates['source.shsz_universe']=universes
         return updates
 

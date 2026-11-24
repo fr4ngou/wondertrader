@@ -9,6 +9,9 @@ def quantile(values, probability):
     return values[lo] + (values[hi]-values[lo])*(h-lo)
 
 def derive(rows, definition, query, *, check=lambda: None):
+    if definition['id'] == 'valuation.breaknet':
+        from .breaknet import project
+        return project(rows, query.segments, check=check)
     out = []; states = {}
     for original in rows:
         check()

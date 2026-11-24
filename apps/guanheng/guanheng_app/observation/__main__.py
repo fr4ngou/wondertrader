@@ -14,7 +14,7 @@ from .storage import MANIFEST_BYTES
 
 def main():
     parser = argparse.ArgumentParser(description='观衡独立市场观察目录')
-    parser.add_argument('command', choices=['initialize', 'import-frozen', 'verify', 'restore', 'refresh', 'derive-breadth', 'import-shareholders'])
+    parser.add_argument('command', choices=['initialize', 'import-frozen', 'verify', 'restore', 'refresh', 'derive-breadth', 'derive-breaknet', 'import-shareholders'])
     parser.add_argument('--root', required=True)
     parser.add_argument('--manifest')
     parser.add_argument('--snapshot')
@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--sources')
     parser.add_argument('--source-root')
     parser.add_argument('--source-snapshot')
+    parser.add_argument('--stock-basic-sha256')  # 同源完整上市/退市证券表原件，固定破净历史重算股票池。
     parser.add_argument('--start')
     parser.add_argument('--seconds', type=float, default=120)
     args = parser.parse_args()
@@ -36,6 +37,11 @@ def main():
         if args.command == 'initialize':
             reader.repository.initialize()
             result = dict(status='initialized', execution_enabled=False)
+        elif args.command == 'derive-breaknet':
+            if not args.expected_current or not args.stock_basic_sha256:
+                parser.error('破净历史重算需要expected-current及stock-basic-sha256固定原件')
+            from .breaknet_archive import derive_archive
+            result = derive_archive(reader, args.expected_current, args.stock_basic_sha256, deadline)
         elif args.command == 'import-shareholders':
             if not all((args.source_root, args.as_of, args.expected_current)):
                 parser.error('股东历史采用需要source-root、as-of及expected-current')

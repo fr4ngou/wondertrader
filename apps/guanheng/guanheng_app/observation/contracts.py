@@ -67,10 +67,13 @@ class SeriesQuery(BaseModel):
     k: float | None = Field(default=None, ge=0, le=10)
     method: Literal['sma', 'ema', 'ema_moments'] | None = None
     pcr_type: Literal['oi', 'volume'] | None = None
+    segments: str = Field(default='main', max_length=24)  # 破净板块非空多选，逗号分隔；默认沪深主板。
     as_of: date | None = None
 
     @model_validator(mode='after')
     def check_dates(self):
+        from .breaknet import selected_segments
+        self.segments = ','.join(selected_segments(self.segments))
         if self.start and self.end and self.start > self.end:
             raise ValueError('起始日期须早于或等于截止日期')
         return self
