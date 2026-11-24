@@ -478,3 +478,71 @@ def test_order_switch_pins_current_for_one_read_then_follows_next_generation(ver
         assert response.json()['runtime']['components'][0]['execution_control']['writes_enabled'] is True
         assert len(seen) == 2 and seen[0] == seen[1]
         assert client.get('/v1/ui/wt-runtime').status_code == 503
+
+
+def test_published_targets_survive_unverified_nav_without_replanning(strategy_publication, monkeypatch):
+    from copy import deepcopy
+    import guanheng_strategy_native.planner as planner
+
+    settings, values, files, write = strategy_publication
+    rows = values['result']['strategies']
+    report = rows['resonance-regime-v1']
+    report['outcome']['state']['basis']['native_nav_verified'] = False
+    # 同轮另一策略仍须可读；身份来自发布者，不取安装版本。
+    other = deepcopy(report)
+    other_id = 'another-published-strategy'
+    other['core_result']['strategy_id'] = other_id
+    other['outcome']['state']['target']['strategy_id'] = other_id
+    other['outcome']['state']['target']['algorithm_id'] = other_id+'@1.1.2/ledger-front-ratio-v1'
+    rows[other_id] = other
+    write()
+    before = {key: path.read_bytes() for key, path in files.items()}
+    def unexpected_replanning(*args):
+        pytest.fail('展示读取调用了交易规划器')
+    monkeypatch.setattr(planner, 'target_quantities', unexpected_replanning)
+    with TestClient(create_app(settings)) as client:
+        response = client.get('/v1/ui/strategy-runtime')
+        assert response.status_code == 200
+        value = response.json()
+        assert value['strategy']['positions'][2]['stage_target'] == 200
+        assert {row['strategy_id'] for row in value['strategies']} == set(rows)
+        for identity in rows:
+            response = client.get('/v1/ui/live-strategy-performance', params=dict(
+                strategy_id=identity, strategy_version='1.1.2', limit=90))
+            assert response.status_code == 200
+            assert response.json()['summary'] is None
+    assert before == {key: path.read_bytes() for key, path in files.items()}
+
+
+@pytest.mark.parametrize('failure', ['version', 'identity', 'configuration', 'universe', 'quantity', 'duplicate'])
+def test_published_target_corruption_is_rejected(strategy_publication, failure):
+    from guanheng_app.strategy_runtime_projection import project_strategy
+
+    _settings, values, _files, _write = strategy_publication
+    report = values['result']['strategies']['resonance-regime-v1']
+    state = report['outcome']['state']
+    if failure == 'version': state['version'] = 2
+    elif failure == 'identity': state['target']['strategy_id'] = 'other-strategy'
+    elif failure == 'configuration': state['target']['config_id'] = 'other-configuration'
+    elif failure == 'universe': state['targets'].pop()
+    elif failure == 'quantity': state['targets'][0]['shares'] = -1
+    else: state['targets'][0] = state['targets'][1]
+    with pytest.raises(ValueError):
+        project_strategy(dict(schema='guanheng.configured-cta-observation.v1', strategies={
+            'resonance-regime-v1': report}))
+
+
+def test_performance_failure_logs_code_location_without_private_values(strategy_publication, monkeypatch, caplog):
+    import guanheng_app.live_strategy_performance as performance
+
+    settings, _values, _files, _write = strategy_publication
+    def fail(*args, **kwargs):
+        raise ValueError('private-account-and-secret-response')
+    monkeypatch.setattr(performance.LiveStrategyPerformanceOwner, 'read', fail)
+    with TestClient(create_app(settings)) as client:
+        response = client.get('/v1/ui/live-strategy-performance', params=dict(
+            strategy_id='resonance-regime-v1', strategy_version='1.1.2'))
+    assert response.status_code == 503
+    assert 'live_strategy_read_failed error_type=ValueError' in caplog.text
+    assert 'test_current.py' in caplog.text and 'fail' in caplog.text
+    assert 'private-account-and-secret-response' not in caplog.text + response.text

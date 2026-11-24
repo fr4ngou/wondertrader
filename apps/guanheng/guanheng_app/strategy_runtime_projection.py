@@ -135,6 +135,27 @@ def published_identity(identity, report):
     return definition,symbols
 
 
+def _published_targets(value, identity, version, configuration, symbols):
+    """只投影V1冻结身份与份数；不恢复规划器或重判旧basis的执行资格。"""
+    if value is None:
+        return {}
+    from guanheng_strategy_native import EconomicTarget, Quantity, Weight
+
+    _require(type(value) is dict and type(value.get('version')) is int and value['version'] == 1)
+    target = value.get('target')
+    _require(type(target) is dict and type(target.get('universe')) is list
+             and type(target.get('weights')) is list and len(target['weights']) == len(symbols))
+    target = EconomicTarget(**dict(target, universe=tuple(target['universe']),
+        weights=tuple(Weight(**row) for row in target['weights'])))
+    _require(target.strategy_id == identity and set(target.universe) == set(symbols)
+             and target.config_id == configuration and target.algorithm_id.startswith(identity+'@'+version+'/'))
+    quantities = value.get('targets')
+    _require(type(quantities) is list and len(quantities) == len(symbols))
+    quantities = tuple(Quantity(**row) for row in quantities)
+    _require(tuple(row.symbol for row in quantities) == target.universe)
+    return {row.symbol: row.shares for row in quantities}
+
+
 def project_strategy(value, *, runtime_state='ready', strategy_id=None):
     """仅复制业务白名单，不重算策略、数量、费用或券商资金。输入来自原发布边界。"""
     _require(type(value) is dict and set(value) == {'schema', 'strategies'}
@@ -169,7 +190,6 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
     diagnostics = None
     diagnostics_state, diagnostics_reason = 'absent', 'not_calculated'
     if result is not None:
-        from .execution_configured import _restore_quantity_state
         _require(type(result) is dict and result.get('schema') == 'guanheng.retained-resonance-result.v1'
                  and result.get('strategy_id') == identity and result.get('strategy_version') == definition['strategy_version'])
         decision_at = _time(result['decision_cutoff'])
@@ -182,15 +202,11 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
         if status == 'observing':
             _require(outcome is None and report.get('reason') == 'analysis_only'
                      and report.get('target_readback') is None)
-            state = None
+            targets = {}
         else:
             _require(type(outcome) is dict and outcome.get('status') == status)
-            state = _restore_quantity_state(outcome['state'])
-            _require(state is None or state.target.strategy_id == identity
-                     and set(state.target.universe) == set(symbols))
-            _require(state is None or state.target.config_id == result['configuration_sha256']
-                     and state.target.algorithm_id.startswith(identity+'@'+definition['strategy_version']+'/'))
-        targets = {} if state is None else {p.symbol: p.shares for p in state.targets}
+            targets = _published_targets(outcome['state'], identity, definition['strategy_version'],
+                                         result['configuration_sha256'], symbols)
         _require(not targets or set(targets) == set(symbols))
         readback = report.get('target_readback')
         if readback is not None:

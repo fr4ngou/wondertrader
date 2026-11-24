@@ -1,5 +1,8 @@
 """线上策略观察只读HTTP；所有文件/本地副本IO由原App有界读池执行。"""
 import asyncio
+import logging
+from pathlib import Path
+import traceback
 from time import monotonic
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -33,7 +36,12 @@ def router(securities: SecurityCatalog):
             symbols = {row['symbol'] for day in value['daily'] for group in ('positions', 'deals') for row in day[group]}
             value['security_names'] = {symbol: name for symbol in sorted(symbols) if (name := securities.name(symbol))}
             return JSONResponse(value,headers={'Cache-Control':'no-store'})
-        except Exception:
+        except Exception as error:
+            # 仅记类型与有限代码位置；异常正文、局部变量和来源内容不进Web日志。
+            frames = [(Path(row.filename).name, row.name, row.lineno)
+                      for row in traceback.extract_tb(error.__traceback__)[-8:]]
+            logging.getLogger(__name__).error('live_strategy_read_failed error_type=%s frames=%s',
+                                             type(error).__name__, frames)
             return JSONResponse({'detail':'线上策略观察暂不可用，请稍后重试'},status_code=503,
                                 headers={'Cache-Control':'no-store'})
         finally:
