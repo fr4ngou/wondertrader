@@ -1,6 +1,6 @@
 # 同账户策略份额归属（ASA）
 
-类型：功能规格。状态：实现中，尚未取得Native接线或金融运行资格。实现owner为`guanheng_wt_runtime.account_allocation`；原WT/Host继续唯一拥有交易命令、订单状态与恢复核查。模块不连接来源、不发委托、不撤单、不改原Journal、不创建daemon或交易队列。
+类型：功能规格。状态：已接入独立WT；当前费用暂记已发布，最终结算及自然时段验收分别续验，见[当前发布](../releases/2026-11-24-wt-current-fees.md)。实现owner为`guanheng_wt_runtime.account_allocation`；原WT/Host继续唯一拥有交易命令、订单状态与恢复核查。模块不连接来源、不发委托、不撤单、不改原Journal、不创建daemon或交易队列。
 
 ## 已确认业务与现有能力
 
