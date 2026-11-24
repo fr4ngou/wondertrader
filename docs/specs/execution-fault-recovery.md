@@ -78,7 +78,7 @@ EFR-19：模拟只读边界故障后的原件恢复可在兼容transition增加r
 
 只读Retained绑定向原ManagedStrategy明确提供空execution_symbols；新可选gh_ms_read_only_abi_version=1确认execution_count=0的读取专用能力，布局1..8保持。Python和Native target入口均拒绝空执行权限集合，原读取集合和订阅保持。发布native_setter_count复制原gh_ms_status的累计setter调用数，用于核只读零提交，不作为券商成交或账户事实。
 
-EFR-20：已准入原状态、在发布ready前启动失败的后继，可在transition显式增加initialization_abort={file,sha256}，绑定该故障owner原reconciled.json。只读双方、原failure.stage=cta、close-prepared.closed=true/ok=false/recovery_ready=false、原PID物理退出及ready不存在时适用。原admission须为clean_transition；原接收状态、当前状态及本代transition集合逐字节相同。核原transition、被接收的正常关闭owner配置/Python/closed及consumed clean；本代记录initialization_abort_reconciled。KV和初始化观察沿原被接收状态owner，最新前代生命周期保留故障身份，接续后生成本代正常状态。拒绝状态变更、缺少原件或身份冲突；原失败记录和已消费证明保持原件。
+EFR-20：已准入原状态、在发布ready前启动失败的后继，可在transition显式增加initialization_abort={file,sha256}，绑定该故障owner原reconciled.json。原failure.stage=cta、close-prepared.closed=true/ok=false/recovery_ready=false、原PID物理退出及ready不存在时适用。原admission须为clean_transition；原接收状态、当前状态及本代transition集合逐字节相同。核原transition、被接收的正常关闭owner配置/Python/closed及consumed clean；本代记录initialization_abort_reconciled。只读双方沿原证明；含已授权写入模式时，来源、失败代和后继的完整柜台配置及权限须相同，失败代无启动回执且关闭前完整执行队列证明从未开放、零受理/进入/交付/拒绝/排队/字节及无活动命令，原认领材料逐字节相同。Native输出租约内以失败代控制ID独占认领一次。KV和初始化观察沿原被接收状态owner，最新前代生命周期保留故障身份，接续后生成本代正常状态。拒绝状态变更、缺少原件或身份冲突；原失败记录和已消费证明保持原件。服务入口委托原恢复owner核证据，不另按布尔写开关拒绝。
 
 原接账类型为 `process_lost_reconciled` 时，初始化中断接续继续核原退出证明、完整认领收据、原状态摘要、就绪前零执行队列及后继交易配置。若失败代从原写入模式切为只读，允许后继继续使用该失败代的同一只读配置。原权限证明须直接绑定真实来源配置的路径和摘要，柜台配置只允许 `writes_enabled` 从 `true` 变为 `false`。借此恢复写权限或更换账户均拒绝。
 

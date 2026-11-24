@@ -903,8 +903,6 @@ class ServiceController:
                 private_storage=private_storage, predecessor_control=predecessor_control,
                 predecessor_sha=previous_native_sha)
             native = new_native
-        if aborted_control is not None:
-            _require(native["trader"]["writes_enabled"] is False)
         store = native.get("data", {}).get("store", {})
         daily = store.get("daily", {})
         if store.get("module") == "GuanhengRealtimeReader" and "publication" in daily:
@@ -1259,7 +1257,7 @@ class ServiceController:
         return self._start(adopt_bootstrap=True, private_storage=reference)
 
     def recover_initialization_abort(self, control) -> tuple[int, dict]:
-        """按原生认领材料接续未就绪的失败代，执行器只读。"""
+        """按原状态、未就绪及零执行证明接续失败代，权限由原恢复owner逐项核同。"""
         return self._start(adopt_bootstrap=True, aborted_control=control)
 
     def _start(self, *, adopt_bootstrap=False, private_storage=None, aborted_control=None,

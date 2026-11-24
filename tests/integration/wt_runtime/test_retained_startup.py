@@ -12,6 +12,14 @@ from guanheng_strategy_v1 import ALGORITHM_ID, RetainedConfig
 
 
 class RetainedStartupTests(unittest.TestCase):
+    def test_callback_failure_keeps_fixed_reason_for_persistent_log(self):
+        from guanheng_wt_runtime.execution_configured import _callback_failure_details
+        from guanheng_wt_runtime.execution_strategy import CtaBridgeError
+        details = _callback_failure_details(CtaBridgeError('account_sellable_mismatch'))
+        self.assertEqual(details['reason'], 'account_sellable_mismatch')
+        self.assertEqual(details['exception_type'], 'CtaBridgeError')
+        self.assertNotIn('reason', _callback_failure_details(CtaBridgeError('private-account-material')))
+
     def test_recovery_seed_preserves_original_cycle_clock_without_deciding(self):
         from guanheng_strategy_core.contracts import EvaluationBudget
         request = SimpleNamespace(configuration=RetainedConfig('synthetic-new-role',.8),

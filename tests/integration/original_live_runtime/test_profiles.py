@@ -86,6 +86,26 @@ def make(monkeypatch,actions=None,policy='signal-close-cap',mode='new',signals=N
 def schedule(owner,ctx):ctx.event=NS(kind=4,epoch=2,tdate=20261109);owner.callback(ctx)
 
 
+@pytest.mark.parametrize('reason', ('account_sellable_mismatch', 'account_position_mismatch',
+                                  'account_observation_unknown', 'account_observation_stale',
+                                  'account_freeze_unbound'))
+def test_account_wait_preserves_running_strategy_and_resumes_without_restart(monkeypatch, reason):
+    owner, ctx, asa, _, _ = make(monkeypatch)
+    owner.callback(ctx)
+    frozen = dict(asa.states)
+    asa.reason = reason
+    successor, next_ctx, _, _, reports = make(monkeypatch, allocation=asa, mode='resume')
+    successor.callback(next_ctx)
+    assert successor.initialized and asa.states == frozen and not next_ctx.targets
+    assert reports[-1][0]['status'] == 'waiting' and reports[-1][0]['reason'] == reason
+    schedule(successor, next_ctx)
+    assert reports[-1][0]['reason'] == reason and asa.states == frozen and not next_ctx.targets
+    asa.reason = None
+    schedule(successor, next_ctx)
+    assert reports[-1][0]['status'] == 'holding' and successor._last_date == '2026-11-06'
+    assert next_ctx.calls.count('set') == 1
+
+
 def test_deployment_change_and_partial_initialization_preserve_business_record(monkeypatch):
     # 第一只完成INIT、另一只失败，ASA已提交而NativeKV未保存；新安装应沿原记录恢复。
     owner,ctx,asa,_,_=make(monkeypatch,code_identity='a'*64)

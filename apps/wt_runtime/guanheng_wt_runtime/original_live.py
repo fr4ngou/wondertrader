@@ -132,19 +132,21 @@ class OriginalLiveStrategy:
     def _view(self,context,deadline):
         reason=self.allocation.observe_context(context,deadline=deadline,max_age_seconds=self.max_age)
         broker=context.broker_observation();now=datetime.now(timezone.utc)
-        if reason is not None:return None,broker
-        _need(broker.positions_known and broker.position_received_ms is not None,'original_broker_unknown')
-        stamp=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc)
-        if not stamp<=now<stamp+timedelta(seconds=self.max_age):return None,broker
+        if reason is None:
+            if not broker.positions_known or broker.position_received_ms is None:
+                reason='broker_position_unknown'
+            else:
+                stamp=datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc)
+                if not stamp<=now<stamp+timedelta(seconds=self.max_age):reason='broker_position_stale'
         own=self.allocation.strategy_state(self.id,deadline=deadline);_need(own.strategy.strategy_id==self.id,'original_allocation_scope')
         _need(all(row.symbol in self.targets for row in own.strategy.positions),'original_allocation_scope')
-        return own,broker
+        return own,broker,reason
 
     def _initialize(self,context):
         register_main_minute(context, self.main, deadline=self.start_deadline)
         deadline=min(self.start_deadline,time.monotonic()+self.seconds)
-        own,broker=self._view(context,deadline)
-        _need(own is not None,'original_initial_allocation')
+        own,broker,reason=self._view(context,deadline)
+        # 原持久状态独立恢复；账户等待留给原调度，INIT不恢复目标或提交委托。
         raw = self.recovery_state.restore(deadline=deadline)
         saved = INTENT_STATE.read(context) if raw is None else self.recovery_state.current
         if self.state_mode=='new':
@@ -209,7 +211,8 @@ class OriginalLiveStrategy:
         self.recovery_state.accept(context, staged, deadline=deadline)
         self.initialized=True
         self.publish(self.id,dict(
-            status='initialized',  # ctx及自有分配已核初始化；不宣布成交或信号齐备。
+            status='initialized' if reason is None else 'waiting',  # 状态恢复与当前交易资格分别表达。
+            reason=reason,  # 当前账户固定等待原因；None表示本轮已核同。
             signal_consumed_date=self._last_date,  # 已恢复的闭合信号日；没有消费时为None。
             consumed_routes=self._published_consumed_routes(),  # 按执行证券呈现的已提交信号。
             definition=self._definition(),  # 原ctx已核证券声明；ASA暂缺时也保留证券范围。
@@ -217,7 +220,7 @@ class OriginalLiveStrategy:
             strategy_version=self.version,  # 本次线上执行模型版本，不改a1/a2历史报告。
             initial_capital_cny=format(self.initial_capital_cny,'f'),  # 本实例明确的初始CNY金额。
             capital_source='ASA:explicit-new-allocation',  # 独立分配由唯一ASA拥有。
-            owned_valuation=self._valuation(context,own,deadline),  # 本策略原价估值，费用未齐只发布参考值。
+            owned_valuation=self._valuation(context,own if reason is None else None,deadline),  # 未核账户不授当前估值资格。
             allocation_observation=allocation_projection(own,include_read_projection=True),  # 自有份额/现金/周期及原账户来源，CNY十进制文本。
             model='signals-from-activation',  # 历史held仅展示，首次从最新合格闭合信号激活。
             execution_qualified=False),  # 本投影不授金融综合资格，执行owner另核真实权限。
@@ -312,14 +315,14 @@ class OriginalLiveStrategy:
         if context.event.kind==1:self._initialize(context);return
         if context.event.kind!=4:return
         _need(self.initialized,'original_not_initialized');deadline=time.monotonic()+self.seconds;self.sequence+=1
-        own,broker=self._view(context,deadline)
+        own,broker,account_reason=self._view(context,deadline)
         observation = dict(definition=self._definition(), sequence=self.sequence,
-            owned_valuation=self._valuation(context, own, deadline),
+            owned_valuation=self._valuation(context, own if account_reason is None else None, deadline),
             allocation_observation=None if own is None else allocation_projection(own,include_read_projection=True),
             account_observation=asdict(broker), execution_qualified=False,
             signal_consumed_date=self._last_date,  # 已提交的闭合信号日；候选计算不能推进。
             consumed_routes=self._published_consumed_routes())  # 按执行证券呈现的已提交信号。
-        if self.execution_enabled and own is not None and not self._announced:
+        if self.execution_enabled and account_reason is None and not self._announced:
             try:
                 self._announced = self.recovery_state.restore_target(context, deadline=deadline)
             except TargetQuoteUnavailable:
@@ -364,7 +367,7 @@ class OriginalLiveStrategy:
         candidate['signal_revision_after_consumption']=small is not None and self._last_date==small['decision_date'] and self._consumed_sha!=small['signal_sha256']
         def waiting(reason):
             self.publish(self.id,dict(candidate,status='waiting',reason=reason),deadline=deadline)
-        if own is None:waiting('broker_observation_stale');return
+        if account_reason is not None:waiting(account_reason);return
         if not read.ready or small is None:waiting('prepared_signal_unavailable');return
         # 指数等上下文参考价留在原信号；恢复cap只持有本策略交易范围，保持写入/读回合同一致。
         intent_source_prices = {code: price for code, price in small['signal_close_prices'].items() if code in self.codes}

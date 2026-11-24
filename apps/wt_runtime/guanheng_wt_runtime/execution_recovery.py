@@ -552,7 +552,15 @@ def initialization_abort_origin(transition, *, current=None, deadline=float('inf
                                             configuration, transition, read)
         return dict(configuration=configuration,configuration_sha256=snapshot['predecessor_configuration_sha256'],
                     control_directory=origin,binding=_json(binding_raw))
-    _require(configuration['trader']['writes_enabled']is False and prior['trader']['writes_enabled']is False)
+    live = (configuration['trader']['writes_enabled'] or prior['trader']['writes_enabled']
+            or current is not None and current['trader']['writes_enabled'])
+    if live:
+        # 已授权模式仅接续同一柜台与权限；完整零执行和原认领证明排除重复副作用。
+        _require(prior['trader'] == configuration['trader']
+                 and (current is None or current['trader'] == prior['trader']))
+        _validate_idle_initialization(previous, failure)
+        claim = _path(configuration['output_directory']) / ('.cta-reconciled-' + _sha(admitted['transition_sha256']) + '.json')
+        _require(read(claim, 256 * 1024) == raw)
     terminal=_json(read(origin/'closed.json',4096));ready=_json(read(origin/'ready.json',4096))
     _require(ready['schema']=='guanheng.execution.ready.v1'and ready['control_id']==origin.name
         and ready['config_sha256']==snapshot['predecessor_configuration_sha256']and ready['pid']==terminal['pid'])
@@ -569,16 +577,21 @@ def initialization_abort_origin(transition, *, current=None, deadline=float('inf
     return dict(configuration=configuration,configuration_sha256=snapshot['predecessor_configuration_sha256'],control_directory=origin,binding=_json(binding_raw))
 
 
-def _validate_lost_initialization_abort(previous, origin, admitted, admission_raw, failure,
-                                        snapshot, configuration, transition, read):
-    """核原进程丢失交接及未进入执行的失败代，保留所有原收据。"""
+def _validate_idle_initialization(previous, failure):
+    """初始化未就绪且执行队列从未准入；只读和已授权模式共用原零副作用证据。"""
     queue = failure['execution_queue']
     counters = ('fault', 'accepted', 'entered', 'delivered', 'rejected', 'queued_commands', 'payload_bytes')
     _require(failure['closed'] is False and set(queue) == {*counters, 'accepting', 'inflight'}
              and queue['accepting'] is False and queue['inflight'] is False
              and all(type(queue[k]) is int and queue[k] == 0 for k in counters))
-    _require(not any((previous / name).exists() for name in ('closed.json', 'lifecycle-started.json'))
-             and not any((origin / name).exists() for name in ('closed.json', 'close-prepared.json', 'failure.json')))
+    _require(not any((previous / name).exists() for name in ('closed.json', 'lifecycle-started.json')))
+
+
+def _validate_lost_initialization_abort(previous, origin, admitted, admission_raw, failure,
+                                        snapshot, configuration, transition, read):
+    """核原进程丢失交接及未进入执行的失败代，保留所有原收据。"""
+    _validate_idle_initialization(previous, failure)
+    _require(not any((origin / name).exists() for name in ('closed.json', 'close-prepared.json', 'failure.json')))
     _require(_path(snapshot['predecessor_configuration']) == origin / 'execution.json'
              and admitted['successor_installation_sha256'] == snapshot['successor_installation_sha256']
                  == transition['predecessor_installation_sha256'])

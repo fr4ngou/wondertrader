@@ -47,6 +47,28 @@ def book(root, *, old=10000, sellable=10000, old_cash='10000', new_cash='1000000
     return store, identity
 
 
+def test_broker_higher_sellable_does_not_release_unsettled_strategy_lots(tmp_path):
+    store, _ = book(tmp_path, old=1000, sellable=1000, old_cash='100000')
+    # 券商收盘后先提高可卖；策略仍按既有T+1批次和原预留执行。
+    _, group, command = prepare(store, 10000, 0, 9000)
+    store.apply_fill(fill(command, 9000), deadline=deadline())
+    close(store, group, command, 'filled')
+    store.observe_account(AccountSnapshot(2, DAY, D('1981995'),
+        (OwnedPosition(CODE, 10000, 10000),), SHA), deadline=deadline())
+    assert pos(store, 'old').sellable == 1000
+    store.observe_account(AccountSnapshot(3, NEXT, D('1981995'),
+        (OwnedPosition(CODE, 10000, 10000),), SHA), deadline=deadline())
+    assert pos(store, 'old').sellable == 10000
+
+
+def test_broker_lower_sellable_still_requires_freeze_reconciliation(tmp_path):
+    store, _ = book(tmp_path)
+    with pytest.raises(AllocationError, match='account_sellable_mismatch'):
+        store.observe_account(AccountSnapshot(2, DAY, D('2000000'),
+            (OwnedPosition(CODE, 10000, 9000),), SHA), deadline=deadline())
+    assert pos(store, 'old').sellable == 10000
+
+
 def target(store, sid, quantity, revision=1, cap=None):
     store.record_targets(TargetIntent(uid(), sid, revision, (Target(CODE, quantity, cap),), SHA, STAMP), deadline=deadline())
 

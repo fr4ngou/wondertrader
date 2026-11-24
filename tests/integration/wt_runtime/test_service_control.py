@@ -1028,7 +1028,7 @@ class ServiceControlTests(unittest.TestCase):
         self.assertEqual(self.current.read_bytes(), current)
         self.assertEqual(len(entries), 1)
 
-    def test_abort_recovery_will_not_launch_write_enabled_candidate(self):
+    def test_abort_recovery_requires_original_proof_before_launching_live_candidate(self):
         controller, entries, native_calls, _ = self._dependency_failure_controller(fail_runs=(), trading=True)
         runtime = json.loads(self.runtime.read_bytes())
         role = runtime['components']['execution']
@@ -1057,11 +1057,14 @@ class ServiceControlTests(unittest.TestCase):
         before = self.current.read_bytes()
         with patch.object(controller, '_admit_bootstrap'), \
                 patch.object(controller, '_require_managed_trade_handoff') as handoff, \
-                patch.object(service_control, 'prepare_transition') as prepare:
-            with self.assertRaises(ValueError):
+                patch.object(service_control, 'prepare_transition', side_effect=ValueError('initialization_abort_proof')) as prepare:
+            with self.assertRaisesRegex(ValueError, 'initialization_abort_proof'):
                 controller.recover_initialization_abort(native_control)
             handoff.assert_called_once()
-            prepare.assert_not_called()
+            prepare.assert_called_once()
+            self.assertTrue(prepare.call_args.kwargs['initialization_abort'])
+            self.assertEqual(prepare.call_args.args[1], native_control/'execution.json')
+            self.assertEqual(prepare.call_args.args[2], native_control)
         self.assertEqual(self.current.read_bytes(), before)
         self.assertEqual(len(entries), 1)
 

@@ -992,6 +992,15 @@ rj::Document transition_state_identity(const fs::path& output,const rj::Value& c
     }
     return files;
 }
+void validate_idle_initialization(const rj::Value& failure,const fs::path& previous){
+    // 已授权及只读失败代共用原零执行证明，不能用“尚无成交”替代准入队列事实。
+    const auto& queue=member(failure,"execution_queue");
+    keys(queue,{"fault","accepting","inflight","accepted","entered","delivered","rejected","queued_commands","payload_bytes"});
+    need(member(failure,"closed").IsFalse()&&member(queue,"accepting").IsFalse()&&member(queue,"inflight").IsFalse());
+    for(const auto* name:{"fault","accepted","entered","delivered","rejected","queued_commands","payload_bytes"})
+        need(member(queue,name).IsUint64()&&member(queue,name).GetUint64()==0);
+    need(!fs::exists(previous/"closed.json")&&!fs::exists(previous/"lifecycle-started.json"));
+}
 void admit_reconciled(const rj::Value& selection,const rj::Value& current,const fs::path& output,
     const rj::Value& strategies,const std::string& installation,const std::string& id,
     const std::string& configuration,const fs::path& control){
@@ -1103,6 +1112,9 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
         need(sha(source_raw)==text(snapshot,"predecessor_configuration_sha256",64)
             &&sha(read(origin/"python-binding.json",256*1024))==text(snapshot,"predecessor_python_binding_sha256",64));
         auto source=parse(source_raw);
+        const bool aborted_live=!aborted_loss&&(member(member(source,"trader"),"writes_enabled").IsTrue()
+            ||member(member(prior_config,"trader"),"writes_enabled").IsTrue()
+            ||member(member(current,"trader"),"writes_enabled").IsTrue());
         if(aborted_loss){
             const auto& prior_trader=member(prior_config,"trader");
             const auto& source_trader=member(source,"trader");
@@ -1117,11 +1129,7 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
                     &&absolute(text(permission,"file"))==origin/"execution.json"
                     &&text(permission,"sha256",64)==sha(source_raw));
             }
-            const auto& queue=member(ready,"execution_queue");
-            keys(queue,{"fault","accepting","inflight","accepted","entered","delivered","rejected","queued_commands","payload_bytes"});
-            need(member(ready,"closed").IsFalse()&&member(queue,"accepting").IsFalse()&&member(queue,"inflight").IsFalse());
-            for(const auto* name:{"fault","accepted","entered","delivered","rejected","queued_commands","payload_bytes"})
-                need(member(queue,name).IsUint64()&&member(queue,name).GetUint64()==0);
+            validate_idle_initialization(ready,previous);
             need(!fs::exists(previous/"lifecycle-started.json")
                 &&!fs::exists(origin/"closed.json")&&!fs::exists(origin/"close-prepared.json")&&!fs::exists(origin/"failure.json"));
             const auto snapshot_sha=text(admitted,"transition_sha256",64);
@@ -1145,10 +1153,17 @@ void admit_reconciled(const rj::Value& selection,const rj::Value& current,const 
             if(source_process.value)need(WaitForSingleObject(source_process.value,0)==WAIT_OBJECT_0);
             else need(GetLastError()==ERROR_INVALID_PARAMETER);
             need(previous.filename().u8string()==text(ready,"control_id"));
-            abort_claim=output/(".cta-initialization-abort-"+previous.filename().u8string()+".json");
-            need(!fs::exists(abort_claim)&&!fs::exists(fs::path(abort_claim.wstring()+L".pending")));
+        }else if(aborted_live){
+            need(member(source,"trader")==member(prior_config,"trader")&&member(prior_config,"trader")==member(current,"trader"));
+            validate_idle_initialization(ready,previous);
+            const auto claim=output/(".cta-reconciled-"+text(admitted,"transition_sha256",64)+".json");
+            need(read(claim,256*1024)==admitted_raw);
         }else need(member(member(source,"trader"),"writes_enabled").IsFalse()
             &&member(member(current,"trader"),"writes_enabled").IsFalse());
+        if(aborted_loss||aborted_live){
+            abort_claim=output/(".cta-initialization-abort-"+previous.filename().u8string()+".json");
+            need(!fs::exists(abort_claim)&&!fs::exists(fs::path(abort_claim.wstring()+L".pending")));
+        }
         source.RemoveMember("recovery");need(compatible_model(source,identity));
         state_owner.CopyFrom(source,state_owner.GetAllocator());
         if(!aborted_loss){

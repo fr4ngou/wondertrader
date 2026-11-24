@@ -65,3 +65,4 @@
 - [ADR-0030 WT 私有持久化](adr/0030-wt-private-persistence.md)记录私有目录、策略扩展、提交与去重的归属。
 - [ADR-0031 账户观察结果按原期限回收](adr/0031-account-observation-expiry.md)：消费确认丢失后的有界回收，保留未知责任和金融证明。
 - [ADR-0033 柜台当前费用与差额更正](adr/0033-current-broker-fees.md)：原成交精确费用、暂记状态和按原观察顺序进行差额更正。
+- [ADR-0034 策略启动与账户交易资格分开](adr/0034-strategy-start-and-account-readiness.md)：账户等待保留运行与原账，原调度核同后继续。

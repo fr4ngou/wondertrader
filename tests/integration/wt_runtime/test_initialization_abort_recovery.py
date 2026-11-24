@@ -131,3 +131,39 @@ class ReadOnlyInitializationAbortTests(InitializationAbortTests):
         self.assert_rejected(dict(self.aborted_config, trader=dict(self.aborted_config['trader'], expected_account='other')))
         self.transition['state_files'] = {'portfolio/datas.json': '9' * 64}
         self.assert_rejected()
+
+
+class CleanLiveInitializationAbortTests(unittest.TestCase):
+    writes_disabled = False
+    assert_rejected = InitializationAbortTests.assert_rejected
+
+    def setUp(self):
+        InitializationAbortTests.setUp(self)
+        admission = self.abort / 'reconciled.json'
+        data = json.loads(admission.read_bytes())
+        data['admission_kind'] = 'clean_transition'
+        self.transition['initialization_abort']['sha256'] = save(admission, data)
+        self.claim.write_bytes(admission.read_bytes())
+        source = self.source_identity
+        save(self.origin/'closed.json', dict(source, schema='guanheng.execution.closed.v2',
+             closed=True, ok=True, recovery_ready=True, resources_closed=True, exit_code=0, error_code=None))
+        save(self.root/'.cta-clean.consumed.json', dict(schema='guanheng.cta-clean.v2',
+             closed=True, installation_sha256='a'*64, control_id=self.origin.name, pid=source['pid'],
+             closed_config_sha256=source['config_sha256'], closed_receipt=str(self.origin/'closed.json'), files=self.state))
+
+    def test_unchanged_live_account_with_zero_queue_recovers_original_owner(self):
+        with patch('guanheng_wt_runtime.execution_recovery.require_process_exited'):
+            result = initialization_abort_origin(self.transition, current=self.config)
+        self.assertEqual(result['control_directory'], self.origin)
+        self.assertEqual(result['configuration'], self.config)
+
+    def test_live_started_or_incomplete_queue_is_rejected(self):
+        queue = self.failure['execution_queue']
+        for change in ({'entered': 1}, {'accepting': True}, {'accepted': True}):
+            save(self.abort/'failure.json', dict(self.failure, execution_queue=dict(queue, **change)))
+            self.assert_rejected()
+
+    def test_live_recovery_preserves_permissions_and_claim(self):
+        self.assert_rejected(dict(self.config, trader=dict(self.config['trader'], writes_enabled=False)))
+        self.claim.write_bytes(b'{}')
+        self.assert_rejected()

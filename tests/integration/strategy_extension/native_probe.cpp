@@ -33,6 +33,12 @@ int main(int argc,char** argv){
     try{
         need(argc==2);auto request=parse(read(absolute(argv[1]),1024*1024));
         const auto mode=text(request,"mode");
+        if(mode=="configuration-identity"){
+            // 使用正式关闭标记的原生编码，避免测试把Python排序编码误作Native原件。
+            rj::Document identity;identity.CopyFrom(member(request,"configuration"),identity.GetAllocator());
+            identity.RemoveMember("recovery");
+            std::cout<<"{\"ok\":true,\"sha256\":\""<<sha(encode(identity))<<"\"}";return 0;
+        }
         if(mode=="compare")need(compatible_model(member(request,"previous"),member(request,"current")));
         else if(mode=="source-origin")source_origin(member(request,"source_extension"),text(request,"binding_sha256",64));
         else if(mode=="source-plan")source_plan(member(request,"plan"));

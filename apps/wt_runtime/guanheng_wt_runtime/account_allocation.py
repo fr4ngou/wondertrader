@@ -978,7 +978,10 @@ class AccountAllocation:
                         held['sellable'] += sum(lot['quantity'] for lot in mature)
                         held['lots'] = [lot for lot in held['lots'] if lot['day'] > account['day']]
                 _need(sum(p.get(symbol, {}).get('quantity', 0) for p in positions) == actual['quantity'], 'account_position_mismatch')
-                _need(sum(p.get(symbol, {}).get('sellable', 0) for p in positions)-frozen.get(symbol, 0) == actual['sellable'], 'account_sellable_mismatch')
+                # 柜台可先于本地T+1批次提高可卖；内部批次和委托预留继续限制授权。
+                # 柜台可卖更少仍须核冻结来源，不能据其更高值提前释放策略份额。
+                owned_sellable = sum(p.get(symbol, {}).get('sellable', 0) for p in positions)-frozen.get(symbol, 0)
+                _need(0 <= owned_sellable <= actual['sellable'], 'account_sellable_mismatch')
             state['account'] = account
             self._save(db, rev, state)
 

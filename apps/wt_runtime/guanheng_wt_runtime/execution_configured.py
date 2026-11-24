@@ -37,6 +37,24 @@ def _digest(value):
     return hashlib.sha256(_encode(value)).hexdigest()
 
 
+def _callback_failure_details(error):
+    """固定分类和调用位置；不把异常任意正文或金融数值写入诊断。"""
+    import traceback
+    value = {'schema': 'guanheng.configured-callback-failure.v1',
+             'exception_type': type(error).__name__,
+             'frames': [{'file': Path(row.filename).name, 'function': row.name, 'line': row.lineno}
+                        for row in traceback.extract_tb(error.__traceback__)[-16:]]}
+    if type(error) is CtaBridgeError and str(error) in (
+            'evaluation_deadline', 'native_read_failed', 'native_operation_failed', 'target_readback',
+            'account_observation_unknown', 'account_observation_stale', 'account_observation_before_actual_fill',
+            'account_observation_day_unqualified', 'account_trading_day_unqualified', 'account_broker_projection_pending',
+            'account_position_mismatch', 'account_sellable_mismatch', 'account_freeze_unbound'):
+        value['reason'] = str(error)
+    if type(error) is NativeBarReadError:
+        value.update(reason=str(error), market_read=error.details)
+    return value
+
+
 def _quantity(value):
     _need(type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 9007199254740900
           and value % 100 == 0, 'native_quantity')
@@ -394,9 +412,10 @@ class RetainedStrategy:
         return rows
 
     def _initialize(self, context):
-        _need(self._allocation_refresh(context,self.start_deadline) is None,'retained_allocation_initial')
+        reason = self._allocation_refresh(context,self.start_deadline)
         broker = context.broker_observation()
-        _need(broker.positions_known, 'broker_unknown')
+        # ASA拥有可恢复的实际归属；当前P/A等待不影响恢复，原调度核同后才推进目标。
+        if self.allocation is None:_need(broker.positions_known, 'broker_unknown')
         rows = self._broker_rows(broker)
         if self.recovery in ('resume_clean','resume_reconciled'):
             saved = self.recovery_state.restore(deadline=self.start_deadline) if self.recovery_state is not None else None
@@ -405,7 +424,6 @@ class RetainedStrategy:
             self._load_state(saved)
             self._state_revision = hashlib.sha256(saved.encode('ascii')).hexdigest()
             # 同策略恢复保留原冻结阶段；原WT活动订单参与后续pending观察。
-            # 角色首次换代的旧计划由_load_state在核原配置后明确退役。
         else:
             if self.recovery_state is not None:
                 _need(self.recovery_state.restore(deadline=self.start_deadline) is None, 'fresh_strategy_required')
@@ -455,7 +473,8 @@ class RetainedStrategy:
             self._state_revision = hashlib.sha256(initial.encode('ascii')).hexdigest()
         self.initialized = True
         if self.allocation is not None:
-            self._publish(dict(status='waiting_market_input',reason='awaiting_first_strategy_calculation',sequence=self.sequence,
+            self._publish(dict(status='waiting_market_input' if reason is None else 'waiting_allocation',
+                reason='awaiting_first_strategy_calculation' if reason is None else reason,sequence=self.sequence,
                 allocation_observation=allocation_projection(self.allocation_observation,include_read_projection=True)),
                 deadline=self.start_deadline)  # 只发布ASA初始估值；不重复KV/目标或金融调用。
         if self.allocation is None and self.inputs.capital_baseline is not None and self.capital_market is not None:
@@ -833,12 +852,13 @@ class RetainedStrategy:
         cutoff = datetime.now(timezone.utc);broker = context.broker_observation();trades=context.broker_trades() if self.allocation is None else None;check()
         self.sequence += 1
         status, reason, cycles, metadata = (None if allocation_reason is None else 'waiting_allocation'),allocation_reason,[],dict(self.cycles)
-        if not broker.positions_known or broker.position_received_ms is None:
-            status, reason = 'waiting_broker_position','broker_position_unknown'
-        else:
-            received = datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc)
-            if not received <= cutoff < received+timedelta(seconds=self.max_age):
-                status, reason = 'waiting_broker_position','broker_position_stale'
+        if status is None:
+            if not broker.positions_known or broker.position_received_ms is None:
+                status, reason = 'waiting_broker_position','broker_position_unknown'
+            else:
+                received = datetime.fromtimestamp(broker.position_received_ms/1000,timezone.utc)
+                if not received <= cutoff < received+timedelta(seconds=self.max_age):
+                    status, reason = 'waiting_broker_position','broker_position_stale'
         rows = self._broker_rows(broker)
         if status is None and self.execution_enabled and self.allocation is not None and not self._shared_announced:
             from .profile_facts import announce_shared_hold
@@ -1281,17 +1301,8 @@ def main():
         refresh_stop.set()
         if runtime._last_error is not None:
             # 私有有限诊断只记类型/调用位置；账户、变量内容和异常正文保持在原owner内。
-            import traceback
             error = runtime._last_error
-            value = {'schema': 'guanheng.configured-callback-failure.v1',
-                     'exception_type': type(error).__name__,
-                     'frames': [{'file': Path(row.filename).name, 'function': row.name, 'line': row.lineno}
-                                for row in traceback.extract_tb(error.__traceback__)[-16:]]}
-            if type(error) is CtaBridgeError and str(error) in (
-                    'evaluation_deadline', 'native_read_failed', 'native_operation_failed', 'target_readback'):
-                value['reason'] = str(error)
-            if type(error) is NativeBarReadError:
-                value.update(reason=str(error), market_read=error.details)
+            value = _callback_failure_details(error)
             if runtime._attribution is not None and runtime._attribution.failure is error:
                 value['attribution'] = runtime._attribution.failure_diagnostic
             try:

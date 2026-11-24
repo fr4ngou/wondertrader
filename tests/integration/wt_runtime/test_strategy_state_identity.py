@@ -84,3 +84,63 @@ def test_retained_init_mirror_failure_and_new_install_keep_original_asa_record(m
         else:
             owner._initialize(ctx)
             assert owner.initialized and owner.sequence==424 and ctx.kv==raw
+
+
+@pytest.mark.parametrize('reason', ('account_sellable_mismatch', 'account_position_mismatch',
+                                  'account_observation_unknown', 'account_observation_stale',
+                                  'account_freeze_unbound'))
+def test_retained_account_wait_restores_state_without_target_or_restart(monkeypatch, reason):
+    from dataclasses import dataclass
+    from guanheng_wt_runtime import execution_configured as mod, owned_valuation
+    from guanheng_wt_runtime.strategy_state import SharedStrategyState
+    owner = retained(monkeypatch, 'b'*64)
+    raw = owner._state_payload(None, 424, {}, ())
+    published = []
+    @dataclass(frozen=True)
+    class Broker:
+        positions_known: bool = True
+        position_received_ms: int = int(time.time()*1000)
+    @dataclass(frozen=True)
+    class Request:
+        cycles: tuple = ()
+        cycles_captured_at: object = None
+        cycles_valid_until: object = None
+        decision_cutoff: object = None
+        previous_exits: tuple = ()
+    class Book:
+        current_reason = reason
+        def observe_context(self, *a, **kw): return self.current_reason
+        def strategy_state(self, *a, **kw): return NS(strategy=NS(strategy_id=owner.id, positions=()))
+        def load_strategy_state(self, *a, **kw): return raw
+        def commit_strategy_state(self, *a, **kw): raise AssertionError('waiting rewrote original state')
+    class Context:
+        kv = ''
+        event = NS(kind=1, epoch=1)
+        known = reason != 'account_observation_unknown'
+        def broker_observation(self): return Broker(self.known, int(time.time()*1000) if self.known else None)
+        def broker_trades(self): return None
+        def load_quantity_state(self): return self.kv
+        def store_quantity_state(self, value): self.kv = value
+        def set_targets(self, *a): raise AssertionError('waiting submitted targets')
+    monkeypatch.setattr(mod, 'register_main_minute', lambda *a, **kw: None)
+    monkeypatch.setattr(mod, 'allocation_projection', lambda *a, **kw: None)
+    monkeypatch.setattr(owned_valuation, 'owned_valuation', lambda *a, **kw: None)
+    owner.allocation = Book()
+    owner.recovery_state = SharedStrategyState(mod.RETAINED_STATE, owner.allocation, owner.id)
+    owner.publish = lambda sid, value, **kw: published.append(value)
+    ctx = Context()
+    owner.callback(ctx)
+    assert owner.initialized and owner.sequence == 424 and ctx.kv == raw
+    assert published[-1]['status'] == 'waiting_allocation' and published[-1]['reason'] == reason
+    ctx.event = NS(kind=4, epoch=2)
+    owner.callback(ctx)
+    assert published[-1]['status'] == 'waiting_allocation' and published[-1]['reason'] == reason
+    # 同一存活实例再次取得合格账户；不以重启重置记录。
+    owner.allocation.current_reason = None
+    ctx.known = True
+    owner.inputs.request = Request()
+    owner.market_window = NS(read=lambda *a, **kw: NS(request=None, publication={}, reason='awaiting_test_market'))
+    owner.execution_enabled = False
+    owner.callback(ctx)
+    assert published[-1]['status'] == 'waiting_market_input' and published[-1]['reason'] == 'awaiting_test_market'
+    assert owner.initialized and ctx.kv == raw
