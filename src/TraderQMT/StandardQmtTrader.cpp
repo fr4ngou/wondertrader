@@ -806,12 +806,14 @@ struct StandardQmtTrader::Impl {
    if(!audit_stage(a,end))return;
    auto prepared=account.create_request(QmtAccountDatatype::Order,end);
    if(!prepared.status.ok()||!prepared.request){audit_error(a,prepared.status);return;}
-   // 收据先完整成组安装，才允许POST；抛出/超D后仍保Started及原UUID。
-   {OrderObservation fresh;fresh.receipt=prepared.request->receipt();fresh.state=OrderAuditState::Started;swap_order(a.order,fresh);}
+   // 收据先完整成组安装，才允许POST；未知调用保Started，明确未提交则归还只读责任。
+   OrderObservation fresh;fresh.receipt=prepared.request->receipt();
    if(!audit_stage(a,end))return;
+   fresh.state=OrderAuditState::Started;swap_order(a.order,fresh);
    auto value=account.submit_once(std::move(prepared.request),end);
-   if(read_terminal(value))a.order.state=OrderAuditState::Terminal;
-   else if(!value.bound.result.status.ok())audit_error(a,value.bound.result.status);
+   if(!value.submission_entered)a.order={};
+   else if(read_terminal(value))a.order.state=OrderAuditState::Terminal;
+   if(!value.bound.result.status.ok())audit_error(a,value.bound.result.status);
   }
   // 已有actual未知时只能续该UUID；目标lookup不能用较新的C替换它。
   if(a.target_lookup==TargetLookupState::Actual&&!a.actual.observed.terminal()){
@@ -1580,6 +1582,11 @@ struct StandardQmtTrader::Impl {
     ||value.account.bound.result.http_status==503
     ||status.reason=="qmt_host_result_unknown";
  }
+ static bool read_submission_entered(const Completion& value)noexcept {
+  // 方法内异常仍按可能已提交保守持有；正常返回用Common的实际运输阶段。
+  return value.query_step>=QueryStep::SubmitEntered
+   &&(value.query_step!=QueryStep::Returned||value.account.submission_entered);
+ }
  bool wait_read(Completion& value,TaskCredit& credit,std::size_t& result_charge) {
   if(stop_requested||event_detached||!spi)return false;
   if(!logged_in&&(value.kind==Kind::Prepare||value.kind==Kind::Login)
@@ -1609,7 +1616,7 @@ struct StandardQmtTrader::Impl {
   }
   if(!temporary_read(value))return false;
   const bool pending=(value.kind==Kind::Query||value.kind==Kind::EventQuery)
-    &&value.query_step>=QueryStep::SubmitEntered&&!value.account.bound.result.terminal&&!settled_read(value);
+    &&read_submission_entered(value)&&!value.account.bound.result.terminal&&!settled_read(value);
   if(pending){
    HeldRead held;held.receipt=std::move(value.account.bound.receipt);
    if(held.receipt.request_body.empty())held.receipt=std::move(value.saved_receipt);
@@ -1833,8 +1840,8 @@ struct StandardQmtTrader::Impl {
        require(prepared.request->receipt().binding_json==read.context.source.binding_json
         &&prepared.request->read_profile_body()==read.context.read_profile_body,"qmt_standard_read_generation_binding_changed");
        result.saved_receipt=prepared.request->receipt();result.query_step=QueryStep::SubmitEntered;
-       result.account=read.account->submit_once(std::move(prepared.request),end);result.status=result.account.bound.result.status;
-       result.query_step=QueryStep::Returned;
+       result.account=read.account->submit_once(std::move(prepared.request),end);result.query_step=QueryStep::Returned;
+       result.status=result.account.bound.result.status;
       }
       }
      }else if(task.kind==Kind::EventQuery){
@@ -1884,7 +1891,7 @@ struct StandardQmtTrader::Impl {
     }
     result.read_not_dispatched=read_not_dispatched(result);
     result.read_interrupted=query_first&&events_enabled&&interrupted_read(result);
-    const bool held_query=task.kind==Kind::Query&&result.query_step>=QueryStep::SubmitEntered
+    const bool held_query=task.kind==Kind::Query&&read_submission_entered(result)
       &&!result.account.bound.result.terminal&&!settled_read(result)&&temporary_read(result);
     const bool financial=task.kind==Kind::Insert||task.kind==Kind::Cancel||task.kind==Kind::AuditOriginal;
     if(result.read_generation&&(financial||task.kind==Kind::Resolve||(task.kind==Kind::Query

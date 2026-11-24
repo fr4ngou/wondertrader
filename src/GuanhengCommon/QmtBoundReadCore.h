@@ -46,7 +46,8 @@ private:
     Status prepare_impl(SignedHttpDeadline&, RequestControl*);
     QmtAccountPreparation create_account_impl(QmtAccountDatatype, SignedHttpDeadline&, RequestControl*);
     QmtHistoryPreparation create_prepared(const std::string&, SignedHttpDeadline&, RequestControl* = nullptr);
-    QmtHistoryResult submit_prepared(std::unique_ptr<QmtPreparedHistoryRead>, SignedHttpDeadline&, RequestControl* = nullptr);
+    QmtHistoryResult submit_prepared(std::unique_ptr<QmtPreparedHistoryRead>, SignedHttpDeadline&, RequestControl* = nullptr,
+        bool* submission_entered = nullptr);
     QmtHistoryResult resume_prepared(const QmtBoundReceipt&, SignedHttpDeadline&, RequestControl* = nullptr);
     class Impl;
     std::unique_ptr<Impl> impl_;

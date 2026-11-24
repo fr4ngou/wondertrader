@@ -814,6 +814,8 @@ public:
             if(!request_control||!request_control->control_stopped())ready=false;
             return status.ok()?fail(ErrorCode::StaleSession,"qmt_host_binding_changed"):status;
         }
+        // retained暂时失联后仍核原pin；成功恢复资格，整个来源绑定不改代、不重授期。
+        if(retained_snapshot() && expected==pin)ready=true;
         return {};
     }
     Status capacity(SignedHttpDeadline& until,RequestControl* request_control)
@@ -1047,7 +1049,8 @@ QmtBoundResult QmtBoundReadCore::read_full_tick(const std::string& input,std::ui
     auto reject=[&](Status status){rejected.result.status=std::move(status);return rejected;};
     auto status=impl_->http.check();if(!status.ok())return reject(status);
     if(!milliseconds||milliseconds>30000)return reject(fail(ErrorCode::InvalidInput,"qmt_host_budget_invalid"));
-    if(!impl_->ready)return reject(fail(ErrorCode::Unavailable,"qmt_host_not_prepared"));
+    if(!impl_->ready && !(impl_->retained_snapshot() && !impl_->pin.empty()))
+        return reject(fail(ErrorCode::Unavailable,"qmt_host_not_prepared"));
     Document argument;if(!parse(input,argument,65536)||!stocks(argument))return reject(fail(ErrorCode::InvalidInput,"qmt_host_stocks_invalid"));
     status=impl_->verify(until,impl_->pin);if(!status.ok())return reject(status);
     if(impl_->retained_snapshot()){

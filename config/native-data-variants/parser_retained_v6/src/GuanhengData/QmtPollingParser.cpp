@@ -42,6 +42,7 @@ std::string diagnostic_reason(const Status& status)
         "qmt_host_snapshot_invalid","qmt_host_binding_invalid","qmt_host_profile_invalid","qmt_host_limits_invalid",
         "qmt_host_native_operation_failed","qmt_host_source_reconnect_deadline","qmt_host_deadline","qmt_host_pump_deadline",
         "qmt_host_original_snapshot_pending","qmt_host_original_consumption_pending","qmt_host_source_changed",
+        "qmt_read_retention_held_responsibility",
         "qmt_host_result_identity_invalid","qmt_host_transport_identity_required","qmt_http_result_identity_mismatch",
         "qmt_http_deadline","qmt_http_exchange_failed","qmt_http_body_incomplete","qmt_http_authentication_rejected",
         "qmt_http_endpoint_unavailable","qmt_http_conflict","qmt_http_backpressure","qmt_http_remote_timeout",
@@ -51,6 +52,17 @@ std::string diagnostic_reason(const Status& status)
         "QMT polling callback outcome unknown","QMT polling worker failed","QMT polling dependency closed",
         "QMT polling endpoint unavailable","QMT polling startup cancelled","QMT HTTP callback cleanup is unresolved"};
     if(known.count(status.reason))return status.reason;
+    const std::string before_submit="qmt_host_snapshot_before_submit:";
+    if(status.code==ErrorCode::Pending && status.reason.compare(0,before_submit.size(),before_submit)==0) {
+        // 前缀由Host端点产生；仍只发布允许的固定运输原因，远端任意正文不进日志。
+        const auto cause=status.reason.substr(before_submit.size());
+        if(known.count(cause))return before_submit+cause;
+        for(const auto* code:{"500","502","503"}) {
+            const auto prefix=std::string("qmt_http_remote_failure:")+code;
+            if(cause==prefix || cause.compare(0,prefix.size()+1,prefix+":")==0)return before_submit+prefix;
+        }
+        return before_submit+"unclassified";
+    }
     const std::string snapshot_prefix="qmt_host_snapshot_invalid:";
     if(status.code==ErrorCode::InvalidInput && status.reason.compare(0,snapshot_prefix.size(),snapshot_prefix)==0) {
         const auto detail=status.reason.substr(snapshot_prefix.size());
@@ -270,8 +282,10 @@ public:
         auto status=source_->pump(count,budget);
         const bool original_pending=status.code==ErrorCode::Pending && (status.reason=="qmt_host_original_snapshot_pending"
             || status.reason=="qmt_host_original_consumption_pending");
+        const bool before_submit=status.code==ErrorCode::Pending && (status.reason=="qmt_read_retention_held_responsibility"
+            || status.reason.compare(0,32,"qmt_host_snapshot_before_submit:")==0);
         const bool local_deadline=status.code==ErrorCode::Timeout && status.reason=="qmt_host_pump_deadline";
-        if(!retained_ || (!original_pending && !local_deadline))return status;
+        if(!retained_ || (!original_pending && !before_submit && !local_deadline))return status;
         // 原请求等待留在同一端点，轮询期限只结束本轮，通用MarketParser保持连接和水位。
         if(waiting_!=status.reason) {
             waiting_=status.reason;

@@ -17,8 +17,10 @@ def main():
     ap.add_argument('--candidate-app',type=Path,required=True)
     ap.add_argument('--toolchain',type=Path,required=True)
     ap.add_argument('--output',type=Path,required=True)
-    ap.add_argument('--scenario',choices=['session','authentication','stable-binding','invalid-binding'],required=True)
+    ap.add_argument('--scenario',choices=['session','authentication','stable-binding','invalid-binding','lost-read-response'],required=True)
+    ap.add_argument('--switch-boundary',choices=['next-task','pre-submit'],default='next-task')
     a=ap.parse_args(); a.output.mkdir(parents=True,exist_ok=False)
+    assert a.switch_boundary=='next-task' or a.scenario=='authentication'
     for p in ['qmt_shm_trading','qmt_standard_trader','qmt_query_submission_group']:
         sys.path.insert(0,str(a.legacy_fixtures/p))
     for p in ['apps/guanheng','connectors/qmt_shm/host','connectors/qmt_shm/agent','integrations']:
@@ -75,7 +77,7 @@ def main():
             return rows
     (a.output/'owners').mkdir(); f=Fixture(a.output,total,'query_first')
     control=a.output/'control';control.mkdir(); owners=_FixtureOwners()
-    native=None;result={'passed':False,'scenario':a.scenario,'production_inputs':False}
+    native=None;result={'passed':False,'scenario':a.scenario,'switch_boundary':a.switch_boundary,'production_inputs':False}
 
     class Proxy:
         """Bounded single HTTP owner; no financial POST is admitted by this harness."""
@@ -83,6 +85,7 @@ def main():
             self.owner=owner;self.active=False;self.original=None;self.changed=None
             self.transcript=[];self.errors=[];self.requests=[];self.ids=set();self.stop=threading.Event()
             self.entered=threading.Event();self.joined=False;self.max_requests=2048
+            self.lost_id=None;self.lost_query_count=None;self.lost_completed_queries=None
             proxy=self
             class Handler(BaseHTTPRequestHandler):
                 protocol_version='HTTP/1.1'
@@ -98,10 +101,22 @@ def main():
                         raw=self.rfile.read(n);assert len(raw)==n
                         request=decode(raw)if raw else None
                         assert self.path!='/internal/v1/trade-commands','unexpected financial POST'
-                        if (not proxy.active and self.path=='/internal/v1/read-binding'
+                        drop=(a.scenario=='lost-read-response' and proxy.lost_id is None
+                              and self.command=='POST' and self.path=='/internal/v1/bound-operations/account.trade_detail'
+                              and (control/'ready.json').exists() and len(owner.queries)>=4)
+                        if self.command=='POST' and self.path=='/internal/v1/bound-operations/account.trade_detail':
+                            inner=decode(base64.b64decode(request['request_body_b64']))
+                            proxy.requests.append(inner)
+                            if drop:
+                                proxy.lost_id=inner['request_id'];proxy.lost_query_count=len(owner.queries)
+                                proxy.active=True;proxy.activation_query_count=len(owner.queries)
+                        # 完整查询已跑通后，在下一任务或create后的最终绑定GET精确切认证。
+                        boundary=(proxy.transcript and proxy.transcript[-1]['path']=='/internal/v1/trade-events'
+                                  and proxy.transcript[-1]['status']==200) if a.switch_boundary=='next-task' else (
+                                  [x['path'] for x in proxy.transcript[-4:]] == ['/internal/v1/trade-status']+['/internal/v1/read-binding']*3)
+                        if (a.scenario!='lost-read-response' and not proxy.active and self.path=='/internal/v1/read-binding'
                                 and (control/'ready.json').exists() and len(owner.queries)>=4
-                                and proxy.transcript and proxy.transcript[-1]['path']=='/internal/v1/trade-events'
-                                and proxy.transcript[-1]['status']==200):
+                                and boundary):
                             proxy.active=True
                             proxy.activation_query_count=len(owner.queries)
                         use_changed=False
@@ -127,7 +142,7 @@ def main():
                         value=decode(original)
                         if self.path in ['/internal/v1/read-binding','/internal/v1/trade-status'] and reply.status==200:
                             if proxy.original is None:proxy.original=value['binding']
-                            if proxy.active:
+                            if proxy.active and a.scenario!='lost-read-response':
                                 if proxy.changed is None:
                                     proxy.changed=decode(canonical(proxy.original))
                                     proxy.changed['host_instance_id']=uuid4().hex
@@ -144,6 +159,13 @@ def main():
                         proxy.transcript.append({'method':self.command,'path':self.path,'status':reply.status,
                             'active':proxy.active,'translated_request':use_changed,
                             'original_sha256':sha(original),'delivered_sha256':sha(body)})
+                        # 原POST已到真实Host；丢掉一次响应，迫使Native只续查原ID。
+                        if drop:
+                            self.close_connection=True;return
+                        if (a.scenario=='lost-read-response' and proxy.lost_id and proxy.lost_id in self.path
+                                and reply.status==200 and value.get('state')=='terminal'
+                                and proxy.lost_completed_queries is None):
+                            proxy.lost_completed_queries=len(owner.queries)
                         self.send_response(reply.status);self.send_header('Content-Type','application/json')
                         self.send_header('Content-Length',str(len(body)));self.send_header('Connection','close')
                         self.end_headers();self.wfile.write(body);self.wfile.flush();self.close_connection=True
@@ -224,7 +246,15 @@ def main():
                 assert code==0 and failure is None,result
                 assert result['closed']['ok']is True
                 assert len(f.queries)>f.proxy.activation_query_count
-                assert any(x['active'] and x['translated_request'] and '/bound-results/'in x['path'] and x['status']==200 for x in f.proxy.transcript)
+                if a.scenario=='lost-read-response':
+                    assert f.proxy.lost_id and f.proxy.lost_completed_queries==f.proxy.lost_query_count+1
+                    matching=[x for x in f.proxy.requests if x.get('request_id')==f.proxy.lost_id]
+                    assert len(matching)==1,matching
+                    assert any(f.proxy.lost_id in x['path'] and x['status']==200 for x in f.proxy.transcript)
+                    result['lost_read_response']={'request_id':f.proxy.lost_id,'sdk_query_count':1,
+                                                 'original_post_count':len(matching)}
+                else:
+                    assert any(x['active'] and x['translated_request'] and '/bound-results/'in x['path'] and x['status']==200 for x in f.proxy.transcript)
                 assert not any(x['status']==404 for x in f.proxy.transcript)
             result['passed']=True
     except BaseException as e:

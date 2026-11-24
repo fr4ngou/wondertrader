@@ -2,6 +2,16 @@
 
 状态：recovering。等级：主要。范围：正式 WT 两套策略及观衡真实运行展示。用户已授权逐项根因修复、恢复自动交易及线上验收；原资金、持仓、委托身份保持。
 
+## 11月24日读取生命周期复现
+
+当前费用及观衡153已正式采用，见[发布记录](../releases/2026-11-24-wt-current-fees.md)。行情19:47再次停止，首错为Pending但原原因未进入允许日志；13:05旧记录也属于同类Pending终止，具体历史子类缺原证据，保留unknown。父进程ready不能证明接收线程仍在运行。
+
+独立复现确认两个根因：Common创建收据后、POST前的认证变化返回明确未提交，Standard仍按方法已进入保留该UUID，持续GET404；retained行情容量等待未被轮询层识别，暂时运输失败还会使Common ready失效，下一轮又被缓存资格挡住。原委托核查也存在同样的未提交收据保留路径。
+
+修复状态为in-progress。实际提交事实由Common返回，普通查询、事件查询及原委托核查各自按事实接续；行情保留原pin，暂时故障后重新验证同一完整来源，保留原收据及期限。固定等待、恢复及终止原因分别记录。规格见[STQ-P38](../specs/native-qmt-standard-trader.md#stq-p38-查询实际提交阶段)及[retained轮询](../specs/qmt-native-parser.md#retained-v6-开盘前轮询与准备等待)。
+
+回归入口为`tests/integration/qmt_read_source_diagnostics/run_native_source.py --switch-boundary pre-submit`、同入口`--scenario lost-read-response`，以及`tests/integration/qmt_polling_lifecycle/run.py`和`core.py`。它们分别核真实Native/Host/WinSHM认证窗口、丢响应后原ID、真实三层行情等待及真实Common/WinHTTP原pin重新验证；账户和SDK为合成来源。最终CI、正式发行和线上自然计算仍需分别验收，不以隔离回归推定真实账户健康。
+
 ## 已确认根因与影响
 
 账户查询 Host 保留 114 条结果，逻辑预留约 31.8 MB，其中 100 条等待消费确认。已完成且过期的账户观察因确认丢失持续占用额度，实际准入返回 `read_retention_capacity_exhausted`。Native 对外汇总为 `IoError`，缺少可直接关联容量原因的诊断。QMT 连接健康与账户整轮查询成功分别核实。

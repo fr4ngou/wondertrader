@@ -15,9 +15,9 @@ namespace guanheng { namespace standard_event_budget {
 // 固定x64/Release COFF基线；公共布局漂移必须在编译时阻断并重核银行。
 static_assert(sizeof(void*)==8&&sizeof(std::string)==32&&sizeof(wchar_t)==2,"standard event bank ABI");
 static_assert(sizeof(rapidjson::Document)==96&&sizeof(rapidjson::Value)==16,"standard event JSON bank ABI");
-// 当前查询结果包含快照消费标志；账户DTO为384B，原票据仍为136B。
+// 当前查询结果包含快照消费及提交阶段标志；账户DTO为392B，原票据仍为136B。
 // 内存银行继续按下文sizeof计量，所有自有消费者须同批重编。
-static_assert(sizeof(QmtAccountResult)==384&&sizeof(QmtBoundReceipt)==136,"standard account DTO bank ABI");
+static_assert(sizeof(QmtAccountResult)==392&&sizeof(QmtBoundReceipt)==136,"standard account DTO bank ABI");
 static_assert(sizeof(QmtHttpConfig)==120,"standard HTTP configuration bank ABI");
 static_assert(sizeof(QmtTradeOrderReference)==632&&sizeof(QmtTradeReadDescriptor)==96,"standard trade DTO bank ABI");
 static_assert(sizeof(bootstrap::AccountRowInspection)==736,"standard inspection bank ABI");

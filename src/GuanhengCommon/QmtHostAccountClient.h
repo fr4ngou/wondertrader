@@ -42,8 +42,11 @@ struct QmtAccountPreparation
 };
 struct QmtAccountResult
 {
-    QmtBoundResult bound;
-    std::string remote_error_code;
+    QmtBoundResult bound; // Common核验的原结果和收据；原字节由本返回值持有。
+    std::string remote_error_code; // 来源明确返回的固定错误；缺失为空。
+    // true仅表示已进入POST运输调用、结果可能未知；false证明本次尚未调用POST。
+    // 仅submit_once返回值用于此判断；resume始终只核原收据，不授予重发资格。
+    bool submission_entered = false;
 };
 // 创建线程独占。create只产生本轮有限内存原身份；submit_once消费一次性token。
 // 账户观察进程死亡后按新轮重读；调用方不需要跨进程持久化收据。

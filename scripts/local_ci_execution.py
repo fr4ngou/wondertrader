@@ -170,16 +170,25 @@ def main():
          '--basetemp', workspace / 'model-pytest-temp', '--junitxml', output / 'model-junit.xml'],
         'model-regression', 90, environment=model_env)
     source_results = []
-    for scenario in ('session', 'authentication', 'stable-binding', 'invalid-binding'):
-        directory = workspace / ('read-source-' + scenario)
+    polling_receipt = output / 'polling-lifecycle'
+    run([sys.executable, '-I', '-B', ROOT / 'tests/integration/qmt_polling_lifecycle/run.py',
+         '--work', polling_receipt, '--build', seed], 'polling-lifecycle', 240)
+    core_receipt = output / 'polling-core-revalidation'
+    run([sys.executable, '-I', '-B', ROOT / 'tests/integration/qmt_polling_lifecycle/core.py',
+         '--work', core_receipt, '--build', seed], 'polling-core-revalidation', 180)
+    for scenario, boundary in (('session', 'next-task'), ('authentication', 'next-task'),
+                               ('authentication', 'pre-submit'), ('lost-read-response', 'next-task'),
+                               ('stable-binding', 'next-task'), ('invalid-binding', 'next-task')):
+        label = 'read-source-' + scenario + ('-pre-submit' if boundary=='pre-submit' else '')
+        directory = workspace / label
         run([sys.executable, '-I', '-B', ROOT / 'tests/integration/qmt_read_source_diagnostics/run_native_source.py',
              '--source', ROOT, '--legacy-fixtures', legacy, '--candidate-app', build / 'bin',
-             '--toolchain', seed / 'TOOLCHAIN.json', '--output', directory, '--scenario', scenario],
-            'read-source-' + scenario, 90)
+             '--toolchain', seed / 'TOOLCHAIN.json', '--output', directory, '--scenario', scenario,
+             '--switch-boundary', boundary], label, 90)
         receipt = json.loads((directory / 'RESULT.json').read_bytes())
         if receipt.get('passed') is not True:
             raise ValueError('Native读取来源诊断未通过：' + scenario)
-        source_results.append(dict(scenario=scenario, receipt=str(directory / 'RESULT.json')))
+        source_results.append(dict(scenario=scenario, switch_boundary=boundary, receipt=str(directory / 'RESULT.json')))
     results = []
     for scenario in ('cancel-false', 'cancel-error', 'partial', 'missing-current', 'account-rejected',
                      'account-result-unavailable', 'account-frontend', 'event-rejected'):
@@ -198,6 +207,8 @@ def main():
     if hashlib.sha256(model_source.read_bytes()).hexdigest() != model_source_sha:
         raise ValueError('Native 模型探针源码在验证期间发生变化')
     (output / 'RESULT.json').write_text(json.dumps({'passed': True, 'cases': results, 'read_source_diagnostics': source_results, 'workspace': str(workspace),
+        'polling_lifecycle': {'passed': True, 'receipt': str(polling_receipt / 'RESULT.json')},
+        'polling_core_revalidation': {'passed': True, 'receipt': str(core_receipt / 'RESULT.json')},
         'native_state_save': {'passed': True, 'log': str(output / 'native-state-save.log')},
         'trade_fee': {'passed': True, 'log': str(output / 'trade-fee.log'),
                       'source_projection_log': str(output / 'trade-fee-projection.log'),

@@ -1306,7 +1306,8 @@ QmtHistoryPreparation QmtBoundReadCore::create_prepared(const std::string& argum
     if(request_control){status=request_control->gate(impl_->http,until,impl_->control,QmtAccountReadStage::Publish);if(!status.ok())return reject(status);}
     out.request=std::move(token);return out;
 }
-QmtHistoryResult QmtBoundReadCore::submit_prepared(std::unique_ptr<QmtPreparedHistoryRead> token,SignedHttpDeadline& until,RequestControl* request_control)
+QmtHistoryResult QmtBoundReadCore::submit_prepared(std::unique_ptr<QmtPreparedHistoryRead> token,SignedHttpDeadline& until,RequestControl* request_control,
+    bool* submission_entered)
 {
     QmtHistoryResult out;
     auto reject=[&](Status status){out.bound.result.status=std::move(status);return std::move(out);};
@@ -1350,6 +1351,8 @@ QmtHistoryResult QmtBoundReadCore::submit_prepared(std::unique_ptr<QmtPreparedHi
     if(!until.remaining())return reject(fail(ErrorCode::Timeout,"qmt_host_deadline"));
     try{
         if(request_control){status=request_control->gate(impl_->http,until,impl_->control,QmtAccountReadStage::Submit);if(!status.ok())return reject(status);}
+        // 身份复核、停止门及正文准备均已完成；进入运输调用后保留可能已提交责任。
+        if(submission_entered)*submission_entered=true;
         auto response=impl_->http.exchange_observed("POST",std::string("/internal/v1/bound-operations/")+operation(impl_->profile_kind),wire,until,
             impl_->http_response_cap,{out.bound.result.request_id,impl_->account()?RequestJournalEvidence::FirstAccountAdmission:RequestJournalEvidence::Unknown});
 #if defined(_WIN32) && defined(GH_QMT_HTTP_DRAIN_TESTING)
@@ -1416,7 +1419,8 @@ QmtAccountResult QmtBoundReadCore::submit_account(std::unique_ptr<QmtPreparedAcc
 {
     if(!impl_->account()||!token){QmtAccountResult out;out.bound.result.status=fail(ErrorCode::InvalidInput,"qmt_account_token_invalid");return out;}
     auto prepared=std::move(token->prepared_);token.reset();
-    auto shared=submit_prepared(std::move(prepared),until);return {std::move(shared.bound),std::move(shared.remote_error_code)};
+    bool submitted=false;auto shared=submit_prepared(std::move(prepared),until,nullptr,&submitted);
+    return {std::move(shared.bound),std::move(shared.remote_error_code),submitted};
 }
 QmtAccountResult QmtBoundReadCore::resume_account(const QmtBoundReceipt& receipt,SignedHttpDeadline& until)
 {
@@ -1446,9 +1450,9 @@ QmtAccountResult QmtBoundReadCore::submit_account(std::unique_ptr<QmtPreparedAcc
     RequestControl request_control(out,control);
     if(!impl_->account()||!token){QmtAccountResult result;result.bound.result.status=fail(ErrorCode::InvalidInput,"qmt_account_token_invalid");return result;}
     auto prepared=std::move(token->prepared_);token.reset();
-    auto shared=submit_prepared(std::move(prepared),until,&request_control);
+    bool submitted=false;auto shared=submit_prepared(std::move(prepared),until,&request_control,&submitted);
     if(shared.bound.result.status.ok())request_control.success();
-    return {std::move(shared.bound),std::move(shared.remote_error_code)};
+    return {std::move(shared.bound),std::move(shared.remote_error_code),submitted};
 }
 QmtAccountResult QmtBoundReadCore::resume_account(const QmtBoundReceipt& receipt,SignedHttpDeadline& until,
     QmtAccountReadControlResult* out,const QmtAccountControl* control)

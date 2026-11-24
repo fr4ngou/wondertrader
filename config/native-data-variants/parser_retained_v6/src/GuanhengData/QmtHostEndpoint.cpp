@@ -119,8 +119,13 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
         }
         if(value.receipt.request_body.empty()){
             held_codes_.clear();
-            if(value.result.status.code==ErrorCode::Timeout && value.result.status.reason=="qmt_host_deadline")
-                return fail(ErrorCode::Timeout,"qmt_host_pump_deadline");
+            const auto& cause=value.result.status;
+            // Common仅在POST前返回空收据；下一轮重新验证同一来源，不重发未知请求。
+            const bool timed_out=cause.code==ErrorCode::Timeout && (cause.reason=="qmt_host_deadline"
+                || cause.reason=="qmt_http_deadline" || cause.reason=="qmt_http_exchange_failed");
+            const bool transport=(cause.code==ErrorCode::IoError || cause.code==ErrorCode::Backpressure) && retryable_snapshot(cause);
+            if(timed_out || transport)
+                return {ErrorCode::Pending,"qmt_host_snapshot_before_submit:"+cause.reason};
             return value.result.status;
         }
         static_assert(std::is_nothrow_move_constructible<QmtBoundResult>::value,"original receipt move must not allocate");
@@ -157,7 +162,9 @@ Status QmtHostEndpoint::pump(std::size_t limit,std::uint32_t milliseconds)
 {
     auto status=check();if(!status.ok())return status;
     if(!limit||limit>4096||!milliseconds||milliseconds>30000)return fail(ErrorCode::InvalidInput,"qmt_host_pump_budget_invalid");
-    if(!receiver_||!snapshot_capability().supported)return fail(ErrorCode::Unavailable,"qmt_host_receiver_unavailable");
+    // 本端点已完成初次准备。暂时失联后的Common资格由本次原pin验证恢复，
+    // 不能用上轮失效的缓存资格挡住验证；实际报价仍经完整capability/session校验。
+    if(!receiver_||!prepared_)return fail(ErrorCode::Unavailable,"qmt_host_receiver_unavailable");
     auto until=std::chrono::steady_clock::now()+std::chrono::milliseconds(milliseconds);
     const auto codes=codes_;const auto count=std::min(limit,codes.size()),revision=revision_;
     for(std::size_t i=0;i<count;)

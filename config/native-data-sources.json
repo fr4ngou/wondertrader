@@ -611,7 +611,7 @@
         },
         "src/GuanhengCommon/QmtBoundReadCore.cpp": {
           "source": "config/native-data-variants/parser_retained_v6/src/GuanhengCommon/QmtBoundReadCore.cpp",
-          "sha256": "fbfe69ae51e8427000c6cfaca591a312a4b2b2d60416c937f27a117d7b033396"
+          "sha256": "0c112965ae4d1f9a2680fcb43075ce75deaf98cd2cd4139c092a2891ea7eec5e"
         },
         "src/GuanhengCommon/QmtBoundReadCore.h": {
           "source": "config/native-data-variants/parser_retained_v6/src/GuanhengCommon/QmtBoundReadCore.h",
@@ -695,7 +695,7 @@
         },
         "src/GuanhengData/QmtHostEndpoint.cpp": {
           "source": "config/native-data-variants/parser_retained_v6/src/GuanhengData/QmtHostEndpoint.cpp",
-          "sha256": "ca515f175d63419caf554d9de88981ba7f96742f317417d52c11a0cd10456726"
+          "sha256": "b4be0b7fa94171c96c976cf5b827c663af72c8262c0b4a0101e54630d4ecbb2a"
         },
         "src/GuanhengData/QmtHostEndpoint.h": {
           "source": "config/native-data-variants/parser_retained_v6/src/GuanhengData/QmtHostEndpoint.h",
@@ -719,7 +719,7 @@
         },
         "src/GuanhengData/QmtPollingParser.cpp": {
           "source": "config/native-data-variants/parser_retained_v6/src/GuanhengData/QmtPollingParser.cpp",
-          "sha256": "9774f277dc2fa5781e9a53973635d1b32e753134c604562ef2d7fb113c5d6092"
+          "sha256": "3dabdeb112d18016e4891ba82450159981e4f7b243969fe3157fb3a238161923"
         },
         "src/GuanhengData/QmtPollingParser.h": {
           "source": "config/native-data-variants/parser_retained_v6/src/GuanhengData/QmtPollingParser.h",
