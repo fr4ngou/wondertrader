@@ -194,6 +194,16 @@ def record_process_loss(config, configuration_sha256, directory, control_id, *, 
         components = status['components']
         configured = dict(config.components)
         _require(type(components) is dict and set(components) == set(configured))
+        loss_path = directory / 'owner-loss.json'
+        failure_path = directory / 'failure.json'
+        failure = None
+        if failure_path.exists():
+            failure = _json(_read(failure_path, 4096))
+            _require(failure.get('schema') == 'guanheng.wt-runtime-failure.v1'
+                     and all(failure.get(k) == v for k,v in identity.items())
+                     and failure.get('status') == 'faulted' and failure.get('components_closed') is False
+                     and (failure.get('error_code') != 'owner_process_lost' or loss_path.exists()))
+        final_status = failure is not None and status.get('state') == 'faulted' and status.get('ready') is False
         component_pids = {}
         for name, component in components.items():
             _require(type(component) is dict)
@@ -204,9 +214,14 @@ def record_process_loss(config, configuration_sha256, directory, control_id, *, 
                          and type(pid) is int and pid == identity['pid'])
             else:
                 pid = component.get('pid')
-                require_process_exited(pid)
+                _require(type(pid) is int and 0 < pid <= 0xffffffff)
+                # 最终故障快照已记录组件正常退出时，沿原进程句柄的回收结果，避免误认后续复用的 PID。
+                confirmed_closed = (final_status and component.get('state') == 'closed'
+                                    and component.get('ready') is False and component.get('pending') is False
+                                    and component.get('forced') is False and component.get('error_code', 'unknown') is None)
+                if not confirmed_closed:
+                    require_process_exited(pid)
             component_pids[name] = pid
-        loss_path = directory / 'owner-loss.json'
         if loss_path.exists():
             loss = _json(_read(loss_path, 4096))
             _require(set(loss) == {'schema', *identity, 'status_sha256', 'component_pids',
@@ -215,14 +230,6 @@ def record_process_loss(config, configuration_sha256, directory, control_id, *, 
                      and all(loss.get(k) == v for k,v in identity.items())
                      and loss['reason'] == 'process_lost' and loss['component_pids'] == component_pids)
             _sha(loss['status_sha256'])
-        failure_path = directory / 'failure.json'
-        failure = None
-        if failure_path.exists():
-            failure = _json(_read(failure_path, 4096))
-            _require(failure.get('schema') == 'guanheng.wt-runtime-failure.v1'
-                     and all(failure.get(k) == v for k,v in identity.items())
-                     and failure.get('status') == 'faulted' and failure.get('components_closed') is False
-                     and (failure.get('error_code') != 'owner_process_lost' or loss_path.exists()))
         if 'execution' in components:
             reference = components['execution']['business_observation']
             _require(reference['schema'] == 'guanheng.execution-observation-reference.v1')

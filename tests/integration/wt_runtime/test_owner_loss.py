@@ -54,6 +54,49 @@ class OwnerLossTests(unittest.TestCase):
         self.assertIs(failure['components_closed'], False)
         self.assertFalse((self.directory / 'closed.json').exists())
 
+    def test_faulted_runtime_reuses_confirmed_component_exit_when_pid_is_reassigned(self):
+        host = self.components['analysis_host']
+        host.update(state='closed', ready=False, pending=False, forced=False, error_code=None)
+        cli._publish(self.directory, 'status.json',
+                     dict(self.identity, schema='guanheng.wt-runtime-status.v1',
+                          state='faulted', ready=False, components=self.components))
+        failure = dict(self.identity, schema='guanheng.wt-runtime-failure.v1',
+                       status='faulted', components_closed=False, error_code='component_runtime')
+        cli._publish(self.directory, 'failure.json', failure)
+
+        def verify_exit(pid):
+            if pid == host['pid']:
+                raise ValueError('reassigned PID belongs to a different live process')
+
+        with patch.object(execution_recovery, 'require_process_exited', side_effect=verify_exit) as check:
+            self.assertEqual(self.record_loss(), 0)
+            self.assertEqual(self.record_loss(), 0)
+        self.assertEqual(check.call_args_list, [call(1001), call(1001)])
+        loss = json.loads((self.directory / 'owner-loss.json').read_bytes())
+        self.assertEqual(loss['component_pids']['analysis_host'], host['pid'])
+        self.assertEqual(json.loads((self.directory / 'failure.json').read_bytes()), failure)
+        self.assertFalse((self.directory / 'closed.json').exists())
+
+    def test_retained_fault_keeps_checking_components_without_confirmed_exit(self):
+        host = self.components['analysis_host']
+        host.update(state='closed', ready=False, pending=True, forced=False, error_code=None)
+        cli._publish(self.directory, 'status.json',
+                     dict(self.identity, schema='guanheng.wt-runtime-status.v1',
+                          state='faulted', ready=False, components=self.components))
+        cli._publish(self.directory, 'failure.json',
+                     dict(self.identity, schema='guanheng.wt-runtime-failure.v1',
+                          status='faulted', components_closed=False, error_code='component_runtime'))
+
+        def verify_exit(pid):
+            if pid == host['pid']:
+                raise ValueError('original component process may still be running')
+
+        with patch.object(execution_recovery, 'require_process_exited', side_effect=verify_exit) as check:
+            with self.assertRaisesRegex(ValueError, 'component process'):
+                self.record_loss()
+        self.assertEqual(check.call_args_list, [call(1001), call(1002)])
+        self.assertFalse((self.directory / 'owner-loss.json').exists())
+
     def test_missing_external_pid_and_unexpected_window_pid_fail_closed(self):
         for component, field, value in (('analysis_host', 'pid', None),
                                          ('analysis_window', 'pid', 1003),
