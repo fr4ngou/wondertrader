@@ -807,9 +807,21 @@ public:
         http_request_cap=static_cast<std::size_t>(hreq);http_response_cap=static_cast<std::size_t>(hres);return {};
     }
     Status verify(SignedHttpDeadline& until,const std::string& expected,RequestControl* request_control=nullptr,
-        QmtAccountReadStage stage=QmtAccountReadStage::Verify)
+        QmtAccountReadStage stage=QmtAccountReadStage::Verify,bool replace_quote_transport=false)
     {
         std::string observed;SourceSession identity;auto status=read_binding(until,observed,identity,request_control,stage);
+        if(status.ok() && observed!=expected && replace_quote_transport && retained_snapshot()
+            && !same_session(source,identity)){
+            Document previous,replacement;
+            if(parse(expected,previous,4096) && parse(observed,replacement,4096)
+                && encode(previous["route"])==encode(replacement["route"])
+                && text(previous["capability_sha256"])==text(replacement["capability_sha256"])){
+                // 无原请求或持有已核终态时才采用同路由新传输。原结果仍按原收据交接。
+                pin=std::move(observed);source=std::move(identity);ready=true;
+                return fail(ErrorCode::StaleSession,stage==QmtAccountReadStage::FinalVerify
+                    ?"qmt_host_transport_replaced_after_result":"qmt_host_transport_replaced_before_submit");
+            }
+        }
         if(!status.ok()||observed!=expected){
             if(!request_control||!request_control->control_stopped())ready=false;
             return status.ok()?fail(ErrorCode::StaleSession,"qmt_host_binding_changed"):status;
@@ -851,9 +863,13 @@ public:
         add(body,"request_body_sha256",signed_http_sha256(output.receipt.request_body));
         add(body,"result_body_sha256",signed_http_sha256(output.native_result_json));
         auto response=http.exchange("POST","/internal/v1/read-results/"+output.result.request_id+"/consumed",encode(body),until,16384);
+        Document value;
+        // 已确认的原票据回收后，重送同一消费证明可能得到完整的410终态。
+        if(response.response_complete && response.code==410 && parse(response.body,value,16384)
+            && field(value,"error_code") && text(value["error_code"])=="read_result_unretained")
+            return until.remaining()?Status{}:fail(ErrorCode::Timeout,"qmt_host_deadline");
         if(!response.status.ok())return response.status;
-        Document value;if(!parse(response.body,value,16384))return fail(ErrorCode::IoError,"qmt_read_consumed_invalid");
-        if(response.code==410&&field(value,"error_code")&&text(value["error_code"])=="read_result_unretained")return {};
+        if(!parse(response.body,value,16384))return fail(ErrorCode::IoError,"qmt_read_consumed_invalid");
         if(response.code!=200)return signed_http_error(response.code);
         if(!keys(value,{"schema","request_id","consumed","retained"})||!value["retained"].IsBool()||!field(value,"schema")||text(value["schema"])!="qmt.read-consumed-result.v1"
             ||!field(value,"request_id")||text(value["request_id"])!=output.result.request_id||!value["consumed"].IsBool()||!value["consumed"].GetBool())
@@ -993,7 +1009,15 @@ public:
                     return failure(until.remaining()?fail(ErrorCode::IoError,"qmt_account_data_invalid"):fail(ErrorCode::Timeout,"qmt_host_deadline"));
                 account_validated=true;
             }
-            auto status=verify(until,encode(b),request_control,QmtAccountReadStage::FinalVerify);if(!status.ok())return failure(status);
+            auto status=verify(until,encode(b),request_control,QmtAccountReadStage::FinalVerify,retained_snapshot());
+            if(!status.ok()){
+                // 旧值只交原端点校验、确认消费；换代后不投递。
+                if(status.reason=="qmt_host_transport_replaced_after_result"){
+                    output.result.data_json=encode(native["data"]);
+                    output.snapshot_consumption_ready=true;
+                }
+                return failure(status);
+            }
             if(!until.remaining())return failure(fail(ErrorCode::Timeout,"qmt_host_deadline"));
             if(history()&&!history_data(output.native_result_json,native["data"],body["arguments"],history_days,history_rows,history_bytes,last_page,until))
                 return failure(until.remaining()?fail(ErrorCode::IoError,"qmt_history_data_invalid"):fail(ErrorCode::Timeout,"qmt_host_deadline"));
@@ -1052,7 +1076,8 @@ QmtBoundResult QmtBoundReadCore::read_full_tick(const std::string& input,std::ui
     if(!impl_->ready && !(impl_->retained_snapshot() && !impl_->pin.empty()))
         return reject(fail(ErrorCode::Unavailable,"qmt_host_not_prepared"));
     Document argument;if(!parse(input,argument,65536)||!stocks(argument))return reject(fail(ErrorCode::InvalidInput,"qmt_host_stocks_invalid"));
-    status=impl_->verify(until,impl_->pin);if(!status.ok())return reject(status);
+    status=impl_->verify(until,impl_->pin,nullptr,QmtAccountReadStage::Verify,true);
+    if(!status.ok())return reject(status);
     if(impl_->retained_snapshot()){
         status=impl_->capacity(until,nullptr);if(!status.ok())return reject(status);
     }

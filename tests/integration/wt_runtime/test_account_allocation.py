@@ -342,7 +342,6 @@ def test_order_terminal_arriving_before_trade_does_not_release_child(tmp_path):
 @pytest.mark.parametrize('change,reason', [
     ({'side': 'sell'}, 'fill_scope_conflict'),
     ({'symbol': 'SZSE.ETF.159352'}, 'fill_scope_conflict'),
-    ({'fee_cny': D('6')}, 'fee_bound_exceeded'),
     ({'amount_cny': D('199')}, 'fill_amount'),
 ])
 def test_bad_source_fact_retains_binding_and_original_cash(tmp_path, change, reason):
@@ -1158,6 +1157,75 @@ def test_current_fee_subcent_correction_preserves_principal(tmp_path):
     reopened.apply_fee(first, deadline=deadline())
     assert (view(reopened, 'old'), view(reopened, 'new')) == before
     assert sum(v.cash_cny for v in before) == D('1006994.98')
+
+
+def test_broker_fee_above_reservation_books_once_and_rechecks_buy_cash(tmp_path):
+    store, identity = book(tmp_path, new_cash='1833')
+    _, group, command = prepare(store, 10000, 300, 300, price='6.094', fee='3')
+    actual = fill(command, 300, price='6.087', fee=None)
+    store.apply_fill(actual, deadline=deadline())
+    first = current_fee(store, actual, '5.18261')
+
+    def audit_rows():
+        with closing(sqlite3.connect(tmp_path/'account-allocation.sqlite3')) as db:
+            return db.execute("SELECT identity,payload FROM asa_events WHERE identity LIKE 'fee_reservation_exceeded:%'").fetchall()
+
+    def interrupted():
+        store.apply_fee(first, deadline=deadline())
+        raise RuntimeError('before commit')
+
+    with pytest.raises(RuntimeError, match='before commit'):
+        store.project_broker_batch(interrupted, deadline=deadline())
+    assert audit_rows() == []
+    assert store.apply_fee(first, deadline=deadline())
+    close(store, group, command, 'filled')
+    assert pos(store, 'new').quantity == 300
+    assert view(store, 'new').cash_cny == D('1.71739')
+    assert view(store, 'new').reserved_cash_cny == D('0')
+
+    assert store.close(deadline())
+    reopened = AccountAllocation(tmp_path, identity, owner_check=lambda: None)
+    assert not reopened.apply_fee(first, deadline=deadline())
+    assert not reopened.apply_fill(actual, deadline=deadline())
+    correction = current_fee(reopened, actual, '5.20')
+    assert reopened.apply_fee(correction, deadline=deadline())
+    assert view(reopened, 'new').cash_cny == D('1.70')
+    assert pos(reopened, 'new').quantity == 300
+    assert view(reopened, 'old').cash_cny == D('10000')
+    event, audit = audit_rows()[0]
+    assert audit_rows() == [(event, audit)]
+    assert event == 'fee_reservation_exceeded:fee:' + first.event_id
+    assert json.loads(audit) == dict(group_id=group, reserved_cents=300, paid_cents='518.261')
+
+    target(reopened, 'new', 400, revision=2)
+    plan = uid()
+    reopened.plan(plan, (), deadline=deadline())
+    allowed = reopened.preview_group(plan, CODE, 'buy', 100, D('6.094'), D('3'), deadline=deadline())
+    assert allowed.quantity == 0
+
+
+@pytest.mark.parametrize('observed_fee', ['3', '5.18261'])
+def test_exhausted_fee_budget_preserves_original_reserve_for_unknown_fill(tmp_path, observed_fee):
+    store, _ = book(tmp_path, new_cash='408.50')
+    _, group, command = prepare(store, 10000, 100, 100, fee='3')
+    first = fill(command, 50, fee=None)
+    second = fill(command, 50, fee=None)
+    store.apply_fill(first, deadline=deadline())
+    store.apply_fill(second, deadline=deadline())
+    close(store, group, command, 'filled')
+
+    store.apply_fee(current_fee(store, first, observed_fee), deadline=deadline())
+    current = view(store, 'new')
+    assert current.unknown_fee_count == 1
+    assert current.reserved_cash_cny == D('3')
+    target(store, 'new', 200, revision=2)
+    plan = uid()
+    store.plan(plan, (), deadline=deadline())
+    assert store.preview_group(plan, CODE, 'buy', 100, D('2'), D('3'), deadline=deadline()).quantity == 0
+
+    store.apply_fee(current_fee(store, second, '0'), deadline=deadline())
+    assert view(store, 'new').reserved_cash_cny == 0
+    assert store.preview_group(plan, CODE, 'buy', 100, D('2'), D('3'), deadline=deadline()).quantity == 100
 
 
 def test_final_fee_cannot_be_overwritten_by_current_observation(tmp_path):

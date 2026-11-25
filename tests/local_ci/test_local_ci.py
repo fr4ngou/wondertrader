@@ -81,6 +81,9 @@ def test_scopes_follow_changed_module():
     assert ci.profiles_for(['src/TraderQMT/StandardQmtTrader.cpp']) == ['software', 'execution']
     assert ci.profiles_for(['config/native-reader-overlays/runtime/src/WtExeFact/WtStockMinImpactExeUnit.cpp']) == ['software', 'execution']
     assert ci.profiles_for(['integrations/wondertrader_stock_reference/stock-reference.patch']) == ['software', 'execution']
+    quote_variant = 'config/native-data-variants/parser_retained_v6/src/GuanhengData/QmtPollingParser.cpp'
+    assert ci.profiles_for([quote_variant]) == ['software', 'execution']
+    assert ci.profiles_for(['tests/integration/qmt_polling_lifecycle/core.py']) == ['software', 'execution']
 
 
 def test_staged_then_reverted_working_source_cannot_reuse_receipt(tmp_path):

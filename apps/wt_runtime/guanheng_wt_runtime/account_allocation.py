@@ -937,7 +937,11 @@ class AccountAllocation:
             groups[group_id] = state['groups'][group_id]
         for group_id, g in groups.items():
             unknown = group_id in unknown_groups
-            remaining_fee = max(0, g['fee_bound']-g['fee_paid']) if not g['closed'] or unknown else 0
+            remaining_fee = 0
+            if not g['closed'] or unknown:
+                estimated_remaining = g['fee_bound'] - g['fee_paid']
+                # 预留用尽后仍有未了责任，继续沿原预留金额占款。
+                remaining_fee = estimated_remaining if estimated_remaining > 0 else g['fee_bound']
             for a in g['allocations']:
                 rest = 0 if g['closed'] else a['quantity']-a['filled']
                 if g['side'] == 'buy':
@@ -1470,17 +1474,20 @@ class AccountAllocation:
             return (None if child is None else WTChildDisposition(child['group'], wt_order_id,
                     child['command'], child['not_called'], None if command is None else command['terminal']))
 
-    @staticmethod
-    def _fee(state, fill, fee):
+    def _fee(self, db, state, fill, fee, source_event):
         group = state['groups'][fill['group']]
         previous = fill['fee'] or 0
         delta = fee-previous
-        _need(group['fee_paid']+delta <= group['fee_bound'], 'fee_bound_exceeded')
+        paid = group['fee_paid'] + delta
+        if group['fee_paid'] <= group['fee_bound'] < paid:
+            # 与费用同事务写入，避免失败重放留下未实际扣费的超支诊断。
+            self._event(db, 'fee_reservation_exceeded:' + source_event,
+                        dict(group_id=fill['group'], reserved_cents=group['fee_bound'], paid_cents=paid))
         parts = [(a['strategy'], a['quantity']) for a in fill['allocations']]
         for (sid, _), before, after in zip(parts, _split(previous, parts), _split(fee, parts)):
             # 真实已发生费用完整归原策略；有符号亏欠不转嫁其他策略，不拒收原成交。
             state['strategies'][sid]['cash'] -= after-before
-        group['fee_paid'] += delta; fill['fee'] = fee
+        group['fee_paid'] = paid; fill['fee'] = fee
         state['account']['adjustment'] -= delta
 
     @staticmethod
@@ -1527,16 +1534,16 @@ class AccountAllocation:
                             if cycle.get('origin_fill_id') == fact.fill_id and cycle['opened_at'] is None:
                                 cycle.update(opened_at=executed, source_sha256=fact.source_sha256, status='held')
                 if fee is not None and existing['fee'] is None:
-                    self._fee(state, existing, fee); changed = True
+                    self._fee(db, state, existing, fee, 'fill:'+fact.fill_id); changed = True
                 if changed: self._save(db, rev, state)
                 return False
             _need(self._event(db, 'fill:'+fact.fill_id, asdict(fact)), 'storage_invalid')
-            self._apply_new_fill(state, fact, price, amount, fee, economics, executed)
+            self._apply_new_fill(db, state, fact, price, amount, fee, economics, executed)
             save_proof(db, 'fills', fact.fill_id, fact.source_sha256, fact.source_sha256, _wire)
             self._save(db, rev, state)
             return True
 
-    def _apply_new_fill(self, state, fact, price, amount, fee, economics, executed):
+    def _apply_new_fill(self, db, state, fact, price, amount, fee, economics, executed):
         command = state['commands'].get(fact.command_id)
         _need(command is not None, 'command_unknown')
         group = state['groups'][command['group']]
@@ -1575,7 +1582,7 @@ class AccountAllocation:
                 'economics': economics, 'executed_at': executed}
         state['fills'][fact.fill_id] = fill; group['fills'].append(fact.fill_id)
         if fee is not None:
-            self._fee(state, fill, fee)
+            self._fee(db, state, fill, fee, 'fill:'+fact.fill_id)
 
     def apply_fee(self, fact: FeeFact, *, deadline):
         """按原收件顺序记费用差额；返回金额或费用资格是否改变，供账户观察屏障使用。"""
@@ -1614,7 +1621,7 @@ class AccountAllocation:
                 return False
             was_provisional = prior is not None
             changed = fill['fee'] != fee or was_provisional != (sequence is not None)
-            self._fee(state, fill, fee)
+            self._fee(db, state, fill, fee, 'fee:'+fact.event_id)
             fill['fee_observation'] = None if sequence is None else {
                 'sequence': sequence,  # 原持久收件顺序，旧事实重放不能获得新顺序。
                 'event_id': fact.source_event_id,  # 费用来源原收件 UUID。

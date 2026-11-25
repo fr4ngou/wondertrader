@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include "QmtPollingParser.h"
+#include "QmtHostEndpoint.h"
 #include "../Includes/WTSVariant.hpp"
 #include "../Includes/WTSDataDef.hpp"
 #include <algorithm>
@@ -42,7 +43,9 @@ std::string diagnostic_reason(const Status& status)
         "qmt_host_snapshot_invalid","qmt_host_binding_invalid","qmt_host_profile_invalid","qmt_host_limits_invalid",
         "qmt_host_native_operation_failed","qmt_host_source_reconnect_deadline","qmt_host_deadline","qmt_host_pump_deadline",
         "qmt_host_original_snapshot_pending","qmt_host_original_consumption_pending","qmt_host_source_changed",
-        "qmt_read_retention_held_responsibility",
+        "qmt_read_retention_held_responsibility","qmt_host_binding_changed",
+        "qmt_host_transport_replaced_before_submit","qmt_host_transport_replaced_after_result",
+        "qmt_host_result_binding_changed",
         "qmt_host_result_identity_invalid","qmt_host_transport_identity_required","qmt_http_result_identity_mismatch",
         "qmt_http_deadline","qmt_http_exchange_failed","qmt_http_body_incomplete","qmt_http_authentication_rejected",
         "qmt_http_endpoint_unavailable","qmt_http_conflict","qmt_http_backpressure","qmt_http_remote_timeout",
@@ -217,14 +220,15 @@ class PollingEndpoint final : public IMarketEndpoint
     std::size_t maximum_;
     std::string rejection_; // 本地冲突的已准入证券及前后行情值，空值表示没有本地冲突。
     bool retained_;
+    bool transport_rebound_; // 跨已认证传输只承认更新的快照时间。
     std::function<void(wtp::WTSLogLevel,const Status&,const char*)> report_;
     std::string waiting_; // 同一轮询等待只在进入、原因变化和合格行情恢复时记录。
 public:
     PollingEndpoint(std::shared_ptr<IMarketEndpoint> source, std::function<bool(const std::string&)> admit,
         std::map<std::string, MarketSnapshot>& accepted, std::string& recovering_symbol, std::size_t maximum,
-        bool retained,std::function<void(wtp::WTSLogLevel,const Status&,const char*)> report)
+        bool retained,bool transport_rebound,std::function<void(wtp::WTSLogLevel,const Status&,const char*)> report)
         : source_(std::move(source)), admit_(std::move(admit)), accepted_(accepted),
-          recovering_symbol_(recovering_symbol), maximum_(maximum),retained_(retained),report_(std::move(report)) {}
+          recovering_symbol_(recovering_symbol), maximum_(maximum),retained_(retained),transport_rebound_(transport_rebound),report_(std::move(report)) {}
     const std::string& rejection() const noexcept { return rejection_; }
     Capability snapshot_capability() const override { return source_->snapshot_capability(); }
     SourceSession session() const override { return source_->session(); }
@@ -246,8 +250,11 @@ public:
             auto found = accepted_.find(key);
             if (found != accepted_.end()) {
                 const auto& old = found->second;
-                if (!same_session(old.source,value.source)) return failure(ErrorCode::StaleSession,"QMT polling source changed");
                 const auto stamp = quote_time(tick), previous = quote_time(old.tick);
+                if (!same_session(old.source,value.source)) {
+                    if(!transport_rebound_)return failure(ErrorCode::StaleSession,"QMT polling source changed");
+                    if(stamp<=previous)return Status{};
+                }
                 if (stamp <= previous) {
                     if(recovering)return Status{};
                     const auto difference=stamp==previous?first_difference(old.tick,tick):std::nullopt;
@@ -389,6 +396,8 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
         std::map<std::string, MarketSnapshot> accepted;
         std::string recovering_symbol;
         std::optional<SourceSession> binding;
+        bool transport_rebound=false; // 旧报价水位仍有效。
+        bool waiting_for_transport_quote=false; // 收到可交付的新报价才恢复连接事件。
         const char* phase="prepare";
         auto generation=[&]{return binding?binding->generation:0;};
         bool terminal_logged=false;
@@ -398,19 +407,22 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
             terminal_logged=true;
         };
         try {
+          std::shared_ptr<QmtHostEndpoint> reconnecting; // 端点须在公布 worker 完成前释放。
           for (;;) {
-            final={};bool rebuild=false;
+            final={};bool rebuild=false,replace_transport=false;
             phase="prepare";
             // 局部对象退出顺序确保所有依赖在 worker 中完成停止及析构，再通知 join。
             std::shared_ptr<IMarketEndpoint> endpoint;
             { std::lock_guard<std::timed_mutex> lock(mutex); if(stopping)final=failure(ErrorCode::Unavailable,"QMT polling startup cancelled"); }
             if (final.ok()) {
-                if(factory) endpoint=factory(config.http,config.profile,final);
+                if(reconnecting){
+                    endpoint=std::move(reconnecting);
+                }else if(factory) endpoint=factory(config.http,config.profile,final);
                 else { http=std::make_shared<QmtHttpClient>(config.http); auto native=std::make_shared<QmtHttpEndpoint>(http,config.profile);
                     final=native->prepare(config.http.timeout_ms); endpoint=native; }
             }
             // prepare只有只读绑定GET；固定来源未就绪耗尽本次预算后，沿原轮询等待。
-            // 尚无pin/请求/行情，允许下一次prepare；运行期换代和未知结果仍硬失败。
+            // 无原读取责任时允许续查绑定；未知结果仍留给原请求。
             std::string preparing;
             while(factory && retryable_prepare(final)) {
                 set_status(final);
@@ -432,14 +444,14 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                     " candidate_generation="+std::to_string(endpoint->session().generation));
                 terminal_logged=true;
             }
-            if (final.ok() && recovering_symbol.empty()) set_status({});
+            if (final.ok() && recovering_symbol.empty() && !waiting_for_transport_quote) set_status({});
             if (final.ok()) {
                 if(!binding)binding=endpoint->session();
                 if(!preparing.empty())log(wtp::LL_INFO,{},phase,"binding_ready",generation(),accepted.size());
                 auto decorated=std::make_shared<PollingEndpoint>(endpoint,[this](const std::string& key){return admit(key);},
-                    accepted,recovering_symbol,config.limit,host_full_tick_batches && bool(factory),
+                    accepted,recovering_symbol,config.limit,host_full_tick_batches && bool(factory),transport_rebound,
                     [&](wtp::WTSLogLevel level,const Status& cause,const char* action){log(level,cause,"pump",action,generation(),accepted.size());});
-                Spi proxy(*this,!recovering_symbol.empty()); MarketParser parser(ProviderKind::Qmt,decorated,config.limit,1); parser.registerSpi(&proxy);
+                Spi proxy(*this,waiting_for_transport_quote || !recovering_symbol.empty()); MarketParser parser(ProviderKind::Qmt,decorated,config.limit,1); parser.registerSpi(&proxy);
                 wtp::CodeSet applied; std::uint64_t applied_revision;
                 { std::lock_guard<std::timed_mutex> lock(mutex); applied=target; applied_revision=revision;
                     if(stopping) final=failure(ErrorCode::Unavailable,"QMT polling startup cancelled"); }
@@ -463,8 +475,15 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                     if(!applied.empty())final=parser.pump(config.batch,config.http.timeout_ms);
                     if(!final.ok()){
                         std::lock_guard<std::timed_mutex> failed(mutex);status={final.code,diagnostic_reason(final)};connected=false;
+                        replace_transport=host_full_tick_batches && !stopping && final.code==ErrorCode::StaleSession
+                            && (final.reason=="qmt_host_transport_replaced_before_submit"
+                                || final.reason=="qmt_host_transport_replaced_after_result");
                         rebuild=host_full_tick_batches&&factory&&!decorated->rejection().empty()&&!stopping;
                         break;
+                    }
+                    if(waiting_for_transport_quote && !proxy.defer_connect){
+                        waiting_for_transport_quote=false;
+                        log(wtp::LL_INFO,{},phase,"read_transport_resumed",generation(),accepted.size());
                     }
                     if(proxy.closed){final=failure(ErrorCode::Unavailable,"QMT polling dependency closed");break;}
                     std::unique_lock<std::timed_mutex> lock(mutex);
@@ -472,12 +491,22 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                     if(applied.empty())changed.wait(lock,wake);
                     else changed.wait_for(lock,std::chrono::milliseconds(config.interval),wake);
                 }
-                if(rebuild)log(wtp::LL_ERROR,final,phase,"rebuild_same_source",generation(),accepted.size(),decorated->rejection());
+                if(replace_transport)log(wtp::LL_WARN,final,phase,"rebind_read_transport",generation(),accepted.size());
+                else if(rebuild)log(wtp::LL_ERROR,final,phase,"rebuild_same_source",generation(),accepted.size(),decorated->rejection());
                 else log_terminal();
                 parser.release();
             }
+            if(replace_transport){
+                auto host=std::dynamic_pointer_cast<QmtHostEndpoint>(endpoint);
+                final=host?host->rebind_quote_transport():failure(ErrorCode::StaleSession,"QMT polling source changed");
+                if(final.ok()){
+                    binding=host->session();
+                    reconnecting=std::move(host);
+                    waiting_for_transport_quote=transport_rebound=rebuild=true;
+                }
+            }
             if(!rebuild){if(!terminal_logged)log_terminal();break;}
-            // 已消费快照才进入本地水位；先隔离并释放端点，再认证同一来源建立下一代。
+            // 已交付水位跨重绑保留。沿原节拍重新准入行情。
             event(wtp::WPE_Close,1);
             endpoint.reset();
             std::unique_lock<std::timed_mutex> lock(mutex);

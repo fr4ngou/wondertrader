@@ -81,7 +81,9 @@ def profiles_for(paths):
     profiles = ['software']
     execution_prefixes = ('src/', 'cmake/', 'connectors/qmt_shm/', 'config/native-reader-overlays/runtime/',
                           'integrations/wondertrader_execution/', 'integrations/wondertrader_stock_reference/',
-                          'tests/integration/qmt_broker_context/', 'tests/integration/wt_runtime/')
+                          'config/native-data-variants/parser_retained_v6/',
+                          'tests/integration/qmt_broker_context/', 'tests/integration/wt_runtime/',
+                          'tests/integration/qmt_polling_lifecycle/')
     if any(p.startswith(execution_prefixes) or p in (
             'scripts/execution_product.py', 'scripts/local_ci_execution.py',
             'config/execution-product-build.json', 'config/native-dependencies.json') for p in paths):

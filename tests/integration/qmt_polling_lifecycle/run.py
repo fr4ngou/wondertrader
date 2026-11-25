@@ -54,7 +54,7 @@ def main():
                                     if line.startswith('{')],
                   source_sha256={name: hashlib.sha256((stage / name).read_bytes()).hexdigest() for name in names},
                   qualification='Actual retained HostEndpoint/MarketParser/PollingParser; synthetic Common results; no broker or production calls')
-    assert len(result['cases']) == 12
+    assert len(result['cases']) == 16
     (work / 'RESULT.json').write_text(json.dumps(result, indent=2), encoding='utf8')
 
 

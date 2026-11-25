@@ -66,6 +66,15 @@ Status QmtHostEndpoint::prepare(std::uint32_t milliseconds)
         return fail(ErrorCode::Unavailable,"qmt_host_transport_identity_required");
     prepared_=true;return {};
 }
+Status QmtHostEndpoint::rebind_quote_transport()
+{
+    auto status=check();if(!status.ok())return status;
+    if(!transport_replacement_pending_||receiver_||held_||prepared_||!client_->capability().supported)
+        return fail(ErrorCode::StaleSession,"qmt_host_source_changed");
+    source_=client_->session();
+    transport_replacement_pending_=false;prepared_=true;
+    return {};
+}
 Capability QmtHostEndpoint::snapshot_capability()const
 {
     if(!check().ok()||!prepared_||!client_||!profile_.full_tick_cumulative||!qmt_mapping::check_profile(profile_).ok()
@@ -120,7 +129,12 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
         if(value.receipt.request_body.empty()){
             held_codes_.clear();
             const auto& cause=value.result.status;
-            // Common仅在POST前返回空收据；下一轮重新验证同一来源，不重发未知请求。
+            // 空收据只来自提交前。已认证的新传输在旧接收器关闭后才启用。
+            if(cause.code==ErrorCode::StaleSession && cause.reason=="qmt_host_transport_replaced_before_submit"){
+                transport_replacement_pending_=true;
+                return cause;
+            }
+            // 其他暂时失败在下一轮重新验证原绑定。
             const bool timed_out=cause.code==ErrorCode::Timeout && (cause.reason=="qmt_host_deadline"
                 || cause.reason=="qmt_http_deadline" || cause.reason=="qmt_http_exchange_failed");
             const bool transport=(cause.code==ErrorCode::IoError || cause.code==ErrorCode::Backpressure) && retryable_snapshot(cause);
@@ -141,10 +155,16 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
             return fail(ErrorCode::Pending,"qmt_host_original_snapshot_pending");
         }
         held_status_=held_->result.status;
-        if(held_status_.ok()) {
-            if(!same_session(source_,client_->session())){original_error_=fail(ErrorCode::StaleSession,"qmt_host_source_changed");return original_error_;}
-            try{held_snapshots_=qmt_mapping::map_ticks(held_codes_,held_->result.data_json,profile_,source_,true);}
-            catch(const qmt_mapping::SnapshotMappingError& error){held_status_=snapshot_failure(error);}
+        const bool replaced=held_status_.code==ErrorCode::StaleSession
+            && held_status_.reason=="qmt_host_transport_replaced_after_result";
+        if(held_status_.ok()||replaced) {
+            if(!replaced && !same_session(source_,client_->session())){
+                original_error_=fail(ErrorCode::StaleSession,"qmt_host_source_changed");return original_error_;
+            }
+            try{
+                auto mapped=qmt_mapping::map_ticks(held_codes_,held_->result.data_json,profile_,source_,true);
+                if(!replaced)held_snapshots_=std::move(mapped);
+            }catch(const qmt_mapping::SnapshotMappingError& error){held_status_=snapshot_failure(error);}
         }
         mapped_=true;
     }
@@ -156,6 +176,8 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
     }
     // ACK前完整原结果和全部映射均在此owner；ACK丢失只重确认，不再次SDK读取。
     snapshots=std::move(held_snapshots_);status=std::move(held_status_);
+    if(status.code==ErrorCode::StaleSession && status.reason=="qmt_host_transport_replaced_after_result")
+        transport_replacement_pending_=true;
     held_.reset();held_codes_.clear();mapped_=false;return status;
 }
 Status QmtHostEndpoint::pump(std::size_t limit,std::uint32_t milliseconds)

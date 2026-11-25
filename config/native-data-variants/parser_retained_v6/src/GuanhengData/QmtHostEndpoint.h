@@ -17,6 +17,7 @@ public:
         std::size_t full_tick_batch_size=1,bool retained=false);
     ~QmtHostEndpoint() override;
     Status prepare(std::uint32_t milliseconds);
+    Status rebind_quote_transport();
     Capability snapshot_capability() const override;
     SourceSession session() const override;
     Status start(Receiver receiver) override;
@@ -45,5 +46,6 @@ private:
     std::size_t full_tick_batch_size_=1;
     std::size_t cursor_=0,revision_=0;
     bool prepared_=false;
+    bool transport_replacement_pending_=false; // 已认证换代，待旧接收器关闭后接续。
 };
 }
