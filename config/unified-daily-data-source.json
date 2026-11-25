@@ -58,7 +58,7 @@
       "source": "apps/guanheng/guanheng_app/observation/bse_universe.py"
     },
     "guanheng_app/observation/calculations.py": {
-      "sha256": "bec5d002f8fe74ca3347d96bc03566fb9045ef73446ac75d431ea30ab9f7fcff",
+      "sha256": "87bf290b7c83a5eeab7eabf43cd2dd230b14dca0e11845aafc5a30630522c7be",
       "source": "apps/guanheng/guanheng_app/observation/calculations.py"
     },
     "guanheng_app/observation/calendars.py": {
@@ -66,7 +66,7 @@
       "source": "apps/guanheng/guanheng_app/observation/calendars.py"
     },
     "guanheng_app/observation/contracts.py": {
-      "sha256": "bb102a6c43d578ca10a60b16d4445855993a27dc60517f76b60ca1808ee217bb",
+      "sha256": "b451e5d5d6f7e090f53298cb48a777515cda3e0478a4d56772f002b300aef8a2",
       "source": "apps/guanheng/guanheng_app/observation/contracts.py"
     },
     "guanheng_app/observation/executive_models.py": {
@@ -122,11 +122,11 @@
       "source": "apps/guanheng/guanheng_app/observation/provider_tables.py"
     },
     "guanheng_app/observation/providers.py": {
-      "sha256": "e4eb3728958b0c587e538b9d6ecfbcea3f9f15d710aa7752f862cd9c8404a33b",
+      "sha256": "bb2b440c3271e8e55cb9ff8e8132794323f22d1041b339d76707efb15fb63f6d",
       "source": "apps/guanheng/guanheng_app/observation/providers.py"
     },
     "guanheng_app/observation/query.py": {
-      "sha256": "e326a395f8efe0c5d23fac8f2929ad970337aace0bc5128f1f0f9bbdea4438e0",
+      "sha256": "277558632eefc49c3c783df786715668f55bc5663c8de7a35960d584cfb585d2",
       "source": "apps/guanheng/guanheng_app/observation/query.py"
     },
     "guanheng_app/observation/schedule_policy.py": {
@@ -162,7 +162,7 @@
       "source": "apps/guanheng/guanheng_app/thread_owner.py"
     },
     "guanheng_qmt_shm/__init__.py": {
-      "sha256": "87cf7629f4c27b6af981b74a1c351a8bcc1fbc11792dfdd3b704ae7b6b3594bd",
+      "sha256": "7a9cc86e413dd78a0ff1c05f1c583a976574e1d4d4e783a0c43331e85d002aa3",
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/__init__.py"
     },
     "guanheng_qmt_shm/analysis_batch_source.py": {
@@ -206,11 +206,11 @@
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/security_reference_source.py"
     },
     "guanheng_qmt_shm_agent/__init__.py": {
-      "sha256": "61b8ad4e72e1a35e7d3aca298520a965da58df0a8f93dc7f2e171c69ad4e9fca",
+      "sha256": "2b52c90ad4f8e56e83fac8650fa1edb886f1c95a2aa80cd07585568cc891b4f8",
       "source": "connectors/qmt_shm/agent/guanheng_qmt_shm_agent/__init__.py"
     },
     "guanheng_qmt_shm_agent/account_query.py": {
-      "sha256": "5b4409a65d4967283d764a4a0dfb413ab39ce3838aec348f6895222658e75e09",
+      "sha256": "d006e1a6aec8ee5226283fb49d021ca1e86360012a302782ac2551dc8e7581b1",
       "source": "connectors/qmt_shm/agent/guanheng_qmt_shm_agent/account_query.py"
     },
     "guanheng_qmt_shm_agent/adapters.py": {
@@ -298,7 +298,7 @@
       "source": "connectors/qmt_shm/agent/guanheng_qmt_shm_agent/quote_stream_contract.py"
     },
     "guanheng_qmt_shm_agent/read_capabilities.py": {
-      "sha256": "1e618180d61d56fd0ba56d59d779f9a27b13c41510a5359de5bb213897323f9d",
+      "sha256": "e3687f2060fdf11686786685b6c3da6c6fe403fa5ff16dce144e868e1117c2d1",
       "source": "connectors/qmt_shm/agent/guanheng_qmt_shm_agent/read_capabilities.py"
     },
     "guanheng_qmt_shm_agent/read_configuration.py": {
@@ -410,7 +410,7 @@
       "source": "integrations/guanheng/current_day.py"
     },
     "integrations/guanheng/daily_archive_merge.py": {
-      "sha256": "95b90e821c2a2bb0526d642afeefde11fde660a1b4739060193babe8322df971",
+      "sha256": "efa090d403d95d24cda3ea9ea9e506c5c3a8cbd85bd3db7b5a14079c6ede86e0",
       "source": "integrations/guanheng/daily_archive_merge.py"
     },
     "integrations/guanheng/daily_archive_prepare.py": {
@@ -466,7 +466,7 @@
       "source": "integrations/guanheng/daily_overlay.py"
     },
     "integrations/guanheng/daily_price_archive.py": {
-      "sha256": "c3cf58473d68e0b6251509cae9eceae9d141bfd85446b394fc2f950cce124537",
+      "sha256": "7358da4bf9993f73d09074d7eaf7afdf10fd8b2643b2df5e22da77644b20b8e1",
       "source": "integrations/guanheng/daily_price_archive.py"
     },
     "integrations/guanheng/daily_price_capture.py": {
@@ -798,5 +798,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.60"
+  "version": "0.2.0a1+unified.63"
 }

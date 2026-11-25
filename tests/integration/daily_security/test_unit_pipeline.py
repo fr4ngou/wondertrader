@@ -210,6 +210,47 @@ def test_raw_new_records_get_selected_units_while_old_priority_is_preserved(tmp_
     assert all(x.get("unit_evidence")is token for x in calls if x)
 
 
+
+@pytest.mark.parametrize("units_verified",[False,True])
+def test_raw_daily_prefers_verified_qmt_over_unpublished_local_fallback(tmp_path,monkeypatch,units_verified):
+    from integrations.guanheng import daily_local_prices, daily_price_archive as raw
+
+    cache=dict(directory="cache",sha256="a"*64)
+    capture=dict(directory="strategy-cache",sha256="b"*64)
+    day="2026-11-06"
+    descriptor=write(tmp_path/"inputs.json",dict(schema="guanheng.daily-price-input-result.v1",
+        cache=cache,local_prices={},observation_date=day))
+    local_metadata=dict(source={"provider":"Qmt"},dataset_version="qmt.local-dat-minute-day.v1",
+        price_unit="unknown",volume_unit="unknown",amount_unit="unknown")
+    verified_metadata=dict(source={"provider":"Qmt"},dataset_version="qmt.batch-native-day.v2:qmt-contextinfo-day-etf-index.v1:sample",
+        price_unit="CNY",volume_unit="lot",amount_unit="unknown")
+    local=dict(open=2.,high=2.2,low=1.9,close=2.1,volume=120.,amount=25100.)
+    signed=dict(local,volume=125.,amount=26101.)
+    monkeypatch.setattr(daily_local_prices,"local_price_groups",lambda *a,**k:iter([("510300.SH",local_metadata,[
+        dict(date="2026-11-05",bar=local),dict(date=day,bar=local)])]))
+    monkeypatch.setattr(raw,"load_price_capture",lambda d:d)
+    monkeypatch.setattr(raw,"capture_metadata",lambda m,sha,basis,**kw:
+        verified_metadata if kw.get("unit_evidence") else local_metadata)
+    def batches(selected,*a,**k):
+        if selected==capture:
+            yield None,{"510300.SH":dict(data={"20261105":signed,"20261106":signed})}
+    monkeypatch.setattr(raw,"price_batches",batches)
+    selected={}
+    def merge(market,rows,fallback,out,*a,**kw):
+        selected.update(rows=rows,provenance=kw["addition_provenance"])
+        return write(out/"archive.json",dict(entries=[]))
+    monkeypatch.setattr(raw,"merge_original_price_rows",merge)
+
+    raw.materialize_price_archive(descriptor,None,[],tmp_path/"archive",{"path":"unused","sha256":"d"*64},{},
+        deadline=time.monotonic()+5,additional_captures=(capture,),
+        unit_evidence_by_capture={capture["sha256"]:True}if units_verified else None)
+
+    old,latest=selected["rows"]["SSE.510300"]
+    assert old==dict(date=20261105,**local)
+    assert latest==dict(date=20261106,**(signed if units_verified else local))
+    parts=selected["provenance"]["SSE.510300"]
+    assert [part["metadata"]for part in parts]==([local_metadata,verified_metadata]if units_verified else [local_metadata])
+
 def test_full_facts_new_input_fixes_descriptor_into_price_request(tmp_path, monkeypatch):
     """沿既有完整输入fixture跑到UPDATE；公开事实/Source均为原测试替身。"""
     import importlib.util

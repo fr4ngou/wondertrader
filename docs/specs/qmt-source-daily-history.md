@@ -323,6 +323,8 @@ Native仍只生成两份完整补充档：原价按旧日优先，普通/策略�
 
 raw逐证券只给本次实际新增记录使用对应capture的metadata；旧日优先和未选完整集保持。front按同一参考完整覆盖规则选择整证券，新metadata绑定其实际来源。首次以完整当前QAB替换旧ETF原价另有明确采用和六字段差异记录，本自动接线不隐式改旧价格或重写旧unknown段。已采用known完整基准后的日常新增段可沿同业务profile接续，指数公开仍unknown；Original只按实际已发布provenance解释语义点位。
 
+当本轮目标日尚未发布，本地 DAT 仅提供单位未知的原价，且同一本次合并已有带单位证据的 QAB 原价时，原价归档采用 QAB 该日完整六字段及原来源。该选择只覆盖本轮新增的本地记录。本地原记录和已发布日期保持原身份。真实回读缺席或单位证明不足时沿用原缺日填补规则。
+
 front对原Native Reader已完整核读的旧记录复用原 `prepare_daily_archive.reusable_files` 接缝：规范行摘要只作筛选，原文件路径/字节SHA仍固定；原Helper逐完整WTSBar核同后才链接或复制未变DSB。实际数值改变按原Helper写读，完整参考及新来源metadata随实际capture版本推进。未选证券继续保留旧metadata；文件复用保留旧DSB字节，不把它描述为本次重新编码。Source/未知责任和证券完整集保持原合同，此原生文件复用与单位证据选择分别验收。
 
 验收包含完整已存真实capture的原生Helper写读链、默认无证据行为、新增raw/front单位和amount未知、同业务/foreign资格、全档未选证券保留、旧INPUTS选择和UUID不变、price-first与全事实双入口、原证据坏例及总D取消。候选源码、归档主路径、普通安装和正式CURRENT采用分别记录；既有Data版本保持只读。

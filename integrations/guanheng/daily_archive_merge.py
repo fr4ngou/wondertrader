@@ -56,13 +56,19 @@ def read_price_history(market,symbol,adjustment,*,deadline,maximum_history_rows,
     return merged
 
 
+def has_proven_qmt_price_units(source):
+    """识别已核原生日线的价格与成交量单位；成交额仍沿来源原值。"""
+    return (source['source'].get('provider') == 'Qmt'
+            and source['dataset_version'].startswith('qmt.batch-native-day.v2:qmt-contextinfo-day-etf-index.v1:')
+            and (source['price_unit'], source['volume_unit']) == ('CNY', 'lot'))
+
+
 def retains_proven_units(existing, incoming, source):
     """仅在同日六数值相同且已知量纲一致时，采用已核QMT原行来源。"""
     row, metadata = existing
     units = ('price_unit', 'volume_unit', 'amount_unit')
-    return (metadata['source'].get('provider') == source['source'].get('provider') == 'Qmt'
-            and source['dataset_version'].startswith('qmt.batch-native-day.v2:qmt-contextinfo-day-etf-index.v1:')
-            and (source['price_unit'], source['volume_unit']) == ('CNY', 'lot')
+    return (metadata['source'].get('provider') == 'Qmt'
+            and has_proven_qmt_price_units(source)
             and (metadata['price_unit'] == 'unknown' or metadata['volume_unit'] == 'unknown')
             and all(metadata[key] in ('unknown', source[key]) for key in units)
             and all(row[key] == incoming[key] for key in ('open', 'high', 'low', 'close', 'volume', 'amount')))

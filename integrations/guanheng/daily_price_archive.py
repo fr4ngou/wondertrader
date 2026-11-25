@@ -4,7 +4,7 @@ import time
 
 from .analysis_price_capture import load_price_capture,price_batches,capture_metadata,original_price_quality
 from .daily_data_update import _load,_save,_descriptor
-from .daily_archive_merge import merge_original_price_rows, retains_proven_units
+from .daily_archive_merge import has_proven_qmt_price_units, merge_original_price_rows, retains_proven_units
 from .daily_archive_prepare import price_rows_identity
 from .market_generation import read_fixed
 from .native_history import NativeHistory,source_file_metadata
@@ -33,6 +33,9 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
     cache=prepared['cache'];manifest=load_price_capture(cache)
     fallback=capture_metadata(manifest,cache['sha256'],'none')
     additions={};reusable_files={};preloaded={};reader=None
+    observed=prepared.get('observation_date')
+    target_day=int(observed.replace('-','')) if observed is not None else None
+    local_target_fallbacks=set()
     try:
         for descriptor in previous_archives:
             check();document=_load(descriptor,DAILY_ARCHIVE_MANIFEST_BYTES);root=Path(descriptor['path']).parent
@@ -85,7 +88,10 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                 values=additions.setdefault(symbol,{})
                 for item in items:
                     day=int(item['date'].replace('-',''))
-                    values.setdefault(day,(dict(date=day,**item['bar']),metadata))
+                    if day not in values:
+                        values[day]=(dict(date=day,**item['bar']),metadata)
+                        if day==target_day:
+                            local_target_fallbacks.add(symbol)
         for current_capture in (cache,*additional_captures):
             current_manifest=manifest if current_capture==cache else load_price_capture(current_capture)
             current_metadata=capture_metadata(current_manifest,current_capture['sha256'],'none')
@@ -102,7 +108,12 @@ def materialize_price_archive(inputs,market,previous_archives,output,helper,nati
                         row=dict(date=date,**bar)
                         existing=values.get(date)
                         # 原值保留优先；同值且单位证据更完整时保留该来源供最终合并。
-                        if existing is None or retains_proven_units(existing,row,metadata):
+                        if (date==target_day and symbol in local_target_fallbacks
+                                and qualified is not None and has_proven_qmt_price_units(metadata)):
+                            # 本轮首次选源优先用已核原值；已归档记录仍由原合并规则保护。
+                            values[date]=(row,metadata)
+                            local_target_fallbacks.remove(symbol)
+                        elif existing is None or retains_proven_units(existing,row,metadata):
                             values[date]=(row,metadata)
         if prepared.get('supplemental_prices')is not None:
             from .official_index_prices import load_official_index_prices
