@@ -2,10 +2,12 @@
 from pathlib import Path
 from contextlib import nullcontext
 from collections import deque
+from datetime import datetime
 import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from guanheng_qmt_shm_agent.protocol import canonical,decode
 from guanheng_qmt_shm_agent.results import finalize_result
@@ -20,6 +22,7 @@ from integrations.guanheng.source_history_repository import PreparedHistoryRepos
 from tests.integration.qmt_shm_trading.test_trade_capabilities import CONTROL,read_entries
 from guanheng_qmt_shm.read_retention_client import RetainedReadClient,RetainedReadPending
 from integrations.guanheng.source_history_transport import BoundHistorySource
+from integrations.guanheng import collection_maintenance
 from integrations.guanheng.collection_maintenance import MinuteCollectionMaintenance
 
 
@@ -246,6 +249,8 @@ class RetainedResumeTests(unittest.TestCase):
         worker._refresh_metadata=lambda:True;worker._days=lambda now:('2026-10-22',)
         worker.dates=('2026-10-22',);worker.c=dict(interval_seconds=1,batch_size=64,retry_seconds=60)
         key=('SZSE.000001','2026-10-22');worker.jobs=deque([key]);worker.queued={key}
+        worker.priority_jobs = deque()
+        worker.priority_symbols = frozenset()
         worker.retry_at={};worker.prefer_retry=True;worker.prefer_retained_resume=True;worker.rows={key:dict(state='missing')}
         worker.producer=SimpleNamespace(c=dict(timeout_seconds=30),resume_read_responsibility=resume)
         return worker,key
@@ -289,6 +294,103 @@ class RetainedResumeTests(unittest.TestCase):
         self.assertEqual(calls,['resume',retry_key[0],'resume',new_key[0]])
         self.assertNotIn(new_key,worker.queued)
 
+    def test_new_priority_gap_is_dispatched_before_existing_market_backlog(self):
+        worker, routine = self.maintenance(lambda deadline: dict(state='idle'))
+        now = [100.]
+        worker.clock = lambda: now[0]
+        worker.wall_clock = lambda: datetime(
+            2026, 10, 23, 10, tzinfo=collection_maintenance.ZONE).timestamp()
+        priority = [('SSE.510300', routine[1]), ('SZSE.159352', routine[1])]
+        worker.symbols = [key[0] for key in priority]
+        worker.priority_symbols = frozenset(worker.symbols)
+        worker.codes = {symbol: symbol for symbol in worker.symbols}
+        worker.profile = {}
+        worker.reader = None
+        worker.cycle = 0
+        minute = 202610220931
+
+        class Reader:
+            def __init__(self, *args):
+                pass
+
+            def read_day(self, symbol, day, cutoff):
+                return dict(expected_minutes=[minute], missing_minutes=[minute], unexpected_minutes=[], bars=[])
+
+            def close(self):
+                pass
+
+        with patch.object(collection_maintenance, 'CollectionMinuteReader', Reader):
+            worker.step(source_ready=False)
+            now[0] += 2.
+            worker.step(source_ready=False)  # 重扫同一批缺口，仍只派发一次。
+        self.assertEqual(len(worker.queued), 3)
+        worker.symbols = []  # 保留真实批次产生的队列，单独核对后续派发。
+        worker.producer.c['max_bytes'] = 4096
+        worker.producer.base = SimpleNamespace(expected_minutes=lambda symbol, day: [minute])
+        worker.producer.repository = SimpleNamespace(find=lambda *args, **kwargs: ([], {}))
+        calls = []
+
+        def query(request):
+            payload = request['request']
+            calls.append((payload['exchange'] + '.' + payload['code'], payload['from']))
+            return dict(status=dict(code='Pending'), data={})
+
+        worker.producer.call = query
+        for _ in range(3):
+            now[0] += 2.
+            worker.step(source_ready=True)
+        self.assertEqual(calls, [(key[0], minute) for key in (*priority, routine)])
+        self.assertEqual(set(worker.retry_at), {routine, *priority})
+        self.assertFalse(worker.queued)
+
+    def test_same_day_local_work_drains_before_older_retry_and_rescan(self):
+        worker, _ = self.maintenance(lambda deadline: dict(state='idle'))
+        now = 100.
+        day, older = '2026-10-22', '2026-10-21'
+        hold = ('SZSE.000001', older)
+        symbols = ['SSE.510300', 'SSE.510500']
+        worker.symbols = symbols
+        worker.codes = {symbol: symbol for symbol in symbols}
+        worker.priority_symbols = frozenset(symbols)
+        worker.profile = {}
+        worker.reader = None
+        worker.cycle = 0
+        worker.clock = lambda: now
+        worker.wall_clock = lambda: datetime(2026, 10, 22, 16, tzinfo=collection_maintenance.ZONE).timestamp()
+        worker.dates = (older, day)
+        worker._days = lambda unused: (older, day)
+        worker.jobs.clear()
+        worker.queued.clear()
+        worker.retry_at = {hold: 0.}
+        worker.rows = {hold: dict(state='recovery_pending')}
+        worker.c['local_qmt_dat_root'] = 'fixture'
+        minute = 202610220931
+        worker.producer.base = SimpleNamespace(expected_minutes=lambda *args: [minute])
+        calls = []
+        scans = []
+        def recovered(query, grid, root):
+            calls.append(query['exchange'] + '.' + query['code'])
+            return len(grid)
+        worker.producer.recover_local_day = recovered
+
+        class Reader:
+            def __init__(self, *args):
+                scans.append(True)
+            def read_day(self, symbol, date, cutoff):
+                return dict(expected_minutes=[minute], missing_minutes=[minute] if date == day else [],
+                            unexpected_minutes=[], bars=[])
+            def close(self):
+                pass
+
+        with patch.object(collection_maintenance, 'CollectionMinuteReader', Reader):
+            worker.step()
+            self.assertEqual(worker.next_step, now)
+            worker.step()
+        self.assertEqual(scans, [True])
+        self.assertEqual(calls, symbols)
+        self.assertEqual(worker.retry_at, {hold: 0.})
+        self.assertEqual([worker.rows[symbol, day]['state'] for symbol in symbols], ['recovered', 'recovered'])
+
     def test_query_pending_keeps_same_window_and_allows_collection_to_continue(self):
         worker, key = self.maintenance(lambda deadline: dict(state='empty'))
         now = [100.]
@@ -314,6 +416,33 @@ class RetainedResumeTests(unittest.TestCase):
         worker.step(source_ready=True)
         self.assertEqual(requests[0], requests[1])
         self.assertEqual(worker.rows[key]['state'], 'recovered')
+
+    def test_readable_old_archive_remains_incomplete_until_source_is_proven(self):
+        worker, key = self.maintenance(lambda deadline: dict(state='idle'))
+        now = [100.]
+        worker.clock = lambda: now[0]
+        worker.producer.c['max_bytes'] = 4096
+        minute = 202610220931
+        worker.producer.base = SimpleNamespace(expected_minutes=lambda symbol, day: [minute, minute + 1])
+        published = []
+        worker.producer.repository = SimpleNamespace(find=lambda *args, **kwargs: (published, {}))
+        requests = []
+
+        def query(request):
+            requests.append(request)
+            values = [minute, minute + 1] if published else [minute]
+            return dict(status=dict(code='Ok'), data={'bars': [{'minute': value} for value in values]})
+
+        worker.producer.call = query
+        worker.step()
+        self.assertEqual(worker.rows[key]['recovery_status'], 'source_window_incomplete')
+        self.assertEqual(worker.rows[key]['state'], 'recovery_pending')
+        published.append((None, {'published': {'reconciled_day': key[1]}}))
+        now[0] += 61.
+        worker.step()
+        self.assertEqual(requests[0], requests[1])
+        self.assertEqual(worker.rows[key]['state'], 'recovered')
+        self.assertEqual(worker.rows[key]['recovered_count'], 2)
 
     def test_registry_deadline_keeps_same_symbol_and_date_for_retry(self):
         from integrations.guanheng.source_history_transport import SourcePending

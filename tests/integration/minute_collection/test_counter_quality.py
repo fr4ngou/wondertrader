@@ -69,6 +69,8 @@ class CounterQualityTests(unittest.TestCase):
         owner.symbols = ['SZSE.988007']; owner.codes = {'SZSE.988007':'SZSE.IDX.988007'}
         owner.profile = {}; owner.rows = {}; owner.jobs = deque(); owner.queued = set(); owner.retry_at = {}
         owner.reader = None
+        owner.priority_jobs = deque()
+        owner.priority_symbols = frozenset()
         owner.c = dict(batch_size=1, interval_seconds=1, retry_seconds=1)
         closed = []
         class Reader:
@@ -123,6 +125,63 @@ class CounterQualityTests(unittest.TestCase):
         self.assertEqual(status['pushed_ticks'], 2)
         self.assertIsNone(status['error'])
         self.assertEqual(status['source_counter_observation']['counts']['amount_regressions'], 1)
+
+    def test_transport_failure_retains_time_and_os_error_after_reconnect(self):
+        from guanheng_qmt_shm import quote_stream
+        from guanheng_qmt_shm_agent.quote_stream_contract import WARMUP_PROFILE_SCHEMA
+
+        profile = dict(schema_version=WARMUP_PROFILE_SCHEMA)
+        settings = dict(route='test', secret='test-only', max_frame=1024, profile=profile,
+                        transport={}, connect_seconds=1, io_seconds=1)
+        collection = QuoteCollection(dict(symbols=['000003.SH']), 'unused', 'unused')
+        statuses = []
+        lost = OSError('builtin SHM peer is closing')
+        delayed = TimeoutError('fixture message must stay private')
+        delayed.winerror = 995
+
+        def disconnected(deadline):
+            raise lost
+
+        def resumed(deadline):
+            statuses.append(collection.status())
+            receiver.request_close()
+            raise OSError('intentional shutdown')
+
+        def transport(accept):
+            return SimpleNamespace(close=lambda: None, listen=lambda **kwargs: SimpleNamespace(
+                accept=accept, request_close=lambda: None, close=lambda: None, io_resources_closed=True))
+
+        def session(receive):
+            return SimpleNamespace(handshake=lambda deadline, **kwargs: profile, receive=receive,
+                close=lambda: None, framer=SimpleNamespace(request_close=lambda: None))
+
+        # 连接中断后，等下一任来源的空闲超时不能覆盖真正的断线；重连仍由原接收器处理。
+        def idle(deadline):
+            raise TimeoutError('no peer')
+
+        def timed_out(deadline):
+            raise delayed
+
+        transports = (transport(lambda deadline: session(disconnected)), transport(idle),
+                      transport(lambda deadline: session(timed_out)), transport(lambda deadline: session(resumed)))
+        with patch.object(quote_stream, 'validate_settings', return_value=settings), \
+                patch.object(quote_stream, 'LocalTransport', side_effect=transports), \
+                patch.object(quote_stream.time, 'time_ns', return_value=1795587134125000000):
+            receiver = quote_stream.QuoteStreamReceiver(settings=settings, on_batch=collection._on_batch)
+            collection._receiver = receiver
+            receiver._run()
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(statuses[0]['connected'])
+        self.assertEqual(statuses[0]['generation'], 3)
+        self.assertEqual(statuses[0]['receiver_failure'], 'connection_ended')
+        receipt = dict(generation=1, transport_sha256=None, at_ms=1795587134125,
+                       stage='warmup', operation='receive', reason='peer_closed',
+                       exception_kind='OSError', winerror=None)
+        timeout = dict(receipt, generation=2, reason='deadline', exception_kind='TimeoutError', winerror=995)
+        self.assertEqual(statuses[0]['recent_disconnects'], [receipt, timeout])
+        statuses[0]['recent_disconnects'][0]['stage'] = 'changed'
+        self.assertEqual(collection.status()['recent_disconnects'], [receipt, timeout])
+        self.assertTrue(receiver.closed_complete)
 
 
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('MCC_NATIVE_FIXTURE'),

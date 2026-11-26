@@ -17,6 +17,7 @@ def local_dat_counters_valid(dataset_version, volume, amount):
     v1金额double到达2**63时，已无法区分符号回绕与边界舍入，保持拒绝。
     v2在原整数解码阶段已拒绝负值，允许合法int64上界转double后的舍入。
     """
+    dataset_version = dataset_version.partition(':')[0]
     if dataset_version not in (LEGACY_DATASET_VERSION, DATASET_VERSION):
         return True
     if not 0 <= volume <= MAX_VOLUME or amount < 0:

@@ -75,6 +75,14 @@ def validate_settings(value):
         'symbols': symbols, 'profile': profile}
 
 
+def transport_digest(framer):
+    """配对两端共享同一运输代摘要，用于关联断线证据。"""
+    generation = getattr(framer, 'generation', None)
+    if type(generation) is not str or re.fullmatch(r'[0-9a-f]{32}', generation) is None:
+        return None
+    return hashlib.sha256(generation.encode('ascii')).hexdigest()
+
+
 def normalize_tick(row):
     """SDK行允许额外源字段；仅复制八个原数值，不替换缺值或换算量额。"""
     if type(row) is not dict or any(key not in row for key in TICK_FIELDS):

@@ -51,6 +51,7 @@ class MinuteCollectionMaintenance:
         self.closed = False  # close成功后不再推进。
         self.rows = {}  # 每证券/日期的可重建覆盖投影，价格留在原Reader/Importer。
         self.jobs = deque()  # 缺口选择，仅含证券/日期，不制造来源命令或请求ID。
+        self.priority_jobs = deque()  # 后发现的优先缺口在下一个新窗口轮次先派发。
         self.queued = set()  # 同轮去重，最大为当前证券数乘日期数。
         self.retry_at = {}  # 未完窗口的下次观察时点；到期仍沿原请求，与新窗口轮流推进。
         self.prefer_retry = True  # 两类队列均可推进时轮流选择，慢失败原请求不会长期抢占未尝试窗口。
@@ -65,7 +66,7 @@ class MinuteCollectionMaintenance:
         self.last_error_type = None  # 可重试观察失败类型；原生关闭失败向外层收束。
         self.retained_read_resume = retained_resume_state('not_scanned')  # 原已派发读取交接进度，独立于滚动分钟日期。
         try:
-            require(type(configuration) is dict and set(configuration) - {'transport_port'} == {
+            require(type(configuration) is dict and set(configuration) - {'transport_port', 'local_qmt_dat_root'} == {
                 'schema', 'producer', 'metadata', 'lookback_trading_days', 'batch_size',
                 'interval_seconds', 'retry_seconds', 'priority_symbols'}
                 and configuration['schema'] == 'qmt.collection-maintenance.v1')
@@ -76,6 +77,9 @@ class MinuteCollectionMaintenance:
                 require(type(c[key]) in (int, float) and .1 <= c[key] <= 3600)
             require(type(c['priority_symbols']) is list and len(c['priority_symbols']) <= 10000
                     and len(set(c['priority_symbols'])) == len(c['priority_symbols']))
+            if 'local_qmt_dat_root' in c:
+                from .daily_local_prices import validate_local_dat_root
+                validate_local_dat_root(c['local_qmt_dat_root'])
             descriptor = c['producer']
             require(type(descriptor) is dict and set(descriptor) == {'path', 'sha256'}
                     and Path(descriptor['path']).is_absolute())
@@ -92,7 +96,8 @@ class MinuteCollectionMaintenance:
             self.codes = dict(base._minute_codes)  # 原base已验证的证券→标准代码，未接入类别保持缺项。
             priority = c['priority_symbols']
             require(all(symbol in self.codes for symbol in priority))
-            self.symbols = priority + sorted(set(self.codes) - set(priority))
+            self.priority_symbols = frozenset(priority)  # 新窗口入队时按原配置判定优先级。
+            self.symbols = priority + sorted(set(self.codes) - self.priority_symbols)
             self._refresh_metadata()
         except BaseException:
             self.close()
@@ -136,23 +141,29 @@ class MinuteCollectionMaintenance:
         if self.clock() < self.next_step:
             return
         now = datetime.fromtimestamp(self.wall_clock(), ZONE)
-        if self.cursor == 0 and not self._refresh_metadata():
+        today = now.date().isoformat()
+        local_cache = self.c.get('local_qmt_dat_root')
+        local_priority = bool(source_ready and local_cache is not None and self.priority_jobs
+                              and self.priority_jobs[0][1] == today)
+        if self.cursor == 0 and not local_priority and not self._refresh_metadata():
             self.next_step = self.clock() + self.c['retry_seconds']
             return
         dates = self._days(now)
         if dates != self.dates:
             self.dates = dates
             self.rows = {key: value for key, value in self.rows.items() if key[1] in dates}
-            self.jobs.clear(); self.queued.clear(); self.retry_at.clear(); self.cursor = 0
-        symbols = self.symbols[self.cursor:self.cursor + self.c['batch_size']]
+            self.jobs.clear(); self.priority_jobs.clear(); self.queued.clear(); self.retry_at.clear(); self.cursor = 0
+        # 有已发现的当日重点缺口时先用本地原件推进；队列排空后继续原扫描。
+        symbols = [] if local_priority and self.priority_jobs else self.symbols[self.cursor:self.cursor + self.c['batch_size']]
         if symbols:
             selected = {self.codes[symbol]: symbol for symbol in symbols}
             require(self.reader is None)
             self.reader = reader = CollectionMinuteReader(self.profile, selected)
+            current_recovery = []  # 本批新发现的当日重点缺口，保持配置中的发现次序。
             try:
                 for symbol in symbols:
                     for day in dates:
-                        cutoff = now.hour * 100 + now.minute if day == now.date().isoformat() else 2359
+                        cutoff = now.hour * 100 + now.minute if day == today else 2359
                         key = (symbol, day)
                         try:
                             result = reader.read_day(self.codes[symbol], day, cutoff)
@@ -170,7 +181,7 @@ class MinuteCollectionMaintenance:
                         restored = old is not None and old['state'] == 'recovered'
                         state = ('recovered' if restored else 'awaiting_market_session' if not result['expected_minutes']
                                  else 'observed_complete' if not result['missing_minutes'] and not invalid_count
-                                 else 'awaiting_closed_day' if day == now.date().isoformat()
+                                 else 'awaiting_closed_day' if day == today and local_cache is None
                                  else 'invalid_counters' if invalid_count else 'missing')
                         self.rows[key] = dict(
                             symbol=symbol, date=day, state=state,  # 本次原Reader观察与完整恢复证明分别表达。
@@ -183,16 +194,22 @@ class MinuteCollectionMaintenance:
                             observed_at=self.wall_clock(),  # 原Reader查询完成的本机epoch秒。
                             recovered_count=old.get('recovered_count') if restored else None)
                         if state in ('missing', 'invalid_counters') and key not in self.queued and key not in self.retry_at:
-                            self.jobs.append(key); self.queued.add(key)
+                            if symbol in self.priority_symbols:
+                                queue = current_recovery if local_cache is not None and day == today else self.priority_jobs
+                            else:
+                                queue = self.jobs
+                            queue.append(key)
+                            self.queued.add(key)
             finally:
                 reader.close()
                 self.reader = None
+            self.priority_jobs.extendleft(reversed(current_recovery))
             self.cursor += len(symbols)
             if self.cursor >= len(self.symbols):
                 self.cursor = 0; self.cycle += 1
         # 本地覆盖扫描照常进行；Source尚未连接时保留队首，避免启动失败项排到全市场队尾。
         ready_retries = [(due, key) for key, due in self.retry_at.items() if due <= self.clock()]
-        window_work = bool(self.jobs or ready_retries)
+        window_work = bool(self.queued or ready_retries)
         if source_ready and (self.prefer_retained_resume or not window_work):
             try:
                 self.retained_read_resume = self.producer.resume_read_responsibility(
@@ -205,14 +222,16 @@ class MinuteCollectionMaintenance:
                 self.prefer_retained_resume = False
                 self.next_step = self.clock() + self.c['interval_seconds']
                 return
-        if source_ready and (self.jobs or ready_retries):
-            if ready_retries and (self.prefer_retry or not self.jobs):
+        if source_ready and window_work:
+            local_priority = local_cache is not None and self.priority_jobs and self.priority_jobs[0][1] == today
+            if ready_retries and not local_priority and (self.prefer_retry or not self.queued):
                 unused, key = min(ready_retries)
                 del self.retry_at[key]
                 symbol, day = key
                 self.prefer_retry = False
             else:
-                symbol, day = key = self.jobs.popleft(); self.queued.remove(key)
+                queue = self.priority_jobs or self.jobs
+                symbol, day = key = queue.popleft(); self.queued.remove(key)
                 self.prefer_retry = True
             self.prefer_retained_resume = True  # 窗口推进或其失败后，下步仍给原责任交接机会。
             row = self.rows[key]
@@ -222,6 +241,21 @@ class MinuteCollectionMaintenance:
                              **{'from': grid[0], 'to': grid[-1]}, limit=len(grid))
                 recovery_status = 'source_query_pending'
                 try:
+                    if local_cache is not None:
+                        recovery_status = 'source_local_pending'
+                        count = self.producer.recover_local_day(query, grid, local_cache)
+                        if count or day == today:
+                            row.update(state='recovered' if count else 'recovery_pending',
+                                       recovered_count=count or None,
+                                       recovery_status='source_local_complete' if count else 'source_local_incomplete',
+                                       recovery_observed_at=self.wall_clock())
+                            if not count:
+                                self.retry_at[key] = self.clock() + self.c['retry_seconds']
+                            # 完成已发现的当日优先窗口后，下一轮可立即继续同一有限队列。
+                            more_local = count and day == today and self.priority_jobs and self.priority_jobs[0][1] == today
+                            self.next_step = self.clock() + (0 if more_local else self.c['interval_seconds'])
+                            return
+                    recovery_status = 'source_query_pending'
                     result = self.producer.call(dict(api_version=API_VERSION, action='history.source-query', request=query))
                     labels = [bar['minute'] for bar in result['data'].get('bars', [])]
                     preferred = hashlib.sha256(canonical({k: query[k] for k in ('exchange', 'code', 'from', 'to')})).hexdigest()
@@ -236,10 +270,12 @@ class MinuteCollectionMaintenance:
                     self.next_step = self.clock() + self.c['interval_seconds']
                     return
                 proven = any(state['published'].get('reconciled_day') is not None for unused, state in candidates)
-                complete = result['status']['code'] == 'Ok' and labels == grid and proven
+                source_code = result['status']['code']
+                complete = source_code == 'Ok' and labels == grid and proven
+                recovery_status = 'source_window_incomplete' if source_code == 'Ok' and not complete else source_code
                 row.update(state='recovered' if complete else 'recovery_pending',
                            recovered_count=len(labels) if complete else None,
-                           recovery_status=result['status']['code'], recovery_observed_at=self.wall_clock())
+                           recovery_status=recovery_status, recovery_observed_at=self.wall_clock())
                 if not complete:
                     self.retry_at[key] = self.clock() + self.c['retry_seconds']
         self.next_step = self.clock() + self.c['interval_seconds']
@@ -253,7 +289,7 @@ class MinuteCollectionMaintenance:
             reference_error=self.reference_error, last_error_type=self.last_error_type,
             calendar_sha256=getattr(self, 'calendar_sha', None),
             scan_cycles=self.cycle, scan_cursor=self.cursor, scan_symbols=len(self.symbols),
-            dates=list(self.dates), queued_count=len(self.jobs), states=dict(Counter(r['state'] for r in rows)), rows=rows,
+            dates=list(self.dates), queued_count=len(self.queued), states=dict(Counter(r['state'] for r in rows)), rows=rows,
             retained_read_resume=self.retained_read_resume)  # 有界原ID交接状态；不授分钟完整性。
 
     def close(self):

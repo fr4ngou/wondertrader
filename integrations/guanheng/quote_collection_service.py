@@ -293,7 +293,8 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
             if maintenance is not None:
                 stage = 'minute_maintenance'
                 try:
-                    maintenance.step(source_ready=snapshot['connected'])
+                    # 历史请求已有独立认证与重试；实时行情断线期间仍可补其缺口。
+                    maintenance.step()
                     maintenance.last_error_type = None
                 except (OSError, ValueError, KeyError, TypeError) as exception:
                     # 来源/资料可用性只影响本轮维护；原Writer继续接收并发布实际状态。
@@ -343,7 +344,8 @@ def serve(configuration, configuration_sha256, control_directory, control_id):
                     winerror=primary.get('winerror'), failures=failures,
                     source=None if failure_snapshot is None else {
                         key: failure_snapshot[key] for key in ('phase', 'error', 'generation', 'connected',
-                            'receiver_failure', 'receiver_cleanup_failure', 'latest_source_time_ms', 'observed_wall_time')},
+                            'receiver_failure', 'receiver_cleanup_failure', 'latest_source_time_ms', 'observed_wall_time',
+                            'recent_disconnects')},
                     components_closed=collection is None or collection.closed_complete))
             except BaseException:
                 pass  # 原业务/资源失败保持；诊断写入失败不能替换其返回结果。

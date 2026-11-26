@@ -11,9 +11,9 @@ from .reconnecting_trade import ReconnectingTradingAgent, _TradingConnection
 from .restricted import RestrictedReadAgent
 from .source_connection import SourceConnection, TickCredit
 from .transport import LocalTransport
-from .protocol import TransportBudget
+from .protocol import TransportBudget, canonical
 from .quote_stream import QuoteStreamAgent, WarmupBarrier
-from .quote_stream_contract import BATCH_SCHEMA, WARMUP_READY_SCHEMA, validate_warmup_marker
+from .quote_stream_contract import BATCH_SCHEMA, WARMUP_READY_SCHEMA, validate_warmup_marker, transport_digest
 
 
 class _TickAgent(object):
@@ -163,6 +163,26 @@ class TickQuoteAgent(QuoteStreamAgent):
         self._io_resources_closed = False
         self._tick_io = self._tick_packets = self._tick_packet = None
         self._next_at = 0.0
+        self._last_quote_tick = None  # 同一来源线程的单调时钟，区分调度停顿与通道本身异常。
+
+    def _report_generation_end(self, reason, error, tick_gap_ms):
+        if self._stop.is_set() or self._tick_packets is None:
+            return
+        try:
+            session = self._tick_io.session
+            winerror = getattr(error, 'winerror', None)
+            event = dict(
+                generation=self.generation,  # QMT端进程内认证代。
+                transport_sha256=transport_digest(session.framer),  # 与WT接收端同一运输代摘要。
+                at_ms=int(time.time() * 1000),  # UNIX毫秒，仅供排障靠近时间对齐。
+                reason=reason,  # 本端观测到的固定原因。
+                error_kind=None if error is None else type(error).__name__[:64],
+                winerror=winerror if type(winerror) is int and 0 <= winerror <= 65535 else None,
+                tick_gap_ms=tick_gap_ms,  # 本次报价调度距离上次的单调间隔。
+                phase='warmup' if isinstance(self._tick_packet, WarmupBarrier) else 'send')
+            print('GH_QST_DISCONNECT ' + canonical(event).decode('utf8'))
+        except Exception:
+            pass  # 终端诊断输出失效时照常关闭原会话并恢复。
 
     def _close_generation(self):
         self.connected.clear()
@@ -184,7 +204,10 @@ class TickQuoteAgent(QuoteStreamAgent):
         if self._stop.is_set():
             self._close_generation()
             return False
-        if time.monotonic() < self._next_at or self.cleanup_failure:
+        now = time.monotonic()
+        tick_gap_ms = None if self._last_quote_tick is None else int((now - self._last_quote_tick) * 1000)
+        self._last_quote_tick = now
+        if now < self._next_at or self.cleanup_failure:
             return False
         credit = TickCredit(self._settings['max_frame'])
         try:
@@ -219,14 +242,24 @@ class TickQuoteAgent(QuoteStreamAgent):
         except StopIteration:
             # 原packet生成器在关闭/溢出撤销本代时正常结束；沿原thread
             # 的for结束语义退休运输并重连，保留原queue_overflow事实。
+            self._report_generation_end('queue_overflow', None, tick_gap_ms)
             self._close_generation()
             self._next_at = time.monotonic() + .1
-        except (OSError, TimeoutError):
+        except (OSError, TimeoutError) as error:
             self.failure = self.failure or 'transport_disconnected'
+            reason = 'transport_error'
+            if self._generation_stop.is_set() and not self._stop.is_set():
+                reason = 'queue_overflow'
+            elif isinstance(error, TimeoutError):
+                reason = 'deadline'
+            elif error.args == ('builtin SHM peer is closing',):
+                reason = 'peer_closed'
+            self._report_generation_end(reason, error, tick_gap_ms)
             self._close_generation()
             self._next_at = time.monotonic() + .1
-        except BaseException:
+        except BaseException as error:
             self.failure = self.failure or 'quote_stream_fault'
+            self._report_generation_end('stream_fault', error, tick_gap_ms)
             self._close_generation()
             self._next_at = float('inf')
             raise

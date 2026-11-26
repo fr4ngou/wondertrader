@@ -26,6 +26,8 @@ Source离线时只保存每证券最新快照；新认证连接在同一锁内�
 
 Host类QuoteStreamReceiver(settings=..., on_batch=callable)。start()创建受管I/O worker并等待listener就绪；监听既有LocalTransport.listen(wait_for_peer=True)，空闲持续等待。认证profile必须完全一致；每包按纯合同和清单验证。on_batch(ticks, kind)在唯一接收I/O线程同步调用，完成后更新计数。断连先撤销ready、关闭原代资源，再创建新代；不同时启动两个writer。request_close/close(deadline)沿单一截止确认资源。
 
+断线诊断随既有采集状态发布，保留最近 32 次已认证行情连接的异常。每条包含失败代、接收端 Unix 毫秒、初始化或接收阶段、进行中的动作、固定原因码、异常类型和可用的 Windows 错误码。正常停止和空闲监听超时不记作一次断线。新代建立后仍保留前代诊断，采集异常退出时最后快照同步进入 failure.json。QMT来源在原策略日志记录结束原因及两个报价回调间的单调时延。两端使用同一已认证运输代摘要关联。遥测仅在发生异常时产生，不参与行情准入、重连和 Writer。
+
 ## QST4 原生消费
 
 原WtDtPorter提供create_ext_parser/register_parser_callbacks/parser_push_quote，但其C导出未提供聚合close。受管宿主采用原C++公开ParserAdapter/DataManager/StateMonitor组合，分别调用既有run/stop/release；自有IParserApi输入薄层只转交数据。自有C++薄导出复用qmt_mapping::map_ticks映射最多200证券，并调用原handleQuote(procFlag=1)，不重写分钟聚合、时段状态机或存储。价格/量额profile显式提供，来源值与单位资格分别登记。原生基础合约由真实沪深股票/ETF清单生成，已知清单6982与有报价6938分别记录。

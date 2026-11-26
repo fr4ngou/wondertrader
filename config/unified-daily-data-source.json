@@ -194,7 +194,7 @@
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/private_files.py"
     },
     "guanheng_qmt_shm/quote_stream.py": {
-      "sha256": "f16d47efbf5cc32c9a1ecbe182cacd7bc3ce8b534bd49c1c817270c2d2e349fe",
+      "sha256": "e8c5a2160e6d3768acffa563ed7990d0ffc1857b683296be5916b4049e02e7f9",
       "source": "connectors/qmt_shm/host/guanheng_qmt_shm/quote_stream.py"
     },
     "guanheng_qmt_shm/read_retention_client.py": {
@@ -294,7 +294,7 @@
       "source": "connectors/qmt_shm/agent/guanheng_qmt_shm_agent/protocol.py"
     },
     "guanheng_qmt_shm_agent/quote_stream_contract.py": {
-      "sha256": "bfa05e501a7ce7c53bf5989d7c82395dda3d000ce61003c29d78d4110ae22b58",
+      "sha256": "554a070f973dcc4b774185e687a83887d3c3dff8b4e6a5440adf4f0944e85e35",
       "source": "connectors/qmt_shm/agent/guanheng_qmt_shm_agent/quote_stream_contract.py"
     },
     "guanheng_qmt_shm_agent/read_capabilities.py": {
@@ -390,7 +390,7 @@
       "source": "integrations/guanheng/collection_coverage.py"
     },
     "integrations/guanheng/collection_maintenance.py": {
-      "sha256": "747bb715c807a1118ee3236af2b10b58083eec5f4e1233e6013cbbc5a6371f37",
+      "sha256": "551fbd25fdf648a60c43101275c1bbb9b9288f9e1dd00907537817b044344b5a",
       "source": "integrations/guanheng/collection_maintenance.py"
     },
     "integrations/guanheng/collection_minute_reader.py": {
@@ -598,11 +598,11 @@
       "source": "integrations/guanheng/qmt_analysis_import.py"
     },
     "integrations/guanheng/qmt_dat_layout.py": {
-      "sha256": "4b62c99d49a4bbf0026619805886c1b2cd643c2c893b48e05746171b1fedc9aa",
+      "sha256": "62941d2d5518083260dfb4395499bf983413450bf19dc05d955589f2161edbca",
       "source": "integrations/guanheng/qmt_dat_layout.py"
     },
     "integrations/guanheng/qmt_local_dat.py": {
-      "sha256": "fb95c1f7e910b5f0be751a5655b7ce38604f4f89c44e808dcc1accce7a21e858",
+      "sha256": "3c36c0f7ef8161cbbfa78d5515763f686085d7f9e3f68fa669c51fd559aa5d26",
       "source": "integrations/guanheng/qmt_local_dat.py"
     },
     "integrations/guanheng/qmt_minute_daily.py": {
@@ -614,11 +614,11 @@
       "source": "integrations/guanheng/qmt_minute_import.py"
     },
     "integrations/guanheng/quote_collection.py": {
-      "sha256": "ffbd4e6c9569115c0c77f2e87803858fcb375f7edbeae3bbbfc29b01bad33d13",
+      "sha256": "f5ea121dbed9351643958bf8276446d5615977be998fbf2c5d605f108fc431ba",
       "source": "integrations/guanheng/quote_collection.py"
     },
     "integrations/guanheng/quote_collection_service.py": {
-      "sha256": "0bea5c7d2f5d9d8f172b829e60ea08b13b064291589c01584b8d5851e4da8c21",
+      "sha256": "bda3b370684daec56bfe851c8d2b6f0f2a72e74403183341f6e8467ef7d78f2e",
       "source": "integrations/guanheng/quote_collection_service.py"
     },
     "integrations/guanheng/quote_counter_observation.py": {
@@ -650,7 +650,7 @@
       "source": "integrations/guanheng/source_history_followup.py"
     },
     "integrations/guanheng/source_history_preparation.py": {
-      "sha256": "b2fe1ec83c489f6082922776f4ba0cfa4030c997b5d2050ba774e43b0ac7999d",
+      "sha256": "d6932bb49fd41d22bcfa84612197d9ac2d3cd83dc4590878314ff3517800fbcb",
       "source": "integrations/guanheng/source_history_preparation.py"
     },
     "integrations/guanheng/source_history_reads.py": {
@@ -798,5 +798,5 @@
     "config/unified-daily-python-files.json",
     "LICENSE"
   ],
-  "version": "0.2.0a1+unified.63"
+  "version": "0.2.0a1+unified.66"
 }

@@ -1,6 +1,7 @@
 """独立行情流接收；唯一I/O线程拥有认证代与同步消费回调，不使用HTTP或Journal。"""
 from __future__ import annotations
 
+from collections import deque
 import math
 import threading
 import time
@@ -9,7 +10,7 @@ from guanheng_qmt_shm_agent.protocol import canonical
 from guanheng_qmt_shm_agent.transport import LocalTransport
 from guanheng_qmt_shm_agent.quote_stream_contract import (
     validate_settings, validate_batch, validate_heartbeat, WARMUP_PROFILE_SCHEMA,
-    WARMUP_COMPLETE_SCHEMA, WARMUP_READY_SCHEMA, NATIVE_BATCH_LIMIT, warmup_marker, validate_warmup_marker)
+    WARMUP_COMPLETE_SCHEMA, WARMUP_READY_SCHEMA, NATIVE_BATCH_LIMIT, warmup_marker, validate_warmup_marker, transport_digest)
 
 
 class QuoteStreamReceiver:
@@ -35,6 +36,7 @@ class QuoteStreamReceiver:
         self._phase = "new"
         self._generation = self._batches = self._ticks = self._heartbeats = 0
         self._heartbeat = None
+        self._recent_disconnects = deque(maxlen=32)  # 本进程已认证代的最近断线，I/O线程写、状态快照复制。
 
     def _deadline(self, seconds):
         candidate = time.monotonic() + seconds
@@ -110,7 +112,8 @@ class QuoteStreamReceiver:
                     "received_ticks": self._ticks, "heartbeats": self._heartbeats,
                     "failure": self._failure, "cleanup_failure": self._cleanup_failure,
                     "owner_pending": not self._resources_closed,
-                    "heartbeat": None if self._heartbeat is None else dict(self._heartbeat)}
+                    "heartbeat": None if self._heartbeat is None else dict(self._heartbeat),
+                    "recent_disconnects": [dict(row) for row in self._recent_disconnects]}
 
     def _run(self):
         settings = self._settings
@@ -118,6 +121,7 @@ class QuoteStreamReceiver:
             while not self._stop.is_set():
                 listener = session = transport = None
                 consumer_failed = False
+                receive_stage = operation = None
                 try:
                     transport = LocalTransport(route=settings["route"], secret=settings["secret"],
                         max_frame=settings["max_frame"], profile=settings["profile"], transport=settings["transport"])
@@ -142,16 +146,21 @@ class QuoteStreamReceiver:
                     warmup = settings["profile"]["schema_version"] == WARMUP_PROFILE_SCHEMA
                     warmed = set()
                     warmup_complete = not warmup
+                    receive_stage = "receiving" if warmup_complete else "warmup"
                     while not self._stop.is_set():
+                        operation = "receive"
                         packet = session.receive(self._deadline(settings["io_seconds"]))
+                        operation = "validate"
                         if type(packet) is dict and packet.get("schema_version") == WARMUP_COMPLETE_SCHEMA:
                             if not warmup or warmup_complete:
                                 raise ValueError("unexpected quote warmup receipt")
                             validate_warmup_marker(packet, WARMUP_COMPLETE_SCHEMA, warmed)
                             # 先前每个Native回调均已成功返回，才沿同一Session确认本代集合。
                             # 这里没有延长I/O截止，也不把部分或未知写入认定为初始化成功。
+                            operation = "confirm_warmup"
                             session.send(warmup_marker(WARMUP_READY_SCHEMA, warmed), self._deadline(settings["io_seconds"]))
                             warmup_complete = True
+                            receive_stage = "receiving"
                         elif type(packet) is dict and packet.get("schema_version") == "qmt.quote-heartbeat.v1":
                             if not warmup_complete:
                                 raise ValueError("quote heartbeat before initialization")
@@ -195,6 +204,27 @@ class QuoteStreamReceiver:
                     elif not self._stop.is_set():
                         with self._guard:
                             self._failure = "connection_ended"
+                            # 空闲监听和未认证失败不属于已建立报价流的断线。
+                            if receive_stage is not None:
+                                winerror = getattr(exc, "winerror", None)
+                                reason = "transport_error"
+                                if type(exc) is TimeoutError:
+                                    reason = "deadline"
+                                elif isinstance(exc, OSError) and exc.args == ("builtin SHM peer is closing",):
+                                    reason = "peer_closed"
+                                elif operation == "validate":
+                                    reason = "invalid_packet"
+                                self._recent_disconnects.append(dict(
+                                    generation=self._generation,  # 失败的已认证代，后继重连另起代号。
+                                    transport_sha256=transport_digest(session.framer),  # 对端同代关联，未知留空。
+                                    at_ms=time.time_ns() // 1_000_000,  # 接收端墙钟的Unix毫秒，供对齐分钟缺口。
+                                    stage=receive_stage,  # 断在初始化快照或正常接收阶段。
+                                    operation=operation,  # 接收、校验或确认初始化的具体动作。
+                                    reason=reason,  # 固定原因码，不输出任意异常文本。
+                                    exception_kind=type(exc).__name__[:64],  # 原异常类型，有界且不发布原文。
+                                    winerror=winerror if type(winerror) is int and 0 <= winerror <= 65535 else None,
+                                    # 无合格Windows错误码时为未知。
+                                ))
                 finally:
                     self.connected.clear()
                     cleanup = None

@@ -303,8 +303,37 @@ class SourcePreparingMarket:
         actual=[label(datetime.fromtimestamp(row[0]/1000,SHANGHAI))for row in rows]
         return bool(expected)and actual==expected
 
-    def _publish(self,state,directory,symbol,rows,binding,deadline):
-        if self.follow and self.closed_day_recovery and not self._complete_rows(state,rows)and state['follow_up']is None:
+    def recover_local_day(self, query, grid, cache_root):
+        """原窗口写入者用一次本地读取完成整日恢复；完整原收据可直接续用。"""
+        from .qmt_local_dat import CacheExportError, read_minute_grid
+        self._check()
+        require(self.closed_day_recovery and grid and query['from'] == grid[0] and query['to'] == grid[-1])
+        deadline = self.clock() + self.c['timeout_seconds']
+        existing = self.repository.read_window(query, deadline=deadline,
+            byte_budget=[self.c['max_bytes']], clock=self.clock)
+        published = existing['published'] if existing is not None else None
+        if published is not None and published.get('reconciled_day') is not None:
+            return published['count']
+        symbol = query['code'] + ('.SH' if query['exchange'] == 'SSE' else '.SZ')
+
+        def check():
+            if self.clock() >= deadline:
+                raise SourcePending('local source deadline')
+
+        try:
+            rows, digest = read_minute_grid(cache_root, symbol, grid, check=check)
+        except (OSError, CacheExportError):
+            return 0
+        if not rows:
+            return 0
+        _, directory, state = self._state(query)
+        self._publish(state, directory, symbol, rows, None, deadline, local_digest=digest)
+        return state['published']['count']
+
+    def _publish(self,state,directory,symbol,rows,binding,deadline,*,local_digest=None):
+        # 本地原件完整性由核过的整日标签证明，无须等自然日翻页。
+        complete = self.closed_day_recovery and (local_digest is not None or self._complete_rows(state,rows))
+        if self.follow and self.closed_day_recovery and not complete and state['follow_up']is None:
             state['follow_up']=followup.initial(self.follow,self.source.uptime.seconds(),self.wall_clock())
             self._save(directory,state)
         if not rows:
@@ -313,6 +342,12 @@ class SourcePreparingMarket:
         for row in rows:writer.writerow((datetime.fromtimestamp(row[0]/1000,SHANGHAI).isoformat(),*(repr(float(v))for v in row[1:])))
         csv_bytes=stream.getvalue().encode('utf8');budget(len(csv_bytes)<=self.c['max_bytes'])
         profile=self._profile(binding,hashlib.sha256(canonical(binding)).hexdigest()[:16]+':'+state['window_id'])
+        if local_digest is not None:
+            from .qmt_dat_layout import DATASET_VERSION
+            profile.update(instance_id='local-dat', session_id='local-dat:' + local_digest,
+                           dataset_version=DATASET_VERSION + ':' + local_digest[:32], input_kind='qmt_export',
+                           price_unit='unknown', volume_unit='unknown', amount_unit='unknown',
+                           minute_boundary='unknown')  # 本地原值证据独立于在线RPC会话及其单位。
         manifest=canonical(dict(schema_version=2,profile=profile,securities=[dict(symbol=symbol,chunks=[dict(path='bars.csv',sha256=hashlib.sha256(csv_bytes).hexdigest())])]))
         manifest_path,store=self._import_target(state,directory,csv_bytes,manifest)
         if self.clock()>=deadline:raise SourcePending('source deadline')
@@ -327,7 +362,9 @@ class SourcePreparingMarket:
             and verified['securities'][0]['symbol']==symbol and verified['securities'][0]['count']==len(rows))
         if self.clock()>=deadline:raise SourcePending('native import returned after deadline')
         published=dict(root=str(store),import_receipt_sha256=hashlib.sha256(raw).hexdigest(),count=len(rows))
-        if self.closed_day_recovery and self._complete_rows(state,rows):
+        if local_digest is not None:
+            published['local_cache_slice_sha256'] = local_digest  # 文件头与本次原始DAT片段的摘要。
+        if complete:
             published['reconciled_day']=dict(
                 **{'from':state['query']['from'],'to':state['query']['to']},  # 原WT session完整右端范围。
                 dataset_version=profile['dataset_version'])  # 固定完整来源版本；原采集和部分恢复根均保留。

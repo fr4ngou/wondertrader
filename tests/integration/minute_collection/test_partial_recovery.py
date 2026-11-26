@@ -6,6 +6,7 @@ MCC_NATIVE_FIXTURE显式指向已验证producer.json；测试只读该配置，�
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -105,6 +106,67 @@ class ReadFixture:
 
 @unittest.skipUnless(os.environ.get('MCC_NATIVE_FIXTURE'), 'requires explicit fixed native fixture')
 class NativePartialRecoveryTests(unittest.TestCase):
+    def test_same_day_local_cache_becomes_authoritative_without_waiting_for_midnight(self):
+        import struct
+        from integrations.guanheng.qmt_dat_layout import MAGIC, RECORD_BYTES
+        from integrations.guanheng.recovered_history import RecoveredSourceMarket
+
+        parent = Path('E:/workspace/wondertrader-qa/minute-collection-regressions')
+        parent.mkdir(parents=True, exist_ok=True)
+        configuration = json.loads(Path(os.environ['MCC_NATIVE_FIXTURE']).read_bytes())
+        with tempfile.TemporaryDirectory(dir=parent) as root:
+            root = Path(root)
+            configuration['preparation']['workspace'] = str(root / 'store')
+            declaration = root / 'producer.json'
+            declaration.write_bytes(preparation.canonical(configuration))
+            cache = root / 'cache'
+            path = cache / 'SH' / '60' / '510300.DAT'
+            path.parent.mkdir(parents=True)
+            day = '2026-11-26'
+            same_day = preparation.stamp(202611261601)
+            with patch.object(preparation, 'BoundHistorySource', return_value=SourceFixture()), \
+                    patch.object(preparation, 'HistoryReadOperations', ReadFixture):
+                market = preparation.SourcePreparingMarket(configuration, wall_clock=same_day.timestamp)
+            try:
+                grid = market.base.expected_minutes('SSE.510300', day)
+                self.assertEqual(len(grid), 240)
+                query = dict(exchange='SSE', code='510300', **{'from': grid[0], 'to': grid[-1]}, limit=240)
+                request = dict(api_version=API_VERSION, action='history.source-query', request=query)
+
+                def bar(label):
+                    raw = bytearray(RECORD_BYTES)
+                    struct.pack_into('<I4I', raw, 0, int(preparation.stamp(label).timestamp()), 4000, 4010, 3980, 3990)
+                    struct.pack_into('<i4xq', raw, 24, 42, 167)
+                    return bytes(raw)
+
+                # 同日但仍缺最后一分钟时，保持等待且不建立空补齐窗口。
+                captured = MAGIC + bar(202611260930) + b''.join(bar(m) for m in grid[:-1])
+                path.write_bytes(captured)
+                self.assertEqual(market.recover_local_day(query, grid, str(cache)), 0)
+                self.assertEqual(market.repository.count(), 0)
+                # QMT已有完整整日原件时，不调用历史RPC，仍由原生读回证明发布。
+                path.write_bytes(captured + bar(grid[-1]))
+                with patch.object(market, '_closed_grid', return_value=[]):  # 历史RPC仍将同日视为不可用。
+                    self.assertEqual(market.recover_local_day(query, grid, str(cache)), 240)
+                digest = hashlib.sha256(declaration.read_bytes()).hexdigest()
+                reader = RecoveredSourceMarket(dict(mode='source-recovered', base=configuration['base'],
+                    producer=dict(path=str(declaration), sha256=digest)))
+                try:
+                    reply = reader.call(request)
+                    self.assertEqual(reply['status']['code'], 'Ok')
+                    self.assertEqual([row['minute'] for row in reply['data']['bars']], grid)
+                    self.assertEqual(reply['data']['metadata']['source']['instance_id'], 'local-dat')
+                    self.assertTrue(all(row['volume'] == 42 for row in reply['data']['bars']))
+                    _, where, prior = market._state(query)
+                    thumbprint = (where / 'receipt.json').read_bytes()
+                    self.assertEqual(market.recover_local_day(query, grid, str(cache)), 240)
+                    self.assertEqual((where / 'receipt.json').read_bytes(), thumbprint)
+                    self.assertEqual(len(prior['imports']), 1)
+                finally:
+                    reader.close()
+            finally:
+                market.close()
+
     def test_reconnect_with_unsubmitted_download_fills_remaining_gap_once(self):
         parent = Path('E:/workspace/wondertrader-qa/minute-collection-regressions')
         parent.mkdir(parents=True, exist_ok=True)

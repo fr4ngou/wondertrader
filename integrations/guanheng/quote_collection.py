@@ -306,5 +306,6 @@ class QuoteCollection:
             source_heartbeat=heartbeat,
             receiver_failure=failure if failure in (None, "consumer_failed", "connection_ended") else "receiver_failed",
             receiver_cleanup_failure=None if cleanup is None else "transport_close_unconfirmed",
+            recent_disconnects=received.get("recent_disconnects", []),  # 原接收线程的有界断线证据，不授分钟完整性。
         )
         return result

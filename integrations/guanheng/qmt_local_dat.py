@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_left
 from contextlib import nullcontext
 from datetime import date, datetime, timedelta, timezone
 import hashlib
@@ -116,6 +117,14 @@ def _date_window(from_date,to_date):
     return start,end,dict(from_date=from_date,to_date=to_date,basis='source_label_date')
 
 
+def _record_values(raw, offset):
+    prices = struct.unpack_from('<4I', raw, offset + 4)
+    volume, amount = COUNTERS.unpack_from(raw, offset + 24)
+    _need(volume >= 0 and amount >= 0, 'quantity')
+    _need(min(prices) > 0, 'price')
+    return prices, volume, amount
+
+
 def _export_one(root,symbol,csv_path,max_rows,max_input_bytes,block_records,period='1m',*,from_date=None,to_date=None,max_scan_rows=None,
                 dates=None,consume=None,check=lambda:None):
     start,end,selection=_date_window(from_date,to_date)
@@ -168,11 +177,8 @@ def _export_one(root,symbol,csv_path,max_rows,max_input_bytes,block_records,peri
                 if (start is not None and label.date()<start) or (end is not None and label.date()>end):continue
                 if dates is not None and label.date() not in dates:continue
                 _need(selected<max_rows,'budget')
-                prices=struct.unpack_from('<4I',block,offset+4)
-                volume,amount=COUNTERS.unpack_from(block,offset+24)
-                _need(volume>=0 and amount>=0,'quantity')
+                prices,volume,amount=_record_values(block,offset)
                 op,high,low,close=prices
-                _need(min(prices)>0,'price')
                 text=label.isoformat();first=text if first is None else first;last=text
                 # 原始四价独立保存；来源范围异常只记录质量，不改值或丢整只证券。
                 quality.observe(text,op,high,low,close)
@@ -219,6 +225,61 @@ def read_cache_dates(cache_root,symbol,days,*,period,check):
         MAX_FILE_BYTES,4096,period,from_date=min(dates).isoformat(),to_date=max(dates).isoformat(),
         dates=dates,consume=receive,check=check)
     return rows,evidence['source_sha256']
+
+
+def read_minute_grid(cache_root, symbol, grid, *, check):
+    """按WT完整交易日标签读一个连续DAT区间；摘要只绑定本次固定片段。"""
+    root = _root(cache_root)
+    code, market = _symbol(symbol).split('.')
+    directory = root / market / _period('1m')[0]
+    _ordinary(directory.parent, True)
+    _ordinary(directory, True)
+    source = directory / (code + '.DAT')
+    before = _ordinary(source)
+    _need(8 <= before.st_size <= MAX_FILE_BYTES and (before.st_size - 8) % RECORD_BYTES == 0, 'layout')
+    _need(bool(grid))
+    count = (before.st_size - 8) // RECORD_BYTES
+    check()
+    with source.open('rb') as stream:
+        opened = os.fstat(stream.fileno())
+        _need(_same_file(before, opened), 'source_changed')
+        _need(stream.read(8) == MAGIC, 'layout')
+
+        def seconds(index):
+            stream.seek(8 + index * RECORD_BYTES)
+            raw = stream.read(4)
+            _need(len(raw) == 4, 'source_changed')
+            return struct.unpack('<I', raw)[0]
+
+        if not count or int(datetime.fromtimestamp(seconds(count - 1), SHANGHAI).strftime('%Y%m%d%H%M')) < grid[-1]:
+            return [], None
+        expected = [int(datetime.strptime(str(label), '%Y%m%d%H%M').replace(tzinfo=SHANGHAI).timestamp())
+                    for label in grid]
+        first = bisect_left(range(count), expected[0], key=seconds)
+        check()
+        if first + len(expected) > count:
+            return [], None
+        stream.seek(8 + first * RECORD_BYTES)
+        raw = stream.read(len(expected) * RECORD_BYTES)
+        _need(len(raw) == len(expected) * RECORD_BYTES, 'source_changed')
+        if (first and seconds(first - 1) >= expected[0]
+                or first + len(expected) < count and seconds(first + len(expected)) <= expected[-1]):
+            return [], None
+        rows = []
+        for index, stamp in enumerate(expected):
+            offset = index * RECORD_BYTES
+            if struct.unpack_from('<I', raw, offset)[0] != stamp:
+                return [], None
+            prices, volume, amount = _record_values(raw, offset)
+            rows.append((stamp * 1000, *(value / 1000.0 for value in prices), volume, amount))
+        # 写入端可能尚未提交新mtime；再核本次只读片段，仍只读取目标日。
+        stream.seek(8 + first * RECORD_BYTES)
+        _need(stream.read(len(raw)) == raw, 'source_changed')
+        after, current = os.fstat(stream.fileno()), _ordinary(source)
+        _need(_stamp(after) == _stamp(opened) and _stamp(current) == _stamp(before)
+              and _same_file(current, after), 'source_changed')
+    check()
+    return rows, hashlib.sha256(MAGIC + raw).hexdigest()
 
 
 def _select_cache(root,symbols,all_cache):
