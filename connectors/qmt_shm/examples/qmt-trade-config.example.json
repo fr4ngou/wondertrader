@@ -1,0 +1,101 @@
+{
+  "route": {
+    "route_id": "qmt-trade-example",
+    "executor_id": "qmt-example",
+    "route_epoch": 1
+  },
+  "max_frame": 262144,
+  "max_result_bytes": 16384,
+  "connect_seconds": 5,
+  "io_seconds": 2,
+  "control_profile": {
+    "schema_version": "2.0",
+    "max_pending_calls": 4,
+    "max_call_bytes": 8192,
+    "max_reply_bytes": 32768,
+    "max_retained_bytes": 300000,
+    "max_cycle_messages": 8,
+    "max_cycle_bytes": 65536,
+    "poll_seconds": 0.005,
+    "max_call_seconds": 10
+  },
+  "transport": {
+    "kind": "builtin-shm",
+    "schema_version": "qmt.builtin-shm.v1",
+    "name": "qmt-broker-trade-example",
+    "windows_session_id": 1,
+    "max_mapped_bytes": 4194304,
+    "poll_seconds": 0.005
+  },
+  "read_profile_version": "qmt.read-profile.v4",
+  "operation_profiles": {
+    "account.trade_detail": {
+      "policy_id": "qmt.account-read.v1",
+      "policy_version": "1.0",
+      "execution_timeout_ms": 1000,
+      "limits": {
+        "schema_version": "qmt.account-read.v1",
+        "account_binding": {
+          "account_id": "SYNTHETIC",
+          "account_environment": "live",
+          "currency": "CNY",
+          "financial_profile": "cny_cash_shsz_v1"
+        },
+        "max_rows": 4096,
+        "max_nodes": 65536,
+        "max_scalar_chars": 262144,
+        "max_data_bytes": 8192
+      }
+    }
+  },
+  "trade_profile": {
+    "schema_version": "qmt.trade-profile.v1",
+    "binding_sha256": "7ab284cc3b2ee626ee74268ff6a722b754d27c85f5639c82b7a41d5773c0e7ba",
+    "clock_schema": "qmt.win-uptime-ms.v1",
+    "operations": [
+      "order.cancel",
+      "order.insert"
+    ],
+    "limits": {
+      "max_commands": 16,
+      "max_command_bytes": 4096,
+      "max_command_ttl_ms": 5000,
+      "max_call_result_bytes": 4096,
+      "max_events": 8,
+      "max_event_bytes": 1024,
+      "max_total_event_bytes": 8192,
+      "max_event_page_bytes": 4096
+    }
+  },
+  "trade_binding": {
+    "schema_version": "qmt.trade-binding.v2",
+    "binding_id": "example-account-binding",
+    "account_id": "SYNTHETIC",
+    "account_type": "stock",
+    "account_environment": "live",
+    "strategy_name": "example-strategy",
+    "max_commands": 16
+  },
+  "writes_enabled": false,
+  "read_operations": [
+    "account.trade_detail"
+  ],
+  "ipc_secret_env": "QMT_EXAMPLE_IPC_SECRET",
+  "http_secret_env": "QMT_EXAMPLE_HTTP_SECRET",
+  "http_key_id": "qmt-example",
+  "journal_path": "D:/qmt-private/communication.sqlite",
+  "max_records": 64,
+  "max_journal_bytes": 1048576,
+  "max_http_inflight": 4,
+  "operation_policies_path": "D:/qmt-private/qmt-operation-policy.json",
+  "listen_host": "127.0.0.1",
+  "listen_port": 18159,
+  "max_trade_bytes": 200000,
+  "event_storage": {
+    "max_streams": 4,
+    "max_events": 32,
+    "max_bytes": 60000,
+    "max_page_bytes": 4096
+  },
+  "event_poll_seconds": 0.2
+}
