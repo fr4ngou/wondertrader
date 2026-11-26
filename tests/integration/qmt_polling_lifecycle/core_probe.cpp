@@ -7,7 +7,12 @@ auto a=client.read_full_tick("{\"stocks\":[\"000001.SZ\"]}",1500);bool invalid=!
 auto b=client.read_full_tick("{\"stocks\":[\"000001.SZ\"]}",1500);auto now=client.session();
 bool restored=client.capability().supported;bool same=origin.instance_id==now.instance_id&&origin.session_id==now.session_id&&origin.generation==now.generation;
 const bool old_result=b.result.status.reason=="qmt_host_transport_replaced_after_result";
-bool receipt_same=true;if(!old_result && !b.receipt.request_body.empty()){auto r=client.resume(b.receipt,1500);receipt_same=r.receipt.request_body==b.receipt.request_body&&r.receipt.binding_json==b.receipt.binding_json&&r.receipt.retention_ticket_json==b.receipt.retention_ticket_json;}
+bool receipt_same=true;std::string resume_reason;
+if(!old_result && !b.receipt.request_body.empty()){
+    auto resumed=client.resume(b.receipt,1500);
+    receipt_same=resumed.receipt.request_body==b.receipt.request_body&&resumed.receipt.binding_json==b.receipt.binding_json&&resumed.receipt.retention_ticket_json==b.receipt.retention_ticket_json;
+    resume_reason=resumed.result.status.reason;
+}
 bool after_rebind_receipt=false;
 if(b.result.status.reason=="qmt_host_transport_replaced_before_submit"){
     auto c=client.read_full_tick("{\"stocks\":[\"000001.SZ\"]}",1500);
@@ -20,4 +25,4 @@ if(old_result && b.snapshot_consumption_ready && !b.result.data_json.empty()){
     old_result_consumed=ack.ok();
 }
 auto drain=client.drain_callbacks(2000);
-std::cout<<"{\"prepare\":true,\"first_empty\":"<<a.receipt.request_body.empty()<<",\"invalidated\":"<<invalid<<",\"second_receipt\":"<<!b.receipt.request_body.empty()<<",\"second_code\":"<<int(b.result.status.code)<<",\"second_reason\":\""<<b.result.status.reason<<"\",\"restored\":"<<restored<<",\"same_origin\":"<<same<<",\"receipt_same\":"<<receipt_same<<",\"after_rebind_receipt\":"<<after_rebind_receipt<<",\"old_result_consumed\":"<<old_result_consumed<<",\"old_result_retried\":"<<old_result_retried<<",\"drained\":"<<drain.ok()<<"}";}
+std::cout<<"{\"prepare\":true,\"first_empty\":"<<a.receipt.request_body.empty()<<",\"invalidated\":"<<invalid<<",\"second_receipt\":"<<!b.receipt.request_body.empty()<<",\"second_code\":"<<int(b.result.status.code)<<",\"second_reason\":\""<<b.result.status.reason<<"\",\"restored\":"<<restored<<",\"same_origin\":"<<same<<",\"receipt_same\":"<<receipt_same<<",\"resume_reason\":\""<<resume_reason<<"\",\"after_rebind_receipt\":"<<after_rebind_receipt<<",\"old_result_consumed\":"<<old_result_consumed<<",\"old_result_retried\":"<<old_result_retried<<",\"drained\":"<<drain.ok()<<"}";}

@@ -42,7 +42,7 @@ std::string diagnostic_reason(const Status& status)
     static const std::set<std::string> known={
         "qmt_host_snapshot_invalid","qmt_host_binding_invalid","qmt_host_profile_invalid","qmt_host_limits_invalid",
         "qmt_host_native_operation_failed","qmt_host_source_reconnect_deadline","qmt_host_deadline","qmt_host_pump_deadline",
-        "qmt_host_original_snapshot_pending","qmt_host_original_consumption_pending","qmt_host_source_changed",
+        "qmt_host_original_snapshot_pending","qmt_host_original_consumption_pending","qmt_host_snapshot_ticket_ended","qmt_host_source_changed",
         "qmt_read_retention_held_responsibility","qmt_host_binding_changed",
         "qmt_host_transport_replaced_before_submit","qmt_host_transport_replaced_after_result",
         "qmt_host_result_binding_changed",
@@ -289,10 +289,11 @@ public:
         auto status=source_->pump(count,budget);
         const bool original_pending=status.code==ErrorCode::Pending && (status.reason=="qmt_host_original_snapshot_pending"
             || status.reason=="qmt_host_original_consumption_pending");
-        const bool before_submit=status.code==ErrorCode::Pending && (status.reason=="qmt_read_retention_held_responsibility"
+        const bool next_poll=status.code==ErrorCode::Pending && (status.reason=="qmt_read_retention_held_responsibility"
+            || status.reason=="qmt_host_snapshot_ticket_ended"
             || status.reason.compare(0,32,"qmt_host_snapshot_before_submit:")==0);
         const bool local_deadline=status.code==ErrorCode::Timeout && status.reason=="qmt_host_pump_deadline";
-        if(!retained_ || (!original_pending && !before_submit && !local_deadline))return status;
+        if(!retained_ || (!original_pending && !next_poll && !local_deadline))return status;
         // 原请求等待留在同一端点，轮询期限只结束本轮，通用MarketParser保持连接和水位。
         if(waiting_!=status.reason) {
             waiting_=status.reason;

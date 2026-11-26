@@ -150,6 +150,12 @@ Status QmtHostEndpoint::read_snapshots(const std::vector<std::string>& codes,
         *held_=std::move(value);
     }
     if(!mapped_) {
+        if(held_->result.status.code==ErrorCode::Pending && held_->result.status.reason=="qmt_host_snapshot_ticket_ended"){
+            // 原只读请求已无结果可消费，保留下次正常轮询和原已交付水位。
+            auto status=std::move(held_->result.status);
+            held_.reset();held_codes_.clear();
+            return status;
+        }
         if(!held_->snapshot_consumption_ready){
             if(!retryable_snapshot(held_->result.status)){original_error_=held_->result.status;return original_error_;}
             return fail(ErrorCode::Pending,"qmt_host_original_snapshot_pending");

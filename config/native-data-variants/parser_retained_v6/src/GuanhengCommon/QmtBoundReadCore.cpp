@@ -1144,6 +1144,15 @@ QmtBoundResult QmtBoundReadCore::resume(const QmtBoundReceipt& receipt,std::uint
             add(lookup,"schema","qmt.read-lookup.v1");lookup.AddMember("ticket",Value(ticket,lookup.GetAllocator()),lookup.GetAllocator());
             add(lookup,"request_body_b64",base64(receipt.request_body));add(lookup,"request_body_sha256",signed_http_sha256(receipt.request_body));
             response=impl_->http.exchange("POST","/internal/v1/read-results/"+output.result.request_id+"/lookup",encode(lookup),until,impl_->http_response_cap);get=false;
+            Document retired;
+            // 只读原票据消失由原身份查询证明；通用410或不完整响应仍是原错误。
+            if(response.response_complete && response.code==410 && parse(response.body,retired,16384)
+                && field(retired,"error_code") && text(retired["error_code"])=="read_ticket_ended_unretained"){
+                output.result.http_status=response.code;
+                output.result.envelope_json=std::move(response.body);
+                output.result.status=fail(ErrorCode::Pending,"qmt_host_snapshot_ticket_ended");
+                return output;
+            }
         }
         return impl_->follow(std::move(output),until,std::move(response),get);
     } catch (...) { return output; }

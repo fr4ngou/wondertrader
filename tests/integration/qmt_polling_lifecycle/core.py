@@ -45,11 +45,12 @@ def main():
        b['capability_sha256']=sha(raw)
      return dict(schema_version='qmt.bound-read.v1',binding=b,binding_sha256=sha(canon(b)),read_profile_body_b64=base64.b64encode(raw).decode(),read_profile_body_sha256=sha(raw),limits=dict(max_request_bytes=8192,max_result_bytes=8192,max_http_request_bytes=16384,max_http_response_bytes=4*((8192+2)//3)+16384),order_ready=False)
     results=[]
-    for change in [None,'transport','route','capability','after-result','after-result-ack-lost']:
+    for change in [None,'transport','route','capability','after-result','after-result-ack-lost','ticket-ended','unexpected-gone']:
      transcript=[];gets=[0];original=[];acked=[]
+     expiring=change in ('ticket-ended','unexpected-gone');clock_shift=[0]
      journal=RetainedReadJournal(work/f'{change}.sqlite',binding['route'],max_records=8,max_result_bytes=8192,
        max_request_bytes=8192,max_journal_bytes=8*32768,read_profile=profile,
-       clock=SimpleNamespace(seconds=lambda:clock()/1000)) if change and change.startswith('after-result') else None
+       clock=SimpleNamespace(seconds=lambda:clock()/1000+clock_shift[0])) if expiring or change and change.startswith('after-result') else None
      class Handler(BaseHTTPRequestHandler):
       def log_message(self,*a):pass
       def do_GET(self):self.handle_one()
@@ -62,8 +63,21 @@ def main():
         if gets[0]==3:code=503;reply={}
         else:
          changed_binding='host' if change=='after-result-ack-lost' else 'transport'
-         reply=envelope(changed_binding if original else None) if journal else envelope(change if gets[0]>3 else None)
+         reply=envelope(None) if expiring else envelope(changed_binding if original else None) if journal else envelope(change if gets[0]>3 else None)
        elif self.path=='/internal/v1/read-retention-status':reply=dict(schema='qmt.read-retention-status.v1',capacity=8,retained=0,held_unknown=0,awaiting_consumer=0,queued_or_running=0,awaiting_ticket_end=0)
+       elif expiring and self.path.endswith('/bound-operations/market.full_tick'):
+        submitted=json.loads(body)
+        original_body=base64.b64decode(submitted['request_body_b64'])
+        assert not original and sha(original_body)==submitted['request_body_sha256']
+        original.append(json.loads(original_body)['request_id'])
+        code=503;reply={'error_code':'source_unavailable'}
+       elif expiring and self.path.endswith('/lookup'):
+        rid=self.path.split('/')[-2]
+        assert original==[rid]
+        clock_shift[0]=3
+        code,reason=journal.lookup(rid,json.loads(body),binding['host_instance_id'])
+        assert code==410 and reason=='read_ticket_ended_unretained'
+        reply={'error_code':reason if change=='ticket-ended' else 'unrelated_gone'}
        elif journal and self.path.endswith('/bound-operations/market.full_tick'):
         submitted=json.loads(body)
         original_body=base64.b64decode(submitted['request_body_b64'])
@@ -98,7 +112,10 @@ def main():
      print(r.returncode,r.stdout.decode(),flush=True)
      value=json.loads(r.stdout);assert r.returncode==0 and value['first_empty']==1 and value['invalidated']==1 and value['drained']==1
      posts=[x for x in transcript if x['path']=='/internal/v1/bound-operations/market.full_tick']
-     if journal:
+     if expiring:
+      assert len(posts)==1 and value['receipt_same']==1
+      assert value['resume_reason']==('qmt_host_snapshot_ticket_ended' if change=='ticket-ended' else 'qmt_http_remote_failure:410'),value
+     elif journal:
       acknowledgements=[x for x in transcript if x['path'].endswith('/consumed')]
       assert len(posts)==1 and value['second_receipt']==1 and value['same_origin']==0
       if change=='after-result-ack-lost':

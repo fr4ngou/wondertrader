@@ -56,6 +56,15 @@ SourceSession QmtHostReadClient::session()const{return client_ready?source():Sou
 Capability QmtHostReadClient::capability()const{return {client_ready,Qualification::DevelopmentVerified,"synthetic"};}
 QmtBoundResult QmtHostReadClient::read_full_tick(const std::string&,std::uint32_t){
  QmtBoundResult out;++reads;
+ if(mode==16){
+  if(reads>2){out.result.status={ErrorCode::Pending,"qmt_read_retention_held_responsibility"};return out;}
+  ++sdk_reads;
+  if(reads==1){
+   out.receipt.request_body="original-request";out.result.status={ErrorCode::Timeout,"qmt_http_deadline"};return out;
+  }
+  out.receipt.request_body="next-request";out.result.data_json=snapshot;
+  out.snapshot_consumption_ready=true;return out;
+ }
  if(mode>=12){
   if(reads==2){
    new_connection=true;
@@ -90,11 +99,14 @@ QmtBoundResult QmtHostReadClient::read_full_tick(const std::string&,std::uint32_
 }
 QmtBoundResult QmtHostReadClient::resume(const QmtBoundReceipt& receipt,std::uint32_t){
  ++resumes;require(receipt.request_body=="original-request" && sdk_reads==1,"original request changed");
- QmtBoundResult out;out.receipt=receipt;out.result.data_json=snapshot;out.snapshot_consumption_ready=true;return out;
+ QmtBoundResult out;out.receipt=receipt;
+ if(mode==16){out.result.status={ErrorCode::Pending,"qmt_host_snapshot_ticket_ended"};return out;}
+ out.result.data_json=snapshot;out.snapshot_consumption_ready=true;return out;
 }
 Status QmtHostReadClient::confirm_full_tick(const QmtBoundResult& value,std::uint32_t){
  ++confirms;
- if(mode>=14 && (confirms==2||confirms==3)){
+ if(mode==16)require(value.receipt.request_body=="next-request","expired snapshot acknowledged");
+ else if(mode>=14 && (confirms==2||confirms==3)){
   require(value.receipt.request_body=="old-terminal-result" && reads==2 && sdk_reads==2,
    "an old result was replaced before acknowledgement");
   if(mode==14 && confirms==2)return {ErrorCode::Timeout,"qmt_http_deadline"};
@@ -105,7 +117,7 @@ Status QmtHostReadClient::drain_callbacks(std::uint32_t)noexcept{return {};}
 }
 int main(){
  _putenv_s("LIFECYCLE_QA_KEY","synthetic");_putenv_s("LIFECYCLE_QA_SECRET","synthetic");
- try{for(mode=0;mode<16;++mode){
+ try{for(mode=0;mode<17;++mode){
   new_connection=false;reads=0;resumes=0;confirms=0;sdk_reads=0;Spi spi;std::atomic<unsigned> factories{0};
   QmtPollingParser parser([&](const QmtHttpConfig& c,const QmtHttpProfile& p,Status& status){
    ++factories;auto endpoint=std::make_shared<QmtHostEndpoint>(std::make_shared<QmtHostReadClient>(c),p,1,true);
@@ -145,6 +157,16 @@ int main(){
    bool invalid=false;
    for(const auto& log:spi.logs)invalid|=log.find("qmt_host_snapshot_invalid")!=std::string::npos;
    require(invalid,"invalid old snapshot diagnostic missing");
+  }else if(mode==16){
+   require(spi.quotes==1 && closed==0 && factories==1,"expired quote request stopped the receiver");
+   require(sdk_reads==2 && resumes==1 && confirms==1,"expired quote request was retried or acknowledged");
+   bool expired=false,resumed=false;
+   for(const auto& log:spi.logs){
+    expired|=log.find("qmt_host_snapshot_ticket_ended")!=std::string::npos
+        && log.find("action=retry_next_poll")!=std::string::npos;
+    resumed|=log.find("action=resumed")!=std::string::npos;
+   }
+   require(expired && resumed,"expiry and recovery diagnostics missing");
   }else if(mode<=6){
    require(factories==1,"unnecessary endpoint rebuild");
    require(spi.quotes==1 && closed==0 && sdk_reads==1,"safe wait did not recover exactly once");
