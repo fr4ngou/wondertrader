@@ -950,6 +950,7 @@ class RetainedStrategy:
                         _need((row.date,row.open,row.high,row.low,row.close,row.volume,row.money)
                               == (int(bar.trade_date.strftime('%Y%m%d')),bar.open,bar.high,bar.low,bar.close,bar.volume,bar.amount),
                               'native_history')
+            candidate['core_result'] = result  # 已完成的纯核计算独立于后续行情和下单资格。
         price_stamp=None
         if status is None and self.market_window is not None:
             current=self._current_quotes(context,cutoff)
@@ -1003,7 +1004,7 @@ class RetainedStrategy:
                 state = outcome.state;exits = self._exit_values(result['next_exits'])
             vector = ()if outcome is None else tuple((self.mapping[t.symbol],t.shares) for t in outcome.submit_targets)
             candidate.update(status='observing'if outcome is None else outcome.status,
-                             reason='analysis_only'if outcome is None else outcome.reason,core_result=result,
+                             reason='analysis_only'if outcome is None else outcome.reason,
                              outcome=None if outcome is None else asdict(outcome),
                              quantity_basis=asdict(basis),native_observation=asdict(observed),raw_positions=raw,
                              raw_prices=tuple((s,prices[s]) for s in self.execution),  # 本帧原始未复权double报价，CNY/份，仅审计；规范原价仍在quantity_basis.prices。

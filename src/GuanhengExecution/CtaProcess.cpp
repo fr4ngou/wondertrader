@@ -1762,6 +1762,9 @@ int run_process(int argc,const wchar_t* const* argv,GhCtaHealth health,void* hea
                 value.AddMember("initializes",observed.initializes,a);value.AddMember("schedules",observed.schedules,a);
                 value.AddMember("sessions",observed.sessions,a);value.AddMember("parser_quotes",observed.parser_quotes,a);
                 value.AddMember("parser_connects",observed.parser_connects,a);value.AddMember("parser_closes",observed.parser_closes,a);
+                const auto connections=session->parser_connections();
+                value.AddMember("parser_connected",connections.connected,a);
+                value.AddMember("parser_disconnected",connections.disconnected,a);
                 value.AddMember("parser_logs",observed.parser_logs,a);
                 publish_observation(control/"cta-observation.json",value,cta_observation_committed);
                 const auto logging=native_log.status();

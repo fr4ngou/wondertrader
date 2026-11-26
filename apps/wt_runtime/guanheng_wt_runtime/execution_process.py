@@ -310,7 +310,21 @@ def _quote_input_state(observation, control_id, configuration_sha256, pid, activ
     if any(type(value) is not int or value < 0 for value in counts):
         return 'unknown'
     connects, closes, quotes = counts
-    if connects - closes < active_count:
+    if 'parser_connected' in observation:
+        connected = observation['parser_connected']
+        if type(connected) is not int or not 0 <= connected <= active_count:
+            return 'unknown'
+        if 'parser_disconnected' in observation:
+            disconnected = observation['parser_disconnected']
+            if type(disconnected) is not int or not 0 <= disconnected <= active_count - connected:
+                return 'unknown'
+            if disconnected:
+                return 'disconnected'
+            if connected < active_count:
+                return 'waiting'
+        elif connected < active_count:
+            return 'disconnected' if connects > connected or closes else 'waiting'
+    elif connects - closes < active_count:
         return 'disconnected' if closes else 'waiting'
     return 'receiving' if quotes else 'waiting'
 

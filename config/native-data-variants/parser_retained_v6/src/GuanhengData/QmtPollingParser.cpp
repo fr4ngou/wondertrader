@@ -351,10 +351,17 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
     }
     void event(wtp::WTSParserEvent event,int code)
     {
+        const bool connection_lost=event==wtp::WPE_Close||event==wtp::WPE_Logout;
         { std::lock_guard<std::timed_mutex> lock(mutex);
-            if (event==wtp::WPE_Close) { connected=false; if(close_sent)return; close_sent=true; }
-            else { if(stopping)return; if(event==wtp::WPE_Connect){connected=true;close_sent=false;} } }
-        callback([&](wtp::IParserSpi* observer){observer->handleEvent(event,code);},event==wtp::WPE_Close);
+            if(connection_lost){
+                connected=false;
+                if(event==wtp::WPE_Close){if(close_sent)return;close_sent=true;}
+            }else{
+                if(stopping)return;
+                if(event==wtp::WPE_Connect){connected=true;close_sent=false;}
+            }
+        }
+        callback([&](wtp::IParserSpi* observer){observer->handleEvent(event,code);},connection_lost);
     }
     struct Spi final : wtp::IParserSpi
     {
@@ -401,11 +408,13 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
         bool waiting_for_transport_quote=false; // 收到可交付的新报价才恢复连接事件。
         const char* phase="prepare";
         auto generation=[&]{return binding?binding->generation:0;};
-        bool terminal_logged=false;
-        auto log_terminal=[&] {
-            if(final.ok() || final.reason=="QMT polling startup cancelled")return;
-            log(wtp::LL_ERROR,final,phase,"stop",generation(),accepted.size());
-            terminal_logged=true;
+        bool terminal_reported=false;
+        auto report_terminal=[&](const std::string& detail=std::string{}) {
+            if(terminal_reported || final.ok() || final.reason=="QMT polling startup cancelled")return;
+            terminal_reported=true;
+            log(wtp::LL_ERROR,final,phase,"stop",generation(),accepted.size(),detail);
+            // 行情终止先通知宿主；Close仍由排空依赖后的同一worker发出。
+            try{event(wtp::WPE_Logout,1);}catch(...){}
         };
         try {
           std::shared_ptr<QmtHostEndpoint> reconnecting; // 端点须在公布 worker 完成前释放。
@@ -441,9 +450,8 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
             if (final.ok() && !endpoint) final=failure(ErrorCode::Unavailable,"QMT polling endpoint unavailable");
             if (final.ok() && binding && !same_session(*binding,endpoint->session())) {
                 final=failure(ErrorCode::StaleSession,"QMT polling source changed");
-                log(wtp::LL_ERROR,final,"bind","stop",generation(),accepted.size(),
-                    " candidate_generation="+std::to_string(endpoint->session().generation));
-                terminal_logged=true;
+                phase="bind";
+                report_terminal(" candidate_generation="+std::to_string(endpoint->session().generation));
             }
             if (final.ok() && recovering_symbol.empty() && !waiting_for_transport_quote) set_status({});
             if (final.ok()) {
@@ -494,7 +502,7 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                 }
                 if(replace_transport)log(wtp::LL_WARN,final,phase,"rebind_read_transport",generation(),accepted.size());
                 else if(rebuild)log(wtp::LL_ERROR,final,phase,"rebuild_same_source",generation(),accepted.size(),decorated->rejection());
-                else log_terminal();
+                else report_terminal();
                 parser.release();
             }
             if(replace_transport){
@@ -506,7 +514,7 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
                     waiting_for_transport_quote=transport_rebound=rebuild=true;
                 }
             }
-            if(!rebuild){if(!terminal_logged)log_terminal();break;}
+            if(!rebuild){report_terminal();break;}
             // 已交付水位跨重绑保留。沿原节拍重新准入行情。
             event(wtp::WPE_Close,1);
             endpoint.reset();
@@ -516,7 +524,7 @@ struct QmtPollingParser::Impl : std::enable_shared_from_this<Impl>
         } catch (...) { final=failure(ErrorCode::Unavailable,"QMT polling worker failed"); }
         { std::lock_guard<std::timed_mutex> lock(mutex);
             if(callback_failed)final=failure(ErrorCode::SubmissionUnknown,"QMT polling callback outcome unknown"); }
-        if(!terminal_logged)log_terminal();
+        report_terminal();
         { std::lock_guard<std::timed_mutex> lock(mutex); connected=false; stopping=true; }
         // 请求返回后 WinHTTP 仍可能执行关闭回调。系统确认全部回调返回前，
         // worker 持有客户端与代码；外部 stop 可超时，但不得提前确认 done。

@@ -144,3 +144,50 @@ def test_retained_account_wait_restores_state_without_target_or_restart(monkeypa
     owner.callback(ctx)
     assert published[-1]['status'] == 'waiting_market_input' and published[-1]['reason'] == 'awaiting_test_market'
     assert owner.initialized and ctx.kv == raw
+
+
+def test_retained_publishes_computed_result_while_waiting_for_trading_quote(monkeypatch):
+    from dataclasses import dataclass
+    from guanheng_strategy_v1 import STRATEGY_VERSION
+    from guanheng_wt_runtime import execution_configured as mod, retained_evaluation
+    from guanheng_wt_runtime.execution_strategy import BrokerObservationValue
+
+    @dataclass(frozen=True)
+    class Request:
+        cycles: tuple = ()
+        cycles_captured_at: datetime | None = None
+        cycles_valid_until: datetime | None = None
+        decision_cutoff: datetime | None = None
+        previous_exits: tuple = ()
+
+    owner = retained(monkeypatch, 'b'*64)
+    owner.initialized = True
+    owner.inputs.request = Request()
+    owner.market_window = NS(read=lambda request, **kwargs: NS(request=request, publication={}))
+    monkeypatch.setattr(mod, 'native_history_matches', lambda *args: True)
+    monkeypatch.setattr(owner, '_store_state', lambda *args: None)
+    result = dict(schema='guanheng.retained-resonance-result.v1', strategy_id=owner.id,
+                  strategy_version=STRATEGY_VERSION, targets=dict.fromkeys(owner.execution, 0))
+
+    def calculated(request, *args, **kwargs):
+        result['decision_cutoff'] = request.decision_cutoff.isoformat()
+        return NS(result=NS(to_dict=lambda: result))
+
+    monkeypatch.setattr(retained_evaluation, 'evaluate_retained', calculated)
+    publications = []
+    owner.publish = lambda identity, value, **kwargs: publications.append(value)
+    broker = BrokerObservationValue(True, False, 1, int(time.time()*1000), 0, None, 0, None, None, ())
+
+    def unexpected_target(*args):
+        pytest.fail('缺交易报价时提交了目标')
+
+    context = NS(event=NS(kind=4), quote=lambda symbol: None, broker_observation=lambda: broker,
+                 broker_trades=lambda: None, set_targets=unexpected_target)
+    owner.callback(context)
+
+    published = publications[-1]
+    assert published['status'] == 'waiting_market_input'
+    assert published['reason'] == 'current_applied_quote_unavailable'
+    assert published['core_result'] == result
+    assert published.get('outcome') is None and published.get('target_readback') is None
+    assert owner.state is None

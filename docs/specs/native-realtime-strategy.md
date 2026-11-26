@@ -249,6 +249,8 @@ R23-C1：普通无观衡安装、唯一正式1.1.2实际入口，券商available
 
 新模式按原Context的有限d1尾部核完整声明窗口，最多多读一条，按声明首末日期选择后逐字段精确比较，原生4096条上限保持。窗口之外的在途日线不参与纯核；窗口内部缺行/值冲突保持等待。窗口出版摘要、source/factor revision、basis_date及原时间只作为本轮来源元数据进入既有观察；NSQ和原WT KV继续持有目标/周期状态，不增加持仓、资金、成交或来源进度账本。源数据按发布者当前值重新读取，修订由其原revision表示。
 
+纯核计算完成后若可用于执行的原生报价暂缺，本轮在 `waiting_market_input` 发布原 `core_result`，保留计算时间和诊断。可用于计算份数的报价暂缺时原因是 `current_applied_quote_unavailable`，提交目标时原生报价失效的原因是 `target_quote_unavailable`。持仓观察可独立合格，本轮新目标及数量阶段等待原执行链证明。计算输入暂缺的等待保持空 `core_result`。
+
 正常恢复仍锚定原启动input/SHA、原KV及相同源码/运行配置。显式market_window路径/年龄配置进入状态身份，实际出版内容可以更新；来源窗口的更新不重写首代持仓/周期包，不清空金融状态。计算和提交仍沿原一次D、预检/完整setter/原KV及P21关闭准入。
 
 既有观察v2在本选项启用时增加策略status=`waiting_market_input`，固定原因`market_window_unavailable`、`market_window_stale`或`market_history_mismatch`，可附market_window来源元数据。C只读消费者增加该状态的中文等待说明，不持有源文件或运行owner；旧配置及其他状态保持。新选项的整套用户链须在C消费兼容后验收。

@@ -719,7 +719,7 @@
         },
         "src/GuanhengData/QmtPollingParser.cpp": {
           "source": "config/native-data-variants/parser_retained_v6/src/GuanhengData/QmtPollingParser.cpp",
-          "sha256": "b870f1fd77239e9c775a3473bdbea91db8e8bdcbf696e3279ce2f19c55d87101"
+          "sha256": "b06ecc94ad1fc3faccb7795fe8c98634e49165ec7418002f83dc1314f8cdcae3"
         },
         "src/GuanhengData/QmtPollingParser.h": {
           "source": "config/native-data-variants/parser_retained_v6/src/GuanhengData/QmtPollingParser.h",

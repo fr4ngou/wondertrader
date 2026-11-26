@@ -85,6 +85,15 @@ def test_actual_book_to_two_profiles_and_daily_read(tmp_path):
     assert old['ownership']['fills'][0]['amount_cny'] == '200.00'
     assert new['ownership']['fills'][0]['amount_cny'] == '400.00'
     assert new['ownership']['fills'][0]['fee_cny'] is None
+    quote_wait = dict(rows[OLD], reason='current_applied_quote_unavailable', broker_position_qualified=False,
+                     broker_observation=dict(positions_known=False, positions=[]),
+                     core_result=dict(schema='guanheng.retained-resonance-result.v1', strategy_id=OLD,
+                                      strategy_version='1.2.2', decision_cutoff=STAMP,
+                                      targets={row['symbol']: 0 for row in old['positions']}))
+    displayed = project_strategy(wrapper({OLD: quote_wait}), strategy_id=OLD)
+    assert displayed['status_label'] == '已计算，等待交易报价'
+    assert displayed['positions'] == old['positions']  # 归属和上一笔目标保持，纯核比例不替换已发布目标。
+    assert displayed['decision_at'] == STAMP
     owner = LiveStrategyPerformanceOwner(None, history_root=str(tmp_path/'display'),
         snapshot_reader=lambda _:snapshot(rows), process_probe=lambda *_:True)
     (tmp_path/'display').mkdir()
@@ -217,6 +226,7 @@ def test_published_files_to_catalog_selected_details_and_live_http(tmp_path, mon
     assert app.state.shutdown_complete
 
 def test_closed_signal_has_its_own_decision_and_does_not_turn_model_hold_into_position(tmp_path):
+    from guanheng_app.observer_strategy_details import project_execution
     rows = reports(make_book(tmp_path/'asa'))
     row = rows[NEW]
     codes = [code.rsplit('.', 1)[1] for code in CODES]
@@ -232,6 +242,12 @@ def test_closed_signal_has_its_own_decision_and_does_not_turn_model_hold_into_po
     assert projected['consumed_signal']['eligible_date'] == '2026-11-09'
     assert all(r['model_held'] and not r['actions'] for r in projected['consumed_signal']['securities'])
     assert [p['broker_quantity'] for p in projected['positions'] if p['symbol']=='159352.SZ'] == [0]
+    # 本代仍在初始化时，历史信号保留原日期，执行标题使用本代阶段。
+    row['status'] = 'initialized'
+    projected = project_strategy(wrapper(rows), strategy_id=NEW)
+    runtime = dict(state='ready', components=dict(execution=dict(state='ready')))
+    assert project_execution(runtime, projected)['label'] == '策略已初始化'
+    assert projected['consumed_signal']['eligible_date'] == '2026-11-09'
     row['signal_revision_after_consumption'] = True
     assert 'consumed_signal' not in project_strategy(wrapper(rows), strategy_id=NEW)
     code = '159352'

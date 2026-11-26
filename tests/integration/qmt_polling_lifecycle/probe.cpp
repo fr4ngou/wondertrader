@@ -21,12 +21,13 @@ SourceSession source(){return {ProviderKind::Qmt,"synthetic-host",new_connection
 const char* snapshot=R"({"000001.SZ":{"time":1764034260000,"lastPrice":10,"open":10,"high":10,"low":10,"lastClose":10,"volume":100,"amount":1000}})";
 void require(bool value,const char* reason){if(!value)throw std::runtime_error(reason);}
 struct Spi final:wtp::IParserSpi {
- std::atomic<unsigned> quotes{0},closes{0}; // 回调计数，管理线程可观察。
+ std::atomic<unsigned> quotes{0},closes{0},logouts{0}; // 回调计数，管理线程可观察。
  std::mutex mutex; // 仅保护测试收集的日志。
  std::vector<std::string> logs; // worker发布的固定原因及恢复记录。
  std::function<void()> on_close; // 仅停机回归从 worker 发出停止请求。
  std::atomic<unsigned> connects{0},reconnect_at{0}; // 连接恢复发生在哪次请求。
  void handleEvent(wtp::WTSParserEvent event,int32_t)override{if(event==wtp::WPE_Close){++closes;if(on_close)on_close();}
+  if(event==wtp::WPE_Logout)++logouts;
   if(event==wtp::WPE_Connect){++connects;if((mode==12||mode==14) && connects==2)reconnect_at=reads.load();}}
  void handleSymbolList(const wtp::WTSArray*)override{}
  void handleQuote(wtp::WTSTickData*,uint32_t)override{if(mode==11)throw std::runtime_error("synthetic callback unknown");++quotes;}
@@ -46,16 +47,24 @@ namespace guanheng {
 class QmtHostReadClient::Impl{};
 QmtHostReadClient::QmtHostReadClient(QmtHttpConfig,QmtReadProfileVersion):impl_(new Impl){}
 QmtHostReadClient::~QmtHostReadClient(){
- if(mode!=13)return;
+ if(mode!=13&&mode!=17&&mode!=18)return;
  client_draining=true;
  const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);
  while(!allow_client_close && std::chrono::steady_clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
-Status QmtHostReadClient::prepare(std::uint32_t){client_ready=true;return {};}
+Status QmtHostReadClient::prepare(std::uint32_t){
+ if(mode==18)return {ErrorCode::InvalidInput,"qmt_host_snapshot_invalid"};
+ client_ready=true;return {};
+}
 SourceSession QmtHostReadClient::session()const{return client_ready?source():SourceSession{};}
 Capability QmtHostReadClient::capability()const{return {client_ready,Qualification::DevelopmentVerified,"synthetic"};}
 QmtBoundResult QmtHostReadClient::read_full_tick(const std::string&,std::uint32_t){
  QmtBoundResult out;++reads;
+ if(mode==17){
+  if(reads==2){out.result.status={ErrorCode::IoError,"qmt_http_remote_failure:410"};return out;}
+  ++sdk_reads;out.receipt.request_body="original-request";out.result.data_json=snapshot;
+  out.snapshot_consumption_ready=true;return out;
+ }
  if(mode==16){
   if(reads>2){out.result.status={ErrorCode::Pending,"qmt_read_retention_held_responsibility"};return out;}
   ++sdk_reads;
@@ -117,8 +126,8 @@ Status QmtHostReadClient::drain_callbacks(std::uint32_t)noexcept{return {};}
 }
 int main(){
  _putenv_s("LIFECYCLE_QA_KEY","synthetic");_putenv_s("LIFECYCLE_QA_SECRET","synthetic");
- try{for(mode=0;mode<17;++mode){
-  new_connection=false;reads=0;resumes=0;confirms=0;sdk_reads=0;Spi spi;std::atomic<unsigned> factories{0};
+ try{ for(mode=0;mode<19;++mode){
+  new_connection=false;reads=0;resumes=0;confirms=0;sdk_reads=0;client_draining=false;allow_client_close=false;Spi spi;std::atomic<unsigned> factories{0};
   QmtPollingParser parser([&](const QmtHttpConfig& c,const QmtHttpProfile& p,Status& status){
    ++factories;auto endpoint=std::make_shared<QmtHostEndpoint>(std::make_shared<QmtHostReadClient>(c),p,1,true);
    status=endpoint->prepare(c.timeout_ms);return endpoint;
@@ -127,6 +136,21 @@ int main(){
   auto cfg=configuration();require(parser.init(cfg),"init");cfg->release();parser.registerSpi(&spi);
   wtp::CodeSet symbols;symbols.insert("SZSE.000001");parser.subscribe(symbols);require(parser.connect(),"connect");
   const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+  if(mode>=17){
+   while(!client_draining && std::chrono::steady_clock::now()<until)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+   const auto during_logout=spi.logouts.load(),during_close=spi.closes.load();
+   const auto pending=parser.stop(30);
+   allow_client_close=true;
+   require(parser.stop(1000).ok(),"terminal stop did not drain");
+   require(client_draining && pending.code==ErrorCode::Timeout,"terminal stop returned before transport drain");
+   const unsigned expected=mode==17?1:0;
+   require(spi.connects==expected && spi.quotes==expected && !during_close && spi.closes==1,
+    "terminal close no longer proves transport release");
+   require(during_logout==1 && spi.logouts==1,"terminal fault must report disconnection exactly once before drain");
+   std::cout<<"{\"mode\":"<<mode<<",\"passed\":true}\n";
+   continue;
+  }
   if(mode==13){
    while(!client_draining && std::chrono::steady_clock::now()<until)
     std::this_thread::sleep_for(std::chrono::milliseconds(1));

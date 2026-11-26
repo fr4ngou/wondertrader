@@ -44,6 +44,34 @@ class QuoteInputStatusTests(unittest.TestCase):
         projected = _safe_projection('status', None, status, 'ready', changed=False)
         self.assertEqual(projected['components']['execution'], {'ready': True, 'quote_input_state': 'disconnected'})
 
+    def test_first_connection_failure_is_distinct_from_waiting_and_recovery(self):
+        from guanheng_wt_runtime.execution_process import _quote_input_state
+
+        observation = dict(schema='guanheng.execution.cta-observation.v1', control_id='control',
+                           config_sha256='config', pid=13, closed=False, parser_connects=0,
+                           parser_closes=0, parser_quotes=0, parser_connected=0, parser_disconnected=0)
+
+        def observed(**changes):
+            return _quote_input_state(observation | changes, 'control', 'config', 13, 1)
+
+        self.assertEqual(observed(), 'waiting')
+        self.assertEqual(observed(parser_disconnected=1), 'disconnected')
+        self.assertEqual(observed(parser_connected=1, parser_disconnected=1), 'unknown')
+        self.assertEqual(observed(parser_connects=1, parser_connected=1), 'waiting')
+        self.assertEqual(observed(parser_connects=1, parser_connected=1, parser_quotes=1), 'receiving')
+
+    def test_connection_loss_is_visible_before_native_close(self):
+        from guanheng_wt_runtime.execution_process import _quote_input_state
+
+        observation = dict(schema='guanheng.execution.cta-observation.v1', control_id='control',
+                           config_sha256='config', pid=13, closed=False, parser_connects=3,
+                           parser_closes=0, parser_quotes=11, parser_connected=1)
+        def observed(value):
+            return _quote_input_state(value, 'control', 'config', 13, 2)
+        self.assertEqual(observed(observation), 'disconnected')
+        self.assertEqual(observed(dict(observation, parser_connected=2)), 'receiving')
+        self.assertEqual(observed(dict(observation, parser_connected=3)), 'unknown')
+
 
 def _raw(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("ascii")

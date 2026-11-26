@@ -30,11 +30,13 @@ struct ParserObservation {
 };
 // 只观察现有SPI再交原Adapter；不改变证券转换、分钟算法、订阅或事件准入。
 class ObservedParserAdapter final:public wtp::ParserAdapter {
-    std::shared_ptr<ParserObservation> observation; // 与Session共享，覆盖全部在途回调的有效期。
 public:
+    enum class Connection {Waiting,Connected,Disconnected};
     explicit ObservedParserAdapter(std::shared_ptr<ParserObservation> value):observation(std::move(value)){}
+    Connection connection()const noexcept{return connection_.load();}
     void handleEvent(wtp::WTSParserEvent event,int32_t code)override {
-        if(event==wtp::WPE_Connect)++observation->connects;
+        if(event==wtp::WPE_Connect){connection_.store(code==0?Connection::Connected:Connection::Disconnected);++observation->connects;}
+        if(event==wtp::WPE_Close||event==wtp::WPE_Logout)connection_.store(Connection::Disconnected);
         if(event==wtp::WPE_Close)++observation->closes;
         wtp::ParserAdapter::handleEvent(event,code);
     }
@@ -44,6 +46,9 @@ public:
     void handleParserLog(wtp::WTSLogLevel level,const char* message)override {
         ++observation->logs;wtp::ParserAdapter::handleParserLog(level,message);
     }
+private:
+    std::shared_ptr<ParserObservation> observation; // 与Session共享，覆盖全部在途回调的有效期。
+    std::atomic<Connection> connection_{Connection::Waiting}; // 原SPI状态，由执行owner跨线程观察。
 };
 bool name_valid(const std::string& value) {return !value.empty()&&value.size()<64&&value.find_first_of("/\\: \t\r\n")==std::string::npos&&value.find('\0')==std::string::npos;}
 std::string strategy_file_key(const char* id) {
@@ -247,6 +252,17 @@ CtaExecutionStatus CtaExecutionSession::status()const {
     const auto& p=*x.parser_observation;
     return {x.phase,x.fault,x.requested.load(),x.initializes.load(),x.schedules.load(),x.sessions.load(),
         p.quotes.load(),p.connects.load(),p.closes.load(),p.logs.load(),x.initialization_step};
+}
+CtaParserConnections CtaExecutionSession::parser_connections()const{
+    auto& x=*impl_;if(!x.on_owner())throw std::runtime_error("cta_session_wrong_owner");
+    CtaParserConnections counts;
+    // 每个实例只取一次状态，避免同一插件在同一份观察里既连接又断开。
+    for(const auto& parser:x.parsers._adapters){
+        const auto state=static_cast<const ObservedParserAdapter&>(*parser.second).connection();
+        if(state==ObservedParserAdapter::Connection::Connected)++counts.connected;
+        if(state==ObservedParserAdapter::Connection::Disconnected)++counts.disconnected;
+    }
+    return counts;
 }
 void CtaExecutionSession::request_stop()noexcept{impl_->requested.store(true);impl_->execution.request_stop();}
 int CtaExecutionSession::quiesce(std::uint32_t timeout)noexcept{

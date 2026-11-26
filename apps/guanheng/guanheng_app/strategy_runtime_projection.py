@@ -23,9 +23,10 @@ _LABELS = {
 
 
 def _time(value):
+    """保留WT发布的时点，页面本机时钟只用于本次读取的观测。"""
     _require(type(value) is str and len(value) <= 64)
     stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
-    _require(stamp.utcoffset() is not None and stamp <= datetime.now(timezone.utc))
+    _require(stamp.utcoffset() is not None)
     return stamp.astimezone(timezone.utc).isoformat()
 
 
@@ -183,7 +184,13 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
     if execution_qualified:
         _observation(report.get('execution_observation'),symbols)
     result = report.get('core_result')
-    _require(status != 'waiting_market_input' or result is None and report.get('outcome') is None)
+    outcome = report.get('outcome')
+    calculated_wait = status == 'waiting_market_input' and result is not None
+    if status == 'waiting_market_input':
+        _require(outcome is None)
+        if calculated_wait:
+            # 纯核给出的是分析结果，等待交易报价期间没有本轮可执行目标。
+            _require(report.get('target_readback') is None)
     rows = {s: dict(symbol=s, target_weight=None, theoretical_quantity=None, theoretical_sellable=None,
                    pending_target=None, stage_target=None, broker_quantity=None, broker_sellable=None) for s in symbols}
     decision_at = None
@@ -196,6 +203,7 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
         weights = result['targets']
         _require(type(weights) is dict and set(weights) == set(symbols)
                  and all(type(w) in (int, float) and math.isfinite(w) and 0 <= w <= 1 for w in weights.values()))
+    if result is not None and not calculated_wait:
         observed = _observation(report['native_observation'],symbols)
         _require(_time(observed.observed_at) == decision_at)
         outcome = report['outcome']
@@ -216,7 +224,7 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
         for p in observed.positions:
             rows[p.symbol].update(target_weight=weights[p.symbol], theoretical_quantity=p.actual,
                 theoretical_sellable=p.sellable, pending_target=p.pending_target, stage_target=targets.get(p.symbol))
-    else:
+    elif result is None:
         _require(status in ('waiting_broker_position', 'waiting_actual_cycle', 'waiting_market_input'))
     broker = report['broker_observation']
     _require(type(broker) is dict and type(broker.get('positions_known')) is bool
@@ -251,7 +259,8 @@ def project_strategy(value, *, runtime_state='ready', strategy_id=None):
     return dict(strategy_id=identity,  # 同轮WT发布的策略身份；不从App当前依赖反推。
                 display_name=definition['display_name'],
                 strategy_version=definition['strategy_version'],  # WT实际版本，未发布时None；不生成缺失版本。
-                status=status, status_label=_LABELS[status], decision_at=decision_at,
+                status=status, status_label='已计算，等待交易报价' if calculated_wait else _LABELS[status],
+                decision_at=decision_at,
                 broker_observed_at=broker_at, broker_position_qualified=False,
                 execution_position_qualified=execution_qualified, positions=list(rows.values()),
                 capital_baseline=capital_origin, capital=capital,
@@ -388,7 +397,7 @@ def _allocated_strategy(identity,report,definition,symbols,allocation):
             observed_at=current_time, account_observed_at=current_time, nav_cny=None))
     return dict(strategy_id=identity,display_name=definition['display_name'],strategy_version=definition['strategy_version'],
         owned_valuation=valuation,valuation_state=valuation_state,valuation_reason=valuation_reason,  # 原profile自有估值及独立缺失分类；App不估价。
-        status=status,status_label=labels[status],
+        status=status,status_label=legacy['status_label'] if legacy is not None else labels[status],
         decision_at=(legacy['decision_at'] if legacy is not None else consumed and consumed['decision_at']),
         **({'consumed_signal': consumed} if consumed is not None else {}),
         broker_observed_at=None if allocation is None else allocation['observed_at'],

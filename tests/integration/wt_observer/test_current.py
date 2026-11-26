@@ -159,6 +159,16 @@ def test_source_wait_ignores_previous_lifecycle_and_strategy():
     assert result['started_at']['value'] is None and result['duration_seconds']['value'] is None
 
 
+def test_strategy_details_shows_disconnected_market_with_previous_result(strategy_publication):
+    settings, values, _, write = strategy_publication
+    values['runtime']['components']['execution']['quote_input_state'] = 'disconnected'
+    write()
+    with TestClient(create_app(settings)) as client:
+        execution = client.get('/v1/ui/strategy-details').json()['execution']
+    assert execution['state'] == 'ready'
+    assert execution['label'] == '交易行情已断开'
+
+
 @pytest.mark.parametrize('phase,ready', [
     ('waiting_source', False), ('starting_execution', False), ('waiting_source', True),
 ])
@@ -266,6 +276,57 @@ def test_current_strategy_result_follows_changed_business_reference(strategy_pub
         result = client.get('/v1/ui/account/overview').json()
         assert result['groups']['account']['rows'][0]['fields']['available']['value'] == 12345
         assert client.get('/v1/ui/strategy-runtime').status_code == 200
+
+
+@pytest.mark.parametrize('clock_behind_seconds', [0, 4.36])
+def test_strategy_details_distinguishes_completed_analysis_from_quote_wait(strategy_publication, monkeypatch, clock_behind_seconds):
+    from datetime import datetime, timedelta
+
+    from guanheng_app import strategy_runtime_projection
+
+    settings, values, _files, write = strategy_publication
+    report = values['result']['strategies']['resonance-regime-v1']
+    cutoff = report['core_result']['decision_cutoff']
+    if clock_behind_seconds:
+        display_time = datetime.fromisoformat(cutoff) - timedelta(seconds=clock_behind_seconds)
+
+        class DisplayClock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return display_time.astimezone(tz)
+
+        monkeypatch.setattr(strategy_runtime_projection, 'datetime', DisplayClock)
+    report.update(status='waiting_market_input', reason='current_applied_quote_unavailable',
+                  outcome=None, target_readback=None, execution_position_qualified=False)
+    observed = report.pop('native_observation')
+    report.pop('execution_observation', None)
+    write()
+
+    with TestClient(create_app(settings)) as client:
+        response = client.get('/v1/ui/strategy-details?strategy_id=resonance-regime-v1')
+        assert response.status_code == 200
+        assert response.json()['execution']['label'] == '已计算，等待交易报价'
+        calculation = response.json()['calculation']
+        assert calculation['status_label'] == '已计算，等待交易报价'
+        assert datetime.fromisoformat(calculation['decision_at']) == datetime.fromisoformat(cutoff)
+        assert calculation['execution_position_qualified'] is False
+        assert all(row['target_weight'] is None and row['stage_target'] is None
+                   for row in calculation['positions'])
+
+        # 实际持仓已通过核验，也可能在提交前报价失效。
+        report.update(reason='target_quote_unavailable', execution_position_qualified=True,
+                      execution_observation=observed)
+        write()
+        setter_wait = client.get('/v1/ui/strategy-details?strategy_id=resonance-regime-v1').json()['calculation']
+        assert setter_wait['status_label'] == '已计算，等待交易报价'
+        assert setter_wait['execution_position_qualified'] is True
+        assert all(row['stage_target'] is None for row in setter_wait['positions'])
+
+        report.pop('core_result')
+        write()
+        waiting = client.get('/v1/ui/strategy-details?strategy_id=resonance-regime-v1').json()['calculation']
+        assert waiting['status_label'] == '等待策略所需行情'
+        assert waiting['decision_at'] is None
 
 
 def test_pending_pointer_uses_original_deadline(account_publication, tmp_path, monkeypatch):

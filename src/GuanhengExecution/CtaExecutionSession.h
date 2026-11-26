@@ -23,6 +23,10 @@ struct CtaExecutionStatus {
     std::uint64_t parser_logs=0; // 插件日志事件次数；不复制日志正文或源凭据。
     const char* initialization_step=nullptr; // 会话owner记录的固定步骤名，进程期字符串；成功后为空。
 };
+struct CtaParserConnections {
+    std::uint64_t connected=0; // 当前已收到成功Connect且未断开的插件数。
+    std::uint64_t disconnected=0; // 当前已确认关闭、注销或连接失败的插件数；首次等待不计入。
+};
 struct CtaExecutionStrategy {
     CtaStrategy* strategy=nullptr;
     ICtaStrategyFact* factory=nullptr;
@@ -58,6 +62,8 @@ public:
     bool start();
     int pump(std::uint32_t max_events,std::uint32_t max_commands);
     CtaExecutionStatus status() const; // 仅owner，诊断计数为原事件，不代表完整回调栈返回。
+    // 执行owner发布观察时读取各插件当前连接状态，独立于累计关闭事件。
+    CtaParserConnections parser_connections()const;
     void request_stop() noexcept; // 可跨线程；最终等待由owner close执行。
     // 同owner关闭目标桥并join生产者，交易owner仍可pump查询/原责任；0=生产者全停。
     int quiesce(std::uint32_t timeout_ms) noexcept;
