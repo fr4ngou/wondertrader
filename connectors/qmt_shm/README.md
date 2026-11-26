@@ -1,5 +1,7 @@
 # QMT SHM 独立只读连接包
 
+新电脑部署入口：[通信架构与配对入门](../../docs/runbooks/qmt-connection-onboarding.md)。可填写模板位于 [examples/qmt-trade-config.example.json](examples/qmt-trade-config.example.json) 和 [examples/qmt-operation-policy.example.json](examples/qmt-operation-policy.example.json)，使用虚构账户并关闭交易写入；实际运行资格按对应部署验收核实。下文旧阶段版本与验收范围按各段对应记录阅读。
+
 交易开发状态：原委托关联、原生C++客户端及显式account2.0运输已接通；STQ-P7现复用唯一金融mapper，将完整token证明恢复为WT原EntrustID/UserTag，external/unresolved保留真实金融批次。529项兼容回归、六组原生CTest（57身份与128旧金融场景）及真实共享内存闭环通过。标准TraderQMT生产Factory/SPI、消费恢复、正式独立安装及真实券商交易继续开发；已安装只读入口保持。详见[标准插件规格](../../docs/specs/native-qmt-standard-trader.md)和[账户身份验证](../../docs/evidence/2026-10-24-qmt-account-identity.md)。
 
 控制2静态定义由终端外构建工具生成：在仓库根执行`python -B scripts/generate_qmt_trade_control.py`，校验执行`python -B scripts/generate_qmt_trade_control.py --check`。工具读取固定base1.0和差异JSON，精确保留uint64及原base摘要，生成Agent包内control_wire_trade.py；QMT运行阶段只使用嵌入源码，不读取协议文件。修改消息字段先更新QST，生成后验证默认旧版本拒绝新包及各版本原截止/ACK行为。

@@ -2,6 +2,8 @@
 
 类型：操作手册。范围：独立安装材料和受控开发实例，契约见[THP](../specs/qmt-trade-host-product.md)。
 
+新电脑部署先读[通信架构、完整配置示例与配对步骤](qmt-connection-onboarding.md)，其中提供可填写的主配置、操作策略和 SDK 清单采集工具。
+
 ## 安装与准备
 
 沿独立角色安装器离线安装 host 与 wt，使用普通复制安装后的文件。Host 包依赖固定版本的 agent、Pydantic、FastAPI、Starlette 和 Uvicorn；WT 包只依赖市场客户端。观衡 App 和 SPA 均为独立制品。

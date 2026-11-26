@@ -33,6 +33,8 @@
 
 常驻交易通信：[WT托管交易Host及完整策略正文](runbooks/qmt-trade-host-product.md)，与原行情和历史通道并存，材料、SDK替身与真实账户资格分别核对。
 
+QMT新机接入：[通信架构、脱敏配置与配对入门](runbooks/qmt-connection-onboarding.md)，说明 SHM/HTTP 边界、账户查询模板、认证材料和 SDK 清单准备。
+
 内置来源运行：[原策略回调驱动配置](runbooks/qmt-source-runtime.md)，显式选择来源生命周期，保留默认行为、请求身份和原截止。
 
 同正文账户连接：[生成及维护操作手册](runbooks/qmt-account-composed-source.md)，复用原只读pair与交易/QST/HPR配置，配对准备在终端外进行，运行由独立WT管理。
