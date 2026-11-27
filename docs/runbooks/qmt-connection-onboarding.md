@@ -200,6 +200,8 @@ foreach ($python in @($HostPython, $WtPython)) {
 
 按前文的 SDK 步骤采集 `sdk.json`，把 `$SdkPythonw` 改为 `Join-Path $Qmt 'pythonw.exe'` 的结果。把对应的 CPython 许可证放在 `$Private\CPYTHON-LICENSE.txt`。缺少许可证时，可从 [CPython v3.6.8 的 LICENSE 原件](https://raw.githubusercontent.com/python/cpython/v3.6.8/LICENSE)下载并使用 `Get-FileHash` 核对 `b9a6d9320b8f2693e8d41e496ce56caadacaddcca9be2a64a61749278f425cf2`。
 
+如果 Windows 无法连接下载地址，在可联网的电脑下载该公开许可证，复制到上面的文件路径，在部署电脑上重新核对 SHA256。SDK 清单仍用目标 QMT 的内置 Python 现场采集。
+
 [准备脚本](../../scripts/qmt_prepare_readonly.ps1)读取仓库的脱敏模板、提示输入 QMT 股票资金账户标识、获取实际进程会话、生成两把随机密钥并执行 `pair → verify`。脚本还生成 `trade-host.json`、`runtime.json` 和 `service.json`。使用尚不存在的 `$Root` 和空闲的本地端口。
 
 ```powershell
@@ -314,7 +316,7 @@ $Root = Join-Path $Private 'market-readonly-01'
 |---|---|
 | 快照与实时行情 | 调用 `market.full_tick` 核对快照证券及源时间。实时接收器独立看到心跳、快照和盘中新鲜的增量后，分别记录这三项 |
 | 历史 | 参照[分钟历史读取](qmt-shm-history.md#首次读取)核对证券、过去交易日和小窗参数，通过保留读取客户端提交。需要补齐时沿[历史补齐](qmt-history-preparation.md)对已允许的证券发一次请求，核原回执后复读同一时间窗。结果未知时按原 ID 查询 |
-| 分析 | 核单证券日线 `market.market_data`、复权因子 `market.divid_factors` 以及[批量日线](qmt-analysis-batch-source.md)的逐证券观测或空值 |
+| 分析 | 核单证券日线 `market.market_data`、复权因子 `market.divid_factors` 以及[批量日线](qmt-analysis-batch-source.md)的逐证券状态。两种日线读取都使用 QMT 已有的日线数据。样本返回空时，换用目标终端已有数据的证券和日期复测，分别记录接口响应和实际数据覆盖。组合实例的缓存补齐只适用于分钟线 |
 | 证券资料 | 沿[证券资料](qmt-security-reference.md)读取 `market.security_details` 和 `market.security_universe`，核同一 catalog 的分页、组状态及成员计数 |
 
 ## 启动、验真和故障定位
