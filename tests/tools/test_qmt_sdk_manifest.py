@@ -17,7 +17,7 @@ class SdkManifestTests(unittest.TestCase):
                 qmt_sdk_manifest.collect()
 
     def test_manifest_is_json_and_existing_file_is_preserved(self):
-        with tempfile.TemporaryDirectory(dir='D:/' if sys.platform == 'win32' else None) as folder:
+        with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / 'sdk.json'
             value = dict(schema_version='qmt.memory-sdk.v1', python_version=[3, 6, 8])
             with patch.object(qmt_sdk_manifest, 'collect', return_value=value):

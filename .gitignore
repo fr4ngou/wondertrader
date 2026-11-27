@@ -9,3 +9,8 @@ __pycache__/
 /.local-ci.json
 
 /research/resonance-20261105/
+
+# QMT 本机运行目录保存环境、私有配置、密钥和生成的策略。
+/.qmt-runtime/
+# 旧部署目录。
+/.qmt-first-install/

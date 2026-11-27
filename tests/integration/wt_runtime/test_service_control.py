@@ -27,6 +27,36 @@ from guanheng_wt_runtime.service_control import (
 )
 
 
+@unittest.skipUnless(os.name == 'nt', 'Windows 固定卷准入')
+class ServiceVolumeTests(unittest.TestCase):
+    def test_standalone_runtime_control_on_nonlegacy_volume(self):
+        from guanheng_wt_runtime.__main__ import _control_directory
+
+        directory = Path('F:/instance/control')
+        role = SimpleNamespace(descriptor='F:/instance/host.json', sha256='0' * 64)
+        trade = SimpleNamespace(components=(('trade_host', role),))
+        collection = SimpleNamespace(components=(('collection', None),))
+        host = SimpleNamespace(pythonw='F:/runtime/pythonw.exe', pair_directory='F:/instance/pair',
+                               installed_agent='F:/runtime/agent', control_root='F:/instance/host-control')
+        with patch('guanheng_wt_runtime.managed_local_process.ctypes.WinDLL') as win, patch(
+                'guanheng_wt_runtime.trade_host_process.TradeHostProcessConfig.from_path', return_value=host) as load:
+            get_drive_type = win.return_value.GetDriveTypeW
+            get_drive_type.return_value = 3  # DRIVE_FIXED
+            self.assertEqual(_control_directory(trade, directory, None), directory)
+            load.assert_called_once_with(role.descriptor, role.sha256)
+            get_drive_type.assert_any_call(directory.anchor)
+            with self.assertRaises(ValueError):
+                _control_directory(collection, directory, None)
+            with self.assertRaises(ValueError):
+                _control_directory(trade, directory, 'E:/existing-lease')
+            host.pair_directory = 'E:/production/pair'
+            with self.assertRaises(ValueError):
+                _control_directory(trade, directory, None)
+            get_drive_type.return_value = 4  # DRIVE_REMOTE
+            with self.assertRaisesRegex(ValueError, 'fixed volume'):
+                _control_directory(trade, directory, None)
+
+
 class QuoteInputStatusTests(unittest.TestCase):
     def test_ready_process_distinguishes_closed_parser_and_recovered_quotes(self):
         from guanheng_wt_runtime.execution_process import _quote_input_state

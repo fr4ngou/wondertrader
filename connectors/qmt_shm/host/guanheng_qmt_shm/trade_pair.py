@@ -17,7 +17,7 @@ from .contracts import OperationPolicy
 from .material_integrity import source_manifest
 from .trade_source import render_trade_source
 from .policy import OperationPolicyRegistry
-from .private_files import create_private_directory, write_private_new
+from .private_files import create_private_control_directory, private_control_path, write_private_new
 from .trade_bootstrap import trade_agent_settings
 from .trade_event_records import CONTINUITY_VERSION
 from .account_read_composition import account_read_material, admit_account_read
@@ -301,15 +301,32 @@ def _freeze(agent, metadata, license_bytes, settings, reconnect_seconds, market=
         source_runtime=source_runtime, reader=_read, security_reference_read=security_reference_read)
 
 
+def _require_pair_volume(directory):
+    if not private_control_path(directory):
+        raise ValueError('pair directory requires a local fixed volume with persistent ACLs')
+
+
+def _admit_pair_storage(directory, config):
+    """既有 E 卷生产配对沿原契约，其他固定卷仅允许实例内只读回环。"""
+    if directory.drive.casefold() != 'e:':
+        if config.get('writes_enabled') is not False or config.get('listen_host') != '127.0.0.1':
+            raise ValueError('standalone pair requires read-only loopback access')
+        journal = Path(config['journal_path'])
+        if journal.parent != directory.parent or ':' in journal.name:
+            raise ValueError('standalone pair and communication journal require the same instance parent')
+
+
 def create_product_pair(config, *, credentials, output, sdk_metadata, stdlib_license,
                         reconnect_seconds, installed_agent=None, market=None, account_read=None, source_runtime=None, analysis_read=None, analysis_batch_read=None, security_reference_read=None):
     """只生成新私有材料；不创建Journal、SHM、HTTP或QMT SDK owner。"""
+    target = Path(output)
+    _require_pair_volume(target)
+    _admit_pair_storage(target, config)
+    _need(not target.exists())
+    _inspect(target.parent, True)
     agent, host, pythonw = _installation(installed_agent)
     agent_sources, host_sources = _sources(agent), _sources(host)
     policy_raw = _read(Path(config['operation_policies_path']), 1048576)
-    target = Path(output)
-    _need(target.is_absolute() and target.drive.upper() == 'E:' and not target.exists())
-    _inspect(target.parent, True)
     config = decode(canonical(config))
     config['operation_policies_path'] = str(target / 'policy.json')
     config, credentials, settings, unused_p, unused_public, unused_a, lifecycle = _snapshot(
@@ -356,7 +373,7 @@ def create_product_pair(config, *, credentials, output, sdk_metadata, stdlib_lic
     _need(_sources(agent) == agent_sources and _sources(host) == host_sources)
     raw = canonical(manifest)
     _need(all(type(body) is bytes and 0 < len(body) <= 2097152 for body in (*materials.values(), raw)))
-    create_private_directory(target)
+    create_private_control_directory(target)
     for name, body in materials.items():
         write_private_new(target / name, body)
     write_private_new(target / 'manifest.json', raw)
@@ -374,6 +391,7 @@ def _verified(directory, installed_agent=None, *, with_schema=False, deadline=No
 
 def _verified_material(directory, installed_agent=None, *, with_schema=False):
     directory = Path(directory)
+    _require_pair_volume(directory)
     _inspect(directory, True)
     _need(_directory_names(directory) == FILES | {'manifest.json'})
     raw = _read(directory / 'manifest.json')
@@ -391,6 +409,7 @@ def _verified_material(directory, installed_agent=None, *, with_schema=False):
     _need(all(_hash(body) == manifest['files'][name] for name, body in materials.items())
         and manifest['config_sha256'] == _hash(materials['deployment.json']) and materials['host.py'] == _launcher(agent))
     config, credentials, interval, market, account_read, source_runtime, analysis_read, analysis_batch_read, security_reference_read = _decode_reference_deployment(materials['deployment.json'])
+    _admit_pair_storage(directory, config)
     _need(manifest.get('source_runtime') == source_runtime)
     _need(('analysis_read' in manifest) == (analysis_read is not None))
     if analysis_read is not None:

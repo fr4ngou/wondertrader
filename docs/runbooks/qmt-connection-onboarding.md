@@ -1,6 +1,8 @@
 # 新电脑配置 QMT 通信与生成策略正文
 
-类型：入门操作手册。范围：理解现有通信架构、填写脱敏配置、在 Windows 新安装上生成并离线核验账户查询入口。本文复用现有协议与工厂，模板关闭下单和撤单；完整系统的行情、历史及策略执行按各自手册另行装配。
+类型：入门操作手册。适用于国金 QMT 和国信 iQuant（国信 QMT）的 Windows 新机部署，覆盖账户查询和行情、历史、分析及证券资料的组合只读接入。示例关闭下单和撤单。
+
+两家客户端在本项目的接入层共用迅投 QMT 内置 Python 策略接口、原策略回调，以及同一套 Host、Agent、Windows 共享内存和配对流程。部署时采集目标终端的实际 SDK，按现场填写安装路径和策略文件位置，并核对账户权限与行情板块。更换终端安装或账户时，为目标环境生成新配对，再做只读验收。[迅投 QMT Python 说明](https://dict.thinktrader.net/innerApi/related_instructions.html) · [国信 iQuant 操作手册](guosen-qmt-operations.md)
 
 ## 通信架构
 
@@ -122,7 +124,7 @@ if ($process.ExitCode -ne 0 -or !(Test-Path "$Private\sdk.json")) { throw 'SDK�
 
 ## 生成并核验完整正文
 
-当前[正式配对实现](../../connectors/qmt_shm/host/guanheng_qmt_shm/trade_pair.py)要求 `--output` 是 **E 盘中尚不存在的目录，且父目录已存在**。此项是现有工具约束；在没有 E 盘的机器上需先解决工具适配，再进行本流程。
+`--output` 使用 Windows 本机固定卷上已有父目录下的新绝对路径。只读部署的配对与通信 SQLite 放在同一个私有父目录，WT 服务只声明 `trade_host`，Host 仅监听 `127.0.0.1` 且关闭写入。现有生产部署的卷约束沿原契约。[私有持久化规则](../specs/wt-private-persistence.md#persist-01-路径与开发规则)
 
 ```powershell
 $Pair = 'E:\qmt-private\pair-001' # 先准备 E:\qmt-private；pair-001 由生成器独占创建
@@ -138,25 +140,197 @@ $Agent = & $HostPython -I -B -c 'from pathlib import Path; import guanheng_qmt_s
 if ($LASTEXITCODE -ne 0) { throw '配对核验失败' }
 ```
 
-`0.2` 是本示例确认采用的断连重试间隔（秒），作用于此配对，接受范围为 0.1～60 秒。`strategy_tick` 显式采用原策略回调驱动，具体线程要求见[来源运行手册](qmt-source-runtime.md)。
+`0.2` 是本示例采用的断连重试间隔（秒），接受范围为 0.1～60 秒。`strategy_tick` 显式采用原策略回调驱动，省略时使用默认 thread 模式。切换模式时生成新配对及对应正文，原配对和通信库继续保留。具体线程要求见[来源运行手册](qmt-source-runtime.md)。
 
 成功后生成 `strategy.py`、`host.py`、`deployment.json`、`policy.json`、`manifest.json`、`CPYTHON-LICENSE.txt`。`pair/verify` 只生成/读取材料，保持 Journal、共享内存、HTTP 服务和 QMT SDK 调用未启动。核验成功证明材料一致性；真实连接、业务数据和交易能力要在对应环境分别验证。
 
 本模板产生账户查询接入正文。完整系统需要按[组合账户手册](qmt-account-composed-source.md)及[交易托管手册](qmt-trade-host-product.md)另行配置行情、历史准备、分析、证券资料与执行通道；已有运行正文应保留原件，按完整能力组合生成后再替换。
 
+## Windows 首次安装
+
+国金和国信共用下面的命令。在克隆后的工程根目录打开 PowerShell，创建本机部署配置并保存实际路径。工程根由当前目录取得。Git 忽略工程下的 `.qmt-runtime/` 和旧的 `.qmt-first-install/`。[部署配置模板](../../connectors/qmt_shm/examples/qmt-deployment.example.json)
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$Repo = (Get-Location).Path
+$LocalRoot = Join-Path $Repo '.qmt-runtime'
+$DeploymentInput = Join-Path $LocalRoot 'deployment-input.json'
+New-Item -ItemType Directory -Force -Path $LocalRoot | Out-Null
+if (!(Test-Path -LiteralPath $DeploymentInput)) {
+    Copy-Item "$Repo\connectors\qmt_shm\examples\qmt-deployment.example.json" $DeploymentInput
+}
+notepad.exe $DeploymentInput
+```
+
+| 字段 | 填写方法 |
+|---|---|
+| `qmt_directory` | 目标 QMT 安装中包含 `XtItClient.exe` 和 `pythonw.exe` 的实际 SDK 目录，通常是 `bin.x64` |
+| `python312` | 终端外 Python 3.12 x64 的绝对路径。命令展开模板中的 `%LOCALAPPDATA%` |
+| `runtime_root` | 新部署的运行根绝对路径，使用支持持久化 ACL 的本机固定卷。`null` 使用工程下的 `.qmt-runtime/`。自定义目录可放在仓库外，或放在工程内被 Git 忽略的 `.qmt-runtime/` 下 |
+
+QMT 的安装卷、工程卷和运行卷可分别选择。私有配对、通信库和控制文件由 `$Base` 派生。保存配置后执行以下读取命令。另开 PowerShell 窗口时，也从工程根运行这一段。
+
+```powershell
+$Repo = (Get-Location).Path
+$DeploymentInput = Join-Path $Repo '.qmt-runtime\deployment-input.json'
+$Paths = Get-Content -Raw -LiteralPath $DeploymentInput | ConvertFrom-Json
+$Qmt = $Paths.qmt_directory
+$Python312 = [Environment]::ExpandEnvironmentVariables($Paths.python312)
+$Base = if ($Paths.runtime_root) { $Paths.runtime_root } else { Join-Path $Repo '.qmt-runtime' }
+$Private = Join-Path $Base 'materials'
+$HostPython = "$Base\host\Scripts\python.exe"
+$WtPython = "$Base\wt\Scripts\python.exe"
+```
+
+在运行 QMT 的同一 Windows 用户和会话中安装终端外环境。当前生成器要求用 QMT 配套的 CPython 3.6.8 x64 采集 SDK 和运行终端策略。
+
+```powershell
+New-Item -ItemType Directory -Force -Path $Private | Out-Null
+& $Python312 -m venv "$Base\host" "$Base\wt"
+if ($LASTEXITCODE -ne 0) { throw '虚拟环境创建失败' }
+& $HostPython -m pip install "$Repo\connectors\qmt_shm\agent" "$Repo\connectors\qmt_shm\host"
+if ($LASTEXITCODE -ne 0) { throw 'Host 或 Agent 安装失败' }
+& $WtPython -m pip install "$Repo\integrations" "$Repo\apps\wt_runtime"
+if ($LASTEXITCODE -ne 0) { throw 'WT 安装失败' }
+foreach ($python in @($HostPython, $WtPython)) {
+    & $python -m pip check
+    if ($LASTEXITCODE -ne 0) { throw '依赖检查失败' }
+}
+```
+
+按前文的 SDK 步骤采集 `sdk.json`，把 `$SdkPythonw` 改为 `Join-Path $Qmt 'pythonw.exe'` 的结果。把对应的 CPython 许可证放在 `$Private\CPYTHON-LICENSE.txt`。缺少许可证时，可从 [CPython v3.6.8 的 LICENSE 原件](https://raw.githubusercontent.com/python/cpython/v3.6.8/LICENSE)下载并使用 `Get-FileHash` 核对 `b9a6d9320b8f2693e8d41e496ce56caadacaddcca9be2a64a61749278f425cf2`。
+
+[准备脚本](../../scripts/qmt_prepare_readonly.ps1)读取仓库的脱敏模板、提示输入 QMT 股票资金账户标识、获取实际进程会话、生成两把随机密钥并执行 `pair → verify`。脚本还生成 `trade-host.json`、`runtime.json` 和 `service.json`。使用尚不存在的 `$Root` 和空闲的本地端口。
+
+```powershell
+$Root = Join-Path $Base 'account01'
+$Port = 18159
+$Strategy = 'GH_WT_MEMORY_VERIFY'
+& "$Repo\scripts\qmt_prepare_readonly.ps1" `
+  -Root $Root -QmtTerminal (Join-Path $Qmt 'XtItClient.exe') `
+  -HostPython $HostPython -WtPythonw "$Base\wt\Scripts\pythonw.exe" `
+  -SdkManifest "$Private\sdk.json" -License "$Private\CPYTHON-LICENSE.txt" `
+  -Port $Port -ReconnectSeconds 0.2 -StrategyName $Strategy
+$Pair = Join-Path $Root 'pair'
+$Service = "$Base\wt\Scripts\guanheng-wt-service.exe"
+& $Service start --service-config "$Root\service.json"
+& $Service status --service-config "$Root\service.json"
+```
+
+在目标 QMT 的策略管理界面（例如「模型研究」）中新建同名 Python 策略，保存条目并关闭编辑器。下面的 `$Target` 使用国金的实测布局。国信或其他版本以客户端保存的新策略文件为准，按实际路径调整 `$Target`。先确认文件属于专用新条目，再备份模板、复制配对原件并核验摘要。策略含 IPC 密钥，文件权限沿源文件 ACL。
+
+```powershell
+$Source = Join-Path $Pair 'strategy.py'
+$Target = Join-Path (Split-Path $Qmt -Parent) "python\$Strategy.py"
+$Backup = Join-Path $Root 'qmt-new-strategy-template.py'
+$Manifest = Get-Content -Raw "$Pair\manifest.json" | ConvertFrom-Json
+if (!(Test-Path -LiteralPath $Target -PathType Leaf) -or (Test-Path -LiteralPath $Backup)) {
+    throw '请核对新策略文件和备份位置'
+}
+if ((Get-FileHash -LiteralPath $Source).Hash -ne $Manifest.files.'strategy.py') {
+    throw '配对策略文件摘要不符'
+}
+Copy-Item -LiteralPath $Target -Destination $Backup
+Set-Acl -LiteralPath $Target -AclObject (Get-Acl -LiteralPath $Source)
+[IO.File]::WriteAllBytes($Target, [IO.File]::ReadAllBytes($Source))
+if ((Get-FileHash -LiteralPath $Target).Hash -ne $Manifest.files.'strategy.py') {
+    throw '目标文件摘要不符'
+}
+```
+
+重开编辑器，确认正文包含 `_memory_entry_name`，使用终端内策略回调模式运行。客户端若显示「启动本地 Python」或「独立 Python 进程」选项，保持未勾选。国金实测界面显示 `start simulation mode`，其他版本按各自的运行日志和下面的签名探针核验。QMT 运行时可能重存策略文件，配对目录中的原件作为生成身份保留。
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:$Port/health"
+& $HostPython -I -B "$Repo\scripts\qmt_account_read_probe.py" $Pair
+```
+
+检查 `status=available`、`lifecycle=connected`、`order_ready=false`。资金、持仓、委托和成交应分别返回 `OK`。完整返回 0 条是有效结果。需要关闭实例时，先在同一策略编辑器点击「停止」，再执行 `& $Service stop --service-config "$Root\service.json"`。同一实例再次启动沿用原配置、配对和库。
+
+首次安装可用目标 QMT 的内置样例验收历史回测，国金实测使用的是「指数增强回测示例」。设置回测参数后记录区间、基准、模拟初始资金、净值和模拟成交。日志中的缺行情及按停牌跳过属于数据覆盖问题。同一终端切入历史回测可能停止原编辑器运行的 Agent。回测结束后如需继续只读查询，重新运行原配对的策略并用探针确认。项目自有策略沿 [WT 原生隔离回测](native-backtest.md)使用冻结历史和独立输出。
+
+## 单盘组合只读部署
+
+适用于已经完成上节安装与 SDK 采集的国金和国信 QMT。组合配对在一个 QMT 策略正文中启用账户查询、行情全推、快照、分钟读回和补齐、分析及证券资料。WT 托管账户 Host，终端外脚本独立运行四个行情与资料 HTTP Host 及实时行情接收器。各角色保持独立凭据与通信库，HTTP 只绑定 `127.0.0.1`。
+
+### 准备组合实例
+
+将[行情与资料示例](../../connectors/qmt_shm/examples/qmt-readonly-market.example.json)复制到本机私有目录并按现场调整。
+
+| 字段 | 部署时填写 |
+|---|---|
+| `ports.history`、`ports.analysis`、`ports.batch`、`ports.reference` | 四个不同的空闲本地端口，另外为账户 `-Port` 留出独立端口 |
+| `quote_symbols` | 实时接收的沪深证券列表 |
+| `history_prepare_symbols` | 允许显式补齐分钟缓存的沪深证券列表。补齐限定单证券、同一自然日内的分钟窗口 |
+| `security_source_groups` | 示例采用国金实测的沪市和深市 ETF 板块。两家均用目标 QMT 的 `get_sector_list` 核对目录节点和板块名，再填写对应的市场和证券类型 |
+
+列表预算为每类最多 128 只，供首次安装和小范围接入。换证券范围、端口或 Windows SessionId 时，用新实例重新生成配对和正文。准备失败时保留原材料，重新选一个尚不存在的 `$Root`。共享盘可搬运脱敏配置模板及源码，账户材料和运行库放在本机私有目录。
+
+在与 QMT 相同的 Windows 会话执行。沿用上节的 `$Repo`、`$Base`、`$Private`、`$Qmt` 和 `$HostPython`，按现场替换下列新实例路径、策略名称和端口。现有服务占用示例端口时，应先在私有配置中另填端口。
+
+```powershell
+$Root = Join-Path $Private 'market-readonly-01'
+$Strategy = 'GH_WT_MARKET_READONLY'
+$MarketProfile = Join-Path $Private 'market-profile.json'
+Copy-Item "$Repo\connectors\qmt_shm\examples\qmt-readonly-market.example.json" $MarketProfile
+# 编辑 $MarketProfile，再运行准备命令
+& "$Repo\scripts\qmt_prepare_readonly.ps1" `
+  -Root $Root -QmtTerminal (Join-Path $Qmt 'XtItClient.exe') `
+  -HostPython $HostPython -WtPythonw "$Base\wt\Scripts\pythonw.exe" `
+  -SdkManifest "$Private\sdk.json" -License "$Private\CPYTHON-LICENSE.txt" `
+  -Port 18159 -ReconnectSeconds 0.2 -StrategyName $Strategy -MarketProfile $MarketProfile
+```
+
+原准备脚本在本机生成账户和各市场角色的独立认证材料，沿用 `strategy_tick`，核验单一组合 `$Root\pair`，并把 WT 的服务描述符绑定到它。`$Root\market-readonly\market-host.json` 保存终端外角色的私有配置和 HTTP 密钥，随实例受控保存。`-Synthetic` 用于隔离的材料与监听验证，真实业务回读用已授权账户和匹配的 QMT 模型。
+
+### 启动、查看和停止
+
+在一个 PowerShell 窗口启动 WT 账户 Host，再在另一个窗口前台运行市场角色。两个窗口都使用 QMT 所在的 Windows 会话。
+
+```powershell
+$Service = "$Base\wt\Scripts\guanheng-wt-service.exe"
+& $Service start --service-config "$Root\service.json"
+# 另一个窗口从工程根载入 deployment-input.json，再选本次实例
+$Root = Join-Path $Private 'market-readonly-01'
+& $HostPython -I -B "$Repo\scripts\qmt_readonly_market.py" serve --root $Root
+```
+
+沿上节的策略安装步骤，把 `$Root\pair\strategy.py` 安装到对应的新策略条目，核对摘要，再在 QMT 中启动该 Python 模型的模拟运行。在终端外查看状态和账户查询。
+
+```powershell
+& $HostPython -I -B "$Repo\scripts\qmt_readonly_market.py" status --root $Root
+& $HostPython -I -B "$Repo\scripts\qmt_account_read_probe.py" "$Root\pair"
+```
+
+`status` 使用各角色的私有 HTTP 密钥为 `read-binding` 请求签名。收到 HTTP 200 后，核对回包的来源路由和完整能力是否与本次配对一致，通过时显示 `available/connected` 和 `binding_verified=true`。`reachable` 表示端口有 HTTP 响应，配对一致性尚未确认。逐项业务资格以请求和回包为准。`quotes.fresh` 表示接收器状态在最近五秒更新，交易时段要另核 `incremental_ticks` 上升及 `last_source_at_utc.incremental` 随新行情更新。
+
+完成观察后，先停止发新请求并核清在途补齐，停 QMT 模型，再在市场角色窗口按 Ctrl+C 并等待退出。使用 `& $Service stop --service-config "$Root\service.json"` 停止账户 Host。相同 Windows 会话内可用原材料和原通信库重启。原状态文件、缓存补齐时的请求身份和旧实例保留以供回读。市场四个角色使用原保留读协议，每角色最多同时保留 96 条记录，历史角色内快照、读回与补齐共用该额度。原结果先由客户端保存并确认消费，原票据结束后由 Host 回收。未知、未确认或仍在途的结果保留原 ID；满额时先续核原请求或等票据到期，随后在原实例继续。此前采用旧非保留配对的实例通过新目录生成和切换，旧配对及通信库留存。
+
+### 业务验收
+
+四个市场角色使用匹配的 Host 端口和私有 HTTP 凭据，通过原 `RetainedReadClient` 提交带票据的请求，保存和确认原结果。现有历史准备消费者需启用 `retained_reads`。账户探针沿原账户协议。小样本先核证券、日期、时间窗及覆盖。
+
+| 角色 | 核验 |
+|---|---|
+| 快照与实时行情 | 调用 `market.full_tick` 核对快照证券及源时间。实时接收器独立看到心跳、快照和盘中新鲜的增量后，分别记录这三项 |
+| 历史 | 参照[分钟历史读取](qmt-shm-history.md#首次读取)核对证券、过去交易日和小窗参数，通过保留读取客户端提交。需要补齐时沿[历史补齐](qmt-history-preparation.md)对已允许的证券发一次请求，核原回执后复读同一时间窗。结果未知时按原 ID 查询 |
+| 分析 | 核单证券日线 `market.market_data`、复权因子 `market.divid_factors` 以及[批量日线](qmt-analysis-batch-source.md)的逐证券观测或空值 |
+| 证券资料 | 沿[证券资料](qmt-security-reference.md)读取 `market.security_details` 和 `market.security_universe`，核同一 catalog 的分页、组状态及成员计数 |
+
 ## 启动、验真和故障定位
 
 1. 按[独立 WT 手册](wt-independent-runtime.md)及[交易 Host 手册](qmt-trade-host-product.md#wt-一次启动)登记此安装的 Python、Agent、配对目录和摘要，WT 管理 Host；隔离直启只用于明确的验证实例。
-2. 在 QMT 登录目标账户，加载匹配的完整 `strategy.py`，按[国信操作手册](guosen-qmt-operations.md#策略保存与执行方式)保存、运行并核实际入口身份。
+2. 在目标 QMT 登录账户，按前文步骤保存并运行匹配的完整 `strategy.py`，核对实际入口身份。国信界面操作见[国信操作手册](guosen-qmt-operations.md#策略保存与执行方式)。
 3. 先核本代 Host 监听，再核认证 binding、来源心跳及账户查询实际成功。签名请求由正式客户端构造，`/health` 和进程存在分别只表示中间状态。
 4. 换账户使用新路由/绑定、密钥及独立通信库和策略账。旧库、旧未知委托及原始回报保留在原账户归属下。
 
 | 现象 | 检查 |
 |---|---|
 | 缺少 config | `--config` 必填；将示例复制为私有 JSON，确认它和 `operation_policies_path` 指向的文件均存在 |
-| `admission_or_operation_failed` | CLI 统一错误码。依次核文件绝对路径、两个密钥环境变量、账户两处一致性与摘要、容量联合约束、SDK 原件、许可证以及 E 盘新目录条件 |
+| `admission_or_operation_failed` | CLI 统一错误码。依次核文件绝对路径、两个密钥环境变量、账户两处一致性与摘要、容量联合约束、SDK 原件、许可证以及本地卷与新目录条件 |
 | Host ready、QMT 未连接 | 核实际策略运行、Windows SessionId、映射名、配对身份和认证；继续按[SHM 排障手册](guosen-qmt-troubleshooting.md)检查 |
+| 资金查询已受理，结果返回 503 | 保留原请求 ID，核 Host 代际、QMT 日志和通信库终态。该现象在国金新机的默认 thread 配对中出现过，现场另用 `strategy_tick` 配对后完成了四项只读验收 |
 | 账户查询成功、行情未就绪 | 本模板声明账户查询；沿完整组合流程加入所需行情能力并验真 |
 | 离线 verify 成功、真实终端报错 | 保存该配对身份和脱敏错误，核券商 SDK/回调和实际解释器兼容性；实机加载与离线核验分别验收 |
 
-仓库回归入口：`python -B tests/integration/qmt_shm_trading/test_config_examples.py`（需 Host 锁定依赖）。配置准入测试不启动服务；设置 `QMT_EXAMPLE_SDK_MANIFEST` 与 `QMT_EXAMPLE_LICENSE` 为已核材料路径后，还会在 E 盘临时目录验证真实 CLI `pair → verify`，使用合成账户和测试密钥，不调用券商 SDK。
+仓库回归入口为 `python -B tests/integration/qmt_shm_trading/test_config_examples.py`，使用 Host 锁定依赖。配置准入测试只核配对材料。设置 `QMT_EXAMPLE_SDK_MANIFEST` 与 `QMT_EXAMPLE_LICENSE` 为已核材料路径后，测试会使用合成账户和测试密钥执行 CLI `pair → verify`。测试默认使用 Windows 临时目录，也可将 `QMT_EXAMPLE_PAIR_PARENT` 指向本机固定卷上已有的私有父目录。

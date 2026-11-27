@@ -14,7 +14,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(ROOT / 'connectors/qmt_shm/agent'), str(ROOT / 'connectors/qmt_shm/host')]
 from guanheng_qmt_shm.trade_cli import main
-from guanheng_qmt_shm.trade_pair import _snapshot
+from guanheng_qmt_shm.trade_pair import _admit_pair_storage, _require_pair_volume, _snapshot, verify_product_pair
 from guanheng_qmt_shm_agent.protocol import canonical
 
 EXAMPLES = ROOT / 'connectors/qmt_shm/examples'
@@ -52,12 +52,45 @@ class ConfigExampleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _snapshot(changed, self.credentials, self.policy, .2)
 
+    def test_standalone_pair_accepts_fixed_volume_and_keeps_read_only_boundary(self):
+        pair = Path('F:/instance/pair')
+        cfg = dict(writes_enabled=False, listen_host='127.0.0.1', journal_path='F:/instance/journal.sqlite')
+        with patch('guanheng_qmt_shm.private_files.ctypes.WinDLL') as win:
+            drive_type = win.return_value.GetDriveTypeW
+            drive_type.return_value = 3  # DRIVE_FIXED
+            get_volume_info = win.return_value.GetVolumeInformationW
+
+            def volume_info(_root, _volume_name, _volume_size, _serial, _max_component, flags, _fs_name, _fs_size):
+                flags._obj.value = 0x00000008  # FILE_PERSISTENT_ACLS
+                return True
+
+            get_volume_info.side_effect = volume_info
+            _require_pair_volume(pair)
+            drive_type.assert_called_with(pair.anchor)
+            _admit_pair_storage(pair, cfg)
+            for change in (dict(writes_enabled=True), dict(listen_host='0.0.0.0'),
+                           dict(journal_path='H:/instance/journal.sqlite')):
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    _admit_pair_storage(pair, cfg | change)
+            for volume_type in (1, 2, 4):
+                drive_type.return_value = volume_type
+                with self.subTest(volume_type=volume_type), self.assertRaisesRegex(ValueError, 'fixed volume'):
+                    _require_pair_volume(pair)
+            drive_type.return_value = 3
+            get_volume_info.side_effect = None
+            get_volume_info.return_value = True  # 固定卷报告成功，但没有持久 ACL 能力。
+            with patch('guanheng_qmt_shm.trade_pair._inspect') as inspect:
+                with self.assertRaisesRegex(ValueError, 'persistent ACLs'):
+                    verify_product_pair(pair)
+                inspect.assert_not_called()
+
     @unittest.skipUnless(os.environ.get('QMT_EXAMPLE_SDK_MANIFEST') and os.environ.get('QMT_EXAMPLE_LICENSE'),
                          '完整 CLI 回归需要已核 SDK 清单和 CPython 许可证')
     def test_cli_pair_and_verify_using_real_sdk_without_starting_services(self):
         import guanheng_qmt_shm_agent
-        # 正式生成器要求 E 盘新目录；本用例仅用合成账户和临时密钥，关闭时删除自有材料。
-        with tempfile.TemporaryDirectory(prefix='qmt-example-', dir='E:/') as folder:
+        # 默认沿 Windows 临时目录，可传本机固定卷上的既有私有父目录。
+        parent = os.environ.get('QMT_EXAMPLE_PAIR_PARENT')
+        with tempfile.TemporaryDirectory(prefix='qmt-example-', dir=parent) as folder:
             root = Path(folder)
             policy = root / 'input-policy.json'
             policy.write_bytes(self.policy)

@@ -68,6 +68,18 @@ def _instance_lease(directory, instance_id, lease_root):
     return _InstanceLease(root, instance_id)
 
 
+def _control_directory(config, directory, lease_root):
+    """独立 QMT 实例在选定卷持锁，既有生产与迁移入口沿原租约。"""
+    path = runtime_control_path(str(directory))
+    drive = path.drive.casefold()
+    if drive == 'e:' or (drive == 'd:' and lease_root is not None):
+        return path
+    _require(lease_root is None)
+    from .trade_host_process import validate_standalone_trade_host
+    validate_standalone_trade_host(config.components, path)
+    return path
+
+
 def run(config, configuration_sha256, directory, control_id, *, lease_root=None):
     """持续运行直到原stop收据/系统信号；不设来源配对60秒窗口。
 
@@ -76,8 +88,7 @@ def run(config, configuration_sha256, directory, control_id, *, lease_root=None)
     """
     _sha(configuration_sha256)
     _require(str(UUID(control_id)) == control_id)
-    directory = runtime_control_path(str(directory))
-    _require(directory.drive.casefold() == 'e:' or lease_root is not None)
+    directory = _control_directory(config, directory, lease_root)
     _inspect(directory.parent, directory=True)
     runtime = snapshots = background = None
     identity = {'control_id': control_id, 'instance_id': config.instance_id,
@@ -177,8 +188,7 @@ def record_process_loss(config, configuration_sha256, directory, control_id, *, 
     from .execution_recovery import require_process_exited, record_execution_process_loss
     _sha(configuration_sha256)
     _require(str(UUID(control_id)) == control_id)
-    directory = runtime_control_path(str(directory))
-    _require(directory.drive.casefold() == 'e:' or lease_root is not None)
+    directory = _control_directory(config, directory, lease_root)
     _inspect(directory, directory=True)
     with _instance_lease(directory, config.instance_id, lease_root):
         ready = _json(_read(directory / 'ready.json', 4096))

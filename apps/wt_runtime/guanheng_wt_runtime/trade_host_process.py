@@ -41,6 +41,17 @@ class TradeHostProcessConfig(HostProcessConfig):
         return cls(**value)
 
 
+def validate_standalone_trade_host(components, control_root):
+    """独立只读入口只托管同卷 Host，由 Host 核实际配对权限。"""
+    _require(tuple(name for name, _ in components) == ('trade_host',))
+    role = components[0][1]
+    drive = control_root.drive.casefold()
+    _require(runtime_control_path(role.descriptor).drive.casefold() == drive)
+    host = TradeHostProcessConfig.from_path(role.descriptor, role.sha256)
+    _require(all(runtime_control_path(path).drive.casefold() == drive for path in
+                 (host.pythonw, host.pair_directory, host.installed_agent, host.control_root)))
+
+
 class TradeHostProcess(ManagedLocalProcess):
     """原隐藏Job和资源owner；ready只授监听，数据/来源资格由认证查询给出。"""
     _status_schema = 'qmt.trade-host-process-status.v1'

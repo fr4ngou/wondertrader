@@ -164,9 +164,11 @@ class ServiceConfig:
     @classmethod
     def from_path(cls, path: str | Path) -> "ServiceConfig":
         """读取严格私有配置；仅验证身份，不启动进程或读取账户事实。"""
-        source = _path(str(path), e_drive=True)
+        source = runtime_control_path(str(path))
         _, value = _json_file(source, 64 * 1024)
-        return cls.from_mapping(value)
+        result = cls.from_mapping(value)
+        _require(source.drive.casefold() == result.control_root.drive.casefold())
+        return result
 
     @classmethod
     def from_mapping(cls, value: dict) -> "ServiceConfig":
@@ -186,14 +188,14 @@ class ServiceConfig:
         _require(type(value) is dict and fields <= set(value) <= fields | {"private_control_root"}
                  and value["schema"] == "guanheng.wt-service.v1")
         result = cls(
-            pythonw=_path(value["pythonw"], e_drive=True),
+            pythonw=runtime_control_path(value["pythonw"]),
             pythonw_sha256=_sha(value["pythonw_sha256"]),
-            bootstrap_configuration=_path(value["bootstrap_configuration"], e_drive=True),
+            bootstrap_configuration=runtime_control_path(value["bootstrap_configuration"]),
             bootstrap_configuration_sha256=_sha(value["bootstrap_configuration_sha256"]),
-            control_root=_path(value["control_root"], e_drive=True),
-            generation_root=_path(value["generation_root"], e_drive=True),
-            current_file=_path(value["current_file"], e_drive=True),
-            environment_file=_path(value["environment_file"], e_drive=True),
+            control_root=runtime_control_path(value["control_root"]),
+            generation_root=runtime_control_path(value["generation_root"]),
+            current_file=runtime_control_path(value["current_file"]),
+            environment_file=runtime_control_path(value["environment_file"]),
             environment_sha256=_sha(value["environment_sha256"]),
             private_control_root=(runtime_control_path(value["private_control_root"])
                                   if "private_control_root" in value else None),
@@ -220,7 +222,14 @@ class ServiceConfig:
             hashlib.sha256(_read(self.environment_file, 256 * 1024)).hexdigest()
             == self.environment_sha256
         )
-        RuntimeConfig.from_path(str(self.bootstrap_configuration), self.bootstrap_configuration_sha256)
+        runtime = RuntimeConfig.from_path(str(self.bootstrap_configuration), self.bootstrap_configuration_sha256)
+        paths = (self.pythonw, self.bootstrap_configuration, self.environment_file,
+                 self.generation_root, self.current_file)
+        _require(all(path.drive.casefold() == self.control_root.drive.casefold() for path in paths))
+        if self.control_root.drive.casefold() != 'e:':
+            _require(self.private_control_root is None)
+            from .trade_host_process import validate_standalone_trade_host
+            validate_standalone_trade_host(runtime.components, self.control_root)
 
 
 class _ServiceLease:
@@ -444,11 +453,11 @@ class ServiceController:
             and value["schema"] == "guanheng.wt-service-generation.v1"
             and value["control_id"] == control_id
         )
-        _path(value["runtime_configuration"], e_drive=True)
+        runtime_control_path(value["runtime_configuration"])
         _sha(value["runtime_configuration_sha256"])
         _require(value["predecessor_control_id"] is None or _canonical_uuid(value["predecessor_control_id"]))
         _require(value["transition_file"] is None or _path(value["transition_file"], e_drive=True))
-        _path(value["runtime_owner_file"], e_drive=True)
+        runtime_control_path(value["runtime_owner_file"])
         if "runtime_status_file" in value:
             self._generation_status_file(control_id, value)
         return value

@@ -7,11 +7,14 @@ world-readable temporary name. Existing targets are retained on every failure.
 import ctypes
 from ctypes import wintypes as w
 import math
+import os
 from pathlib import Path
+import re
 import stat
 import time
 
-from guanheng_qmt_shm_agent.windows_security import SecurityAttributes, check, libraries, private_descriptor, SecurityResources
+from guanheng_qmt_shm_agent.windows_security import (SecurityAttributes, check, current_user, libraries,
+                                                     private_descriptor, SecurityResources)
 
 
 def create_private_directory(path):
@@ -29,25 +32,50 @@ def create_private_directory(path):
     return _create_current_user_directory(parent / path.name)
 
 
-def create_private_control_directory(path):
-    """在已配置的本地 D/E 盘控制根独占创建本代目录，拒绝重解析父路径。"""
+def private_control_path(path):
+    """只接受 Windows 本机固定卷上可持久保存访问权限的绝对路径。"""
+    if (os.name != 'nt' or not path.is_absolute() or re.fullmatch(r'[A-Za-z]:', path.drive) is None
+            or '..' in path.parts or any(':' in part for part in path.parts[1:])):
+        return False
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    get_drive_type = kernel.GetDriveTypeW
+    get_drive_type.argtypes, get_drive_type.restype = [w.LPCWSTR], w.UINT
+    if get_drive_type(path.anchor) != 3:  # DRIVE_FIXED
+        return False
+    get_volume_info = kernel.GetVolumeInformationW
+    get_volume_info.argtypes = [w.LPCWSTR, w.LPWSTR, w.DWORD, w.LPDWORD, w.LPDWORD,
+                                w.LPDWORD, w.LPWSTR, w.DWORD]
+    get_volume_info.restype = w.BOOL
+    flags = w.DWORD()
+    return bool(get_volume_info(path.anchor, None, 0, None, None, ctypes.byref(flags), None, 0)
+                and flags.value & 0x00000008)  # FILE_PERSISTENT_ACLS
+
+
+def create_private_control_directory(path, *, inherit=False):
+    """独占创建本机固定卷目录。部署根允许私有 ACL 传给后续文件。"""
     path = Path(path)
-    if not path.is_absolute() or path.drive.upper() not in ('D:', 'E:') or '..' in path.parts:
-        raise ValueError('private control directory path')
+    if not private_control_path(path):
+        raise ValueError('private control directory requires a local fixed volume with persistent ACLs')
     for parent in reversed(path.parents):
         info = parent.lstat()
         if not stat.S_ISDIR(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
             raise ValueError('private control directory parent')
-    return _create_current_user_directory(path)
+    return _create_current_user_directory(path, inherit=inherit)
 
 
-def _create_current_user_directory(target):
-    """两个入口复用原 Windows ACL 和独占创建。"""
+def _create_current_user_directory(target, *, inherit=False):
+    """Windows 创建时设置受保护 ACL，部署根为当前用户和 SYSTEM 开启继承。"""
     kernel, security = libraries()
     kernel.CreateDirectoryW.argtypes, kernel.CreateDirectoryW.restype = [w.LPCWSTR, ctypes.POINTER(SecurityAttributes)], w.BOOL
     resources = SecurityResources(kernel)
-    with resources.scope(implicit=True):
-        descriptor = private_descriptor(kernel, security, resources=resources)
+    with resources.scope(implicit=True) as owned:
+        if inherit:
+            _, sid = current_user(kernel, security, resources=resources)
+            descriptor = owned.local(w.LPVOID())
+            check(security.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                f'O:{sid}D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)', 1, ctypes.byref(descriptor), None))
+        else:
+            descriptor = private_descriptor(kernel, security, resources=resources)
         attributes = SecurityAttributes(ctypes.sizeof(SecurityAttributes), descriptor, False)
         check(kernel.CreateDirectoryW(str(target), ctypes.byref(attributes)))
     return target

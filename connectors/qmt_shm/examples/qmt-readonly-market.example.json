@@ -1,0 +1,23 @@
+{
+  "schema": "qmt.readonly-market-onboarding.v1",
+  "ports": {
+    "history": 18165,
+    "analysis": 18166,
+    "batch": 18170,
+    "reference": 18169
+  },
+  "quote_symbols": ["510300.SH"],
+  "history_prepare_symbols": ["510300.SH"],
+  "security_source_groups": [
+    {
+      "market": "SH",
+      "security_type": "etf",
+      "sources": [{"node": "沪市板块", "name": "沪市ETF"}]
+    },
+    {
+      "market": "SZ",
+      "security_type": "etf",
+      "sources": [{"node": "深市板块", "name": "深市ETF"}]
+    }
+  ]
+}

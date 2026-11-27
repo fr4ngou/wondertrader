@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 from guanheng_qmt_shm_agent.protocol import canonical
 from .paired_control import _serve_factory, PairedControlError
-from .private_files import create_private_control_directory, write_private_new
+from .private_files import create_private_control_directory, private_control_path, write_private_new
 from .trade_pair import _inspect
 from .trade_product import build_product_runtime
 
@@ -12,6 +12,12 @@ SCHEMAS = dict(ready='qmt.trade-host-ready.v1', stop='qmt.trade-host-stop.v1', c
 
 
 def serve_product(directory, *, installed_agent, control_directory=None, control_id=None):
+    if control_directory is not None:
+        pair_drive = Path(directory).drive.casefold()
+        control_drive = Path(control_directory).drive.casefold()
+        # 既有 E 卷配对继续接受迁到 D 卷的控制收据。
+        if control_drive != pair_drive and (pair_drive, control_drive) != ('e:', 'd:'):
+            raise ValueError('standalone pair and Host control require the same local fixed volume')
     selected = [None]
     def factory():
         value = build_product_runtime(directory, installed_agent=installed_agent)
@@ -28,7 +34,7 @@ def serve_product(directory, *, installed_agent, control_directory=None, control
             # 独立附属诊断不改变原closed schema、首因或任何关闭资格。
             try:
                 path = Path(control_directory)
-                if path.is_absolute() and path.drive.upper() in ('D:', 'E:') and str(UUID(control_id)) == control_id:
+                if private_control_path(path) and str(UUID(control_id)) == control_id:
                     _inspect(path, True)
                     report = dict(schema='qmt.trade-host-failure.v1', control_id=control_id,
                         pid=os.getpid(), **value[2], fault=snapshot)
@@ -46,7 +52,7 @@ def serve_product(directory, *, installed_agent, control_directory=None, control
             snapshot = None if value is None else value[0].missing_response_snapshot
             if snapshot is not None and control_directory is not None:
                 path = Path(control_directory)
-                if path.is_absolute() and path.drive.upper() in ('D:', 'E:') and str(UUID(control_id)) == control_id:
+                if private_control_path(path) and str(UUID(control_id)) == control_id:
                     _inspect(path, True)
                     report = dict(
                         schema='qmt.trade-host-missing-response.v1',  # 附属诊断版本；不扩展原关闭收据。

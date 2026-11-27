@@ -44,9 +44,13 @@ def _path(value, *, e_drive=False):
 
 
 def runtime_control_path(value):
-    """解析受管运行收据目录，兼容原 E 盘与配置的 D 盘。"""
+    """解析本机固定卷上的受管路径，由调用方继续核对材料与目录身份。"""
     path = _path(value)
-    _require(path.drive.casefold() in ('d:', 'e:'))
+    _require(os.name == 'nt')
+    get_drive_type = ctypes.WinDLL('kernel32', use_last_error=True).GetDriveTypeW
+    get_drive_type.argtypes, get_drive_type.restype = [wintypes.LPCWSTR], wintypes.UINT
+    if get_drive_type(path.anchor) != 3:  # DRIVE_FIXED
+        raise ValueError('managed path requires a local fixed volume')
     return path
 
 
